@@ -299,7 +299,7 @@ export default function ScanJobPage() {
         return prev;
       }
       const updatedPhases = prev.phases.map(phase =>
-        phase.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
+        p.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
       );
       setCurrentPhaseId(null); 
       toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
@@ -364,9 +364,12 @@ export default function ScanJobPage() {
   );
 
   const renderJobDetailsCard = (job: JobOrder) => {
-    const showAdvancementInfoBeforeProcessing = !isProcessingJob && job.id === scannedJobOrder?.id && workstationScanMatch === true;
-    const showAdvancementInfoDuringProcessing = isProcessingJob && job.id === activeJobOrder?.id && !activeJobOrder?.overallEndTime;
-    const shouldDisplayAdvancement = showAdvancementInfoBeforeProcessing || showAdvancementInfoDuringProcessing;
+    // Determine if we are rendering details for a scanned job (before processing) or an active job (during processing)
+    const isDisplayingScannedJobDetails = !isProcessingJob && job.id === scannedJobOrder?.id && scannedJobOrder !== null;
+    const isDisplayingActiveJobDetails = isProcessingJob && job.id === activeJobOrder?.id && activeJobOrder !== null && !activeJobOrder.overallEndTime;
+    
+    // The advancement section should be displayed in either of these cases, or if processing has started
+    const shouldDisplayAdvancement = isDisplayingScannedJobDetails || isDisplayingActiveJobDetails;
 
     let nextPhaseForDisplay: JobPhase | undefined = undefined;
     let postazioneLavoroPerFase: string | undefined = undefined;
@@ -378,7 +381,7 @@ export default function ScanJobPage() {
             .sort((a, b) => a.sequence - b.sequence)[0];
         
         if (nextPhaseForDisplay) {
-            postazioneLavoroPerFase = job.postazioneLavoro;
+            postazioneLavoroPerFase = job.postazioneLavoro; // This is the overall job's workstation
         }
         allPhasesInCurrentJobCompleted = job.phases.every(p => p.status === 'completed');
     }
@@ -433,14 +436,18 @@ export default function ScanJobPage() {
                   <>
                     <p className="text-sm">
                       <span className="font-medium text-muted-foreground">
-                        {isProcessingJob && job === activeJobOrder && (nextPhaseForDisplay.status === 'in-progress' || nextPhaseForDisplay.status === 'paused')
+                        {isProcessingJob && job.id === activeJobOrder?.id && (nextPhaseForDisplay.status === 'in-progress' || nextPhaseForDisplay.status === 'paused')
                           ? "Fase Corrente:"
                           : "Prossima Fase:"}
                       </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
-                      {!isProcessingJob && job === scannedJobOrder && " (in attesa di avvio lavorazione)"}
+                      {isDisplayingScannedJobDetails && (
+                        workstationScanMatch === true 
+                          ? " (in attesa di avvio lavorazione)"
+                          : " (in attesa scansione postazione)"
+                      )}
                     </p>
                     <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">Postazione Lavorazione:</span> {postazioneLavoroPerFase}
+                      <span className="font-medium text-muted-foreground">Postazione Lavorazione Prevista:</span> {postazioneLavoroPerFase}
                     </p>
                   </>
                 ) : allPhasesInCurrentJobCompleted ? (
@@ -682,5 +689,6 @@ export default function ScanJobPage() {
     
 
     
+
 
 
