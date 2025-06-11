@@ -23,17 +23,16 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 
 interface JobOrder {
-  id: string; // N° Commessa (già presente)
+  id: string; 
   department: string;
-  details: string; // Descrizione Lavorazione (già presente come details)
+  details: string; 
   assignedTask?: string; 
-  ordinePF: string; // Ordine PF
-  numeroODL: string; // N° ODL
-  dataConsegnaFinale: string; // Data consegna finale
-  postazioneLavoro: string; // Postazione di lavoro
+  ordinePF: string; 
+  numeroODL: string; 
+  dataConsegnaFinale: string; 
+  postazioneLavoro: string; 
 }
 
-// Mock job orders for simulation
 const mockJobOrders: JobOrder[] = [
   { 
     id: "COM-12345", 
@@ -69,24 +68,37 @@ const mockJobOrders: JobOrder[] = [
 
 export default function ScanJobPage() {
   const { toast } = useToast();
-  const [isScanning, setIsScanning] = React.useState(false);
-  const [scanSuccess, setScanSuccess] = React.useState(false);
+  const [isScanningJob, setIsScanningJob] = React.useState(false);
+  const [jobScanSuccess, setJobScanSuccess] = React.useState(false);
   const [scannedJobOrder, setScannedJobOrder] = React.useState<JobOrder | null>(null);
   
-  const [isAlertOpen, setIsAlertOpen] = React.useState(false);
-  const [alertInfo, setAlertInfo] = React.useState({ title: "", description: "" });
+  const [isJobAlertOpen, setIsJobAlertOpen] = React.useState(false);
+  const [jobAlertInfo, setJobAlertInfo] = React.useState({ title: "", description: "" });
 
-  const handleSimulateScan = () => {
-    setIsScanning(true);
-    setScanSuccess(false);
+  const [isWorkstationScanRequired, setIsWorkstationScanRequired] = React.useState(false);
+  const [isScanningWorkstation, setIsScanningWorkstation] = React.useState(false);
+  const [scannedWorkstationId, setScannedWorkstationId] = React.useState<string | null>(null);
+  const [workstationScanMatch, setWorkstationScanMatch] = React.useState<boolean | null>(null);
+  const [isWorkstationAlertOpen, setIsWorkstationAlertOpen] = React.useState(false);
+  const [workstationAlertInfo, setWorkstationAlertInfo] = React.useState({ title: "", description: "" });
+
+
+  const handleSimulateJobScan = () => {
+    setIsScanningJob(true);
+    setJobScanSuccess(false);
     setScannedJobOrder(null);
-    setIsAlertOpen(false); // Reset alert state on new scan
+    setIsJobAlertOpen(false);
+    
+    setIsWorkstationScanRequired(false);
+    setScannedWorkstationId(null);
+    setIsScanningWorkstation(false);
+    setWorkstationScanMatch(null);
+    setIsWorkstationAlertOpen(false);
 
-    // Simulate selecting one of the mock job orders
     const currentJobOrder = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
 
     setTimeout(() => {
-      setIsScanning(false);
+      setIsScanningJob(false);
       const operatorName = getOperatorName();
       let operatorDepartment = "N/A"; 
 
@@ -97,26 +109,61 @@ export default function ScanJobPage() {
       }
 
       if (currentJobOrder.department !== operatorDepartment) {
-        setAlertInfo({ 
+        setJobAlertInfo({ 
           title: "Errore Reparto", 
           description: `Commessa ${currentJobOrder.id} (${currentJobOrder.department}) non appartenente al tuo reparto (${operatorDepartment}). Recarsi presso Ufficio Produzione.` 
         });
-        setIsAlertOpen(true);
-        setScanSuccess(false); 
-        setScannedJobOrder(null); // Clear job order info if department mismatch
+        setIsJobAlertOpen(true);
+        setJobScanSuccess(false); 
+        setScannedJobOrder(null);
       } else {
-        setScanSuccess(true);
+        setJobScanSuccess(true);
         setScannedJobOrder(currentJobOrder);
+        setIsWorkstationScanRequired(true); // Proceed to workstation scan
         toast({
-          title: "Scansione Riuscita!",
-          description: `Commessa ${currentJobOrder.id} (${currentJobOrder.department}) scansionata correttamente.`,
+          title: "Scansione Commessa Riuscita!",
+          description: `Commessa ${currentJobOrder.id} (${currentJobOrder.department}) scansionata. Procedere con scansione postazione.`,
           action: <CheckCircle className="text-green-500" />,
         });
-        // Keep job order info displayed, remove visual feedback for scan area after a delay
-        setTimeout(() => setScanSuccess(false), 3000); 
+        setTimeout(() => setJobScanSuccess(false), 3000); 
       }
-    }, 1500); // Simulate scanning time
+    }, 1500);
   };
+
+  const handleSimulateWorkstationScan = () => {
+    if (!scannedJobOrder) return;
+
+    setIsScanningWorkstation(true);
+    setWorkstationScanMatch(null); // Reset match status on new scan
+    setScannedWorkstationId(null);
+    setIsWorkstationAlertOpen(false);
+
+    // Simulate scanning the workstation barcode. For now, we'll assume it scans the correct one.
+    // To test mismatch: const simulatedScannedId = scannedJobOrder.postazioneLavoro + "-WRONG";
+    const simulatedScannedId = scannedJobOrder.postazioneLavoro; 
+
+    setTimeout(() => {
+      setIsScanningWorkstation(false);
+      setScannedWorkstationId(simulatedScannedId);
+
+      if (simulatedScannedId === scannedJobOrder.postazioneLavoro) {
+        setWorkstationScanMatch(true);
+        toast({
+          title: "Scansione Postazione Riuscita!",
+          description: `Postazione ${simulatedScannedId} verificata correttamente.`,
+          action: <CheckCircle className="text-green-500" />,
+        });
+      } else {
+        setWorkstationScanMatch(false);
+        setWorkstationAlertInfo({
+          title: "Errore Postazione",
+          description: `Postazione ${simulatedScannedId} non corretta per commessa ${scannedJobOrder.id} (Attesa: ${scannedJobOrder.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+        });
+        setIsWorkstationAlertOpen(true);
+      }
+    }, 1000);
+  };
+
 
   return (
     <AuthGuard>
@@ -135,40 +182,41 @@ export default function ScanJobPage() {
                 <ScanLine className="h-8 w-8 text-primary" />
                 <div>
                   <CardTitle className="text-2xl font-headline">Scan Job Order (Commessa)</CardTitle>
-                  <CardDescription>Scan the barcode on the job order to begin or continue tracking time.</CardDescription>
+                  <CardDescription>Scan the barcode on the job order.</CardDescription>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center space-y-6">
               <div 
                 className={`w-full max-w-xs h-48 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-                ${isScanning ? 'border-primary animate-pulse' : 'border-border'}
-                ${scanSuccess && !isAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
-                ${isAlertOpen ? 'border-destructive bg-destructive/10' : ''} 
+                ${isScanningJob ? 'border-primary animate-pulse' : 'border-border'}
+                ${jobScanSuccess && !isJobAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
+                ${isJobAlertOpen ? 'border-destructive bg-destructive/10' : ''} 
                 `}
               >
-                {isScanning && <p className="text-primary font-semibold">Scanning...</p>}
-                {!isScanning && !scannedJobOrder && !isAlertOpen && <p className="text-muted-foreground">Align barcode here</p>}
-                {scanSuccess && !isScanning && !isAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
-                {isAlertOpen && !isScanning && <AlertTriangle className="h-16 w-16 text-destructive" />}
-                {!isScanning && scannedJobOrder && !isAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+                {isScanningJob && <p className="text-primary font-semibold">Scanning Job Order...</p>}
+                {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Align job barcode</p>}
+                {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+                {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
+                {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isWorkstationScanRequired && <CheckCircle className="h-16 w-16 text-green-500" />}
+                {!isScanningJob && scannedJobOrder && isWorkstationScanRequired && <CheckCircle className="h-16 w-16 text-green-500" />}
               </div>
               
               <Button 
-                onClick={handleSimulateScan} 
-                disabled={isScanning}
+                onClick={handleSimulateJobScan} 
+                disabled={isScanningJob}
                 className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
               >
                 <ScanLine className="mr-2 h-5 w-5" />
-                {isScanning ? "Scanning..." : "Simulate Barcode Scan"}
+                {isScanningJob ? "Scanning..." : "Simulate Job Barcode Scan"}
               </Button>
               <p className="text-sm text-muted-foreground">
-                In a real application, this would activate the device camera or barcode scanner.
+                This simulates barcode scanning for the job order.
               </p>
             </CardContent>
           </Card>
 
-          {scannedJobOrder && !isAlertOpen && (
+          {scannedJobOrder && !isJobAlertOpen && (
             <Card className="mt-6 shadow-lg">
               <CardHeader>
                 <CardTitle className="font-headline flex items-center">
@@ -201,11 +249,11 @@ export default function ScanJobPage() {
                     <Input id="dataConsegnaFinale" value={scannedJobOrder.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
                   </div>
                   <div>
-                    <Label htmlFor="postazioneLavoro" className="flex items-center text-sm text-muted-foreground">
+                    <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground">
                       <Computer className="mr-2 h-4 w-4 text-primary" />
-                      Postazione di Lavoro
+                      Postazione di Lavoro Prevista
                     </Label>
-                    <Input id="postazioneLavoro" value={scannedJobOrder.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
+                    <Input id="postazioneLavoroJob" value={scannedJobOrder.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
                   </div>
                 </div>
                 
@@ -227,26 +275,93 @@ export default function ScanJobPage() {
                   </div>
                 )}
                 
-                <Button className="mt-6 w-full bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => alert(`Avvio lavoro per commessa ${scannedJobOrder.id}`)}>
-                  Inizia Lavorazione
-                </Button>
+                {isWorkstationScanRequired && workstationScanMatch !== true && !isWorkstationAlertOpen && (
+                  <Card className="mt-6 border-primary border-dashed">
+                    <CardHeader>
+                      <CardTitle className="font-headline flex items-center text-lg">
+                        <Computer className="mr-3 h-6 w-6 text-primary" />
+                        Scan Workstation Barcode
+                      </CardTitle>
+                      <CardDescription>
+                        Scan the barcode on the assigned workstation: <strong>{scannedJobOrder.postazioneLavoro}</strong>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col items-center space-y-4">
+                      <div 
+                        className={`w-full max-w-xs h-32 border-2 rounded-lg flex items-center justify-center transition-all duration-300
+                        ${isScanningWorkstation ? 'border-primary animate-pulse' : 'border-border'}
+                        ${workstationScanMatch === false ? 'border-destructive bg-destructive/10' : ''}
+                        `}
+                      >
+                        {isScanningWorkstation && <p className="text-primary font-semibold">Scanning Workstation...</p>}
+                        {!isScanningWorkstation && workstationScanMatch === null && <p className="text-muted-foreground">Align workstation barcode</p>}
+                        {!isScanningWorkstation && workstationScanMatch === false && <AlertTriangle className="h-12 w-12 text-destructive" />}
+                         {/* Brief success for workstation, though usually proceeds quickly */}
+                        {!isScanningWorkstation && workstationScanMatch === true && <CheckCircle className="h-12 w-12 text-green-500" />}
+                      </div>
+                      <Button 
+                        onClick={handleSimulateWorkstationScan} 
+                        disabled={isScanningWorkstation}
+                        className="w-full max-w-xs"
+                        variant="outline"
+                      >
+                        <ScanLine className="mr-2 h-5 w-5" />
+                        {isScanningWorkstation ? "Scanning..." : "Simulate Workstation Scan"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {workstationScanMatch === true && (
+                  <Button 
+                    className="mt-6 w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
+                    onClick={() => toast({
+                        title: "Lavorazione Avviata",
+                        description: `Lavoro iniziato per commessa ${scannedJobOrder.id} su postazione ${scannedJobOrder.postazioneLavoro}.`,
+                        action: <CheckCircle className="text-green-500" />
+                    })}
+                  >
+                    Inizia Lavorazione
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
 
-          <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+          <AlertDialog open={isJobAlertOpen} onOpenChange={setIsJobAlertOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center">
                   <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
-                  {alertInfo.title}
+                  {jobAlertInfo.title}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {alertInfo.description}
+                  {jobAlertInfo.description}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogAction onClick={() => { setIsAlertOpen(false); setScannedJobOrder(null); } }>OK</AlertDialogAction>
+                <AlertDialogAction onClick={() => { setIsJobAlertOpen(false); setScannedJobOrder(null); } }>OK</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog open={isWorkstationAlertOpen} onOpenChange={setIsWorkstationAlertOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center">
+                  <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
+                  {workstationAlertInfo.title}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {workstationAlertInfo.description}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction onClick={() => { 
+                  setIsWorkstationAlertOpen(false); 
+                  setScannedWorkstationId(null); 
+                  setWorkstationScanMatch(null); // Allow re-scan
+                }}>OK</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
