@@ -16,15 +16,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface JobOrder {
-  id: string;
+  id: string; // N° Commessa (già presente)
   department: string;
-  details: string;
-  assignedTask?: string; // Decideremo dopo
+  details: string; // Descrizione Lavorazione (già presente come details)
+  assignedTask?: string; 
+  ordinePF: string; // Ordine PF
+  numeroODL: string; // N° ODL
+  dataConsegnaFinale: string; // Data consegna finale
+  postazioneLavoro: string; // Postazione di lavoro
 }
 
 // Mock job orders for simulation
@@ -33,19 +39,31 @@ const mockJobOrders: JobOrder[] = [
     id: "COM-12345", 
     department: "Assemblaggio Componenti Elettronici", 
     details: "Assemblaggio scheda madre per Prodotto X.",
-    assignedTask: "Montare componenti su PCB secondo schema Z-100."
+    assignedTask: "Montare componenti su PCB secondo schema Z-100.",
+    ordinePF: "PF-001",
+    numeroODL: "ODL-789",
+    dataConsegnaFinale: "2024-12-15",
+    postazioneLavoro: "Postazione A-05"
   },
   { 
     id: "COM-67890", 
     department: "Controllo Qualità", 
     details: "Verifica finale Prodotto Y.",
-    assignedTask: "Eseguire test funzionali e ispezione visiva."
+    assignedTask: "Eseguire test funzionali e ispezione visiva.",
+    ordinePF: "PF-002",
+    numeroODL: "ODL-790",
+    dataConsegnaFinale: "2024-11-30",
+    postazioneLavoro: "Banco CQ-02"
   },
   {
     id: "COM-54321",
     department: "Assemblaggio Componenti Elettronici",
     details: "Cablaggio unità di alimentazione per Prodotto Z.",
-    assignedTask: "Collegare cavi e connettori come da specifica W-200."
+    assignedTask: "Collegare cavi e connettori come da specifica W-200.",
+    ordinePF: "PF-003",
+    numeroODL: "ODL-791",
+    dataConsegnaFinale: "2025-01-10",
+    postazioneLavoro: "Postazione B-01"
   }
 ];
 
@@ -62,6 +80,7 @@ export default function ScanJobPage() {
     setIsScanning(true);
     setScanSuccess(false);
     setScannedJobOrder(null);
+    setIsAlertOpen(false); // Reset alert state on new scan
 
     // Simulate selecting one of the mock job orders
     const currentJobOrder = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
@@ -69,14 +88,11 @@ export default function ScanJobPage() {
     setTimeout(() => {
       setIsScanning(false);
       const operatorName = getOperatorName();
-      let operatorDepartment = "N/A"; // Default department
+      let operatorDepartment = "N/A"; 
 
-      // In a real app, operator's department would be fetched from user profile/auth data
       if (operatorName === "Daniel") {
         operatorDepartment = "Assemblaggio Componenti Elettronici";
       } else {
-        // Fallback for other users or if operator data isn't fully set up
-        // This case is less likely due to current login restrictions
         operatorDepartment = "Reparto Generico"; 
       }
 
@@ -87,6 +103,7 @@ export default function ScanJobPage() {
         });
         setIsAlertOpen(true);
         setScanSuccess(false); 
+        setScannedJobOrder(null); // Clear job order info if department mismatch
       } else {
         setScanSuccess(true);
         setScannedJobOrder(currentJobOrder);
@@ -126,16 +143,15 @@ export default function ScanJobPage() {
               <div 
                 className={`w-full max-w-xs h-48 border-2 rounded-lg flex items-center justify-center transition-all duration-300
                 ${isScanning ? 'border-primary animate-pulse' : 'border-border'}
-                ${scanSuccess ? 'border-green-500 bg-green-500/10' : ''}
-                ${isAlertOpen && !scanSuccess ? 'border-destructive bg-destructive/10' : ''} 
+                ${scanSuccess && !isAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
+                ${isAlertOpen ? 'border-destructive bg-destructive/10' : ''} 
                 `}
               >
                 {isScanning && <p className="text-primary font-semibold">Scanning...</p>}
-                {!isScanning && !scanSuccess && !scannedJobOrder && !isAlertOpen && <p className="text-muted-foreground">Align barcode here</p>}
-                {scanSuccess && !isScanning && <CheckCircle className="h-16 w-16 text-green-500" />}
-                {isAlertOpen && !scanSuccess && !isScanning && <AlertTriangle className="h-16 w-16 text-destructive" />}
+                {!isScanning && !scannedJobOrder && !isAlertOpen && <p className="text-muted-foreground">Align barcode here</p>}
+                {scanSuccess && !isScanning && !isAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+                {isAlertOpen && !isScanning && <AlertTriangle className="h-16 w-16 text-destructive" />}
                 {!isScanning && scannedJobOrder && !isAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
-
               </div>
               
               <Button 
@@ -153,22 +169,65 @@ export default function ScanJobPage() {
           </Card>
 
           {scannedJobOrder && !isAlertOpen && (
-            <Card className="mt-6">
+            <Card className="mt-6 shadow-lg">
               <CardHeader>
-                <CardTitle className="font-headline">Dettagli Commessa Attiva: {scannedJobOrder.id}</CardTitle>
+                <CardTitle className="font-headline flex items-center">
+                  <Package className="mr-3 h-7 w-7 text-primary" />
+                  Dettagli Commessa Attiva: {scannedJobOrder.id}
+                </CardTitle>
                 <CardDescription>Reparto: {scannedJobOrder.department}</CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="font-semibold">Descrizione:</p>
-                <p>{scannedJobOrder.details}</p>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground">
+                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
+                      Ordine PF
+                    </Label>
+                    <Input id="ordinePF" value={scannedJobOrder.ordinePF} readOnly className="bg-input text-foreground mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground">
+                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
+                      N° ODL
+                    </Label>
+                    <Input id="numeroODL" value={scannedJobOrder.numeroODL} readOnly className="bg-input text-foreground mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground">
+                      <CalendarDays className="mr-2 h-4 w-4 text-primary" />
+                      Data Consegna Finale
+                    </Label>
+                    <Input id="dataConsegnaFinale" value={scannedJobOrder.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="postazioneLavoro" className="flex items-center text-sm text-muted-foreground">
+                      <Computer className="mr-2 h-4 w-4 text-primary" />
+                      Postazione di Lavoro
+                    </Label>
+                    <Input id="postazioneLavoro" value={scannedJobOrder.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
+                  </div>
+                </div>
+                
+                <div>
+                  <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground">
+                    <Package className="mr-2 h-4 w-4 text-primary" />
+                    Descrizione Lavorazione
+                  </Label>
+                  <p className="mt-1 p-2 bg-input rounded-md text-foreground">{scannedJobOrder.details}</p>
+                </div>
+
                 {scannedJobOrder.assignedTask && (
-                  <>
-                    <p className="font-semibold mt-4">Task Assegnato:</p>
-                    <p>{scannedJobOrder.assignedTask}</p>
-                  </>
+                  <div>
+                    <Label htmlFor="taskAssegnato" className="flex items-center text-sm text-muted-foreground">
+                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
+                      Task Assegnato
+                    </Label>
+                    <p className="mt-1 p-2 bg-input rounded-md text-foreground">{scannedJobOrder.assignedTask}</p>
+                  </div>
                 )}
-                {/* Qui potremmo aggiungere altri dati della commessa e azioni */}
-                <Button className="mt-4 w-full" onClick={() => alert(`Avvio lavoro per commessa ${scannedJobOrder.id}`)}>
+                
+                <Button className="mt-6 w-full bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => alert(`Avvio lavoro per commessa ${scannedJobOrder.id}`)}>
                   Inizia Lavorazione
                 </Button>
               </CardContent>
@@ -187,7 +246,7 @@ export default function ScanJobPage() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogAction onClick={() => setIsAlertOpen(false)}>OK</AlertDialogAction>
+                <AlertDialogAction onClick={() => { setIsAlertOpen(false); setScannedJobOrder(null); } }>OK</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -197,5 +256,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
     
