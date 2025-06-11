@@ -67,7 +67,7 @@ export default function DashboardPage() {
               href="/scan-job"
             />
             <DashboardItem
-              title="Report Problem"
+              title="Segnala Problema"
               description="Report any issues encountered during production."
               icon={AlertTriangle}
               href="/report-problem"
