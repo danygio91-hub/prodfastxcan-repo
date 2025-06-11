@@ -4,11 +4,10 @@
 const AUTH_KEY = 'prodtime_tracker_auth';
 
 export function login(operatorName: string, password_unused: string): Promise<boolean> {
-  // Mock login: any non-empty operator name is considered valid for this example
-  // Password is not checked in this mock.
+  // Mock login: specific credentials for testing
   return new Promise((resolve) => {
     setTimeout(() => {
-      if (operatorName.trim() !== '') {
+      if (operatorName === 'Daniel' && password_unused === '1234') {
         if (typeof window !== 'undefined') {
           localStorage.setItem(AUTH_KEY, JSON.stringify({ loggedIn: true, operatorName }));
         }
