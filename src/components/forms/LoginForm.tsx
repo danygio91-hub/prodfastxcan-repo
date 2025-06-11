@@ -56,11 +56,11 @@ export default function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md shadow-xl border border-border/50">
+    <Card className="w-full max-w-md shadow-xl border-border/50 bg-card">
       <CardHeader className="items-center text-center">
-        <Clock className="h-12 w-12 text-primary mb-3" />
-        <CardTitle className="text-3xl font-headline">ProdTime Tracker</CardTitle>
-        <CardDescription>Please enter your credentials to log in.</CardDescription>
+        <Clock className="h-16 w-16 text-primary mb-4" />
+        <CardTitle className="text-3xl font-headline text-foreground">ProdTime Tracker</CardTitle>
+        <CardDescription className="text-muted-foreground">Please enter your credentials to log in.</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -70,12 +70,12 @@ export default function LoginForm() {
               name="operatorName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center">
-                    <User className="mr-2 h-5 w-5 text-primary" />
+                  <FormLabel className="flex items-center text-foreground/80">
+                    <User className="mr-2 h-6 w-6 text-primary" />
                     Operator Name
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your operator name" {...field} />
+                    <Input placeholder="Enter your operator name" {...field} className="bg-input text-foreground placeholder:text-muted-foreground/80" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -86,12 +86,12 @@ export default function LoginForm() {
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center">
-                    <Lock className="mr-2 h-5 w-5 text-primary" />
+                  <FormLabel className="flex items-center text-foreground/80">
+                    <Lock className="mr-2 h-6 w-6 text-primary" />
                     Password
                   </FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Enter your password" {...field} />
+                    <Input type="password" placeholder="Enter your password" {...field} className="bg-input text-foreground placeholder:text-muted-foreground/80" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -99,8 +99,8 @@ export default function LoginForm() {
             />
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              <LogIn className="mr-2 h-4 w-4" />
+            <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isLoading}>
+              <LogIn className="mr-2 h-5 w-5" />
               {isLoading ? "Logging in..." : "Login"}
             </Button>
           </CardFooter>
