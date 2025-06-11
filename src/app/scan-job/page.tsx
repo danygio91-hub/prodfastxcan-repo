@@ -191,7 +191,7 @@ export default function ScanJobPage() {
           phases: randomJob.phases.map(p => ({ 
             ...p, 
             workstationScannedAndVerified: false,
-            workPeriods: [], // Ensure work periods are fresh on new scan
+            workPeriods: [], 
            }))
         };
         setScannedJobOrder(jobWithInitializedPhases);
@@ -261,7 +261,7 @@ export default function ScanJobPage() {
             ...p,
             status: 'pending' as 'pending',
             materialReady: p.materialReady || false,
-            workPeriods: [], // Reset work periods when starting job overall
+            workPeriods: [], 
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
     };
@@ -294,7 +294,9 @@ export default function ScanJobPage() {
     setActiveJobOrder(prev => {
       if (!prev) return prev;
       const phaseToStart = prev.phases.find(p => p.id === phaseId);
-      if (!phaseToStart || !phaseToStart.workstationScannedAndVerified) {
+      if (!phaseToStart) return prev;
+
+      if (!phaseToStart.workstationScannedAndVerified) {
           toastInfo = { variant: "destructive", title: "Errore", description: "Scansionare e verificare la postazione prima di avviare la fase." };
           triggerWorkstationScanForPhaseId = phaseId;
           return prev;
@@ -402,6 +404,7 @@ export default function ScanJobPage() {
   const handleCompletePhase = (phaseId: string) => {
     let toastInfo: ToastInfo | null = null;
     let phaseCompletedSuccessfully = false;
+    let nextPhaseMaterialToastInfo: ToastInfo | null = null;
 
     setActiveJobOrder(prev => {
       if (!prev) return null;
@@ -410,10 +413,10 @@ export default function ScanJobPage() {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." };
         return prev;
       }
-      const updatedPhases = prev.phases.map(p => {
+      let updatedPhases = prev.phases.map(p => {
         if (p.id === phaseId) {
           let updatedWorkPeriods = p.workPeriods;
-          if (p.status === 'in-progress') { // Only close period if it was in-progress
+          if (p.status === 'in-progress') { 
             updatedWorkPeriods = p.workPeriods.map((wp, index) =>
               index === p.workPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
             );
@@ -422,6 +425,17 @@ export default function ScanJobPage() {
         }
         return p;
       });
+
+      const completedPhaseSequence = phaseToComplete.sequence;
+      const nextPhase = updatedPhases.find(p => p.sequence === completedPhaseSequence + 1);
+
+      if (nextPhase && nextPhase.status === 'pending') {
+        updatedPhases = updatedPhases.map(p => 
+          p.id === nextPhase.id ? { ...p, materialReady: true } : p
+        );
+        nextPhaseMaterialToastInfo = { title: "Materiale Pronto", description: `Materiale per la fase "${nextPhase.name}" ora disponibile.`};
+      }
+      
       toastInfo = { title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> };
       phaseCompletedSuccessfully = true;
       return { ...prev, phases: updatedPhases };
@@ -429,6 +443,9 @@ export default function ScanJobPage() {
 
     if (toastInfo) {
       toast(toastInfo);
+    }
+    if (nextPhaseMaterialToastInfo) {
+      toast(nextPhaseMaterialToastInfo);
     }
     if (phaseCompletedSuccessfully) {
       setCurrentPhaseId(null);
@@ -567,7 +584,7 @@ export default function ScanJobPage() {
                           : "Prossima Fase:"}
                       </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
                        {!isProcessingJob && scannedJobOrder && job.id === scannedJobOrder.id && !activeJobOrder && (
-                         scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false ? " (in attesa scansione postazione)" : " (in attesa di avvio lavorazione commessa)"
+                         scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false ? " (in attesa scansione postazione per avvio fase)" : " (in attesa di avvio lavorazione commessa)"
                        )}
                     </p>
                      <p className="text-sm">
