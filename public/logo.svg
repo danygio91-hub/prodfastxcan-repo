@@ -1,8 +1,12 @@
-<svg width="100" height="60" viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="170" height="40" viewBox="0 0 170 40" fill="none" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .p-color { fill: #3F51B5; } /* Deep Blue */
-    .f-color { fill: #FF9800; } /* Orange */
+    .font-logo-pf { font-family: 'PT Sans', sans-serif; font-weight: bold; font-size: 30px; }
+    .font-logo-tracker { font-family: 'PT Sans', sans-serif; font-weight: normal; font-size: 26px; }
   </style>
-  <text x="10" y="45" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="bold" class="p-color">P</text>
-  <text x="45" y="45" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="bold" class="f-color">F</text>
+  <!-- P: Primary Blue hsl(200 90% 55%) -->
+  <text x="5" y="30" class="font-logo-pf" fill="#2EAEF0">P</text>
+  <!-- F: Accent Teal/Cyan hsl(170 80% 45%) -->
+  <text x="28" y="30" class="font-logo-pf" fill="#17C293">F</text>
+  <!-- Tracker: Foreground Light Gray hsl(210 20% 95%) -->
+  <text x="50" y="30" class="font-logo-tracker" fill="#F0F2F5">Tracker</text>
 </svg>

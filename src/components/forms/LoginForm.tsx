@@ -62,7 +62,7 @@ export default function LoginForm() {
   return (
     <Card className="w-full max-w-md shadow-xl border-border/50 bg-card">
       <CardHeader className="items-center text-center">
-        <Image src="/logo.svg" alt="Logo ProdFast" width={90} height={60} className="mb-6" />
+        <Image src="/logo.svg" alt="ProdFast Tracker Logo" width={255} height={60} className="mb-6" />
         <CardTitle className="text-3xl font-headline text-foreground">ProdFast Tracker</CardTitle>
         <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
       </CardHeader>
