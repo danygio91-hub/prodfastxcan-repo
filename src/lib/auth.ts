@@ -16,7 +16,9 @@ export function login(operatorName: string, password_unused: string): Promise<bo
 
       if (operatorName === 'Daniel' && password_unused === '1234') {
         authDataToStore = { loggedIn: true, operatorName, isAdmin: true };
-      } else if (operatorName && password_unused) { // Simplified operator login
+      } else if (operatorName === 'Ruben' && password_unused === '1234') { // Explicit Ruben login
+        authDataToStore = { loggedIn: true, operatorName, isAdmin: false };
+      } else if (operatorName && password_unused && operatorName !== 'Daniel') { // Simplified operator login for others
         authDataToStore = { loggedIn: true, operatorName, isAdmin: false };
       }
 

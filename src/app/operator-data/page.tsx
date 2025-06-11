@@ -19,24 +19,40 @@ interface OperatorData {
   department: string;
 }
 
-// Mock data for the operator
-const mockOperatorData: OperatorData = {
+// Mock data for operators
+const mockDanielOperatorData: OperatorData = {
   firstName: "Daniel",
   lastName: "Rossi",
   email: "daniel.rossi@example.com",
   department: "Assemblaggio Componenti Elettronici",
 };
 
-export default function OperatorDataPage() {
-  const operatorName = getOperatorName(); // Get the logged-in operator's name for display
+const mockRubenOperatorData: OperatorData = {
+  firstName: "Ruben",
+  lastName: "Bianchi",
+  email: "ruben.bianchi@example.com",
+  department: "Controllo Qualità",
+};
 
-  // In a real application, you would fetch this data based on the logged-in operator
-  const operatorData = operatorName === "Daniel" ? mockOperatorData : {
-    firstName: "N/A",
-    lastName: "N/A",
-    email: "N/A",
-    department: "N/A",
-  };
+
+export default function OperatorDataPage() {
+  const operatorName = getOperatorName(); 
+
+  let operatorData: OperatorData;
+
+  if (operatorName === "Daniel") {
+    operatorData = mockDanielOperatorData;
+  } else if (operatorName === "Ruben") {
+    operatorData = mockRubenOperatorData;
+  } else {
+    operatorData = {
+      firstName: "N/A",
+      lastName: "N/A",
+      email: "N/A",
+      department: "N/A",
+    };
+  }
+
 
   return (
     <AuthGuard>
@@ -54,7 +70,7 @@ export default function OperatorDataPage() {
               <div className="flex items-center space-x-3">
                 <Users className="h-8 w-8 text-primary" />
                 <div>
-                  <CardTitle className="text-2xl font-headline">Operator Data</CardTitle>
+                  <CardTitle className="text-xl font-headline mb-1">Operator Data</CardTitle>
                   <CardDescription>Visualizza le informazioni dell'operatore.</CardDescription>
                 </div>
               </div>
@@ -90,9 +106,9 @@ export default function OperatorDataPage() {
                   <Input id="department" value={operatorData.department} readOnly className="bg-input text-foreground" />
                 </div>
               </div>
-               {operatorName !== "Daniel" && (
+               {operatorName !== "Daniel" && operatorName !== "Ruben" && (
                 <p className="text-sm text-muted-foreground text-center mt-4">
-                  Dati operatore di esempio visualizzati. Effettua il login come 'Daniel' per vedere i dati specifici.
+                  Dati operatore di esempio visualizzati. Effettua il login come 'Daniel' o 'Ruben' per vedere i dati specifici.
                 </p>
               )}
             </CardContent>

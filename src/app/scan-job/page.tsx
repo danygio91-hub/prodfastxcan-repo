@@ -55,7 +55,7 @@ interface JobOrder {
 
 const mockJobOrders: JobOrder[] = [
   {
-    id: "PF-001", // ID ora uguale a ordinePF
+    id: "PF-001",
     department: "Assemblaggio Componenti Elettronici",
     details: "Assemblaggio scheda madre per Prodotto X.",
     ordinePF: "PF-001",
@@ -70,7 +70,7 @@ const mockJobOrders: JobOrder[] = [
     ]
   },
   {
-    id: "PF-002", // ID ora uguale a ordinePF
+    id: "PF-002",
     department: "Controllo Qualità",
     details: "Verifica finale Prodotto Y.",
     ordinePF: "PF-002",
@@ -84,7 +84,7 @@ const mockJobOrders: JobOrder[] = [
     ]
   },
   {
-    id: "PF-003", // ID ora uguale a ordinePF
+    id: "PF-003",
     department: "Assemblaggio Componenti Elettronici",
     details: "Cablaggio unità di alimentazione per Prodotto Z.",
     ordinePF: "PF-003",
@@ -176,7 +176,15 @@ export default function ScanJobPage() {
     setTimeout(() => {
       setIsScanningJob(false);
       const operatorName = getOperatorName();
-      let operatorDepartment = operatorName === "Daniel" ? "Assemblaggio Componenti Elettronici" : "Reparto Generico";
+      let operatorDepartment: string;
+      if (operatorName === "Daniel") {
+        operatorDepartment = "Assemblaggio Componenti Elettronici";
+      } else if (operatorName === "Ruben") {
+        operatorDepartment = "Controllo Qualità";
+      } else {
+        operatorDepartment = "Reparto Generico";
+      }
+
 
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
@@ -290,6 +298,7 @@ export default function ScanJobPage() {
     let toastInfo: ToastInfo | null = null;
     let phaseStartedSuccessfully = false;
     let triggerWorkstationScanForPhaseId: string | null = null;
+    let newCurrentPhaseId: string | null = null;
 
     setActiveJobOrder(prev => {
       if (!prev) return prev;
@@ -326,15 +335,17 @@ export default function ScanJobPage() {
       const startedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
       toastInfo = { title: "Fase Avviata", description: `Fase "${startedPhaseName}" avviata.` };
       phaseStartedSuccessfully = true;
+      newCurrentPhaseId = phaseId;
       return { ...prev, phases: updatedPhases };
     });
 
     if (toastInfo) {
       toast(toastInfo);
     }
-    if (phaseStartedSuccessfully) {
-      setCurrentPhaseId(phaseId);
-    } else if (triggerWorkstationScanForPhaseId) {
+    if (phaseStartedSuccessfully && newCurrentPhaseId) {
+      setCurrentPhaseId(newCurrentPhaseId);
+    }
+    if (triggerWorkstationScanForPhaseId) {
       setPhaseRequiringWorkstationScan(triggerWorkstationScanForPhaseId);
     }
   };
@@ -405,6 +416,8 @@ export default function ScanJobPage() {
     let toastInfo: ToastInfo | null = null;
     let phaseCompletedSuccessfully = false;
     let nextPhaseMaterialToastInfo: ToastInfo | null = null;
+    let newCurrentPhaseId: string | null = null;
+
 
     setActiveJobOrder(prev => {
       if (!prev) return null;
@@ -438,6 +451,7 @@ export default function ScanJobPage() {
       
       toastInfo = { title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> };
       phaseCompletedSuccessfully = true;
+      newCurrentPhaseId = null; 
       return { ...prev, phases: updatedPhases };
     });
 
@@ -448,7 +462,7 @@ export default function ScanJobPage() {
       toast(nextPhaseMaterialToastInfo);
     }
     if (phaseCompletedSuccessfully) {
-      setCurrentPhaseId(null);
+      setCurrentPhaseId(newCurrentPhaseId);
     }
   };
 
@@ -511,7 +525,7 @@ export default function ScanJobPage() {
   const renderJobDetailsCard = (job: JobOrder) => {
     const isDisplayingScannedJobDetails = !isProcessingJob && job.id === scannedJobOrder?.id && scannedJobOrder !== null;
     const isDisplayingActiveJobDetails = isProcessingJob && job.id === activeJobOrder?.id && activeJobOrder !== null && !activeJobOrder.overallEndTime;
-    const shouldDisplayAdvancement = isDisplayingScannedJobDetails || isDisplayingActiveJobDetails || (scannedJobOrder !== null && job.id === scannedJobOrder.id);
+    const shouldDisplayAdvancement = isDisplayingScannedJobDetails || isDisplayingActiveJobDetails || (scannedJobOrder !== null && job.id === scannedJobOrder.id && !isProcessingJob);
 
 
     let nextPhaseForDisplay: JobPhase | undefined = undefined;
@@ -584,7 +598,9 @@ export default function ScanJobPage() {
                           : "Prossima Fase:"}
                       </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
                        {!isProcessingJob && scannedJobOrder && job.id === scannedJobOrder.id && !activeJobOrder && (
-                         scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false ? " (in attesa scansione postazione per avvio fase)" : " (in attesa di avvio lavorazione commessa)"
+                          (scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false && !phaseRequiringWorkstationScan) 
+                            ? " (in attesa scansione postazione per avvio fase)" 
+                            : phaseRequiringWorkstationScan === nextPhaseForDisplay.id ? " (in attesa scansione postazione)" : " (in attesa di avvio lavorazione commessa)"
                        )}
                     </p>
                      <p className="text-sm">
@@ -819,5 +835,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-    
