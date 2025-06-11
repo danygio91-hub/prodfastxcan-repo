@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX } from 'lucide-react';
+import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -28,7 +28,7 @@ import { format } from 'date-fns';
 interface JobPhase {
   id: string;
   name: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'pending' | 'in-progress' | 'paused' | 'completed';
   materialReady: boolean;
   startTime: Date | null;
   endTime: Date | null;
@@ -112,7 +112,7 @@ export default function ScanJobPage() {
 
   const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
   const [isProcessingJob, setIsProcessingJob] = useState(false);
-  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
+  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null); // ID of the phase that is 'in-progress' or 'paused'
 
   const resetInitialScanState = () => {
     setIsScanningJob(false);
@@ -134,7 +134,7 @@ export default function ScanJobPage() {
 
   const handleSimulateJobScan = () => {
     resetInitialScanState();
-    resetProcessingState(); // Reset any ongoing job if a new one is scanned
+    resetProcessingState(); 
     setIsScanningJob(true);
 
     const randomJob = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
@@ -152,7 +152,7 @@ export default function ScanJobPage() {
         setIsJobAlertOpen(true);
       } else {
         setJobScanSuccess(true);
-        setScannedJobOrder(randomJob); // Set this to show job details before workstation scan
+        setScannedJobOrder(randomJob); 
         setIsWorkstationScanRequired(true);
         toast({
           title: "Scansione Commessa Riuscita!",
@@ -171,7 +171,7 @@ export default function ScanJobPage() {
     setScannedWorkstationId(null);
     setIsWorkstationAlertOpen(false);
 
-    const simulatedScannedId = scannedJobOrder.postazioneLavoro; // Assume correct scan for now
+    const simulatedScannedId = scannedJobOrder.postazioneLavoro; 
 
     setTimeout(() => {
       setIsScanningWorkstation(false);
@@ -197,10 +197,19 @@ export default function ScanJobPage() {
 
   const handleStartOverallJob = () => {
     if (!scannedJobOrder || !workstationScanMatch) return;
-    setActiveJobOrder({ ...scannedJobOrder, overallStartTime: new Date(), phases: scannedJobOrder.phases.map(p => ({...p, status: 'pending', materialReady: p.materialReady || false, startTime: null, endTime: null})) });
+    setActiveJobOrder({ 
+        ...scannedJobOrder, 
+        overallStartTime: new Date(), 
+        phases: scannedJobOrder.phases.map(p => ({
+            ...p, 
+            status: 'pending', 
+            materialReady: p.materialReady || false, 
+            startTime: null, 
+            endTime: null
+        })) 
+    });
     setIsProcessingJob(true);
-    setIsWorkstationScanRequired(false); // Hide workstation scan UI
-    // scannedJobOrder can remain to show initial details if needed, or set to null
+    setIsWorkstationScanRequired(false); 
     toast({
       title: "Lavorazione Avviata",
       description: `Lavoro iniziato per commessa ${scannedJobOrder.id} su postazione ${scannedJobOrder.postazioneLavoro}.`,
@@ -222,21 +231,19 @@ export default function ScanJobPage() {
 
   const handleStartPhase = (phaseId: string) => {
     setActiveJobOrder(prev => {
-      if (!prev) return null;
+      if (!prev) return prev;
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
       if (currentPhaseIndex === -1) return prev;
 
-      // Check if previous phase is completed (if not the first phase)
+      if (prev.phases.some(p => p.status === 'in-progress' || p.status === 'paused')) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
+        return prev;
+      }
       if (currentPhaseIndex > 0 && prev.phases[currentPhaseIndex - 1].status !== 'completed') {
         toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
         return prev;
       }
-      // Check if any other phase is already in-progress
-      if (prev.phases.some(p => p.status === 'in-progress')) {
-        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
-        return prev;
-      }
-
+      
       const updatedPhases = prev.phases.map(phase =>
         phase.id === phaseId ? { ...phase, status: 'in-progress' as 'in-progress', startTime: new Date() } : phase
       );
@@ -246,15 +253,59 @@ export default function ScanJobPage() {
     });
   };
 
+  const handlePausePhase = (phaseId: string) => {
+    setActiveJobOrder(prev => {
+      if (!prev) return prev;
+      const phaseToPause = prev.phases.find(p => p.id === phaseId);
+      if (!phaseToPause || phaseToPause.status !== 'in-progress') {
+        toast({ variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." });
+        return prev;
+      }
+      const updatedPhases = prev.phases.map(p =>
+        p.id === phaseId ? { ...p, status: 'paused' as 'paused' } : p
+      );
+      // currentPhaseId remains the ID of the paused phase
+      toast({ title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` });
+      return { ...prev, phases: updatedPhases };
+    });
+  };
+
+  const handleResumePhase = (phaseId: string) => {
+    setActiveJobOrder(prev => {
+      if (!prev) return prev;
+      const phaseToResume = prev.phases.find(p => p.id === phaseId);
+      if (!phaseToResume || phaseToResume.status !== 'paused') {
+        toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
+        return prev;
+      }
+      // Ensure no other phase is in-progress (should be guaranteed by single active/paused phase rule)
+      if (prev.phases.some(p => p.id !== phaseId && p.status === 'in-progress')) {
+         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
+        return prev;
+      }
+
+      const updatedPhases = prev.phases.map(p =>
+        p.id === phaseId ? { ...p, status: 'in-progress' as 'in-progress' } : p
+      );
+      // currentPhaseId is already set to this phase
+      toast({ title: "Fase Ripresa", description: `Fase "${phaseToResume.name}" ripresa.` });
+      return { ...prev, phases: updatedPhases };
+    });
+  };
+
   const handleCompletePhase = (phaseId: string) => {
     setActiveJobOrder(prev => {
       if (!prev) return null;
+      const phaseToComplete = prev.phases.find(p => p.id === phaseId);
+       if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
+        toast({ variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." });
+        return prev;
+      }
       const updatedPhases = prev.phases.map(phase =>
         phase.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
       );
-      const currentPhaseName = prev.phases.find(p=>p.id === phaseId)?.name;
-      setCurrentPhaseId(null);
-      toast({ title: "Fase Completata", description: `Fase "${currentPhaseName}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
+      setCurrentPhaseId(null); // No phase is actively being worked on or paused now
+      toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
       return { ...prev, phases: updatedPhases };
     });
   };
@@ -267,7 +318,6 @@ export default function ScanJobPage() {
       description: `Lavorazione per commessa ${activeJobOrder.id} terminata con successo.`,
       action: <PowerOff className="text-primary" />
     });
-    // Reset all relevant states to allow for a new job scan
     resetInitialScanState();
     resetProcessingState();
   };
@@ -275,7 +325,6 @@ export default function ScanJobPage() {
   const allPhasesCompleted = activeJobOrder?.phases.every(phase => phase.status === 'completed');
 
 
-  // UI Rendering
   const renderJobScanArea = () => (
     <Card>
       <CardHeader>
@@ -405,12 +454,17 @@ export default function ScanJobPage() {
       </CardHeader>
       <CardContent className="space-y-4">
         {activeJobOrder?.phases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
-          const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases[index - 1].status === 'completed';
-          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && !activeJobOrder.phases.some(p => p.status === 'in-progress');
-          const canCompletePhase = phase.status === 'in-progress';
+          const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
+          const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
+
+          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused;
+          const canPausePhase = phase.status === 'in-progress';
+          const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused; // noOtherPhaseActiveOrPaused implies no other 'in-progress'
+          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
           
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
+          if (phase.status === 'paused') phaseIcon = <PausePhaseIcon className="mr-2 h-5 w-5 text-orange-500" />;
           if (phase.status === 'completed') phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
 
           return (
@@ -434,6 +488,7 @@ export default function ScanJobPage() {
               {phase.startTime && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Iniziata: {format(phase.startTime, "dd/MM/yyyy HH:mm:ss")}
+                  {phase.status === 'paused' && " (In Pausa)"}
                 </p>
               )}
               {phase.endTime && (
@@ -441,10 +496,20 @@ export default function ScanJobPage() {
                   Completata: {format(phase.endTime, "dd/MM/yyyy HH:mm:ss")}
                 </p>
               )}
-              <div className="mt-2 flex space-x-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 {canStartPhase && (
                   <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="outline">
                     <PlayCircle className="mr-2 h-4 w-4" /> Avvia Fase
+                  </Button>
+                )}
+                {canPausePhase && (
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10">
+                    <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
+                  </Button>
+                )}
+                 {canResumePhase && (
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10">
+                    <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
@@ -456,10 +521,13 @@ export default function ScanJobPage() {
             </Card>
           );
         })}
-        {allPhasesCompleted && (
+        {allPhasesCompleted && !activeJobOrder?.overallEndTime && (
           <Button onClick={handleConcludeOverallJob} className="w-full mt-4 bg-primary text-primary-foreground">
             <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
           </Button>
+        )}
+         {activeJobOrder?.overallEndTime && (
+          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(activeJobOrder.overallEndTime, "dd/MM/yyyy HH:mm:ss")}</p>
         )}
       </CardContent>
     </Card>
@@ -477,9 +545,9 @@ export default function ScanJobPage() {
             </Button>
           </Link>
 
-          {!isProcessingJob && renderJobScanArea()}
+          {!isProcessingJob && !activeJobOrder?.overallEndTime && renderJobScanArea()}
           
-          {scannedJobOrder && !isProcessingJob && (
+          {scannedJobOrder && !isProcessingJob && !activeJobOrder?.overallEndTime && (
             <>
               {renderJobDetailsCard(scannedJobOrder)}
               {isWorkstationScanRequired && workstationScanMatch !== true && !isWorkstationAlertOpen && (
@@ -501,6 +569,18 @@ export default function ScanJobPage() {
               {renderJobDetailsCard(activeJobOrder)}
               {renderPhasesManagement()}
             </>
+          )}
+          
+          {activeJobOrder?.overallEndTime && (
+             <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Nuova Scansione</CardTitle>
+                    <CardDescription>La commessa precedente è stata conclusa. Puoi scansionare una nuova commessa.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {renderJobScanArea()}
+                </CardContent>
+             </Card>
           )}
 
 
