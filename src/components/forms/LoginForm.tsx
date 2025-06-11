@@ -78,7 +78,7 @@ export default function LoginForm() {
     <Card className="w-full max-w-md shadow-xl border-border/50 bg-card">
       <CardHeader className="items-center text-center">
         <Clock className="h-16 w-16 text-primary mb-4" />
-        <CardTitle className="text-3xl font-headline text-foreground">ProdTime Tracker</CardTitle>
+        <CardTitle className="text-3xl font-headline text-foreground">ProdFast Tracker</CardTitle>
         <CardDescription className="text-muted-foreground">Please enter your credentials.</CardDescription>
       </CardHeader>
       <Form {...form}>

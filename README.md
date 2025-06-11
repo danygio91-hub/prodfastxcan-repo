@@ -1,4 +1,4 @@
-# Firebase Studio
+# ProdFast Tracker
 
 This is a NextJS starter in Firebase Studio.
 

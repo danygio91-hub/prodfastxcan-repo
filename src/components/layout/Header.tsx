@@ -42,7 +42,7 @@ export default function Header() {
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/dashboard" className="text-xl font-bold font-headline text-primary">
-          ProdTime Tracker
+          ProdFast Tracker
         </Link>
         <div className="flex items-center space-x-4">
           {operatorName && (
