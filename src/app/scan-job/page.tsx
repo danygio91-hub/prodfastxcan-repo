@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX } from 'lucide-react';
+import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -112,7 +112,7 @@ export default function ScanJobPage() {
 
   const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
   const [isProcessingJob, setIsProcessingJob] = useState(false);
-  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null); // ID of the phase that is 'in-progress' or 'paused'
+  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null); 
 
   const resetInitialScanState = () => {
     setIsScanningJob(false);
@@ -235,7 +235,7 @@ export default function ScanJobPage() {
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
       if (currentPhaseIndex === -1) return prev;
 
-      if (prev.phases.some(p => p.status === 'in-progress' || p.status === 'paused')) {
+      if (prev.phases.some(p => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return prev;
       }
@@ -264,7 +264,6 @@ export default function ScanJobPage() {
       const updatedPhases = prev.phases.map(p =>
         p.id === phaseId ? { ...p, status: 'paused' as 'paused' } : p
       );
-      // currentPhaseId remains the ID of the paused phase
       toast({ title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` });
       return { ...prev, phases: updatedPhases };
     });
@@ -278,7 +277,6 @@ export default function ScanJobPage() {
         toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
         return prev;
       }
-      // Ensure no other phase is in-progress (should be guaranteed by single active/paused phase rule)
       if (prev.phases.some(p => p.id !== phaseId && p.status === 'in-progress')) {
          toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
         return prev;
@@ -287,7 +285,6 @@ export default function ScanJobPage() {
       const updatedPhases = prev.phases.map(p =>
         p.id === phaseId ? { ...p, status: 'in-progress' as 'in-progress' } : p
       );
-      // currentPhaseId is already set to this phase
       toast({ title: "Fase Ripresa", description: `Fase "${phaseToResume.name}" ripresa.` });
       return { ...prev, phases: updatedPhases };
     });
@@ -304,7 +301,7 @@ export default function ScanJobPage() {
       const updatedPhases = prev.phases.map(phase =>
         phase.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
       );
-      setCurrentPhaseId(null); // No phase is actively being worked on or paused now
+      setCurrentPhaseId(null); 
       toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
       return { ...prev, phases: updatedPhases };
     });
@@ -366,46 +363,92 @@ export default function ScanJobPage() {
     </Card>
   );
 
-  const renderJobDetailsCard = (job: JobOrder) => (
-    <Card className="mt-6 shadow-lg">
-      <CardHeader>
-        <CardTitle className="font-headline flex items-center">
-          <Package className="mr-3 h-7 w-7 text-primary" />
-          Dettagli Commessa: {job.id}
-        </CardTitle>
-        <CardDescription>Reparto: {job.department}</CardDescription>
-        {job.overallStartTime && (
-          <CardDescription className="text-xs text-muted-foreground">
-            Iniziata il: {format(job.overallStartTime, "dd/MM/yyyy HH:mm:ss")}
-          </CardDescription>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
-            <Input id="ordinePF" value={job.ordinePF} readOnly className="bg-input text-foreground mt-1" />
+  const renderJobDetailsCard = (job: JobOrder) => {
+    const showAdvancementInfo = isProcessingJob && activeJobOrder && activeJobOrder.id === job.id && !activeJobOrder.overallEndTime;
+    let nextPhaseForDisplay: JobPhase | undefined = undefined;
+    let postazionePerNextPhase: string | undefined = undefined;
+
+    if (showAdvancementInfo && activeJobOrder) {
+      nextPhaseForDisplay = activeJobOrder.phases
+        .filter(p => p.status === 'pending' || p.status === 'in-progress' || p.status === 'paused')
+        .sort((a, b) => a.sequence - b.sequence)[0];
+      
+      if (nextPhaseForDisplay) {
+        postazionePerNextPhase = activeJobOrder.postazioneLavoro;
+      }
+    }
+    
+    return (
+      <Card className="mt-6 shadow-lg">
+        <CardHeader>
+          <CardTitle className="font-headline flex items-center">
+            <Package className="mr-3 h-7 w-7 text-primary" />
+            Dettagli Commessa: {job.id}
+          </CardTitle>
+          <CardDescription>Reparto: {job.department}</CardDescription>
+          {job.overallStartTime && (
+            <CardDescription className="text-xs text-muted-foreground">
+              Iniziata il: {format(job.overallStartTime, "dd/MM/yyyy HH:mm:ss")}
+            </CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
+              <Input id="ordinePF" value={job.ordinePF} readOnly className="bg-input text-foreground mt-1" />
+            </div>
+            <div>
+              <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
+              <Input id="numeroODL" value={job.numeroODL} readOnly className="bg-input text-foreground mt-1" />
+            </div>
+            <div>
+              <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna Finale</Label>
+              <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
+            </div>
+            <div>
+              <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista</Label>
+              <Input id="postazioneLavoroJob" value={job.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
+            </div>
           </div>
           <div>
-            <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
-            <Input id="numeroODL" value={job.numeroODL} readOnly className="bg-input text-foreground mt-1" />
+            <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Descrizione Lavorazione</Label>
+            <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
-          <div>
-            <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna Finale</Label>
-            <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
-          </div>
-          <div>
-            <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista</Label>
-            <Input id="postazioneLavoroJob" value={job.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Descrizione Lavorazione</Label>
-          <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
+
+          {showAdvancementInfo && (
+            <>
+              <Separator className="my-4" />
+              <div className="space-y-2">
+                <h3 className="text-md font-semibold font-headline flex items-center">
+                  <Activity className="mr-2 h-5 w-5 text-primary" />
+                  Stato Avanzamento Corrente
+                </h3>
+                {nextPhaseForDisplay && postazionePerNextPhase ? (
+                  <>
+                    <p className="text-sm">
+                      <span className="font-medium text-muted-foreground">Prossima Fase / Fase Corrente:</span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium text-muted-foreground">Postazione Lavorazione:</span> {postazionePerNextPhase}
+                    </p>
+                  </>
+                ) : (
+                  activeJobOrder && activeJobOrder.phases.every(p => p.status === 'completed') && (
+                     <p className="text-sm text-green-500 font-medium">Tutte le fasi completate. Pronta per la conclusione.</p>
+                  )
+                )}
+                 {!nextPhaseForDisplay && activeJobOrder && !activeJobOrder.phases.every(p => p.status === 'completed') && (
+                   // Questo stato si verifica brevemente o se c'è un errore nella logica di determinazione della fase
+                   <p className="text-sm text-muted-foreground">Nessuna fase attiva o in attesa al momento.</p> 
+                 )}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   const renderWorkstationScanCard = () => (
     <Card className="mt-6 border-primary border-dashed">
@@ -459,7 +502,7 @@ export default function ScanJobPage() {
 
           const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused;
           const canPausePhase = phase.status === 'in-progress';
-          const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused; // noOtherPhaseActiveOrPaused implies no other 'in-progress'
+          const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused; 
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
           
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
@@ -469,7 +512,7 @@ export default function ScanJobPage() {
 
           return (
             <Card key={phase.id} className="p-4 bg-card/50">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center">
                   {phaseIcon}
                   <span className="font-semibold">{phase.name} (Seq: {phase.sequence})</span>
@@ -484,6 +527,9 @@ export default function ScanJobPage() {
                   />
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Postazione Prevista: {activeJobOrder?.postazioneLavoro}
               </div>
               {phase.startTime && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -503,17 +549,17 @@ export default function ScanJobPage() {
                   </Button>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10">
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500">
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10">
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700">
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground">
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
@@ -630,3 +676,4 @@ export default function ScanJobPage() {
     
 
     
+
