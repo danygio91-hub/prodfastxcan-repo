@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { login } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { User, Lock, LogIn } from "lucide-react";
+import { User, Lock, LogIn, Clock } from "lucide-react";
 
 const formSchema = z.object({
   operatorName: z.string().min(1, { message: "Operator name is required." }),
@@ -55,21 +55,22 @@ export default function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md shadow-xl">
-      <CardHeader>
-        <CardTitle className="text-3xl font-headline text-center">ProdTime Tracker</CardTitle>
-        <CardDescription className="text-center">Please enter your credentials to log in.</CardDescription>
+    <Card className="w-full max-w-md shadow-xl border border-border/50">
+      <CardHeader className="items-center text-center">
+        <Clock className="h-12 w-12 text-primary mb-3" />
+        <CardTitle className="text-3xl font-headline">ProdTime Tracker</CardTitle>
+        <CardDescription>Please enter your credentials to log in.</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-2">
             <FormField
               control={form.control}
               name="operatorName"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center">
-                    <User className="mr-2 h-4 w-4" />
+                    <User className="mr-2 h-4 w-4 text-muted-foreground" />
                     Operator Name
                   </FormLabel>
                   <FormControl>
@@ -85,7 +86,7 @@ export default function LoginForm() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center">
-                    <Lock className="mr-2 h-4 w-4" />
+                    <Lock className="mr-2 h-4 w-4 text-muted-foreground" />
                     Password
                   </FormLabel>
                   <FormControl>
