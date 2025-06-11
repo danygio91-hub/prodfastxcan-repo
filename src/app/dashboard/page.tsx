@@ -49,7 +49,7 @@ export default function DashboardPage() {
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Access core functions of ProdTime Tracker.
+              Access core functions of ProdFast Tracker.
             </p>
           </header>
 
@@ -61,7 +61,7 @@ export default function DashboardPage() {
               href="/operator-data"
             />
             <DashboardItem
-              title="Scan Job Order"
+              title="Scansione Commessa PF"
               description="Scan a job order barcode to start or continue work."
               icon={ScanLine}
               href="/scan-job"
