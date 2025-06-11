@@ -1,12 +1,12 @@
 
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -16,21 +16,36 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer } from 'lucide-react';
+import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Switch } from "@/components/ui/switch";
+import { Separator } from '@/components/ui/separator';
+import { format } from 'date-fns';
+
+interface JobPhase {
+  id: string;
+  name: string;
+  status: 'pending' | 'in-progress' | 'completed';
+  materialReady: boolean;
+  startTime: Date | null;
+  endTime: Date | null;
+  sequence: number;
+}
 
 interface JobOrder {
   id: string; 
   department: string;
   details: string; 
-  assignedTask?: string; 
   ordinePF: string; 
   numeroODL: string; 
   dataConsegnaFinale: string; 
   postazioneLavoro: string; 
+  phases: JobPhase[];
+  overallStartTime?: Date | null;
+  overallEndTime?: Date | null;
 }
 
 const mockJobOrders: JobOrder[] = [
@@ -38,31 +53,44 @@ const mockJobOrders: JobOrder[] = [
     id: "COM-12345", 
     department: "Assemblaggio Componenti Elettronici", 
     details: "Assemblaggio scheda madre per Prodotto X.",
-    assignedTask: "Montare componenti su PCB secondo schema Z-100.",
     ordinePF: "PF-001",
     numeroODL: "ODL-789",
     dataConsegnaFinale: "2024-12-15",
-    postazioneLavoro: "Postazione A-05"
+    postazioneLavoro: "Postazione A-05",
+    phases: [
+      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 1 },
+      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
+      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
+      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 4 },
+    ]
   },
   { 
     id: "COM-67890", 
     department: "Controllo Qualità", 
     details: "Verifica finale Prodotto Y.",
-    assignedTask: "Eseguire test funzionali e ispezione visiva.",
     ordinePF: "PF-002",
     numeroODL: "ODL-790",
     dataConsegnaFinale: "2024-11-30",
-    postazioneLavoro: "Banco CQ-02"
+    postazioneLavoro: "Banco CQ-02",
+    phases: [
+      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, startTime: null, endTime: null, sequence: 1 },
+      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
+      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
+    ]
   },
   {
     id: "COM-54321",
     department: "Assemblaggio Componenti Elettronici",
     details: "Cablaggio unità di alimentazione per Prodotto Z.",
-    assignedTask: "Collegare cavi e connettori come da specifica W-200.",
     ordinePF: "PF-003",
     numeroODL: "ODL-791",
     dataConsegnaFinale: "2025-01-10",
-    postazioneLavoro: "Postazione B-01"
+    postazioneLavoro: "Postazione B-01",
+    phases: [
+      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 1 },
+      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
+      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
+    ]
   }
 ];
 
@@ -82,47 +110,53 @@ export default function ScanJobPage() {
   const [isWorkstationAlertOpen, setIsWorkstationAlertOpen] = React.useState(false);
   const [workstationAlertInfo, setWorkstationAlertInfo] = React.useState({ title: "", description: "" });
 
+  const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
+  const [isProcessingJob, setIsProcessingJob] = useState(false);
+  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
 
-  const handleSimulateJobScan = () => {
-    setIsScanningJob(true);
+  const resetInitialScanState = () => {
+    setIsScanningJob(false);
     setJobScanSuccess(false);
     setScannedJobOrder(null);
     setIsJobAlertOpen(false);
-    
     setIsWorkstationScanRequired(false);
-    setScannedWorkstationId(null);
     setIsScanningWorkstation(false);
+    setScannedWorkstationId(null);
     setWorkstationScanMatch(null);
     setIsWorkstationAlertOpen(false);
+  };
 
-    const currentJobOrder = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
+  const resetProcessingState = () => {
+    setActiveJobOrder(null);
+    setIsProcessingJob(false);
+    setCurrentPhaseId(null);
+  }
+
+  const handleSimulateJobScan = () => {
+    resetInitialScanState();
+    resetProcessingState(); // Reset any ongoing job if a new one is scanned
+    setIsScanningJob(true);
+
+    const randomJob = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
 
     setTimeout(() => {
       setIsScanningJob(false);
       const operatorName = getOperatorName();
-      let operatorDepartment = "N/A"; 
+      let operatorDepartment = operatorName === "Daniel" ? "Assemblaggio Componenti Elettronici" : "Reparto Generico";
 
-      if (operatorName === "Daniel") {
-        operatorDepartment = "Assemblaggio Componenti Elettronici";
-      } else {
-        operatorDepartment = "Reparto Generico"; 
-      }
-
-      if (currentJobOrder.department !== operatorDepartment) {
+      if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({ 
           title: "Errore Reparto", 
-          description: `Commessa ${currentJobOrder.id} (${currentJobOrder.department}) non appartenente al tuo reparto (${operatorDepartment}). Recarsi presso Ufficio Produzione.` 
+          description: `Commessa ${randomJob.id} (${randomJob.department}) non appartenente al tuo reparto (${operatorDepartment}). Recarsi presso Ufficio Produzione.` 
         });
         setIsJobAlertOpen(true);
-        setJobScanSuccess(false); 
-        setScannedJobOrder(null);
       } else {
         setJobScanSuccess(true);
-        setScannedJobOrder(currentJobOrder);
-        setIsWorkstationScanRequired(true); // Proceed to workstation scan
+        setScannedJobOrder(randomJob); // Set this to show job details before workstation scan
+        setIsWorkstationScanRequired(true);
         toast({
           title: "Scansione Commessa Riuscita!",
-          description: `Commessa ${currentJobOrder.id} (${currentJobOrder.department}) scansionata. Procedere con scansione postazione.`,
+          description: `Commessa ${randomJob.id} (${randomJob.department}) scansionata. Procedere con scansione postazione.`,
           action: <CheckCircle className="text-green-500" />,
         });
         setTimeout(() => setJobScanSuccess(false), 3000); 
@@ -132,15 +166,12 @@ export default function ScanJobPage() {
 
   const handleSimulateWorkstationScan = () => {
     if (!scannedJobOrder) return;
-
     setIsScanningWorkstation(true);
-    setWorkstationScanMatch(null); // Reset match status on new scan
+    setWorkstationScanMatch(null); 
     setScannedWorkstationId(null);
     setIsWorkstationAlertOpen(false);
 
-    // Simulate scanning the workstation barcode. For now, we'll assume it scans the correct one.
-    // To test mismatch: const simulatedScannedId = scannedJobOrder.postazioneLavoro + "-WRONG";
-    const simulatedScannedId = scannedJobOrder.postazioneLavoro; 
+    const simulatedScannedId = scannedJobOrder.postazioneLavoro; // Assume correct scan for now
 
     setTimeout(() => {
       setIsScanningWorkstation(false);
@@ -150,7 +181,7 @@ export default function ScanJobPage() {
         setWorkstationScanMatch(true);
         toast({
           title: "Scansione Postazione Riuscita!",
-          description: `Postazione ${simulatedScannedId} verificata correttamente.`,
+          description: `Postazione ${simulatedScannedId} verificata. Puoi iniziare la lavorazione.`,
           action: <CheckCircle className="text-green-500" />,
         });
       } else {
@@ -164,6 +195,276 @@ export default function ScanJobPage() {
     }, 1000);
   };
 
+  const handleStartOverallJob = () => {
+    if (!scannedJobOrder || !workstationScanMatch) return;
+    setActiveJobOrder({ ...scannedJobOrder, overallStartTime: new Date(), phases: scannedJobOrder.phases.map(p => ({...p, status: 'pending', materialReady: p.materialReady || false, startTime: null, endTime: null})) });
+    setIsProcessingJob(true);
+    setIsWorkstationScanRequired(false); // Hide workstation scan UI
+    // scannedJobOrder can remain to show initial details if needed, or set to null
+    toast({
+      title: "Lavorazione Avviata",
+      description: `Lavoro iniziato per commessa ${scannedJobOrder.id} su postazione ${scannedJobOrder.postazioneLavoro}.`,
+      action: <PlayCircle className="text-primary" />,
+    });
+  };
+
+  const handleToggleMaterialReady = (phaseId: string) => {
+    setActiveJobOrder(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        phases: prev.phases.map(phase => 
+          phase.id === phaseId ? { ...phase, materialReady: !phase.materialReady } : phase
+        ),
+      };
+    });
+  };
+
+  const handleStartPhase = (phaseId: string) => {
+    setActiveJobOrder(prev => {
+      if (!prev) return null;
+      const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
+      if (currentPhaseIndex === -1) return prev;
+
+      // Check if previous phase is completed (if not the first phase)
+      if (currentPhaseIndex > 0 && prev.phases[currentPhaseIndex - 1].status !== 'completed') {
+        toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
+        return prev;
+      }
+      // Check if any other phase is already in-progress
+      if (prev.phases.some(p => p.status === 'in-progress')) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
+        return prev;
+      }
+
+      const updatedPhases = prev.phases.map(phase =>
+        phase.id === phaseId ? { ...phase, status: 'in-progress' as 'in-progress', startTime: new Date() } : phase
+      );
+      setCurrentPhaseId(phaseId);
+      toast({ title: "Fase Avviata", description: `Fase "${updatedPhases[currentPhaseIndex].name}" avviata.` });
+      return { ...prev, phases: updatedPhases };
+    });
+  };
+
+  const handleCompletePhase = (phaseId: string) => {
+    setActiveJobOrder(prev => {
+      if (!prev) return null;
+      const updatedPhases = prev.phases.map(phase =>
+        phase.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
+      );
+      const currentPhaseName = prev.phases.find(p=>p.id === phaseId)?.name;
+      setCurrentPhaseId(null);
+      toast({ title: "Fase Completata", description: `Fase "${currentPhaseName}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
+      return { ...prev, phases: updatedPhases };
+    });
+  };
+  
+  const handleConcludeOverallJob = () => {
+    if (!activeJobOrder) return;
+    setActiveJobOrder(prev => prev ? ({ ...prev, overallEndTime: new Date() }) : null);
+    toast({
+      title: "Commessa Conclusa",
+      description: `Lavorazione per commessa ${activeJobOrder.id} terminata con successo.`,
+      action: <PowerOff className="text-primary" />
+    });
+    // Reset all relevant states to allow for a new job scan
+    resetInitialScanState();
+    resetProcessingState();
+  };
+
+  const allPhasesCompleted = activeJobOrder?.phases.every(phase => phase.status === 'completed');
+
+
+  // UI Rendering
+  const renderJobScanArea = () => (
+    <Card>
+      <CardHeader>
+          <div className="flex items-center space-x-3">
+          <ScanLine className="h-8 w-8 text-primary" />
+          <div>
+            <CardTitle className="text-2xl font-headline">Scan Job Order (Commessa)</CardTitle>
+            <CardDescription>Scan the barcode on the job order.</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col items-center justify-center space-y-6">
+        <div 
+          className={`w-full max-w-xs h-48 border-2 rounded-lg flex items-center justify-center transition-all duration-300
+          ${isScanningJob ? 'border-primary animate-pulse' : 'border-border'}
+          ${jobScanSuccess && !isJobAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
+          ${isJobAlertOpen ? 'border-destructive bg-destructive/10' : ''} 
+          `}
+        >
+          {isScanningJob && <p className="text-primary font-semibold">Scanning Job Order...</p>}
+          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Align job barcode</p>}
+          {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+          {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
+          {!isScanningJob && scannedJobOrder && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+        </div>
+        
+        <Button 
+          onClick={handleSimulateJobScan} 
+          disabled={isScanningJob}
+          className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
+        >
+          <ScanLine className="mr-2 h-5 w-5" />
+          {isScanningJob ? "Scanning..." : "Simulate Job Barcode Scan"}
+        </Button>
+        <p className="text-sm text-muted-foreground">
+          This simulates barcode scanning for the job order.
+        </p>
+      </CardContent>
+    </Card>
+  );
+
+  const renderJobDetailsCard = (job: JobOrder) => (
+    <Card className="mt-6 shadow-lg">
+      <CardHeader>
+        <CardTitle className="font-headline flex items-center">
+          <Package className="mr-3 h-7 w-7 text-primary" />
+          Dettagli Commessa: {job.id}
+        </CardTitle>
+        <CardDescription>Reparto: {job.department}</CardDescription>
+        {job.overallStartTime && (
+          <CardDescription className="text-xs text-muted-foreground">
+            Iniziata il: {format(job.overallStartTime, "dd/MM/yyyy HH:mm:ss")}
+          </CardDescription>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
+            <Input id="ordinePF" value={job.ordinePF} readOnly className="bg-input text-foreground mt-1" />
+          </div>
+          <div>
+            <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
+            <Input id="numeroODL" value={job.numeroODL} readOnly className="bg-input text-foreground mt-1" />
+          </div>
+          <div>
+            <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna Finale</Label>
+            <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
+          </div>
+          <div>
+            <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista</Label>
+            <Input id="postazioneLavoroJob" value={job.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Descrizione Lavorazione</Label>
+          <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderWorkstationScanCard = () => (
+    <Card className="mt-6 border-primary border-dashed">
+      <CardHeader>
+        <CardTitle className="font-headline flex items-center text-lg">
+          <Computer className="mr-3 h-6 w-6 text-primary" />
+          Scan Workstation Barcode
+        </CardTitle>
+        <CardDescription>
+          Scan the barcode on the assigned workstation: <strong>{scannedJobOrder?.postazioneLavoro}</strong>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col items-center space-y-4">
+        <div 
+          className={`w-full max-w-xs h-32 border-2 rounded-lg flex items-center justify-center transition-all duration-300
+          ${isScanningWorkstation ? 'border-primary animate-pulse' : 'border-border'}
+          ${workstationScanMatch === false ? 'border-destructive bg-destructive/10' : ''}
+          `}
+        >
+          {isScanningWorkstation && <p className="text-primary font-semibold">Scanning Workstation...</p>}
+          {!isScanningWorkstation && workstationScanMatch === null && <p className="text-muted-foreground">Align workstation barcode</p>}
+          {!isScanningWorkstation && workstationScanMatch === false && <AlertTriangle className="h-12 w-12 text-destructive" />}
+          {!isScanningWorkstation && workstationScanMatch === true && <CheckCircle className="h-12 w-12 text-green-500" />}
+        </div>
+        <Button 
+          onClick={handleSimulateWorkstationScan} 
+          disabled={isScanningWorkstation}
+          className="w-full max-w-xs"
+          variant="outline"
+        >
+          <ScanLine className="mr-2 h-5 w-5" />
+          {isScanningWorkstation ? "Scanning..." : "Simulate Workstation Scan"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+
+  const renderPhasesManagement = () => (
+    <Card className="mt-6 shadow-lg">
+      <CardHeader>
+        <CardTitle className="font-headline flex items-center">
+          <ListChecks className="mr-3 h-7 w-7 text-primary" />
+          Fasi di Lavorazione Commessa: {activeJobOrder?.id}
+        </CardTitle>
+        <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {activeJobOrder?.phases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
+          const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases[index - 1].status === 'completed';
+          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && !activeJobOrder.phases.some(p => p.status === 'in-progress');
+          const canCompletePhase = phase.status === 'in-progress';
+          
+          let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
+          if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
+          if (phase.status === 'completed') phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
+
+          return (
+            <Card key={phase.id} className="p-4 bg-card/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  {phaseIcon}
+                  <span className="font-semibold">{phase.name} (Seq: {phase.sequence})</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                   <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
+                   <Switch
+                    id={`material-${phase.id}`}
+                    checked={phase.materialReady}
+                    onCheckedChange={() => handleToggleMaterialReady(phase.id)}
+                    disabled={phase.status !== 'pending'}
+                  />
+                  {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
+                </div>
+              </div>
+              {phase.startTime && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Iniziata: {format(phase.startTime, "dd/MM/yyyy HH:mm:ss")}
+                </p>
+              )}
+              {phase.endTime && (
+                <p className="text-xs text-muted-foreground">
+                  Completata: {format(phase.endTime, "dd/MM/yyyy HH:mm:ss")}
+                </p>
+              )}
+              <div className="mt-2 flex space-x-2">
+                {canStartPhase && (
+                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="outline">
+                    <PlayCircle className="mr-2 h-4 w-4" /> Avvia Fase
+                  </Button>
+                )}
+                {canCompletePhase && (
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700">
+                    <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
+                  </Button>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+        {allPhasesCompleted && (
+          <Button onClick={handleConcludeOverallJob} className="w-full mt-4 bg-primary text-primary-foreground">
+            <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+
 
   return (
     <AuthGuard>
@@ -176,157 +477,32 @@ export default function ScanJobPage() {
             </Button>
           </Link>
 
-          <Card>
-            <CardHeader>
-               <div className="flex items-center space-x-3">
-                <ScanLine className="h-8 w-8 text-primary" />
-                <div>
-                  <CardTitle className="text-2xl font-headline">Scan Job Order (Commessa)</CardTitle>
-                  <CardDescription>Scan the barcode on the job order.</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center space-y-6">
-              <div 
-                className={`w-full max-w-xs h-48 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-                ${isScanningJob ? 'border-primary animate-pulse' : 'border-border'}
-                ${jobScanSuccess && !isJobAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
-                ${isJobAlertOpen ? 'border-destructive bg-destructive/10' : ''} 
-                `}
-              >
-                {isScanningJob && <p className="text-primary font-semibold">Scanning Job Order...</p>}
-                {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Align job barcode</p>}
-                {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
-                {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
-                {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isWorkstationScanRequired && <CheckCircle className="h-16 w-16 text-green-500" />}
-                {!isScanningJob && scannedJobOrder && isWorkstationScanRequired && <CheckCircle className="h-16 w-16 text-green-500" />}
-              </div>
-              
-              <Button 
-                onClick={handleSimulateJobScan} 
-                disabled={isScanningJob}
-                className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
-              >
-                <ScanLine className="mr-2 h-5 w-5" />
-                {isScanningJob ? "Scanning..." : "Simulate Job Barcode Scan"}
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                This simulates barcode scanning for the job order.
-              </p>
-            </CardContent>
-          </Card>
-
-          {scannedJobOrder && !isJobAlertOpen && (
-            <Card className="mt-6 shadow-lg">
-              <CardHeader>
-                <CardTitle className="font-headline flex items-center">
-                  <Package className="mr-3 h-7 w-7 text-primary" />
-                  Dettagli Commessa Attiva: {scannedJobOrder.id}
-                </CardTitle>
-                <CardDescription>Reparto: {scannedJobOrder.department}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground">
-                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
-                      Ordine PF
-                    </Label>
-                    <Input id="ordinePF" value={scannedJobOrder.ordinePF} readOnly className="bg-input text-foreground mt-1" />
-                  </div>
-                  <div>
-                    <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground">
-                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
-                      N° ODL
-                    </Label>
-                    <Input id="numeroODL" value={scannedJobOrder.numeroODL} readOnly className="bg-input text-foreground mt-1" />
-                  </div>
-                  <div>
-                    <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground">
-                      <CalendarDays className="mr-2 h-4 w-4 text-primary" />
-                      Data Consegna Finale
-                    </Label>
-                    <Input id="dataConsegnaFinale" value={scannedJobOrder.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
-                  </div>
-                  <div>
-                    <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground">
-                      <Computer className="mr-2 h-4 w-4 text-primary" />
-                      Postazione di Lavoro Prevista
-                    </Label>
-                    <Input id="postazioneLavoroJob" value={scannedJobOrder.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
-                  </div>
-                </div>
-                
-                <div>
-                  <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground">
-                    <Package className="mr-2 h-4 w-4 text-primary" />
-                    Descrizione Lavorazione
-                  </Label>
-                  <p className="mt-1 p-2 bg-input rounded-md text-foreground">{scannedJobOrder.details}</p>
-                </div>
-
-                {scannedJobOrder.assignedTask && (
-                  <div>
-                    <Label htmlFor="taskAssegnato" className="flex items-center text-sm text-muted-foreground">
-                      <ClipboardList className="mr-2 h-4 w-4 text-primary" />
-                      Task Assegnato
-                    </Label>
-                    <p className="mt-1 p-2 bg-input rounded-md text-foreground">{scannedJobOrder.assignedTask}</p>
-                  </div>
-                )}
-                
-                {isWorkstationScanRequired && workstationScanMatch !== true && !isWorkstationAlertOpen && (
-                  <Card className="mt-6 border-primary border-dashed">
-                    <CardHeader>
-                      <CardTitle className="font-headline flex items-center text-lg">
-                        <Computer className="mr-3 h-6 w-6 text-primary" />
-                        Scan Workstation Barcode
-                      </CardTitle>
-                      <CardDescription>
-                        Scan the barcode on the assigned workstation: <strong>{scannedJobOrder.postazioneLavoro}</strong>
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-col items-center space-y-4">
-                      <div 
-                        className={`w-full max-w-xs h-32 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-                        ${isScanningWorkstation ? 'border-primary animate-pulse' : 'border-border'}
-                        ${workstationScanMatch === false ? 'border-destructive bg-destructive/10' : ''}
-                        `}
-                      >
-                        {isScanningWorkstation && <p className="text-primary font-semibold">Scanning Workstation...</p>}
-                        {!isScanningWorkstation && workstationScanMatch === null && <p className="text-muted-foreground">Align workstation barcode</p>}
-                        {!isScanningWorkstation && workstationScanMatch === false && <AlertTriangle className="h-12 w-12 text-destructive" />}
-                         {/* Brief success for workstation, though usually proceeds quickly */}
-                        {!isScanningWorkstation && workstationScanMatch === true && <CheckCircle className="h-12 w-12 text-green-500" />}
-                      </div>
-                      <Button 
-                        onClick={handleSimulateWorkstationScan} 
-                        disabled={isScanningWorkstation}
-                        className="w-full max-w-xs"
-                        variant="outline"
-                      >
-                        <ScanLine className="mr-2 h-5 w-5" />
-                        {isScanningWorkstation ? "Scanning..." : "Simulate Workstation Scan"}
-                      </Button>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {workstationScanMatch === true && (
-                  <Button 
+          {!isProcessingJob && renderJobScanArea()}
+          
+          {scannedJobOrder && !isProcessingJob && (
+            <>
+              {renderJobDetailsCard(scannedJobOrder)}
+              {isWorkstationScanRequired && workstationScanMatch !== true && !isWorkstationAlertOpen && (
+                renderWorkstationScanCard()
+              )}
+              {workstationScanMatch === true && (
+                 <Button 
                     className="mt-6 w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
-                    onClick={() => toast({
-                        title: "Lavorazione Avviata",
-                        description: `Lavoro iniziato per commessa ${scannedJobOrder.id} su postazione ${scannedJobOrder.postazioneLavoro}.`,
-                        action: <CheckCircle className="text-green-500" />
-                    })}
+                    onClick={handleStartOverallJob}
                   >
-                    Inizia Lavorazione
+                    <PlayCircle className="mr-2 h-5 w-5" /> Inizia Lavorazione Commessa
                   </Button>
-                )}
-              </CardContent>
-            </Card>
+              )}
+            </>
           )}
+
+          {isProcessingJob && activeJobOrder && (
+            <>
+              {renderJobDetailsCard(activeJobOrder)}
+              {renderPhasesManagement()}
+            </>
+          )}
+
 
           <AlertDialog open={isJobAlertOpen} onOpenChange={setIsJobAlertOpen}>
             <AlertDialogContent>
@@ -360,7 +536,7 @@ export default function ScanJobPage() {
                 <AlertDialogAction onClick={() => { 
                   setIsWorkstationAlertOpen(false); 
                   setScannedWorkstationId(null); 
-                  setWorkstationScanMatch(null); // Allow re-scan
+                  setWorkstationScanMatch(null); 
                 }}>OK</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -371,4 +547,6 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+    
+
     
