@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Users, ScanLine, AlertTriangle, ArrowRight, Clock } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
-import DashboardItem from '@/components/dashboard/DashboardItem'; // Updated import
+import DashboardItem from '@/components/dashboard/DashboardItem';
 
 export default function DashboardPage() {
   const { toast } = useToast();
@@ -56,19 +56,19 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <DashboardItem
               title="Dati Operatore"
-              description="View and manage operator information."
+              description="Visualizza e gestisci le informazioni dell'operatore."
               icon={Users}
               href="/operator-data"
             />
             <DashboardItem
               title="Scansione Commessa PF"
-              description="Scan a job order barcode to start or continue work."
+              description="Scansiona un codice a barre della commessa per iniziare o continuare il lavoro."
               icon={ScanLine}
               href="/scan-job"
             />
             <DashboardItem
               title="Segnala Problema"
-              description="Report any issues encountered during production."
+              description="Segnala eventuali problemi riscontrati durante la produzione."
               icon={AlertTriangle}
               href="/report-problem"
             />
