@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -13,8 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Send } from "lucide-react";
 
 const problemReportSchema = z.object({
-  description: z.string().min(10, { message: "Description must be at least 10 characters." }).max(500, { message: "Description must be 500 characters or less." }),
-  severity: z.enum(["low", "medium", "high"], { required_error: "Severity is required." }),
+  description: z.string().min(10, { message: "La descrizione deve contenere almeno 10 caratteri." }).max(500, { message: "La descrizione deve contenere al massimo 500 caratteri." }),
+  severity: z.enum(["low", "medium", "high"], { required_error: "La gravità è richiesta." }),
 });
 
 export default function ProblemReportForm() {
@@ -37,8 +38,8 @@ export default function ProblemReportForm() {
 
     console.log("Problem Report Submitted:", values);
     toast({
-      title: "Problem Reported",
-      description: "Your report has been submitted successfully.",
+      title: "Problema Segnalato",
+      description: "La tua segnalazione è stata inviata con successo.",
     });
     form.reset();
   }
@@ -49,8 +50,8 @@ export default function ProblemReportForm() {
         <div className="flex items-center space-x-3">
           <AlertTriangle className="h-8 w-8 text-destructive" />
           <div>
-            <CardTitle className="text-2xl font-headline">Report a Production Problem</CardTitle>
-            <CardDescription>Describe the issue you encountered during production.</CardDescription>
+            <CardTitle className="text-2xl font-headline">Segnala un Problema di Produzione</CardTitle>
+            <CardDescription>Descrivi il problema riscontrato durante la produzione.</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -62,10 +63,10 @@ export default function ProblemReportForm() {
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Problem Description</FormLabel>
+                  <FormLabel>Descrizione del Problema</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Clearly describe the problem, including any relevant details like machine number, job order, or specific symptoms."
+                      placeholder="Descrivi chiaramente il problema, includendo dettagli rilevanti come numero macchina, commessa o sintomi specifici."
                       rows={5}
                       {...field}
                     />
@@ -79,17 +80,17 @@ export default function ProblemReportForm() {
               name="severity"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Severity Level</FormLabel>
+                  <FormLabel>Livello di Gravità</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select severity level" />
+                        <SelectValue placeholder="Seleziona livello di gravità" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="low">Low (Minor issue, no immediate impact)</SelectItem>
-                      <SelectItem value="medium">Medium (Moderate impact, requires attention)</SelectItem>
-                      <SelectItem value="high">High (Critical issue, production stopped or major defect)</SelectItem>
+                      <SelectItem value="low">Basso (Problema minore, nessun impatto immediato)</SelectItem>
+                      <SelectItem value="medium">Medio (Impatto moderato, richiede attenzione)</SelectItem>
+                      <SelectItem value="high">Alto (Problema critico, produzione ferma o difetto grave)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -100,7 +101,7 @@ export default function ProblemReportForm() {
           <CardFooter>
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               <Send className="mr-2 h-4 w-4" />
-              {isSubmitting ? "Submitting..." : "Submit Report"}
+              {isSubmitting ? "Invio in corso..." : "Invia Segnalazione"}
             </Button>
           </CardFooter>
         </form>

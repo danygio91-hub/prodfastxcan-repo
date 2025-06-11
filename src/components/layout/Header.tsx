@@ -44,7 +44,7 @@ export default function Header() {
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
-          <Image src="/logo.svg" alt="ProdFast Logo" width={45} height={30} className="mr-3" />
+          <Image src="/logo.svg" alt="Logo ProdFast" width={45} height={30} className="mr-3" />
           ProdFast Tracker
         </Link>
         <div className="flex items-center space-x-4">
@@ -53,7 +53,7 @@ export default function Header() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                   <Avatar className="h-10 w-10">
-                    <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(operatorName)}`} alt={operatorName} data-ai-hint="avatar person" />
+                    <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(operatorName)}`} alt={operatorName} data-ai-hint="avatar persona" />
                     <AvatarFallback>{getInitials(operatorName)}</AvatarFallback>
                   </Avatar>
                 </Button>
@@ -61,7 +61,7 @@ export default function Header() {
               <DropdownMenuContent className="w-56" align="end" forceMount>
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">Logged in as</p>
+                    <p className="text-sm font-medium leading-none">Accesso come</p>
                     <p className="text-xs leading-none text-muted-foreground">
                       {operatorName}
                     </p>
@@ -70,7 +70,7 @@ export default function Header() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Log out</span>
+                  <span>Esci</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

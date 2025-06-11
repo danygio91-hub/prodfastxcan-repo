@@ -298,7 +298,7 @@ export default function ScanJobPage() {
     let toastInfo: ToastInfo | null = null;
     let phaseStartedSuccessfully = false;
     let triggerWorkstationScanForPhaseId: string | null = null;
-    let newCurrentPhaseId: string | null = null;
+    let newCurrentPhaseIdState: string | null = null;
 
     setActiveJobOrder(prev => {
       if (!prev) return prev;
@@ -335,15 +335,15 @@ export default function ScanJobPage() {
       const startedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
       toastInfo = { title: "Fase Avviata", description: `Fase "${startedPhaseName}" avviata.` };
       phaseStartedSuccessfully = true;
-      newCurrentPhaseId = phaseId;
+      newCurrentPhaseIdState = phaseId;
       return { ...prev, phases: updatedPhases };
     });
 
     if (toastInfo) {
       toast(toastInfo);
     }
-    if (phaseStartedSuccessfully && newCurrentPhaseId) {
-      setCurrentPhaseId(newCurrentPhaseId);
+    if (phaseStartedSuccessfully && newCurrentPhaseIdState) {
+      setCurrentPhaseId(newCurrentPhaseIdState);
     }
     if (triggerWorkstationScanForPhaseId) {
       setPhaseRequiringWorkstationScan(triggerWorkstationScanForPhaseId);
@@ -416,7 +416,7 @@ export default function ScanJobPage() {
     let toastInfo: ToastInfo | null = null;
     let phaseCompletedSuccessfully = false;
     let nextPhaseMaterialToastInfo: ToastInfo | null = null;
-    let newCurrentPhaseId: string | null = null;
+    let newCurrentPhaseIdState: string | null = null;
 
 
     setActiveJobOrder(prev => {
@@ -451,7 +451,7 @@ export default function ScanJobPage() {
       
       toastInfo = { title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> };
       phaseCompletedSuccessfully = true;
-      newCurrentPhaseId = null; 
+      newCurrentPhaseIdState = null; 
       return { ...prev, phases: updatedPhases };
     });
 
@@ -462,7 +462,7 @@ export default function ScanJobPage() {
       toast(nextPhaseMaterialToastInfo);
     }
     if (phaseCompletedSuccessfully) {
-      setCurrentPhaseId(newCurrentPhaseId);
+      setCurrentPhaseId(newCurrentPhaseIdState);
     }
   };
 
@@ -487,8 +487,8 @@ export default function ScanJobPage() {
           <div className="flex items-center space-x-3">
           <ScanLine className="h-8 w-8 text-primary" />
           <div>
-            <CardTitle className="text-2xl font-headline">Scan Job Order (Commessa)</CardTitle>
-            <CardDescription>Scan the barcode on the job order.</CardDescription>
+            <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
+            <CardDescription>Scansiona il codice a barre sulla commessa.</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -500,8 +500,8 @@ export default function ScanJobPage() {
           ${isJobAlertOpen ? 'border-destructive bg-destructive/10' : ''}
           `}
         >
-          {isScanningJob && <p className="text-primary font-semibold">Scanning Job Order...</p>}
-          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Align job barcode</p>}
+          {isScanningJob && <p className="text-primary font-semibold">Scansione Commessa in corso...</p>}
+          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Allinea codice a barre commessa</p>}
           {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
           {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
           {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isProcessingJob && <CheckCircle className="h-16 w-16 text-green-500" />}
@@ -513,10 +513,10 @@ export default function ScanJobPage() {
           className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
         >
           <ScanLine className="mr-2 h-5 w-5" />
-          {isScanningJob ? "Scanning..." : "Simulate Job Barcode Scan"}
+          {isScanningJob ? "Scansione..." : "Simula Scansione Codice Commessa"}
         </Button>
         <p className="text-sm text-muted-foreground">
-          This simulates barcode scanning for the job order.
+          Questo simula la scansione del codice a barre per la commessa.
         </p>
       </CardContent>
     </Card>
@@ -699,8 +699,8 @@ export default function ScanJobPage() {
                         ${scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified ? 'border-destructive bg-destructive/10' : ''}
                         ${phase.workstationScannedAndVerified && !isScanningWorkstationForPhase ? 'border-green-500 bg-green-500/10' : ''}
                         `} >
-                        {isScanningWorkstationForPhase && <p className="text-primary font-semibold">Scanning Workstation...</p>}
-                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Align workstation barcode</p>}
+                        {isScanningWorkstationForPhase && <p className="text-primary font-semibold">Scansione Postazione...</p>}
+                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Allinea codice a barre postazione</p>}
                         {!isScanningWorkstationForPhase && phase.workstationScannedAndVerified && <CheckCircle className="h-10 w-10 text-green-500" />}
                          {scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <AlertTriangle className="h-10 w-10 text-destructive" />}
                     </div>
@@ -710,7 +710,7 @@ export default function ScanJobPage() {
                         className="w-full"
                         variant="outline" >
                         <ScanLine className="mr-2 h-5 w-5" />
-                        {isScanningWorkstationForPhase ? "Scanning..." : "Simulate Workstation Scan for Phase"}
+                        {isScanningWorkstationForPhase ? "Scansione..." : "Simula Scansione Postazione per Fase"}
                     </Button>
                 </div>
               )}
@@ -765,7 +765,7 @@ export default function ScanJobPage() {
           <Link href="/dashboard" passHref>
             <Button variant="outline">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Dashboard
+              Torna alla Dashboard
             </Button>
           </Link>
 

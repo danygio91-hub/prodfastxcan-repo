@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -15,7 +16,7 @@ export default function AppShell({ children }: AppShellProps) {
         {children}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t border-border">
-        © {new Date().getFullYear()} ProdFast Tracker. All rights reserved.
+        © {new Date().getFullYear()} ProdFast Tracker. Tutti i diritti riservati.
       </footer>
     </div>
   );

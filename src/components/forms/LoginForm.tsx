@@ -12,13 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { login, isAdmin as checkIsAdmin } from "@/lib/auth"; // Renamed isAdmin to checkIsAdmin to avoid conflict
+import { login, isAdmin as checkIsAdmin } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, LogIn, User } from "lucide-react";
 
 const formSchema = z.object({
-  username: z.string().min(1, { message: "Username is required." }), 
-  password: z.string().min(1, { message: "Password is required." }),
+  username: z.string().min(1, { message: "Il nome utente è obbligatorio." }), 
+  password: z.string().min(1, { message: "La password è obbligatoria." }),
 });
 
 export default function LoginForm() {
@@ -41,8 +41,8 @@ export default function LoginForm() {
 
     if (success) {
       toast({
-        title: "Login Successful",
-        description: `Welcome, ${values.username}!`,
+        title: "Accesso Riuscito",
+        description: `Benvenuto, ${values.username}!`,
       });
       if (checkIsAdmin()) {
         router.push("/admin/dashboard");
@@ -51,20 +51,20 @@ export default function LoginForm() {
       }
     } else {
       toast({
-        title: "Login Failed",
-        description: "Invalid credentials.",
+        title: "Accesso Fallito",
+        description: "Credenziali non valide.",
         variant: "destructive",
       });
-      form.setError("password", { type: "manual", message: "Invalid username or password." });
+      form.setError("password", { type: "manual", message: "Nome utente o password non validi." });
     }
   }
 
   return (
     <Card className="w-full max-w-md shadow-xl border-border/50 bg-card">
       <CardHeader className="items-center text-center">
-        <Image src="/logo.svg" alt="ProdFast Logo" width={90} height={60} className="mb-6" />
+        <Image src="/logo.svg" alt="Logo ProdFast" width={90} height={60} className="mb-6" />
         <CardTitle className="text-3xl font-headline text-foreground">ProdFast Tracker</CardTitle>
-        <CardDescription className="text-muted-foreground">Please enter your credentials.</CardDescription>
+        <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -76,11 +76,11 @@ export default function LoginForm() {
                 <FormItem>
                   <FormLabel className="flex items-center text-foreground/80">
                     <User className="mr-2 h-6 w-6 text-primary" />
-                    Username
+                    Nome Utente
                   </FormLabel>
                   <FormControl>
                     <Input 
-                      placeholder="Enter your username" 
+                      placeholder="Inserisci il tuo nome utente" 
                       {...field} 
                       className="bg-input text-foreground placeholder:text-muted-foreground/80"
                     />
@@ -101,7 +101,7 @@ export default function LoginForm() {
                   <FormControl>
                     <Input 
                       type="password" 
-                      placeholder="Enter your personal password" 
+                      placeholder="Inserisci la tua password personale" 
                       {...field} 
                       className="bg-input text-foreground placeholder:text-muted-foreground/80"
                     />
@@ -118,7 +118,7 @@ export default function LoginForm() {
               disabled={isLoading}
             >
               <LogIn className="mr-2 h-5 w-5" />
-              {isLoading ? "Logging in..." : "Login"}
+              {isLoading ? "Accesso in corso..." : "Accedi"}
             </Button>
           </CardFooter>
         </form>

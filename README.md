@@ -1,5 +1,6 @@
+
 # ProdFast Tracker
 
-This is a NextJS starter in Firebase Studio.
+Questo è uno starter NextJS in Firebase Studio.
 
-To get started, take a look at src/app/page.tsx.
+Per iniziare, dai un'occhiata a src/app/page.tsx.

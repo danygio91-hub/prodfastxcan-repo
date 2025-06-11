@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { ArrowLeft, Users, User, Mail, Factory } from 'lucide-react';
-import { getOperatorName } from '@/lib/auth'; // Assuming we can get the operator's name
+import { getOperatorName } from '@/lib/auth';
 
 interface OperatorData {
   firstName: string;
@@ -61,7 +61,7 @@ export default function OperatorDataPage() {
           <Link href="/dashboard" passHref>
             <Button variant="outline">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Dashboard
+              Torna alla Dashboard
             </Button>
           </Link>
 
@@ -70,7 +70,7 @@ export default function OperatorDataPage() {
               <div className="flex items-center space-x-3">
                 <Users className="h-8 w-8 text-primary" />
                 <div>
-                  <CardTitle className="text-xl font-headline mb-1">Operator Data</CardTitle>
+                  <CardTitle className="text-xl font-headline mb-1">Dati Operatore</CardTitle>
                   <CardDescription>Visualizza le informazioni dell'operatore.</CardDescription>
                 </div>
               </div>

@@ -5,7 +5,7 @@ import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import DashboardItem from '@/components/dashboard/DashboardItem';
-import { Briefcase, Settings, BarChart3, Users, Edit } from 'lucide-react'; // Added Edit for data management
+import { Briefcase, Settings, BarChart3, Users, Edit } from 'lucide-react';
 
 export default function AdminDashboardPage() {
   return (
@@ -13,16 +13,16 @@ export default function AdminDashboardPage() {
       <AppShell>
         <div className="space-y-8">
           <header className="space-y-2">
-            <h1 className="text-3xl font-bold font-headline tracking-tight">Admin Dashboard</h1>
+            <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Amministrazione</h1>
             <p className="text-muted-foreground">
-              Manage application data and monitor production.
+              Gestisci i dati dell'applicazione e monitora la produzione.
             </p>
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <DashboardItem
               title="Gestione Dati"
-              description="Inserisci e modifica commesse, operatori, etc."
+              description="Inserisci e modifica commesse, operatori, ecc."
               icon={Edit}
               href="/admin/data-management" // Placeholder href
             />
