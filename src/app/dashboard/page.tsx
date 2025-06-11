@@ -49,7 +49,7 @@ export default function DashboardPage() {
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Access core functions of ProdFast Tracker.
+              Accedi alle funzioni di ProdFast Tracker.
             </p>
           </header>
 
