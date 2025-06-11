@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -70,7 +71,7 @@ export default function LoginForm() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center">
-                    <User className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <User className="mr-2 h-5 w-5 text-primary" />
                     Operator Name
                   </FormLabel>
                   <FormControl>
@@ -86,7 +87,7 @@ export default function LoginForm() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center">
-                    <Lock className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <Lock className="mr-2 h-5 w-5 text-primary" />
                     Password
                   </FormLabel>
                   <FormControl>
