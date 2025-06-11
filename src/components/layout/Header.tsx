@@ -1,11 +1,13 @@
+
 "use client";
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { logout, getOperatorName } from '@/lib/auth';
-import { LogOut, UserCircle } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +43,8 @@ export default function Header() {
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        <Link href="/dashboard" className="text-xl font-bold font-headline text-primary">
+        <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
+          <Image src="/logo.svg" alt="ProdFast Logo" width={45} height={30} className="mr-3" />
           ProdFast Tracker
         </Link>
         <div className="flex items-center space-x-4">
