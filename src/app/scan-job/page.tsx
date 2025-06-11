@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -25,13 +25,17 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 
+interface WorkPeriod {
+  start: Date;
+  end: Date | null;
+}
+
 interface JobPhase {
   id: string;
   name: string;
   status: 'pending' | 'in-progress' | 'paused' | 'completed';
   materialReady: boolean;
-  startTime: Date | null;
-  endTime: Date | null;
+  workPeriods: WorkPeriod[];
   sequence: number;
   workstationScannedAndVerified?: boolean;
 }
@@ -59,10 +63,10 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-12-15",
     postazioneLavoro: "Postazione A-05",
     phases: [
-      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 1 },
-      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
-      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
-      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 4 },
+      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, workPeriods: [], sequence: 1 },
+      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
+      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
+      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4 },
     ]
   },
   {
@@ -74,9 +78,9 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-11-30",
     postazioneLavoro: "Banco CQ-02",
     phases: [
-      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, startTime: null, endTime: null, sequence: 1 },
-      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
-      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
+      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, workPeriods: [], sequence: 1 },
+      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
+      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
     ]
   },
   {
@@ -88,14 +92,38 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2025-01-10",
     postazioneLavoro: "Postazione B-01",
     phases: [
-      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 1 },
-      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 2 },
-      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, startTime: null, endTime: null, sequence: 3 },
+      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, workPeriods: [], sequence: 1 },
+      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
+      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
     ]
   }
 ];
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
+
+function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
+  let totalMilliseconds = 0;
+  workPeriods.forEach(period => {
+    if (period.end) {
+      totalMilliseconds += period.end.getTime() - period.start.getTime();
+    }
+  });
+
+  if (totalMilliseconds === 0 && !workPeriods.some(p => p.end === null)) return "0s";
+  if (totalMilliseconds === 0 && workPeriods.some(p => p.end === null)) return "Iniziata (0s effettivi)";
+
+
+  const hours = Math.floor(totalMilliseconds / (1000 * 60 * 60));
+  const minutes = Math.floor((totalMilliseconds / (1000 * 60)) % 60);
+  const seconds = Math.floor((totalMilliseconds / 1000) % 60);
+
+  let formattedTime = "";
+  if (hours > 0) formattedTime += `${hours}h `;
+  if (minutes > 0 || hours > 0) formattedTime += `${minutes}m `;
+  formattedTime += `${seconds}s`;
+  
+  return formattedTime.trim();
+}
 
 
 export default function ScanJobPage() {
@@ -160,7 +188,11 @@ export default function ScanJobPage() {
         setJobScanSuccess(true);
         const jobWithInitializedPhases = {
           ...randomJob,
-          phases: randomJob.phases.map(p => ({ ...p, workstationScannedAndVerified: false }))
+          phases: randomJob.phases.map(p => ({ 
+            ...p, 
+            workstationScannedAndVerified: false,
+            workPeriods: [], // Ensure work periods are fresh on new scan
+           }))
         };
         setScannedJobOrder(jobWithInitializedPhases);
         toast({
@@ -190,7 +222,7 @@ export default function ScanJobPage() {
   const handleSimulateWorkstationScanForPhase = (phaseId: string) => {
     if (!activeJobOrder) return;
     setIsScanningWorkstationForPhase(true);
-    const simulatedScannedId = activeJobOrder.postazioneLavoro;
+    const simulatedScannedId = activeJobOrder.postazioneLavoro; 
     setScannedWorkstationIdForPhase(simulatedScannedId);
 
     setTimeout(() => {
@@ -229,8 +261,7 @@ export default function ScanJobPage() {
             ...p,
             status: 'pending' as 'pending',
             materialReady: p.materialReady || false,
-            startTime: null,
-            endTime: null,
+            workPeriods: [], // Reset work periods when starting job overall
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
     };
@@ -270,7 +301,7 @@ export default function ScanJobPage() {
       }
 
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
-      if (currentPhaseIndex === -1) return prev; // Should not happen if phaseToStart is found
+      if (currentPhaseIndex === -1) return prev; 
 
       if (prev.phases.some(p => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
         toastInfo = { variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." };
@@ -282,7 +313,13 @@ export default function ScanJobPage() {
       }
 
       const updatedPhases = prev.phases.map(phase =>
-        phase.id === phaseId ? { ...phase, status: 'in-progress' as 'in-progress', startTime: new Date() } : phase
+        phase.id === phaseId 
+        ? { 
+            ...phase, 
+            status: 'in-progress' as 'in-progress', 
+            workPeriods: [...phase.workPeriods, { start: new Date(), end: null }] 
+          } 
+        : phase
       );
       const startedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
       toastInfo = { title: "Fase Avviata", description: `Fase "${startedPhaseName}" avviata.` };
@@ -311,9 +348,15 @@ export default function ScanJobPage() {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." };
         return prev;
       }
-      const updatedPhases = prev.phases.map(p =>
-        p.id === phaseId ? { ...p, status: 'paused' as 'paused' } : p
-      );
+      const updatedPhases = prev.phases.map(p => {
+        if (p.id === phaseId) {
+          const updatedWorkPeriods = p.workPeriods.map((wp, index) => 
+            index === p.workPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
+          );
+          return { ...p, status: 'paused' as 'paused', workPeriods: updatedWorkPeriods };
+        }
+        return p;
+      });
       toastInfo = { title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` };
       return { ...prev, phases: updatedPhases };
     });
@@ -338,8 +381,14 @@ export default function ScanJobPage() {
         return prev;
       }
 
-      const updatedPhases = prev.phases.map(p =>
-        p.id === phaseId ? { ...p, status: 'in-progress' as 'in-progress' } : p
+      const updatedPhases = prev.phases.map(phase =>
+        phase.id === phaseId 
+        ? { 
+            ...phase, 
+            status: 'in-progress' as 'in-progress',
+            workPeriods: [...phase.workPeriods, { start: new Date(), end: null }] 
+          } 
+        : phase
       );
       const resumedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
       toastInfo = { title: "Fase Ripresa", description: `Fase "${resumedPhaseName}" ripresa.` };
@@ -361,9 +410,18 @@ export default function ScanJobPage() {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." };
         return prev;
       }
-      const updatedPhases = prev.phases.map(phase =>
-        p.id === phaseId ? { ...phase, status: 'completed' as 'completed', endTime: new Date() } : phase
-      );
+      const updatedPhases = prev.phases.map(p => {
+        if (p.id === phaseId) {
+          let updatedWorkPeriods = p.workPeriods;
+          if (p.status === 'in-progress') { // Only close period if it was in-progress
+            updatedWorkPeriods = p.workPeriods.map((wp, index) =>
+              index === p.workPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
+            );
+          }
+          return { ...p, status: 'completed' as 'completed', workPeriods: updatedWorkPeriods };
+        }
+        return p;
+      });
       toastInfo = { title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> };
       phaseCompletedSuccessfully = true;
       return { ...prev, phases: updatedPhases };
@@ -508,8 +566,9 @@ export default function ScanJobPage() {
                           ? "Fase Corrente:"
                           : "Prossima Fase:"}
                       </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
-                       {isDisplayingScannedJobDetails && !activeJobOrder && " (in attesa di avvio lavorazione)"}
-                       {!isProcessingJob && scannedJobOrder && job.id === scannedJobOrder.id && !activeJobOrder && " (in attesa di avvio lavorazione commessa)"}
+                       {!isProcessingJob && scannedJobOrder && job.id === scannedJobOrder.id && !activeJobOrder && (
+                         scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false ? " (in attesa scansione postazione)" : " (in attesa di avvio lavorazione commessa)"
+                       )}
                     </p>
                      <p className="text-sm">
                       <span className="font-medium text-muted-foreground">Postazione Lavorazione Prevista per la Commessa:</span> {postazioneLavoroPerFase}
@@ -563,6 +622,8 @@ export default function ScanJobPage() {
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
           if (phase.status === 'paused') phaseIcon = <PausePhaseIcon className="mr-2 h-5 w-5 text-orange-500" />;
           if (phase.status === 'completed') phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
+          
+          const lastWorkPeriod = phase.workPeriods.length > 0 ? phase.workPeriods[phase.workPeriods.length - 1] : null;
 
           return (
             <Card key={phase.id} className="p-4 bg-card/50">
@@ -584,18 +645,16 @@ export default function ScanJobPage() {
               </div>
                <p className="text-xs text-muted-foreground mt-1">Postazione Prevista: {activeJobOrder?.postazioneLavoro}</p>
 
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {lastWorkPeriod?.start && (
+                  <p>Ultimo avvio: {format(lastWorkPeriod.start, "dd/MM/yyyy HH:mm:ss")}</p>
+                )}
+                {phase.status === 'paused' && lastWorkPeriod?.end && (
+                  <p>Messa in pausa il: {format(lastWorkPeriod.end, "dd/MM/yyyy HH:mm:ss")}</p>
+                )}
+                 <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(phase.workPeriods)}</p>
+              </div>
 
-              {phase.startTime && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Iniziata: {format(phase.startTime, "dd/MM/yyyy HH:mm:ss")}
-                  {phase.status === 'paused' && " (In Pausa)"}
-                </p>
-              )}
-              {phase.endTime && (
-                <p className="text-xs text-muted-foreground">
-                  Completata: {format(phase.endTime, "dd/MM/yyyy HH:mm:ss")}
-                </p>
-              )}
 
               {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && (
                 <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
@@ -743,3 +802,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
