@@ -364,18 +364,23 @@ export default function ScanJobPage() {
   );
 
   const renderJobDetailsCard = (job: JobOrder) => {
-    const showAdvancementInfo = isProcessingJob && activeJobOrder && activeJobOrder.id === job.id && !activeJobOrder.overallEndTime;
-    let nextPhaseForDisplay: JobPhase | undefined = undefined;
-    let postazionePerNextPhase: string | undefined = undefined;
+    const showAdvancementInfoBeforeProcessing = !isProcessingJob && job.id === scannedJobOrder?.id && workstationScanMatch === true;
+    const showAdvancementInfoDuringProcessing = isProcessingJob && job.id === activeJobOrder?.id && !activeJobOrder?.overallEndTime;
+    const shouldDisplayAdvancement = showAdvancementInfoBeforeProcessing || showAdvancementInfoDuringProcessing;
 
-    if (showAdvancementInfo && activeJobOrder) {
-      nextPhaseForDisplay = activeJobOrder.phases
-        .filter(p => p.status === 'pending' || p.status === 'in-progress' || p.status === 'paused')
-        .sort((a, b) => a.sequence - b.sequence)[0];
-      
-      if (nextPhaseForDisplay) {
-        postazionePerNextPhase = activeJobOrder.postazioneLavoro;
-      }
+    let nextPhaseForDisplay: JobPhase | undefined = undefined;
+    let postazioneLavoroPerFase: string | undefined = undefined;
+    let allPhasesInCurrentJobCompleted = false;
+
+    if (shouldDisplayAdvancement) {
+        nextPhaseForDisplay = job.phases
+            .filter(p => p.status === 'pending' || p.status === 'in-progress' || p.status === 'paused')
+            .sort((a, b) => a.sequence - b.sequence)[0];
+        
+        if (nextPhaseForDisplay) {
+            postazioneLavoroPerFase = job.postazioneLavoro;
+        }
+        allPhasesInCurrentJobCompleted = job.phases.every(p => p.status === 'completed');
     }
     
     return (
@@ -416,7 +421,7 @@ export default function ScanJobPage() {
             <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
 
-          {showAdvancementInfo && (
+          {shouldDisplayAdvancement && (
             <>
               <Separator className="my-4" />
               <div className="space-y-2">
@@ -424,23 +429,24 @@ export default function ScanJobPage() {
                   <Activity className="mr-2 h-5 w-5 text-primary" />
                   Stato Avanzamento Corrente
                 </h3>
-                {nextPhaseForDisplay && postazionePerNextPhase ? (
+                {nextPhaseForDisplay && postazioneLavoroPerFase ? (
                   <>
                     <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">Prossima Fase / Fase Corrente:</span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
+                      <span className="font-medium text-muted-foreground">
+                        {isProcessingJob && job === activeJobOrder && (nextPhaseForDisplay.status === 'in-progress' || nextPhaseForDisplay.status === 'paused')
+                          ? "Fase Corrente:"
+                          : "Prossima Fase:"}
+                      </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
+                      {!isProcessingJob && job === scannedJobOrder && " (in attesa di avvio lavorazione)"}
                     </p>
                     <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">Postazione Lavorazione:</span> {postazionePerNextPhase}
+                      <span className="font-medium text-muted-foreground">Postazione Lavorazione:</span> {postazioneLavoroPerFase}
                     </p>
                   </>
+                ) : allPhasesInCurrentJobCompleted ? (
+                   <p className="text-sm text-green-500 font-medium">Tutte le fasi completate. Pronta per la conclusione.</p>
                 ) : (
-                  activeJobOrder && activeJobOrder.phases.every(p => p.status === 'completed') && (
-                     <p className="text-sm text-green-500 font-medium">Tutte le fasi completate. Pronta per la conclusione.</p>
-                  )
-                )}
-                 {!nextPhaseForDisplay && activeJobOrder && !activeJobOrder.phases.every(p => p.status === 'completed') && (
-                   // Questo stato si verifica brevemente o se c'è un errore nella logica di determinazione della fase
-                   <p className="text-sm text-muted-foreground">Nessuna fase attiva o in attesa al momento.</p> 
+                   <p className="text-sm text-muted-foreground">Nessuna fase al momento o stato non determinabile.</p> 
                  )}
               </div>
             </>
@@ -676,4 +682,5 @@ export default function ScanJobPage() {
     
 
     
+
 
