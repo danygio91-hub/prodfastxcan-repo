@@ -33,6 +33,7 @@ interface JobPhase {
   startTime: Date | null;
   endTime: Date | null;
   sequence: number;
+  workstationScannedAndVerified?: boolean; // Nuovo: per tracciare la verifica della postazione per fase
 }
 
 interface JobOrder {
@@ -103,12 +104,12 @@ export default function ScanJobPage() {
   const [isJobAlertOpen, setIsJobAlertOpen] = React.useState(false);
   const [jobAlertInfo, setJobAlertInfo] = React.useState({ title: "", description: "" });
 
-  const [isWorkstationScanRequired, setIsWorkstationScanRequired] = React.useState(false);
-  const [isScanningWorkstation, setIsScanningWorkstation] = React.useState(false);
-  const [scannedWorkstationId, setScannedWorkstationId] = React.useState<string | null>(null);
-  const [workstationScanMatch, setWorkstationScanMatch] = React.useState<boolean | null>(null);
-  const [isWorkstationAlertOpen, setIsWorkstationAlertOpen] = React.useState(false);
-  const [workstationAlertInfo, setWorkstationAlertInfo] = React.useState({ title: "", description: "" });
+  // Stati per la scansione della postazione a livello di fase
+  const [phaseRequiringWorkstationScan, setPhaseRequiringWorkstationScan] = useState<string | null>(null);
+  const [isScanningWorkstationForPhase, setIsScanningWorkstationForPhase] = useState(false);
+  const [scannedWorkstationIdForPhase, setScannedWorkstationIdForPhase] = useState<string | null>(null); 
+  const [isPhaseWorkstationAlertOpen, setIsPhaseWorkstationAlertOpen] = useState(false);
+  const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
 
   const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
   const [isProcessingJob, setIsProcessingJob] = useState(false);
@@ -119,17 +120,22 @@ export default function ScanJobPage() {
     setJobScanSuccess(false);
     setScannedJobOrder(null);
     setIsJobAlertOpen(false);
-    setIsWorkstationScanRequired(false);
-    setIsScanningWorkstation(false);
-    setScannedWorkstationId(null);
-    setWorkstationScanMatch(null);
-    setIsWorkstationAlertOpen(false);
+    
+    // Resetta anche gli stati di scansione postazione per fase
+    setPhaseRequiringWorkstationScan(null);
+    setIsScanningWorkstationForPhase(false);
+    setScannedWorkstationIdForPhase(null);
+    setIsPhaseWorkstationAlertOpen(false);
   };
 
   const resetProcessingState = () => {
     setActiveJobOrder(null);
     setIsProcessingJob(false);
     setCurrentPhaseId(null);
+     // Resetta anche gli stati di scansione postazione per fase al termine della commessa
+    setPhaseRequiringWorkstationScan(null);
+    setIsScanningWorkstationForPhase(false);
+    setScannedWorkstationIdForPhase(null);
   }
 
   const handleSimulateJobScan = () => {
@@ -152,67 +158,91 @@ export default function ScanJobPage() {
         setIsJobAlertOpen(true);
       } else {
         setJobScanSuccess(true);
-        setScannedJobOrder(randomJob); 
-        setIsWorkstationScanRequired(true);
+        // Inizializza workstationScannedAndVerified a false per tutte le fasi
+        const jobWithInitializedPhases = {
+          ...randomJob,
+          phases: randomJob.phases.map(p => ({ ...p, workstationScannedAndVerified: false }))
+        };
+        setScannedJobOrder(jobWithInitializedPhases); 
         toast({
           title: "Scansione Commessa Riuscita!",
-          description: `Commessa ${randomJob.id} (${randomJob.department}) scansionata. Procedere con scansione postazione.`,
+          description: `Commessa ${randomJob.id} (${randomJob.department}) scansionata.`,
           action: <CheckCircle className="text-green-500" />,
         });
         setTimeout(() => setJobScanSuccess(false), 3000); 
       }
     }, 1500);
   };
+  
+  const handleTriggerWorkstationScanForPhase = (phaseId: string) => {
+    setPhaseRequiringWorkstationScan(phaseId);
+    setScannedWorkstationIdForPhase(null); // Resetta l'ID scansionato precedente
+    if (activeJobOrder) {
+        setActiveJobOrder(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                phases: prev.phases.map(p => p.id === phaseId ? { ...p, workstationScannedAndVerified: false } : p)
+            }
+        })
+    }
+  };
 
-  const handleSimulateWorkstationScan = () => {
-    if (!scannedJobOrder) return;
-    setIsScanningWorkstation(true);
-    setWorkstationScanMatch(null); 
-    setScannedWorkstationId(null);
-    setIsWorkstationAlertOpen(false);
-
-    const simulatedScannedId = scannedJobOrder.postazioneLavoro; 
+  const handleSimulateWorkstationScanForPhase = (phaseId: string) => {
+    if (!activeJobOrder) return;
+    setIsScanningWorkstationForPhase(true);
+    // Simula l'ID scansionato (per test, usiamo quello corretto della commessa)
+    // In una vera app, questo verrebbe da un input o da un lettore barcode.
+    const simulatedScannedId = activeJobOrder.postazioneLavoro; 
+    setScannedWorkstationIdForPhase(simulatedScannedId);
 
     setTimeout(() => {
-      setIsScanningWorkstation(false);
-      setScannedWorkstationId(simulatedScannedId);
-
-      if (simulatedScannedId === scannedJobOrder.postazioneLavoro) {
-        setWorkstationScanMatch(true);
+      setIsScanningWorkstationForPhase(false);
+      if (simulatedScannedId === activeJobOrder.postazioneLavoro) {
+        setActiveJobOrder(prev => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            phases: prev.phases.map(p => p.id === phaseId ? { ...p, workstationScannedAndVerified: true } : p)
+          };
+        });
         toast({
           title: "Scansione Postazione Riuscita!",
-          description: `Postazione ${simulatedScannedId} verificata. Puoi iniziare la lavorazione.`,
+          description: `Postazione ${simulatedScannedId} verificata per fase ${activeJobOrder.phases.find(p=>p.id === phaseId)?.name}.`,
           action: <CheckCircle className="text-green-500" />,
         });
+        setPhaseRequiringWorkstationScan(null); // Chiudi UI scansione postazione
       } else {
-        setWorkstationScanMatch(false);
-        setWorkstationAlertInfo({
+        setPhaseWorkstationAlertInfo({
           title: "Errore Postazione",
-          description: `Postazione ${simulatedScannedId} non corretta per commessa ${scannedJobOrder.id} (Attesa: ${scannedJobOrder.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+          description: `Postazione ${simulatedScannedId} non corretta per commessa ${activeJobOrder.id} (Attesa: ${activeJobOrder.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
         });
-        setIsWorkstationAlertOpen(true);
+        setIsPhaseWorkstationAlertOpen(true);
+        // Non resettare phaseRequiringWorkstationScan, l'utente deve riprovare o annullare
       }
     }, 1000);
   };
 
+
   const handleStartOverallJob = () => {
-    if (!scannedJobOrder || !workstationScanMatch) return;
-    setActiveJobOrder({ 
+    if (!scannedJobOrder) return;
+    const jobToStart = { 
         ...scannedJobOrder, 
         overallStartTime: new Date(), 
         phases: scannedJobOrder.phases.map(p => ({
             ...p, 
-            status: 'pending', 
+            status: 'pending' as 'pending', 
             materialReady: p.materialReady || false, 
             startTime: null, 
-            endTime: null
+            endTime: null,
+            workstationScannedAndVerified: p.workstationScannedAndVerified || false, // Mantiene lo stato se già scansionato
         })) 
-    });
+    };
+    setActiveJobOrder(jobToStart);
     setIsProcessingJob(true);
-    setIsWorkstationScanRequired(false); 
     toast({
       title: "Lavorazione Avviata",
-      description: `Lavoro iniziato per commessa ${scannedJobOrder.id} su postazione ${scannedJobOrder.postazioneLavoro}.`,
+      description: `Lavoro iniziato per commessa ${scannedJobOrder.id}.`,
       action: <PlayCircle className="text-primary" />,
     });
   };
@@ -232,6 +262,13 @@ export default function ScanJobPage() {
   const handleStartPhase = (phaseId: string) => {
     setActiveJobOrder(prev => {
       if (!prev) return prev;
+      const phaseToStart = prev.phases.find(p => p.id === phaseId);
+      if (!phaseToStart || !phaseToStart.workstationScannedAndVerified) {
+          toast({ variant: "destructive", title: "Errore", description: "Scansionare e verificare la postazione prima di avviare la fase." });
+          setPhaseRequiringWorkstationScan(phaseId); // Forza la scansione se non fatta
+          return prev;
+      }
+
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
       if (currentPhaseIndex === -1) return prev;
 
@@ -345,7 +382,7 @@ export default function ScanJobPage() {
           {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Align job barcode</p>}
           {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
           {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
-          {!isScanningJob && scannedJobOrder && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
+          {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isProcessingJob && <CheckCircle className="h-16 w-16 text-green-500" />}
         </div>
         
         <Button 
@@ -364,11 +401,8 @@ export default function ScanJobPage() {
   );
 
   const renderJobDetailsCard = (job: JobOrder) => {
-    // Determine if we are rendering details for a scanned job (before processing) or an active job (during processing)
     const isDisplayingScannedJobDetails = !isProcessingJob && job.id === scannedJobOrder?.id && scannedJobOrder !== null;
     const isDisplayingActiveJobDetails = isProcessingJob && job.id === activeJobOrder?.id && activeJobOrder !== null && !activeJobOrder.overallEndTime;
-    
-    // The advancement section should be displayed in either of these cases, or if processing has started
     const shouldDisplayAdvancement = isDisplayingScannedJobDetails || isDisplayingActiveJobDetails;
 
     let nextPhaseForDisplay: JobPhase | undefined = undefined;
@@ -381,7 +415,7 @@ export default function ScanJobPage() {
             .sort((a, b) => a.sequence - b.sequence)[0];
         
         if (nextPhaseForDisplay) {
-            postazioneLavoroPerFase = job.postazioneLavoro; // This is the overall job's workstation
+             postazioneLavoroPerFase = job.postazioneLavoro; 
         }
         allPhasesInCurrentJobCompleted = job.phases.every(p => p.status === 'completed');
     }
@@ -415,7 +449,7 @@ export default function ScanJobPage() {
               <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
             </div>
             <div>
-              <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista</Label>
+              <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista (Generale)</Label>
               <Input id="postazioneLavoroJob" value={job.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
             </div>
           </div>
@@ -440,14 +474,10 @@ export default function ScanJobPage() {
                           ? "Fase Corrente:"
                           : "Prossima Fase:"}
                       </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
-                      {isDisplayingScannedJobDetails && (
-                        workstationScanMatch === true 
-                          ? " (in attesa di avvio lavorazione)"
-                          : " (in attesa scansione postazione)"
-                      )}
+                      {isDisplayingScannedJobDetails && " (in attesa di avvio lavorazione generale)"}
                     </p>
-                    <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">Postazione Lavorazione Prevista:</span> {postazioneLavoroPerFase}
+                     <p className="text-sm">
+                      <span className="font-medium text-muted-foreground">Postazione Lavorazione Prevista per la Commessa:</span> {postazioneLavoroPerFase}
                     </p>
                   </>
                 ) : allPhasesInCurrentJobCompleted ? (
@@ -459,45 +489,20 @@ export default function ScanJobPage() {
             </>
           )}
         </CardContent>
+         {!isProcessingJob && scannedJobOrder && (
+            <CardFooter>
+                <Button 
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
+                    onClick={handleStartOverallJob}
+                >
+                    <PlayCircle className="mr-2 h-5 w-5" /> Inizia Lavorazione Commessa
+                </Button>
+            </CardFooter>
+        )}
       </Card>
     );
   }
 
-  const renderWorkstationScanCard = () => (
-    <Card className="mt-6 border-primary border-dashed">
-      <CardHeader>
-        <CardTitle className="font-headline flex items-center text-lg">
-          <Computer className="mr-3 h-6 w-6 text-primary" />
-          Scan Workstation Barcode
-        </CardTitle>
-        <CardDescription>
-          Scan the barcode on the assigned workstation: <strong>{scannedJobOrder?.postazioneLavoro}</strong>
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center space-y-4">
-        <div 
-          className={`w-full max-w-xs h-32 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-          ${isScanningWorkstation ? 'border-primary animate-pulse' : 'border-border'}
-          ${workstationScanMatch === false ? 'border-destructive bg-destructive/10' : ''}
-          `}
-        >
-          {isScanningWorkstation && <p className="text-primary font-semibold">Scanning Workstation...</p>}
-          {!isScanningWorkstation && workstationScanMatch === null && <p className="text-muted-foreground">Align workstation barcode</p>}
-          {!isScanningWorkstation && workstationScanMatch === false && <AlertTriangle className="h-12 w-12 text-destructive" />}
-          {!isScanningWorkstation && workstationScanMatch === true && <CheckCircle className="h-12 w-12 text-green-500" />}
-        </div>
-        <Button 
-          onClick={handleSimulateWorkstationScan} 
-          disabled={isScanningWorkstation}
-          className="w-full max-w-xs"
-          variant="outline"
-        >
-          <ScanLine className="mr-2 h-5 w-5" />
-          {isScanningWorkstation ? "Scanning..." : "Simulate Workstation Scan"}
-        </Button>
-      </CardContent>
-    </Card>
-  );
 
   const renderPhasesManagement = () => (
     <Card className="mt-6 shadow-lg">
@@ -506,14 +511,15 @@ export default function ScanJobPage() {
           <ListChecks className="mr-3 h-7 w-7 text-primary" />
           Fasi di Lavorazione Commessa: {activeJobOrder?.id}
         </CardTitle>
-        <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
+        <CardDescription>Gestisci l'avanzamento delle fasi. Postazione per questa commessa: <strong>{activeJobOrder?.postazioneLavoro}</strong></CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {activeJobOrder?.phases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
           const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
 
-          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused;
+          const canTriggerWorkstationScan = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
+          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && phase.workstationScannedAndVerified;
           const canPausePhase = phase.status === 'in-progress';
           const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused; 
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
@@ -541,9 +547,7 @@ export default function ScanJobPage() {
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Postazione Prevista: {activeJobOrder?.postazioneLavoro}
-              </div>
+              
               {phase.startTime && (
                 <p className="text-xs text-muted-foreground mt-1">
                   Iniziata: {format(phase.startTime, "dd/MM/yyyy HH:mm:ss")}
@@ -555,9 +559,42 @@ export default function ScanJobPage() {
                   Completata: {format(phase.endTime, "dd/MM/yyyy HH:mm:ss")}
                 </p>
               )}
+
+              {/* Workstation Scan UI for phase */}
+              {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && (
+                <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
+                    <Label className="font-semibold text-primary">Verifica Postazione per Fase: {phase.name}</Label>
+                    <p className="text-sm text-muted-foreground">Scansiona il barcode della postazione: <strong>{activeJobOrder?.postazioneLavoro}</strong></p>
+                     <div 
+                        className={`w-full h-24 border-2 rounded-lg flex items-center justify-center transition-all duration-300
+                        ${isScanningWorkstationForPhase ? 'border-primary animate-pulse' : 'border-border'}
+                        ${scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified ? 'border-destructive bg-destructive/10' : ''}
+                        ${phase.workstationScannedAndVerified && !isScanningWorkstationForPhase ? 'border-green-500 bg-green-500/10' : ''}
+                        `} >
+                        {isScanningWorkstationForPhase && <p className="text-primary font-semibold">Scanning Workstation...</p>}
+                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Align workstation barcode</p>}
+                        {!isScanningWorkstationForPhase && phase.workstationScannedAndVerified && <CheckCircle className="h-10 w-10 text-green-500" />}
+                         {scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <AlertTriangle className="h-10 w-10 text-destructive" />}
+                    </div>
+                    <Button 
+                        onClick={() => handleSimulateWorkstationScanForPhase(phase.id)} 
+                        disabled={isScanningWorkstationForPhase}
+                        className="w-full"
+                        variant="outline" >
+                        <ScanLine className="mr-2 h-5 w-5" />
+                        {isScanningWorkstationForPhase ? "Scanning..." : "Simulate Workstation Scan for Phase"}
+                    </Button>
+                </div>
+              )}
+
               <div className="mt-3 flex flex-wrap gap-2">
+                {canTriggerWorkstationScan && phase.status === 'pending' && (
+                     <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
+                        <ScanLine className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
+                    </Button>
+                )}
                 {canStartPhase && (
-                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="outline">
+                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="default">
                     <PlayCircle className="mr-2 h-4 w-4" /> Avvia Fase
                   </Button>
                 )}
@@ -604,32 +641,23 @@ export default function ScanJobPage() {
             </Button>
           </Link>
 
-          {!isProcessingJob && !activeJobOrder?.overallEndTime && renderJobScanArea()}
+          {/* Area di Scansione Commessa Iniziale */}
+          {!isProcessingJob && !activeJobOrder?.overallEndTime && !scannedJobOrder && renderJobScanArea()}
           
+          {/* Dettagli Commessa Scansionata (prima di avviare lavorazione) */}
           {scannedJobOrder && !isProcessingJob && !activeJobOrder?.overallEndTime && (
-            <>
-              {renderJobDetailsCard(scannedJobOrder)}
-              {isWorkstationScanRequired && workstationScanMatch !== true && !isWorkstationAlertOpen && (
-                renderWorkstationScanCard()
-              )}
-              {workstationScanMatch === true && (
-                 <Button 
-                    className="mt-6 w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
-                    onClick={handleStartOverallJob}
-                  >
-                    <PlayCircle className="mr-2 h-5 w-5" /> Inizia Lavorazione Commessa
-                  </Button>
-              )}
-            </>
+             renderJobDetailsCard(scannedJobOrder)
           )}
 
-          {isProcessingJob && activeJobOrder && (
+          {/* Gestione Fasi per Commessa Attiva */}
+          {isProcessingJob && activeJobOrder && !activeJobOrder.overallEndTime && (
             <>
               {renderJobDetailsCard(activeJobOrder)}
               {renderPhasesManagement()}
             </>
           )}
           
+          {/* Area per Nuova Scansione dopo Conclusione Commessa */}
           {activeJobOrder?.overallEndTime && (
              <Card className="mt-6">
                 <CardHeader>
@@ -642,7 +670,7 @@ export default function ScanJobPage() {
              </Card>
           )}
 
-
+          {/* Alert Dialog per Errori Scansione Commessa */}
           <AlertDialog open={isJobAlertOpen} onOpenChange={setIsJobAlertOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
@@ -660,22 +688,23 @@ export default function ScanJobPage() {
             </AlertDialogContent>
           </AlertDialog>
 
-          <AlertDialog open={isWorkstationAlertOpen} onOpenChange={setIsWorkstationAlertOpen}>
+          {/* Alert Dialog per Errori Scansione Postazione per Fase */}
+          <AlertDialog open={isPhaseWorkstationAlertOpen} onOpenChange={setIsPhaseWorkstationAlertOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center">
                   <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
-                  {workstationAlertInfo.title}
+                  {phaseWorkstationAlertInfo.title}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {workstationAlertInfo.description}
+                  {phaseWorkstationAlertInfo.description}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogAction onClick={() => { 
-                  setIsWorkstationAlertOpen(false); 
-                  setScannedWorkstationId(null); 
-                  setWorkstationScanMatch(null); 
+                  setIsPhaseWorkstationAlertOpen(false); 
+                  // Non resettare phaseRequiringWorkstationScan qui, l'utente potrebbe voler riprovare
+                  // setScannedWorkstationIdForPhase(null); // Già resettato in handleTrigger
                 }}>OK</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -689,6 +718,7 @@ export default function ScanJobPage() {
     
 
     
+
 
 
 
