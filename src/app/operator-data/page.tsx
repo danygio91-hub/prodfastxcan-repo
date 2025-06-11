@@ -54,7 +54,7 @@ export default function OperatorDataPage() {
               <div className="flex items-center space-x-3">
                 <Users className="h-8 w-8 text-primary" />
                 <div>
-                  <CardTitle className="text-2xl font-headline">Dati Operatore</CardTitle>
+                  <CardTitle className="text-2xl font-headline">Operator Data</CardTitle>
                   <CardDescription>Visualizza le informazioni dell'operatore.</CardDescription>
                 </div>
               </div>
