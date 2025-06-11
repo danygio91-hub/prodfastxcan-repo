@@ -3,14 +3,25 @@
 
 const AUTH_KEY = 'prodtime_tracker_auth';
 
+interface AuthData {
+  loggedIn: boolean;
+  operatorName: string;
+  isAdmin?: boolean;
+}
+
 export function login(operatorName: string, password_unused: string): Promise<boolean> {
-  // Mock login: specific credentials for testing
   return new Promise((resolve) => {
     setTimeout(() => {
+      let authDataToStore: AuthData | null = null;
+
       if (operatorName === 'Daniel' && password_unused === '1234') {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(AUTH_KEY, JSON.stringify({ loggedIn: true, operatorName }));
-        }
+        authDataToStore = { loggedIn: true, operatorName, isAdmin: true };
+      } else if (operatorName && password_unused) { // Simplified operator login
+        authDataToStore = { loggedIn: true, operatorName, isAdmin: false };
+      }
+
+      if (authDataToStore && typeof window !== 'undefined') {
+        localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
         resolve(true);
       } else {
         resolve(false);
@@ -27,10 +38,10 @@ export function logout(): void {
 
 export function isAuthenticated(): boolean {
   if (typeof window !== 'undefined') {
-    const authData = localStorage.getItem(AUTH_KEY);
-    if (authData) {
+    const authDataString = localStorage.getItem(AUTH_KEY);
+    if (authDataString) {
       try {
-        const parsedData = JSON.parse(authData);
+        const parsedData: AuthData = JSON.parse(authDataString);
         return parsedData.loggedIn === true;
       } catch (e) {
         return false;
@@ -42,10 +53,10 @@ export function isAuthenticated(): boolean {
 
 export function getOperatorName(): string | null {
   if (typeof window !== 'undefined') {
-    const authData = localStorage.getItem(AUTH_KEY);
-    if (authData) {
+    const authDataString = localStorage.getItem(AUTH_KEY);
+    if (authDataString) {
       try {
-        const parsedData = JSON.parse(authData);
+        const parsedData: AuthData = JSON.parse(authDataString);
         return parsedData.operatorName || null;
       } catch (e) {
         return null;
@@ -53,4 +64,19 @@ export function getOperatorName(): string | null {
     }
   }
   return null;
+}
+
+export function isAdmin(): boolean {
+  if (typeof window !== 'undefined') {
+    const authDataString = localStorage.getItem(AUTH_KEY);
+    if (authDataString) {
+      try {
+        const parsedData: AuthData = JSON.parse(authDataString);
+        return parsedData.loggedIn === true && parsedData.isAdmin === true;
+      } catch (e) {
+        return false;
+      }
+    }
+  }
+  return false;
 }

@@ -11,11 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { login } from "@/lib/auth";
+import { login, isAdmin as checkIsAdmin } from "@/lib/auth"; // Renamed isAdmin to checkIsAdmin to avoid conflict
 import { useToast } from "@/hooks/use-toast";
-import { Lock, LogIn, Clock, ScanBarcode } from "lucide-react";
+import { Lock, LogIn, Clock, ScanBarcode, User } from "lucide-react";
 
 const formSchema = z.object({
+  username: z.string().min(1, { message: "Username is required." }), // Added username field
   password: z.string().min(1, { message: "Password is required." }),
 });
 
@@ -23,57 +24,53 @@ export default function LoginForm() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = React.useState(false);
-  const [scannedOperatorName, setScannedOperatorName] = React.useState<string | null>(null);
-  const [isScanningBarcode, setIsScanningBarcode] = React.useState(false);
+  // Barcode scanning logic removed for simplicity for now, admin login will use username/password
+  // const [scannedOperatorName, setScannedOperatorName] = React.useState<string | null>(null);
+  // const [isScanningBarcode, setIsScanningBarcode] = React.useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      username: "",
       password: "",
     },
   });
 
-  const handleSimulateBarcodeScan = () => {
-    setIsScanningBarcode(true);
-    // Simulate barcode scanning process
-    setTimeout(() => {
-      // For testing, we'll assume the barcode scan identifies "Daniel"
-      setScannedOperatorName("Daniel");
-      setIsScanningBarcode(false);
-      toast({
-        title: "Barcode Scanned",
-        description: "Operator: Daniel identified. Please enter your password.",
-      });
-    }, 1000);
-  };
+  // const handleSimulateBarcodeScan = () => {
+  //   setIsScanningBarcode(true);
+  //   setTimeout(() => {
+  //     setScannedOperatorName("Daniel"); // Default to Daniel for barcode scan simulation
+  //     setIsScanningBarcode(false);
+  //     form.setValue("username", "Daniel", { shouldValidate: true });
+  //     toast({
+  //       title: "Barcode Scanned",
+  //       description: "Operator: Daniel identified. Please enter your password.",
+  //     });
+  //   }, 1000);
+  // };
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!scannedOperatorName) {
-      toast({
-        title: "Barcode Scan Required",
-        description: "Please scan your personal barcode before logging in.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsLoading(true);
-    const success = await login(scannedOperatorName, values.password);
+    const success = await login(values.username, values.password);
     setIsLoading(false);
 
     if (success) {
       toast({
         title: "Login Successful",
-        description: `Welcome, ${scannedOperatorName}!`,
+        description: `Welcome, ${values.username}!`,
       });
-      router.push("/dashboard");
+      if (checkIsAdmin()) {
+        router.push("/admin/dashboard");
+      } else {
+        router.push("/dashboard");
+      }
     } else {
       toast({
         title: "Login Failed",
-        description: "Invalid credentials or barcode scan mismatch.",
+        description: "Invalid credentials.",
         variant: "destructive",
       });
-      form.setError("password", { type: "manual", message: "Invalid password for the scanned operator." });
+      form.setError("password", { type: "manual", message: "Invalid username or password." });
     }
   }
 
@@ -82,15 +79,16 @@ export default function LoginForm() {
       <CardHeader className="items-center text-center">
         <Clock className="h-16 w-16 text-primary mb-4" />
         <CardTitle className="text-3xl font-headline text-foreground">ProdTime Tracker</CardTitle>
-        <CardDescription className="text-muted-foreground">Please scan your personal barcode and enter your password.</CardDescription>
+        <CardDescription className="text-muted-foreground">Please enter your credentials.</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <CardContent className="space-y-6 pt-2">
+            {/* Barcode scanning UI removed for simpler username/password login for now
             <div className="space-y-2">
               <Label className="flex items-center text-foreground/80">
                 <ScanBarcode className="mr-2 h-6 w-6 text-primary" />
-                Operator Barcode
+                Operator Barcode (or enter Username below)
               </Label>
               <Button
                 type="button"
@@ -110,18 +108,39 @@ export default function LoginForm() {
                     type="button"
                     onClick={() => {
                         setScannedOperatorName(null);
+                        form.resetField("username");
                         form.resetField("password");
-                         toast({ title: "Barcode scan reset", description: "Please scan your barcode again."});
+                         toast({ title: "Barcode scan reset", description: "Please scan your barcode or enter username."});
                     }}
                     className="w-full mt-2"
                     variant="link"
                     size="sm"
                 >
-                    Scan different barcode
+                    Clear Scanned Barcode / Enter Manually
                 </Button>
               )}
             </div>
-            
+            */}
+             <FormField
+              control={form.control}
+              name="username"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center text-foreground/80">
+                    <User className="mr-2 h-6 w-6 text-primary" />
+                    Username
+                  </FormLabel>
+                  <FormControl>
+                    <Input 
+                      placeholder="Enter your username" 
+                      {...field} 
+                      className="bg-input text-foreground placeholder:text-muted-foreground/80"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="password"
@@ -136,8 +155,7 @@ export default function LoginForm() {
                       type="password" 
                       placeholder="Enter your personal password" 
                       {...field} 
-                      className="bg-input text-foreground placeholder:text-muted-foreground/80" 
-                      disabled={!scannedOperatorName || isScanningBarcode}
+                      className="bg-input text-foreground placeholder:text-muted-foreground/80"
                     />
                   </FormControl>
                   <FormMessage />
@@ -149,7 +167,7 @@ export default function LoginForm() {
             <Button 
               type="submit" 
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
-              disabled={isLoading || !scannedOperatorName || isScanningBarcode}
+              disabled={isLoading}
             >
               <LogIn className="mr-2 h-5 w-5" />
               {isLoading ? "Logging in..." : "Login"}
