@@ -24,80 +24,8 @@ import { Input } from '@/components/ui/input';
 import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-
-interface WorkPeriod {
-  start: Date;
-  end: Date | null;
-}
-
-interface JobPhase {
-  id: string;
-  name: string;
-  status: 'pending' | 'in-progress' | 'paused' | 'completed';
-  materialReady: boolean;
-  workPeriods: WorkPeriod[];
-  sequence: number;
-  workstationScannedAndVerified?: boolean;
-}
-
-interface JobOrder {
-  id: string; // Questo sarà uguale a ordinePF
-  department: string;
-  details: string;
-  ordinePF: string;
-  numeroODL: string;
-  dataConsegnaFinale: string;
-  postazioneLavoro: string;
-  phases: JobPhase[];
-  overallStartTime?: Date | null;
-  overallEndTime?: Date | null;
-}
-
-const mockJobOrders: JobOrder[] = [
-  {
-    id: "PF-001",
-    department: "Assemblaggio Componenti Elettronici",
-    details: "Assemblaggio scheda madre per Prodotto X.",
-    ordinePF: "PF-001",
-    numeroODL: "ODL-789",
-    dataConsegnaFinale: "2024-12-15",
-    postazioneLavoro: "Postazione A-05",
-    phases: [
-      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4, workstationScannedAndVerified: false },
-    ]
-  },
-  {
-    id: "PF-002",
-    department: "Controllo Qualità",
-    details: "Verifica finale Prodotto Y.",
-    ordinePF: "PF-002",
-    numeroODL: "ODL-790",
-    dataConsegnaFinale: "2024-11-30",
-    postazioneLavoro: "Banco CQ-02",
-    phases: [
-      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ]
-  },
-  {
-    id: "PF-003",
-    department: "Assemblaggio Componenti Elettronici",
-    details: "Cablaggio unità di alimentazione per Prodotto Z.",
-    ordinePF: "PF-003",
-    numeroODL: "ODL-791",
-    dataConsegnaFinale: "2025-01-10",
-    postazioneLavoro: "Postazione B-01",
-    phases: [
-      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ]
-  }
-];
+import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data'; // Import interfaces
+import { mockJobOrders } from '@/lib/mock-data'; // Import mock data
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
 
