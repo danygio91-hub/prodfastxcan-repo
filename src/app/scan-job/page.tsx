@@ -41,7 +41,7 @@ interface JobPhase {
 }
 
 interface JobOrder {
-  id: string;
+  id: string; // Questo sarà uguale a ordinePF
   department: string;
   details: string;
   ordinePF: string;
@@ -55,7 +55,7 @@ interface JobOrder {
 
 const mockJobOrders: JobOrder[] = [
   {
-    id: "COM-12345",
+    id: "PF-001", // ID ora uguale a ordinePF
     department: "Assemblaggio Componenti Elettronici",
     details: "Assemblaggio scheda madre per Prodotto X.",
     ordinePF: "PF-001",
@@ -63,14 +63,14 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-12-15",
     postazioneLavoro: "Postazione A-05",
     phases: [
-      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, workPeriods: [], sequence: 1 },
-      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
-      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
-      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4 },
+      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+      { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
+      { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4, workstationScannedAndVerified: false },
     ]
   },
   {
-    id: "COM-67890",
+    id: "PF-002", // ID ora uguale a ordinePF
     department: "Controllo Qualità",
     details: "Verifica finale Prodotto Y.",
     ordinePF: "PF-002",
@@ -78,13 +78,13 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-11-30",
     postazioneLavoro: "Banco CQ-02",
     phases: [
-      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, workPeriods: [], sequence: 1 },
-      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
-      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
+      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+      { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
     ]
   },
   {
-    id: "COM-54321",
+    id: "PF-003", // ID ora uguale a ordinePF
     department: "Assemblaggio Componenti Elettronici",
     details: "Cablaggio unità di alimentazione per Prodotto Z.",
     ordinePF: "PF-003",
@@ -92,9 +92,9 @@ const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2025-01-10",
     postazioneLavoro: "Postazione B-01",
     phases: [
-      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, workPeriods: [], sequence: 1 },
-      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
-      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
+      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+      { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
     ]
   }
 ];
@@ -820,3 +820,4 @@ export default function ScanJobPage() {
   );
 }
 
+    
