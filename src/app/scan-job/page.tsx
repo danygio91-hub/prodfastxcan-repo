@@ -117,7 +117,7 @@ export default function ScanJobPage() {
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
           title: "Errore Reparto",
-          description: `Commessa ${randomJob.id} (${randomJob.department}) non del tuo reparto. Contattare Ufficio Produzione.`
+          description: `Commessa ${randomJob.id} non del tuo reparto. Contattare Ufficio Produzione.`
         });
         setIsJobAlertOpen(true);
       } else {
@@ -505,7 +505,7 @@ export default function ScanJobPage() {
             </div>
           </div>
           <div>
-            <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Descrizione Lavorazione</Label>
+            <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
             <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
 
@@ -763,3 +763,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
+    
