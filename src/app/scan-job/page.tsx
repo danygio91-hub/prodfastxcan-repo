@@ -117,7 +117,7 @@ export default function ScanJobPage() {
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
           title: "Errore Reparto",
-          description: `Commessa ${randomJob.id} (${randomJob.department}) non appartenente al tuo reparto (${operatorDepartment}). Recarsi presso Ufficio Produzione.`
+          description: `Commessa ${randomJob.id} (${randomJob.department}) non del tuo reparto. Contattare Ufficio Produzione.`
         });
         setIsJobAlertOpen(true);
       } else {
