@@ -10,13 +10,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity } from 'lucide-react';
+import ProblemReportForm from '@/components/forms/ProblemReportForm';
+import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -72,6 +75,9 @@ export default function ScanJobPage() {
   const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
   const [isProcessingJob, setIsProcessingJob] = useState(false);
   const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
+  
+  const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
+
 
   const resetInitialScanState = () => {
     setIsScanningJob(false);
@@ -99,7 +105,17 @@ export default function ScanJobPage() {
     resetProcessingState();
     setIsScanningJob(true);
 
-    const randomJob = mockJobOrders[Math.floor(Math.random() * mockJobOrders.length)];
+    const randomJobIndex = Math.floor(Math.random() * mockJobOrders.length);
+    // Create a deep copy to avoid modifying the original mockJobOrders array
+    const randomJob = JSON.parse(JSON.stringify(mockJobOrders[randomJobIndex])) as JobOrder;
+    
+    // Ensure phases have workPeriods initialized as empty arrays
+     randomJob.phases = randomJob.phases.map(p => ({
+      ...p,
+      workPeriods: [], // Initialize workPeriods as empty array
+      workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+    }));
+
 
     setTimeout(() => {
       setIsScanningJob(false);
@@ -117,20 +133,21 @@ export default function ScanJobPage() {
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
           title: "Errore Reparto",
-          description: `Commessa non appartenente al tuo reparto.`
+          description: `Commessa non del tuo reparto.`
         });
         setIsJobAlertOpen(true);
       } else {
         setJobScanSuccess(true);
-        const jobWithInitializedPhases = {
+        const jobWithInitializedState = {
           ...randomJob,
+          isProblemReported: randomJob.isProblemReported || false,
           phases: randomJob.phases.map(p => ({ 
             ...p, 
-            workstationScannedAndVerified: false,
-            workPeriods: [], 
+            workstationScannedAndVerified: false, // Reset this on new scan
+            workPeriods: [], // Ensure workPeriods is an array
            }))
         };
-        setScannedJobOrder(jobWithInitializedPhases);
+        setScannedJobOrder(jobWithInitializedState);
         toast({
           title: "Scansione Commessa Riuscita!",
           description: `Commessa ${randomJob.id} (${randomJob.department}) scansionata.`,
@@ -190,14 +207,21 @@ export default function ScanJobPage() {
 
   const handleStartOverallJob = () => {
     if (!scannedJobOrder) return;
+     if (scannedJobOrder.isProblemReported) {
+      toast({
+        variant: "destructive",
+        title: "Lavorazione Bloccata",
+        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
+      });
+      return;
+    }
     const jobToStart = {
         ...scannedJobOrder,
         overallStartTime: new Date(),
         phases: scannedJobOrder.phases.map(p => ({
             ...p,
             status: 'pending' as 'pending',
-            // materialReady is already set correctly from mock-data for sequence 1
-            workPeriods: [], 
+            workPeriods: p.workPeriods || [], 
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
     };
@@ -218,6 +242,10 @@ export default function ScanJobPage() {
 
     setActiveJobOrder(prev => {
       if (!prev) return prev;
+       if (prev.isProblemReported) {
+        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." };
+        return prev;
+      }
       const phaseToStart = prev.phases.find(p => p.id === phaseId);
       if (!phaseToStart) return prev;
 
@@ -250,7 +278,7 @@ export default function ScanJobPage() {
         ? { 
             ...phase, 
             status: 'in-progress' as 'in-progress', 
-            workPeriods: [...phase.workPeriods, { start: new Date(), end: null }] 
+            workPeriods: [...(phase.workPeriods || []), { start: new Date(), end: null }] 
           } 
         : phase
       );
@@ -278,6 +306,10 @@ export default function ScanJobPage() {
 
     setActiveJobOrder(prev => {
       if (!prev) return prev;
+      if (prev.isProblemReported) {
+        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile mettere in pausa, problema segnalato." };
+        return prev;
+      }
       const phaseToPause = prev.phases.find(p => p.id === phaseId);
       if (!phaseToPause || phaseToPause.status !== 'in-progress') {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." };
@@ -285,8 +317,9 @@ export default function ScanJobPage() {
       }
       const updatedPhases = prev.phases.map(p => {
         if (p.id === phaseId) {
-          const updatedWorkPeriods = p.workPeriods.map((wp, index) => 
-            index === p.workPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
+          const currentWorkPeriods = p.workPeriods || [];
+          const updatedWorkPeriods = currentWorkPeriods.map((wp, index) => 
+            index === currentWorkPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
           );
           return { ...p, status: 'paused' as 'paused', workPeriods: updatedWorkPeriods };
         }
@@ -306,6 +339,10 @@ export default function ScanJobPage() {
 
     setActiveJobOrder(prev => {
       if (!prev) return prev;
+      if (prev.isProblemReported) {
+        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." };
+        return prev;
+      }
       const phaseToResume = prev.phases.find(p => p.id === phaseId);
       if (!phaseToResume || phaseToResume.status !== 'paused') {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è in pausa." };
@@ -321,7 +358,7 @@ export default function ScanJobPage() {
         ? { 
             ...phase, 
             status: 'in-progress' as 'in-progress',
-            workPeriods: [...phase.workPeriods, { start: new Date(), end: null }] 
+            workPeriods: [...(phase.workPeriods || []), { start: new Date(), end: null }] 
           } 
         : phase
       );
@@ -348,12 +385,20 @@ export default function ScanJobPage() {
         toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." };
         return prev;
       }
+      
+      // Allow completing phase even if job has a problem, to save progress made before problem.
+      // if (prev.isProblemReported && phaseToComplete.status !== 'completed') {
+      //   toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile completare la fase, problema segnalato per la commessa." };
+      //   return prev;
+      // }
+
       let updatedPhases = prev.phases.map(p => {
         if (p.id === phaseId) {
-          let updatedWorkPeriods = p.workPeriods;
+          let currentWorkPeriods = p.workPeriods || [];
+          let updatedWorkPeriods = currentWorkPeriods;
           if (p.status === 'in-progress') { 
-            updatedWorkPeriods = p.workPeriods.map((wp, index) =>
-              index === p.workPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
+            updatedWorkPeriods = currentWorkPeriods.map((wp, index) =>
+              index === currentWorkPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
             );
           }
           return { ...p, status: 'completed' as 'completed', workPeriods: updatedWorkPeriods };
@@ -390,6 +435,14 @@ export default function ScanJobPage() {
 
   const handleConcludeOverallJob = () => {
     if (!activeJobOrder) return;
+    if (activeJobOrder.isProblemReported) {
+      toast({
+        variant: "destructive",
+        title: "Lavorazione Bloccata",
+        description: "Impossibile concludere la commessa, problema segnalato.",
+      });
+      return;
+    }
     setActiveJobOrder(prev => prev ? ({ ...prev, overallEndTime: new Date() }) : null);
     toast({
       title: "Commessa Conclusa",
@@ -401,6 +454,23 @@ export default function ScanJobPage() {
   };
 
   const allPhasesCompleted = activeJobOrder?.phases.every(phase => phase.status === 'completed');
+
+  const handleJobProblemReported = () => {
+    const targetJobId = activeJobOrder?.id || scannedJobOrder?.id;
+    if (targetJobId) {
+        if (activeJobOrder && activeJobOrder.id === targetJobId) {
+            setActiveJobOrder(prev => prev ? { ...prev, isProblemReported: true } : null);
+        } else if (scannedJobOrder && scannedJobOrder.id === targetJobId) {
+            setScannedJobOrder(prev => prev ? { ...prev, isProblemReported: true } : null);
+        }
+      toast({
+        variant: "destructive",
+        title: "Problema Segnalato per Commessa",
+        description: `La commessa ${targetJobId} è stata bloccata. Risolvere il problema prima di continuare.`,
+      });
+    }
+    setIsProblemReportDialogOpen(false);
+  };
 
 
   const renderJobScanArea = () => (
@@ -468,13 +538,38 @@ export default function ScanJobPage() {
     return (
       <Card className="mt-6 shadow-lg">
         <CardHeader>
-          <CardTitle className="font-headline flex items-center">
-            <Package className="mr-3 h-7 w-7 text-primary" />
-            Dettagli Commessa: {job.id}
-          </CardTitle>
-          <CardDescription>Reparto: {job.department}</CardDescription>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center">
+              <Package className="mr-3 h-7 w-7 text-primary shrink-0" />
+              <div>
+                <CardTitle className="font-headline">
+                  Dettagli Commessa: {job.id}
+                </CardTitle>
+                <CardDescription>Reparto: {job.department}</CardDescription>
+              </div>
+            </div>
+            {(isDisplayingActiveJobDetails || isDisplayingScannedJobDetails) && (
+                 <AlertDialogTrigger asChild>
+                    <Button 
+                        variant={job.isProblemReported ? "destructive" : "outline"} 
+                        size="icon"
+                        onClick={() => setIsProblemReportDialogOpen(true)}
+                        title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
+                        className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
+                    >
+                        {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+                        <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
+                    </Button>
+                 </AlertDialogTrigger>
+            )}
+          </div>
+           {job.isProblemReported && (
+            <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Lavorazione bloccata.
+            </p>
+           )}
           {job.overallStartTime && (
-            <CardDescription className="text-xs text-muted-foreground">
+            <CardDescription className="text-xs text-muted-foreground mt-1">
               Iniziata il: {format(job.overallStartTime, "dd/MM/yyyy HH:mm:ss")}
             </CardDescription>
           )}
@@ -499,7 +594,7 @@ export default function ScanJobPage() {
             </div>
           </div>
           <div>
-            <Label htmlFor="descrizioneLavorazione" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
+            <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
             <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
 
@@ -531,6 +626,8 @@ export default function ScanJobPage() {
                   </>
                 ) : allPhasesInCurrentJobCompleted ? (
                    <p className="text-sm text-green-500 font-medium">Tutte le fasi completate. Pronta per la conclusione.</p>
+                ) : job.isProblemReported ? (
+                    <p className="text-sm text-destructive font-medium">Lavorazione bloccata.</p>
                 ) : (
                    <p className="text-sm text-muted-foreground">Nessuna fase al momento o stato non determinabile.</p>
                  )}
@@ -543,6 +640,7 @@ export default function ScanJobPage() {
                 <Button
                     className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                     onClick={handleStartOverallJob}
+                    disabled={scannedJobOrder.isProblemReported}
                 >
                     <PlayCircle className="mr-2 h-5 w-5" /> Inizia Lavorazione Commessa
                 </Button>
@@ -553,7 +651,11 @@ export default function ScanJobPage() {
   }
 
 
-  const renderPhasesManagement = () => (
+  const renderPhasesManagement = () => {
+    if (!activeJobOrder) return null;
+    const isJobBlockedByProblem = !!activeJobOrder.isProblemReported;
+
+    return (
     <Card className="mt-6 shadow-lg">
       <CardHeader>
         <CardTitle className="font-headline flex items-center">
@@ -561,29 +663,35 @@ export default function ScanJobPage() {
           Fasi di Lavorazione Commessa: {activeJobOrder?.id}
         </CardTitle>
         <CardDescription>Gestisci l'avanzamento delle fasi. Postazione per questa commessa: <strong>{activeJobOrder?.postazioneLavoro}</strong></CardDescription>
+        {isJobBlockedByProblem && (
+           <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Le operazioni sulle fasi sono bloccate.
+            </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-4">
         {activeJobOrder?.phases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
           const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
 
-          const materialCheckPassed = phase.materialReady; // For sequence 1, it's true by default. For others, it's set by previous phase completion.
+          const materialCheckPassed = phase.materialReady; 
 
-          const canTriggerWorkstationScan = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
-          const canStartPhase = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
-          const canPausePhase = phase.status === 'in-progress';
-          const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused;
-          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
+          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
+          const canStartPhase = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
+          const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
+          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
+          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused'; // Allow completing even if job problem
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
           if (phase.status === 'paused') phaseIcon = <PausePhaseIcon className="mr-2 h-5 w-5 text-orange-500" />;
           if (phase.status === 'completed') phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
           
-          const lastWorkPeriod = phase.workPeriods.length > 0 ? phase.workPeriods[phase.workPeriods.length - 1] : null;
+          const workPeriodsForPhase = phase.workPeriods || [];
+          const lastWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
 
           return (
-            <Card key={phase.id} className="p-4 bg-card/50">
+            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center">
                   {phaseIcon}
@@ -594,7 +702,7 @@ export default function ScanJobPage() {
                    <Switch
                     id={`material-${phase.id}`}
                     checked={phase.materialReady}
-                    disabled={true} // Always disabled for operator
+                    disabled={true} 
                   />
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
@@ -603,16 +711,16 @@ export default function ScanJobPage() {
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {lastWorkPeriod?.start && (
-                  <p>Ultimo avvio: {format(lastWorkPeriod.start, "dd/MM/yyyy HH:mm:ss")}</p>
+                  <p>Ultimo avvio: {format(new Date(lastWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
                 {phase.status === 'paused' && lastWorkPeriod?.end && (
-                  <p>Messa in pausa il: {format(lastWorkPeriod.end, "dd/MM/yyyy HH:mm:ss")}</p>
+                  <p>Messa in pausa il: {format(new Date(lastWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
-                 <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(phase.workPeriods)}</p>
+                 <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>
               </div>
 
 
-              {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && (
+              {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && !isJobBlockedByProblem && (
                 <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
                     <Label className="font-semibold text-primary">Verifica Postazione per Fase: {phase.name}</Label>
                     <p className="text-sm text-muted-foreground">Scansiona il barcode della postazione: <strong>{activeJobOrder?.postazioneLavoro}</strong></p>
@@ -629,7 +737,7 @@ export default function ScanJobPage() {
                     </div>
                     <Button
                         onClick={() => handleSimulateWorkstationScanForPhase(phase.id)}
-                        disabled={isScanningWorkstationForPhase}
+                        disabled={isScanningWorkstationForPhase || isJobBlockedByProblem}
                         className="w-full"
                         variant="outline" >
                         <ScanLine className="mr-2 h-5 w-5" />
@@ -640,27 +748,27 @@ export default function ScanJobPage() {
 
               <div className="mt-3 flex flex-wrap gap-2">
                 {canTriggerWorkstationScan && phase.status === 'pending' && (
-                     <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
+                     <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
                         <ScanLine className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
                     </Button>
                 )}
                 {canStartPhase && (
-                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="default">
+                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="default" disabled={isJobBlockedByProblem}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Avvia Fase
                   </Button>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500">
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem}>
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground">
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={isJobBlockedByProblem && phase.status !== 'completed'}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
@@ -669,16 +777,20 @@ export default function ScanJobPage() {
           );
         })}
         {allPhasesCompleted && !activeJobOrder?.overallEndTime && (
-          <Button onClick={handleConcludeOverallJob} className="w-full mt-4 bg-primary text-primary-foreground">
+          <Button 
+            onClick={handleConcludeOverallJob} 
+            className="w-full mt-4 bg-primary text-primary-foreground"
+            disabled={isJobBlockedByProblem}
+          >
             <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
           </Button>
         )}
          {activeJobOrder?.overallEndTime && (
-          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(activeJobOrder.overallEndTime, "dd/MM/yyyy HH:mm:ss")}</p>
+          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJobOrder.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
         )}
       </CardContent>
     </Card>
-  );
+  )};
 
 
   return (
@@ -691,6 +803,7 @@ export default function ScanJobPage() {
               Torna alla Dashboard
             </Button>
           </Link>
+        <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
 
           {!isProcessingJob && !activeJobOrder?.overallEndTime && !scannedJobOrder && renderJobScanArea()}
 
@@ -716,6 +829,19 @@ export default function ScanJobPage() {
                 </CardContent>
              </Card>
           )}
+
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id || scannedJobOrder?.id}</AlertDialogTitle>
+              <AlertDialogDescription>
+                Descrivi il problema riscontrato per questa commessa. La segnalazione bloccherà temporaneamente la lavorazione.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <ProblemReportForm onSuccess={handleJobProblemReported} showTitle={false} initialSeverity="medium" />
+            {/* Footer removed as submit is in ProblemReportForm now, cancel is implicit with dialog close */}
+          </AlertDialogContent>
+        </AlertDialog>
+
 
           <AlertDialog open={isJobAlertOpen} onOpenChange={setIsJobAlertOpen}>
             <AlertDialogContent>

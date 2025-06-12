@@ -29,6 +29,7 @@ export interface JobOrder {
   phases: JobPhase[];
   overallStartTime?: Date | null;
   overallEndTime?: Date | null;
+  isProblemReported?: boolean;
 }
 
 // Mock data per le commesse
@@ -46,7 +47,8 @@ export const mockJobOrders: JobOrder[] = [
       { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
       { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4, workstationScannedAndVerified: false },
-    ]
+    ],
+    isProblemReported: false,
   },
   {
     id: "PF-002", // ID = ordinePF
@@ -60,7 +62,8 @@ export const mockJobOrders: JobOrder[] = [
       { id: "phase2-1", name: "Preparazione articoli commessa", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ]
+    ],
+    isProblemReported: false,
   },
   {
     id: "PF-003", // ID = ordinePF
@@ -74,7 +77,8 @@ export const mockJobOrders: JobOrder[] = [
       { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ]
+    ],
+    isProblemReported: false,
   },
   {
     id: "PF-004", // ID = ordinePF
@@ -87,7 +91,8 @@ export const mockJobOrders: JobOrder[] = [
     phases: [
       { id: "phase4-1", name: "Installazione Display", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase4-2", name: "Collegamento Pulsanti", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-    ]
+    ],
+    isProblemReported: false,
   },
   {
     id: "PF-005", // ID = ordinePF
@@ -101,7 +106,8 @@ export const mockJobOrders: JobOrder[] = [
       { id: "phase5-1", name: "Setup Test", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase5-2", name: "Esecuzione Test (24h)", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase5-3", name: "Report Risultati", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ]
+    ],
+    isProblemReported: false,
   }
 ];
 

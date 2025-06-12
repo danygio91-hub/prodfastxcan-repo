@@ -18,19 +18,27 @@ const problemReportSchema = z.object({
   severity: z.enum(["low", "medium", "high"], { required_error: "La gravità è richiesta." }),
 });
 
-export default function ProblemReportForm() {
+type ProblemReportFormValues = z.infer<typeof problemReportSchema>;
+
+interface ProblemReportFormProps {
+  onSuccess?: (values: ProblemReportFormValues) => void;
+  initialSeverity?: "low" | "medium" | "high";
+  showTitle?: boolean;
+}
+
+export default function ProblemReportForm({ onSuccess, initialSeverity, showTitle = true }: ProblemReportFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const form = useForm<z.infer<typeof problemReportSchema>>({
+  const form = useForm<ProblemReportFormValues>({
     resolver: zodResolver(problemReportSchema),
     defaultValues: {
       description: "",
-      severity: undefined,
+      severity: initialSeverity || undefined,
     },
   });
 
-  async function onSubmit(values: z.infer<typeof problemReportSchema>) {
+  async function onSubmit(values: ProblemReportFormValues) {
     setIsSubmitting(true);
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -41,23 +49,29 @@ export default function ProblemReportForm() {
       title: "Problema Segnalato",
       description: "La tua segnalazione è stata inviata con successo.",
     });
-    form.reset();
+    
+    if (onSuccess) {
+      onSuccess(values);
+    }
+    form.reset({ description: "", severity: initialSeverity || undefined});
   }
 
   return (
-    <Card className="w-full shadow-lg">
-       <CardHeader>
-        <div className="flex items-center space-x-3">
-          <AlertTriangle className="h-8 w-8 text-destructive" />
-          <div>
-            <CardTitle className="text-2xl font-headline">Segnala un Problema di Produzione</CardTitle>
-            <CardDescription>Descrivi il problema riscontrato durante la produzione.</CardDescription>
+    <Card className="w-full shadow-lg border-0">
+       {showTitle && (
+        <CardHeader>
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="h-8 w-8 text-destructive" />
+            <div>
+              <CardTitle className="text-2xl font-headline">Segnala un Problema di Produzione</CardTitle>
+              <CardDescription>Descrivi il problema riscontrato durante la produzione.</CardDescription>
+            </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
+       )}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <FormField
               control={form.control}
               name="description"
