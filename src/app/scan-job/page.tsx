@@ -117,7 +117,7 @@ export default function ScanJobPage() {
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
           title: "Errore Reparto",
-          description: `Commessa ${randomJob.id} non del tuo reparto.`
+          description: `Commessa non appartenente al tuo reparto.`
         });
         setIsJobAlertOpen(true);
       } else {
@@ -196,7 +196,7 @@ export default function ScanJobPage() {
         phases: scannedJobOrder.phases.map(p => ({
             ...p,
             status: 'pending' as 'pending',
-            materialReady: p.materialReady || false, 
+            // materialReady is already set correctly from mock-data for sequence 1
             workPeriods: [], 
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
@@ -207,24 +207,6 @@ export default function ScanJobPage() {
       title: "Lavorazione Avviata",
       description: `Lavoro iniziato per commessa ${scannedJobOrder.id}.`,
       action: <PlayCircle className="text-primary" />,
-    });
-  };
-
-  const handleToggleMaterialReady = (phaseId: string) => {
-    setActiveJobOrder(prev => {
-      if (!prev) return null;
-      // Do not allow toggling for the first phase if it's handled automatically
-      const phaseToToggle = prev.phases.find(phase => phase.id === phaseId);
-      if (phaseToToggle && phaseToToggle.sequence === 1) {
-        // Optionally, show a toast or do nothing if the first phase material is always ready
-        return prev;
-      }
-      return {
-        ...prev,
-        phases: prev.phases.map(phase =>
-          phase.id === phaseId ? { ...phase, materialReady: !phase.materialReady } : phase
-        ),
-      };
     });
   };
 
@@ -248,7 +230,6 @@ export default function ScanJobPage() {
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
       if (currentPhaseIndex === -1) return prev; 
 
-      // Check if material is ready, unless it's the first phase (sequence 1)
       if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
         toastInfo = { variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` };
         return prev;
@@ -383,7 +364,7 @@ export default function ScanJobPage() {
       const completedPhaseSequence = phaseToComplete.sequence;
       const nextPhase = updatedPhases.find(p => p.sequence === completedPhaseSequence + 1);
 
-      if (nextPhase && nextPhase.status === 'pending' && nextPhase.sequence !== 1) { // Ensure not to auto-ready material for first phase again conceptually
+      if (nextPhase && nextPhase.status === 'pending') { 
         updatedPhases = updatedPhases.map(p => 
           p.id === nextPhase.id ? { ...p, materialReady: true } : p
         );
@@ -586,8 +567,7 @@ export default function ScanJobPage() {
           const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
 
-          // For first phase (sequence 1), materialReady check is bypassed for starting/scanning workstation
-          const materialCheckPassed = phase.sequence === 1 || phase.materialReady;
+          const materialCheckPassed = phase.materialReady; // For sequence 1, it's true by default. For others, it's set by previous phase completion.
 
           const canTriggerWorkstationScan = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
           const canStartPhase = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
@@ -614,8 +594,7 @@ export default function ScanJobPage() {
                    <Switch
                     id={`material-${phase.id}`}
                     checked={phase.materialReady}
-                    onCheckedChange={() => handleToggleMaterialReady(phase.id)}
-                    disabled={phase.status !== 'pending' || phase.sequence === 1}
+                    disabled={true} // Always disabled for operator
                   />
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
