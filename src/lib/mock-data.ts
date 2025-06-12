@@ -57,7 +57,7 @@ export const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-11-30",
     postazioneLavoro: "Banco CQ-02",
     phases: [
-      { id: "phase2-1", name: "Test Funzionale A", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase2-1", name: "Preparazione articoli commessa", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase2-2", name: "Ispezione Estetica", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase2-3", name: "Imballaggio Primario", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
     ]
@@ -104,3 +104,4 @@ export const mockJobOrders: JobOrder[] = [
     ]
   }
 ];
+
