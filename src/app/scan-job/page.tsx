@@ -117,7 +117,7 @@ export default function ScanJobPage() {
       if (randomJob.department !== operatorDepartment) {
         setJobAlertInfo({
           title: "Errore Reparto",
-          description: `Commessa ${randomJob.id} non del tuo reparto. Contattare Ufficio Produzione.`
+          description: `Commessa ${randomJob.id} non del tuo reparto.`
         });
         setIsJobAlertOpen(true);
       } else {
@@ -196,7 +196,7 @@ export default function ScanJobPage() {
         phases: scannedJobOrder.phases.map(p => ({
             ...p,
             status: 'pending' as 'pending',
-            materialReady: p.materialReady || false,
+            materialReady: p.materialReady || false, 
             workPeriods: [], 
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
@@ -213,6 +213,12 @@ export default function ScanJobPage() {
   const handleToggleMaterialReady = (phaseId: string) => {
     setActiveJobOrder(prev => {
       if (!prev) return null;
+      // Do not allow toggling for the first phase if it's handled automatically
+      const phaseToToggle = prev.phases.find(phase => phase.id === phaseId);
+      if (phaseToToggle && phaseToToggle.sequence === 1) {
+        // Optionally, show a toast or do nothing if the first phase material is always ready
+        return prev;
+      }
       return {
         ...prev,
         phases: prev.phases.map(phase =>
@@ -241,6 +247,13 @@ export default function ScanJobPage() {
 
       const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
       if (currentPhaseIndex === -1) return prev; 
+
+      // Check if material is ready, unless it's the first phase (sequence 1)
+      if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
+        toastInfo = { variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` };
+        return prev;
+      }
+
 
       if (prev.phases.some(p => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
         toastInfo = { variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." };
@@ -370,7 +383,7 @@ export default function ScanJobPage() {
       const completedPhaseSequence = phaseToComplete.sequence;
       const nextPhase = updatedPhases.find(p => p.sequence === completedPhaseSequence + 1);
 
-      if (nextPhase && nextPhase.status === 'pending') {
+      if (nextPhase && nextPhase.status === 'pending' && nextPhase.sequence !== 1) { // Ensure not to auto-ready material for first phase again conceptually
         updatedPhases = updatedPhases.map(p => 
           p.id === nextPhase.id ? { ...p, materialReady: true } : p
         );
@@ -573,8 +586,11 @@ export default function ScanJobPage() {
           const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
 
-          const canTriggerWorkstationScan = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
-          const canStartPhase = phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
+          // For first phase (sequence 1), materialReady check is bypassed for starting/scanning workstation
+          const materialCheckPassed = phase.sequence === 1 || phase.materialReady;
+
+          const canTriggerWorkstationScan = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
+          const canStartPhase = materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
           const canPausePhase = phase.status === 'in-progress';
           const canResumePhase = phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
@@ -599,7 +615,7 @@ export default function ScanJobPage() {
                     id={`material-${phase.id}`}
                     checked={phase.materialReady}
                     onCheckedChange={() => handleToggleMaterialReady(phase.id)}
-                    disabled={phase.status !== 'pending'}
+                    disabled={phase.status !== 'pending' || phase.sequence === 1}
                   />
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
@@ -763,5 +779,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-    

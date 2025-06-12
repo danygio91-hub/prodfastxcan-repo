@@ -42,7 +42,7 @@ export const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2024-12-15",
     postazioneLavoro: "Postazione A-05",
     phases: [
-      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase1-1", name: "Preparazione Componenti", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase1-2", name: "Montaggio su PCB", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase1-3", name: "Saldatura", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
       { id: "phase1-4", name: "Controllo Visivo Iniziale", status: 'pending', materialReady: false, workPeriods: [], sequence: 4, workstationScannedAndVerified: false },
@@ -71,7 +71,7 @@ export const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2025-01-10",
     postazioneLavoro: "Postazione B-01",
     phases: [
-      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase3-1", name: "Taglio Cavi", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase3-2", name: "Crimpatura Connettori", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
       { id: "phase3-3", name: "Assemblaggio Cablaggio", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
     ]
@@ -85,7 +85,7 @@ export const mockJobOrders: JobOrder[] = [
     dataConsegnaFinale: "2025-02-20",
     postazioneLavoro: "Postazione A-02",
     phases: [
-      { id: "phase4-1", name: "Installazione Display", status: 'pending', materialReady: false, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: "phase4-1", name: "Installazione Display", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
       { id: "phase4-2", name: "Collegamento Pulsanti", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
     ]
   },
