@@ -1,12 +1,8 @@
-<svg width="170" height="40" viewBox="0 0 170 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <style>
-    .font-logo-pf { font-family: 'PT Sans', sans-serif; font-weight: bold; font-size: 30px; }
-    .font-logo-tracker { font-family: 'PT Sans', sans-serif; font-weight: normal; font-size: 26px; }
-  </style>
-  <!-- P: Primary Blue hsl(200 90% 55%) -->
-  <text x="5" y="30" class="font-logo-pf" fill="#2EAEF0">P</text>
-  <!-- F: Accent Teal/Cyan hsl(170 80% 45%) -->
-  <text x="28" y="30" class="font-logo-pf" fill="#17C293">F</text>
-  <!-- Tracker: Foreground Light Gray hsl(210 20% 95%) -->
-  <text x="50" y="30" class="font-logo-tracker" fill="#F0F2F5">Tracker</text>
+<svg width="250" height="50" viewBox="0 0 250 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <style>
+        .heavy { font-family: 'PT Sans', sans-serif; font-size: 40px; font-weight: 700; }
+    </style>
+    <text x="5" y="38" class="heavy">
+        <tspan fill="#3F51B5">PF</tspan><tspan fill="#FF9800" dx="5">X</tspan><tspan fill="#F0F0F0">can</tspan>
+    </text>
 </svg>
