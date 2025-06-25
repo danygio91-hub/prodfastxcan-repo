@@ -62,7 +62,7 @@ export default function LoginForm() {
   return (
     <Card className="w-full max-w-md shadow-xl border-border/50 bg-card">
       <CardHeader className="items-center text-center">
-        <Image src="/logo.svg" alt="PFXcan Logo" width={250} height={50} className="mb-6" />
+        <Image src="/logo.svg" alt="PFXcan Logo" width={150} height={100} className="mb-6" />
         <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
       </CardHeader>
       <Form {...form}>
