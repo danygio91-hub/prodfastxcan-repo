@@ -35,7 +35,7 @@ const jobOrderFormSchema = z.object({
   department: z.string().min(1, 'Reparto è obbligatorio.'),
 });
 
-// Schema for Excel import validation (omits postazioneLavoro which is not in the template)
+// Schema for Excel import validation
 const jobOrderImportSchema = jobOrderFormSchema.omit({ postazioneLavoro: true });
 
 export async function addJobOrder(formData: FormData) {
@@ -87,56 +87,85 @@ export async function addJobOrder(formData: FormData) {
     };
 }
 
-export async function importJobOrders(data: any[]): Promise<{ success: boolean; message: string; }> {
-  let importedCount = 0;
-  let skippedCount = 0;
+export async function processAndValidateImport(data: any[]): Promise<{
+    success: boolean;
+    message: string;
+    newJobs: JobOrder[];
+    jobsToUpdate: JobOrder[];
+    skippedCount: number;
+}> {
+    let newJobs: JobOrder[] = [];
+    let jobsToUpdate: JobOrder[] = [];
+    let skippedCount = 0;
 
-  for (const row of data) {
-    // Skip rows that don't even have a basic ID
-    if (!row.ordinePF) {
-      skippedCount++;
-      continue;
+    for (const row of data) {
+        if (!row.ordinePF) {
+            skippedCount++;
+            continue;
+        }
+
+        const validatedFields = jobOrderImportSchema.safeParse(row);
+
+        if (!validatedFields.success) {
+            skippedCount++;
+            continue;
+        }
+
+        const { data: validatedData } = validatedFields;
+
+        const defaultPhases: JobPhase[] = [
+            { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+            { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+            { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
+        ];
+
+        const jobOrderObject: JobOrder = {
+            id: validatedData.ordinePF,
+            ...validatedData,
+            postazioneLavoro: 'Da Assegnare',
+            phases: defaultPhases,
+            isProblemReported: false,
+            status: 'planned',
+        };
+
+        const existingJob = jobOrdersStore.find(job => job.id === jobOrderObject.id);
+        if (existingJob) {
+            jobsToUpdate.push({ ...jobOrderObject, status: existingJob.status }); // Preserve status of existing job
+        } else {
+            newJobs.push(jobOrderObject);
+        }
     }
 
-    const validatedFields = jobOrderImportSchema.safeParse(row);
-
-    if (!validatedFields.success || jobOrdersStore.some(job => job.id === row.ordinePF)) {
-      skippedCount++;
-      continue; // Skip invalid rows or duplicates
-    }
-
-    const { data: validatedData } = validatedFields;
-
-    const defaultPhases: JobPhase[] = [
-      { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ];
-
-    const newJobOrder: JobOrder = {
-      id: validatedData.ordinePF,
-      ...validatedData,
-      postazioneLavoro: 'Da Assegnare', // Set default value for imported orders
-      phases: defaultPhases,
-      isProblemReported: false,
-      status: 'planned',
-    };
-
-    jobOrdersStore.push(newJobOrder);
-    importedCount++;
-  }
-  
-  if (importedCount > 0) {
-    revalidatePath('/admin/data-management');
-  }
-  
-  const message = `Importazione completata. ${importedCount} commesse importate, ${skippedCount} ignorate (duplicati o dati non validi).`;
-  
-  return {
-    success: importedCount > 0,
-    message: message,
-  };
+    const message = `Analisi completata: ${newJobs.length} nuove commesse, ${jobsToUpdate.length} duplicati, ${skippedCount} righe ignorate.`;
+    return { success: true, message, newJobs, jobsToUpdate, skippedCount };
 }
+
+
+export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
+    const { newJobs, jobsToUpdate } = data;
+
+    // Update existing jobs
+    jobsToUpdate.forEach(updatedJob => {
+        const index = jobOrdersStore.findIndex(job => job.id === updatedJob.id);
+        if (index !== -1) {
+            jobOrdersStore[index] = updatedJob; // Overwrite with new data, status is preserved from previous step
+        }
+    });
+
+    // Add new jobs
+    jobOrdersStore.push(...newJobs);
+
+    const totalAffected = newJobs.length + jobsToUpdate.length;
+    if (totalAffected > 0) {
+        revalidatePath('/admin/data-management');
+    }
+
+    return {
+        success: true,
+        message: `Importazione completata. ${newJobs.length} commesse aggiunte, ${jobsToUpdate.length} aggiornate.`
+    };
+}
+
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
   const initialCount = jobOrdersStore.length;

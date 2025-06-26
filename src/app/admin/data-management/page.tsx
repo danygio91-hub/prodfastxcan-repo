@@ -41,7 +41,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText } from 'lucide-react';
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -49,7 +50,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, addJobOrder, importJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL } from './actions';
+import { getPlannedJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -68,6 +69,7 @@ export default function AdminDataManagementCommessePage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -159,125 +161,101 @@ export default function AdminDataManagementCommessePage() {
     reader.onload = async (e) => {
       try {
         const data = e.target?.result;
-        if (!data) {
-          throw new Error("FileReader non ha restituito dati.");
-        }
-
+        if (!data) throw new Error("FileReader non ha restituito dati.");
+        
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
-        if (!sheetName) {
-            throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
-        }
-        const worksheet = workbook.Sheets[sheetName];
+        if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
-        const json = XLSX.utils.sheet_to_json(worksheet, {
-            dateNF: 'yyyy-mm-dd',
-        });
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet, { dateNF: 'yyyy-mm-dd' });
 
-        const filteredData = json.filter((row: any) => 
-            Object.values(row).some(cell => cell !== null && cell !== ''));
+        const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== ''));
 
         if (filteredData.length === 0) {
-          toast({
-            variant: "destructive",
-            title: "File Vuoto o Invalido",
-            description: "Il file Excel non contiene righe di dati valide.",
-          });
-          setIsImporting(false);
-          if (event.target) event.target.value = "";
+          toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
           return;
         }
 
         const normalizedData = filteredData.map((row: any) => {
-            const normalizedRow: { [key: string]: any } = {};
-            for (const key in row) {
-                if (Object.prototype.hasOwnProperty.call(row, key)) {
-                    normalizedRow[key.trim().toLowerCase()] = row[key];
-                }
+          const normalizedRow: { [key: string]: any } = {};
+          const headerMapping: { [key: string]: string } = {
+            'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qtà': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
+          };
+          for (const key in row) {
+            const normalizedKey = key.trim().toLowerCase();
+            if (headerMapping[normalizedKey]) {
+              normalizedRow[headerMapping[normalizedKey]] = row[key];
             }
-            return normalizedRow;
+          }
+          return normalizedRow;
         });
 
-        const requiredHeaders = ['cliente', 'ordine pf', 'ordine nr est', 'codice', 'qtà', 'data consegna prevista', 'reparto'];
-        const firstRowHeaders = Object.keys(normalizedData[0] as any);
-        const missingHeaders = requiredHeaders.filter(h => !firstRowHeaders.includes(h));
-        
-        if (missingHeaders.length > 0) {
-           throw new Error(`Intestazioni mancanti o errate. Assicurati che il file Excel contenga le colonne corrette (non importa se maiuscole/minuscole). Colonne non trovate: ${missingHeaders.join(', ')}`);
-        }
-        
         const mappedJson = normalizedData.map((row: any) => {
           let finalDateStr = '';
-          const dateValue = row['data consegna prevista'];
-
+          const dateValue = row['dataConsegnaFinale'];
           if (dateValue) {
             let parsedDate: Date | null = null;
             if (dateValue instanceof Date && isValid(dateValue)) {
-                parsedDate = dateValue;
-            } else if (typeof dateValue === 'string') {
-                 const dateString = String(dateValue).trim();
-                 if (dateString) {
-                    // Check for YYYY-MM-DD from sheet_to_json
-                    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-                         parsedDate = parse(dateString, 'yyyy-MM-dd', new Date());
-                    } else {
-                        const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy'];
-                        for (const fmt of formatsToTry) {
-                            const tempDate = parse(dateString, fmt, new Date());
-                            if (isValid(tempDate)) {
-                                parsedDate = tempDate;
-                                break; 
-                            }
-                        }
-                    }
-                 }
+              parsedDate = dateValue;
+            } else if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+              const dateString = String(dateValue).trim();
+              if (dateString) {
+                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
+                for (const fmt of formatsToTry) {
+                  const tempDate = parse(dateString, fmt, new Date());
+                  if (isValid(tempDate)) {
+                    parsedDate = tempDate;
+                    break;
+                  }
+                }
+              }
             }
-            
             if (parsedDate && isValid(parsedDate)) {
-                 finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+              finalDateStr = format(parsedDate, 'yyyy-MM-dd');
             }
           }
-
-          const qtaRaw = row['qtà'];
-          const qtaNum = qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== ''
-            ? Number(String(qtaRaw).replace(',', '.'))
-            : 0;
-
-          return {
-            cliente: String(row['cliente'] || ''),
-            ordinePF: String(row['ordine pf'] || ''),
-            numeroODL: String(row['ordine nr est'] || ''),
-            details: String(row['codice'] || ''),
-            qta: isNaN(qtaNum) ? 0 : qtaNum,
-            dataConsegnaFinale: finalDateStr,
-            department: String(row['reparto'] || ''),
-          }
+          const qtaRaw = row['qta'];
+          const qtaNum = qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '' ? Number(String(qtaRaw).replace(',', '.')) : 0;
+          return { ...row, qta: isNaN(qtaNum) ? 0 : qtaNum, dataConsegnaFinale: finalDateStr };
         });
 
-        const result = await importJobOrders(mappedJson);
-        
-        toast({
-          title: "Risultato Importazione",
-          description: result.message,
-        });
+        const result = await processAndValidateImport(mappedJson);
+        toast({ title: "Analisi File", description: result.message });
 
         if (result.success) {
-          fetchJobOrders();
+          if (result.jobsToUpdate.length > 0) {
+            setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+          } else if (result.newJobs.length > 0) {
+            const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
+            toast({ title: "Importazione Riuscita", description: commitResult.message });
+            fetchJobOrders();
+          }
         }
       } catch (error) {
-         toast({
-          variant: "destructive",
-          title: "Errore di Importazione",
-          description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto. Controlla il formato del file e la correttezza dei dati.",
-        });
+         toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
       } finally {
         setIsImporting(false);
-        if (event.target) {
-          event.target.value = "";
-        }
+        if (event.target) event.target.value = "";
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+  
+  const handleConfirmImport = async (overwrite: boolean) => {
+    if (!pendingImport) return;
+    const dataToCommit = {
+        newJobs: pendingImport.newJobs,
+        jobsToUpdate: overwrite ? pendingImport.jobsToUpdate : [],
+    };
+    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0) {
+        toast({ title: "Nessuna Azione", description: "Nessuna commessa da importare o aggiornare."});
+    } else {
+        const result = await commitImportedJobOrders(dataToCommit);
+        toast({ title: "Operazione Completata", description: result.message });
+        fetchJobOrders();
+    }
+    setPendingImport(null);
   };
 
   const handleDeleteSelected = async () => {
@@ -487,9 +465,37 @@ export default function AdminDataManagementCommessePage() {
             </CardContent>
           </Card>
         </div>
+        
+        <AlertDialog open={!!pendingImport} onOpenChange={(open) => !open && setPendingImport(null)}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center">
+                        <AlertTriangle className="mr-2 h-6 w-6 text-yellow-500"/>
+                        Duplicati Trovati
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                        L'importazione ha trovato {pendingImport?.jobsToUpdate.length || 0} commesse che sono già presenti nel sistema. 
+                        Vuoi sovrascrivere i dati di queste commesse con quelli del file Excel? Le nuove commesse verranno comunque aggiunte.
+                    </AlertDialogDescription>
+                    {pendingImport && pendingImport.jobsToUpdate.length > 0 && (
+                        <div className="pt-2">
+                            <Label className="font-semibold">Commesse duplicate:</Label>
+                            <ScrollArea className="h-20 mt-1 rounded-md border p-2">
+                                <ul className="text-sm text-muted-foreground list-disc pl-5">
+                                    {pendingImport.jobsToUpdate.map(job => <li key={job.id}>{job.id}</li>)}
+                                </ul>
+                            </ScrollArea>
+                        </div>
+                    )}
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <Button variant="outline" onClick={() => handleConfirmImport(false)}>Importa solo nuove</Button>
+                    <AlertDialogAction onClick={() => handleConfirmImport(true)}>Sovrascrivi e Importa</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
       </AppShell>
     </AdminAuthGuard>
   );
 }
-
-    
