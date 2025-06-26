@@ -29,7 +29,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2 } from 'lucide-react';
+import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -187,6 +187,12 @@ export default function AdminDataManagementCommessePage() {
               </Button>
             </Link>
             <div className="flex items-center gap-4">
+              <Button asChild variant="outline">
+                <a href="/template_import_commesse.xlsx" download>
+                  <Download className="mr-2 h-4 w-4" />
+                  Scarica Template
+                </a>
+              </Button>
               <input
                 type="file"
                 ref={fileInputRef}
