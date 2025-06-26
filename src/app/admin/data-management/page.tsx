@@ -162,12 +162,12 @@ export default function AdminDataManagementCommessePage() {
         const data = e.target?.result;
         if (!data) throw new Error("FileReader non ha restituito dati.");
         
-        const workbook = XLSX.read(data, { type: 'array', raw: true });
+        const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, {raw: true, defval: null});
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null });
 
         const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -185,37 +185,33 @@ export default function AdminDataManagementCommessePage() {
             for (const key in row) {
               const normalizedKey = key.trim().toLowerCase();
               if (headerMapping[normalizedKey]) {
+                  // Only include keys that are in our mapping
                   normalizedRow[headerMapping[normalizedKey]] = row[key];
               }
             }
-
+            
+            // A job order MUST have an ID
             if (!normalizedRow.ordinePF) {
               return null;
             }
 
-            const dataToSend: { [key:string]: any } = {};
-
-            dataToSend.ordinePF = String(normalizedRow.ordinePF);
-
-            if (normalizedRow.cliente != null) dataToSend.cliente = String(normalizedRow.cliente);
-            if (normalizedRow.numeroODL != null) dataToSend.numeroODL = String(normalizedRow.numeroODL);
-            if (normalizedRow.details != null) dataToSend.details = String(normalizedRow.details);
-            if (normalizedRow.department != null) dataToSend.department = String(normalizedRow.department);
-            if (normalizedRow.qta != null) dataToSend.qta = String(normalizedRow.qta).replace(',', '.').trim();
-
+            // Handle date conversion directly on the normalizedRow
             if (normalizedRow.dataConsegnaFinale) {
                 const dateValue = normalizedRow.dataConsegnaFinale;
                 let parsedDate: Date | null = null;
                 
                 if (typeof dateValue === 'number' && dateValue > 0) {
+                    // It's an Excel serial date number
                     const excelEpoch = new Date(1899, 11, 30);
                     const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
                     const tempDate = new Date(jsTimestamp);
                      if (isValid(tempDate)) {
+                        // Adjust for timezone offset
                         const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
                         parsedDate = adjustedDate;
                     }
                 } else if (typeof dateValue === 'string') {
+                    // It's a date string, try to parse it
                     const dateString = String(dateValue).trim();
                     const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
                     for (const fmt of formatsToTry) {
@@ -228,11 +224,15 @@ export default function AdminDataManagementCommessePage() {
                 }
                 
                 if (parsedDate && isValid(parsedDate)) {
-                    dataToSend.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
+                    normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
+                } else {
+                    delete normalizedRow.dataConsegnaFinale; // Remove invalid date so it doesn't cause validation issues
                 }
             }
-            return dataToSend;
+
+            return normalizedRow;
         }).filter(Boolean);
+
 
         if (mappedJson.length === 0) {
           toast({ variant: "destructive", title: "Dati non validi", description: "Nessuna riga valida trovata nel file. Controllare che la colonna 'Ordine PF' sia presente e compilata."});
