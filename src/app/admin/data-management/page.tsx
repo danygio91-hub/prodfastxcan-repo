@@ -133,7 +133,7 @@ export default function AdminDataManagementCommessePage() {
         }
         const worksheet = workbook.Sheets[sheetName];
         
-        const json = XLSX.utils.sheet_to_json(worksheet, { cellDates: true });
+        const json = XLSX.utils.sheet_to_json(worksheet, { cellDates: true, raw: false });
 
         if (json.length === 0) {
           toast({
@@ -146,27 +146,42 @@ export default function AdminDataManagementCommessePage() {
           return;
         }
 
-        // Check for required headers
-        const requiredHeaders = ['Cliente', 'Ordine PF', 'Ordine Nr Est', 'Codice', 'Qtà', 'Consegna prevista', 'Reparto'];
-        const firstRow = json[0] as any;
-        const headers = Object.keys(firstRow);
-        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+        // Normalize all keys to lowercase and trim whitespace for robust matching
+        const normalizedData = json.map((row: any) => {
+            const normalizedRow: { [key: string]: any } = {};
+            for (const key in row) {
+                if (Object.prototype.hasOwnProperty.call(row, key)) {
+                    normalizedRow[key.trim().toLowerCase()] = row[key];
+                }
+            }
+            return normalizedRow;
+        });
 
+        // Check for required headers using the normalized keys
+        const requiredHeaders = ['cliente', 'ordine pf', 'ordine nr est', 'codice', 'qtà', 'consegna prevista', 'reparto'];
+        const firstRowHeaders = Object.keys(normalizedData[0] as any);
+        const missingHeaders = requiredHeaders.filter(h => !firstRowHeaders.includes(h));
+        
         if (missingHeaders.length > 0) {
-           throw new Error(`Intestazioni mancanti o errate. Colonne non trovate: ${missingHeaders.join(', ')}`);
+           throw new Error(`Intestazioni mancanti o errate. Assicurati che il file Excel contenga le colonne corrette (non importa se maiuscole/minuscole). Colonne non trovate: ${missingHeaders.join(', ')}`);
         }
         
-        const mappedJson = json.map((row: any) => {
-          let finalDate = row['Consegna prevista'] || row['dataConsegnaFinale'];
+        const mappedJson = normalizedData.map((row: any) => {
+          // Access data using the normalized, lowercase keys
+          let finalDate = row['consegna prevista'];
 
           if (finalDate instanceof Date) {
             const year = finalDate.getFullYear();
-            const month = String(finalDate.getMonth() + 1).padStart(2, '0');
-            const day = String(finalDate.getDate()).padStart(2, '0');
-            finalDate = `${year}-${month}-${day}`;
+            if(year > 1900) {
+              const month = String(finalDate.getMonth() + 1).padStart(2, '0');
+              const day = String(finalDate.getDate()).padStart(2, '0');
+              finalDate = `${year}-${month}-${day}`;
+            } else {
+              finalDate = '';
+            }
           } else if (typeof finalDate === 'string') {
-             if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(finalDate)) {
-                const parts = finalDate.split('/');
+             if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(finalDate)) {
+                const parts = finalDate.split(/[\/-]/);
                 finalDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
              }
           } else {
@@ -174,13 +189,13 @@ export default function AdminDataManagementCommessePage() {
           }
 
           return {
-            cliente: String(row['Cliente'] || ''),
-            ordinePF: String(row['Ordine PF'] || ''),
-            numeroODL: String(row['Ordine Nr Est'] || ''),
-            details: String(row['Codice'] || ''),
-            qta: row['Qtà'] ? Number(String(row['Qtà']).replace(',', '.')) : 0,
+            cliente: String(row['cliente'] || ''),
+            ordinePF: String(row['ordine pf'] || ''),
+            numeroODL: String(row['ordine nr est'] || ''),
+            details: String(row['codice'] || ''),
+            qta: row['qtà'] ? Number(String(row['qtà']).replace(',', '.')) : 0,
             dataConsegnaFinale: String(finalDate || ''),
-            department: String(row['Reparto'] || ''),
+            department: String(row['reparto'] || ''),
           }
         });
 
