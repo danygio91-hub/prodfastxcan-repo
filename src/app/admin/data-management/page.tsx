@@ -122,8 +122,15 @@ export default function AdminDataManagementCommessePage() {
     reader.onload = async (e) => {
       try {
         const data = e.target?.result;
+        if (!data) {
+          throw new Error("FileReader non ha restituito dati.");
+        }
+
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+            throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
+        }
         const worksheet = workbook.Sheets[sheetName];
         
         const json = XLSX.utils.sheet_to_json(worksheet, { cellDates: true });
@@ -131,18 +138,39 @@ export default function AdminDataManagementCommessePage() {
         if (json.length === 0) {
           toast({
             variant: "destructive",
-            title: "File Vuoto",
-            description: "Il file Excel non contiene dati o è in un formato non riconosciuto.",
+            title: "File Vuoto o Invalido",
+            description: "Il file Excel non contiene righe di dati o le intestazioni mancano.",
           });
+          setIsImporting(false);
+          if (event.target) event.target.value = "";
           return;
         }
 
-        // Map Excel columns to the structure expected by the server action
+        // Check for required headers
+        const requiredHeaders = ['Cliente', 'Ordine PF', 'Ordine Nr Est', 'Codice', 'Qtà', 'Consegna prevista', 'Reparto'];
+        const firstRow = json[0] as any;
+        const headers = Object.keys(firstRow);
+        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
+
+        if (missingHeaders.length > 0) {
+           throw new Error(`Intestazioni mancanti o errate. Colonne non trovate: ${missingHeaders.join(', ')}`);
+        }
+        
         const mappedJson = json.map((row: any) => {
           let finalDate = row['Consegna prevista'] || row['dataConsegnaFinale'];
+
           if (finalDate instanceof Date) {
-            finalDate.setMinutes(finalDate.getMinutes() - finalDate.getTimezoneOffset());
-            finalDate = finalDate.toISOString().split('T')[0];
+            const year = finalDate.getFullYear();
+            const month = String(finalDate.getMonth() + 1).padStart(2, '0');
+            const day = String(finalDate.getDate()).padStart(2, '0');
+            finalDate = `${year}-${month}-${day}`;
+          } else if (typeof finalDate === 'string') {
+             if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(finalDate)) {
+                const parts = finalDate.split('/');
+                finalDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+             }
+          } else {
+             finalDate = '';
           }
 
           return {
@@ -150,7 +178,7 @@ export default function AdminDataManagementCommessePage() {
             ordinePF: String(row['Ordine PF'] || ''),
             numeroODL: String(row['Ordine Nr Est'] || ''),
             details: String(row['Codice'] || ''),
-            qta: Number(row['Qtà'] || 0),
+            qta: row['Qtà'] ? Number(String(row['Qtà']).replace(',', '.')) : 0,
             dataConsegnaFinale: String(finalDate || ''),
             department: String(row['Reparto'] || ''),
           }
@@ -169,8 +197,8 @@ export default function AdminDataManagementCommessePage() {
       } catch (error) {
          toast({
           variant: "destructive",
-          title: "Errore Lettura File",
-          description: "Impossibile leggere il file. Assicurati che sia un file Excel (.xlsx, .xls) non corrotto.",
+          title: "Errore di Importazione",
+          description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto. Controlla il formato del file e la correttezza dei dati.",
         });
       } finally {
         setIsImporting(false);
