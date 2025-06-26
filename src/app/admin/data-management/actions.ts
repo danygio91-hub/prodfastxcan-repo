@@ -65,3 +65,45 @@ export async function addJobOrder(formData: FormData) {
       message: `Commessa ${newJobOrder.ordinePF} aggiunta con successo.`,
     };
 }
+
+export async function importJobOrders(data: any[]): Promise<{ success: boolean; message: string; }> {
+  let importedCount = 0;
+  let skippedCount = 0;
+
+  for (const row of data) {
+    // Row from Excel should already be mapped to the correct keys
+    const validatedFields = jobOrderFormSchema.safeParse(row);
+
+    if (!validatedFields.success || jobOrdersStore.some(job => job.id === row.ordinePF)) {
+      skippedCount++;
+      continue; // Skip invalid rows or duplicates
+    }
+
+    const { data: validatedData } = validatedFields;
+
+    const defaultPhases: JobPhase[] = [
+      { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+      { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+      { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
+    ];
+
+    const newJobOrder: JobOrder = {
+      id: validatedData.ordinePF,
+      ...validatedData,
+      phases: defaultPhases,
+      isProblemReported: false,
+    };
+
+    jobOrdersStore.push(newJobOrder);
+    importedCount++;
+  }
+  
+  if (importedCount > 0) {
+    revalidatePath('/admin/data-management');
+  }
+
+  return {
+    success: true,
+    message: `Importazione completata. ${importedCount} commesse importate, ${skippedCount} ignorate (duplicati o dati non validi).`,
+  };
+}
