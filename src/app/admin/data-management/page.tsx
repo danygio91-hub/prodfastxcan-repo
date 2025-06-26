@@ -168,7 +168,7 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false, dateNF: 'yyyy-mm-dd' });
+        const json = XLSX.utils.sheet_to_json(worksheet);
 
         const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -199,11 +199,11 @@ export default function AdminDataManagementCommessePage() {
             let finalDateStr = '';
             if (dateValue) {
                 let parsedDate: Date | null = null;
-                // Check if it's already a valid date object from cellDates:true
+                // 1. Check if it's already a valid JS Date from cellDates:true
                 if (dateValue instanceof Date && isValid(dateValue)) {
                     parsedDate = dateValue;
                 } 
-                // Check if it's a string that needs parsing
+                // 2. Fallback: check if it's a string that needs parsing
                 else if (typeof dateValue === 'string') {
                     const dateString = String(dateValue).trim();
                     if (dateString) {
@@ -217,6 +217,7 @@ export default function AdminDataManagementCommessePage() {
                         }
                     }
                 }
+                // If any method succeeded, format it to the standard YYYY-MM-DD
                 if (parsedDate && isValid(parsedDate)) {
                     finalDateStr = format(parsedDate, 'yyyy-MM-dd');
                 }
@@ -458,7 +459,7 @@ export default function AdminDataManagementCommessePage() {
                         <TableCell>{job.details}</TableCell>
                         <TableCell>{job.qta}</TableCell>
                         <TableCell>
-                          {job.dataConsegnaFinale && isValid(new Date(job.dataConsegnaFinale)) ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
                         <TableCell>
@@ -518,5 +519,3 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
-    
