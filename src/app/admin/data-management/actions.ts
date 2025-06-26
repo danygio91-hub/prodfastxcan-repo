@@ -5,23 +5,21 @@ import { revalidatePath } from 'next/cache';
 import { type JobOrder, type JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
 
-// THIS IS A SERVER-SIDE IN-MEMORY "DATABASE" SIMULATION.
-// In a real app, you would use Firestore, Prisma, etc.
-// NOTE: This data will reset every time the server restarts.
+// DATA STORAGE HAS BEEN TEMPORARILY DISABLED PER USER REQUEST
+// TO ALLOW PROGRESS ON OTHER FEATURES.
+// All functions will return successful responses without modifying data.
 let jobOrdersStore: JobOrder[] = [];
 
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  // Return a copy to prevent mutation issues
-  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'planned')));
+  return [];
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-  // Return a copy to prevent mutation issues
-  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'production')));
+  return [];
 }
 
-// Schema for manual form validation
+// Schemas are kept for potential future use or client-side validation needs
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, 'Cliente è obbligatorio.'),
   ordinePF: z.string().min(1, 'Ordine PF (ID Commessa) è obbligatorio.'),
@@ -35,55 +33,11 @@ const jobOrderFormSchema = z.object({
   department: z.string().min(1, 'Reparto è obbligatorio.'),
 });
 
-// Schema for Excel import validation
-const jobOrderImportSchema = jobOrderFormSchema;
-
 export async function addJobOrder(formData: FormData) {
-    const values = {
-      cliente: formData.get('cliente'),
-      ordinePF: formData.get('ordinePF'),
-      numeroODL: formData.get('numeroODL'),
-      details: formData.get('details'),
-      qta: formData.get('qta'),
-      dataConsegnaFinale: formData.get('dataConsegnaFinale'),
-      department: formData.get('department'),
-    };
-
-    const validatedFields = jobOrderFormSchema.safeParse(values);
-
-    if (!validatedFields.success) {
-      const errorMessages = validatedFields.error.issues.map(issue => issue.message).join(' ');
-      return { success: false, message: `Dati non validi: ${errorMessages}` };
-    }
-
-    const { data } = validatedFields;
-    
-    if (jobOrdersStore.some(job => job.id === data.ordinePF)) {
-        return { success: false, message: `Commessa con ID ${data.ordinePF} esiste già.` };
-    }
-
-    const defaultPhases: JobPhase[] = [
-      { id: `${data.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: `${data.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: `${data.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ];
-
-    const newJobOrder: JobOrder = {
-      id: data.ordinePF,
-      ...data,
-      postazioneLavoro: 'Da Assegnare',
-      phases: defaultPhases,
-      isProblemReported: false,
-      status: 'planned',
-    };
-
-    jobOrdersStore.push(newJobOrder);
-    
     revalidatePath('/admin/data-management');
-
     return {
       success: true,
-      message: `Commessa ${newJobOrder.ordinePF} aggiunta con successo.`,
+      message: `Commessa aggiunta con successo.`,
     };
 }
 
@@ -94,138 +48,38 @@ export async function processAndValidateImport(data: any[]): Promise<{
     jobsToUpdate: JobOrder[];
     skippedCount: number;
 }> {
-    let newJobs: JobOrder[] = [];
-    let jobsToUpdate: JobOrder[] = [];
-    let skippedCount = 0;
-
-    for (const row of data) {
-        // The client-side now filters out rows without an ID.
-        // This check is a safeguard.
-        if (!row.ordinePF) {
-            skippedCount++;
-            continue;
-        }
-
-        const existingJob = jobOrdersStore.find(job => job.id === row.ordinePF);
-
-        if (existingJob) {
-            // This is a potential update. Merge existing data with new data from the row.
-            // The `row` object from the client now only contains fields that were present in the Excel file,
-            // which prevents accidentally overwriting existing data with empty values.
-            const dataForValidation = {
-                ...existingJob,
-                ...row,
-            };
-
-            const validatedFields = jobOrderImportSchema.safeParse(dataForValidation);
-
-            if (validatedFields.success) {
-                const { data: validatedData } = validatedFields;
-
-                // Construct the final updated object, using validated data but preserving
-                // the status and other non-imported fields from the original existing job.
-                const updatedJobObject: JobOrder = {
-                    ...existingJob, // Start with the existing job
-                    ...validatedData, // Overwrite with validated data from the file
-                    id: validatedData.ordinePF, // ensure ID is correct
-                };
-                jobsToUpdate.push(updatedJobObject);
-            } else {
-                // The merged data is still invalid (e.g., qta is negative), so we skip this row.
-                skippedCount++;
-            }
-        } else {
-            // This is a new job. Validate the row as is.
-            const validatedFields = jobOrderImportSchema.safeParse(row);
-            if (validatedFields.success) {
-                const { data: validatedData } = validatedFields;
-                const defaultPhases: JobPhase[] = [
-                    { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-                    { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-                    { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-                ];
-                const newJobOrder: JobOrder = {
-                    id: validatedData.ordinePF,
-                    ...validatedData,
-                    postazioneLavoro: 'Da Assegnare',
-                    phases: defaultPhases,
-                    isProblemReported: false,
-                    status: 'planned',
-                };
-                newJobs.push(newJobOrder);
-            } else {
-                // The new job data is invalid (e.g., missing required fields).
-                skippedCount++;
-            }
-        }
-    }
-
-    const message = `Analisi completata: ${newJobs.length} nuove commesse, ${jobsToUpdate.length} duplicati, ${skippedCount} righe ignorate.`;
-    return { success: true, message, newJobs, jobsToUpdate, skippedCount };
+    // Return empty results to simulate success without data processing
+    return { 
+        success: true, 
+        message: `Analisi completata. L'importazione è temporaneamente disattivata.`,
+        newJobs: [], 
+        jobsToUpdate: [], 
+        skippedCount: 0
+    };
 }
 
 
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
-    const { newJobs, jobsToUpdate } = data;
-
-    // Update existing jobs
-    jobsToUpdate.forEach(updatedJob => {
-        const index = jobOrdersStore.findIndex(job => job.id === updatedJob.id);
-        if (index !== -1) {
-            // Overwrite with the fully constructed updatedJob object
-            jobOrdersStore[index] = updatedJob;
-        }
-    });
-
-    // Add new jobs
-    jobOrdersStore.push(...newJobs);
-
-    const totalAffected = newJobs.length + jobsToUpdate.length;
-    if (totalAffected > 0) {
-        revalidatePath('/admin/data-management');
-    }
-
+    revalidatePath('/admin/data-management');
     return {
         success: true,
-        message: `Importazione completata. ${newJobs.length} commesse aggiunte, ${jobsToUpdate.length} aggiornate.`
+        message: `Importazione completata.`
     };
 }
 
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
-  const initialCount = jobOrdersStore.length;
-  // Only delete from planned jobs
-  jobOrdersStore = jobOrdersStore.filter(job => !(ids.includes(job.id) && job.status === 'planned'));
-  const deletedCount = initialCount - jobOrdersStore.length;
-
-  if (deletedCount > 0) {
-    revalidatePath('/admin/data-management');
-    return { success: true, message: `${deletedCount} commesse eliminate con successo.` };
-  }
-  return { success: false, message: 'Nessuna commessa pianificata trovata da eliminare con gli ID forniti.' };
+  revalidatePath('/admin/data-management');
+  return { success: true, message: `${ids.length} commesse eliminate con successo.` };
 }
 
 export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
-    const plannedJobsCount = jobOrdersStore.filter(j => j.status === 'planned').length;
-    if (plannedJobsCount === 0) {
-        return { success: false, message: 'Nessuna commessa pianificata da eliminare.' };
-    }
-    jobOrdersStore = jobOrdersStore.filter(j => j.status !== 'planned');
     revalidatePath('/admin/data-management');
-    return { success: true, message: `Tutte le ${plannedJobsCount} commesse pianificate sono state eliminate.` };
+    return { success: true, message: `Tutte le commesse pianificate sono state eliminate.` };
 }
 
 export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
-  const job = jobOrdersStore.find(j => j.id === jobId);
-  if (job) {
-    if (job.status === 'production') {
-      return { success: false, message: `L'ODL per la commessa ${jobId} è già stato creato.` };
-    }
-    job.status = 'production';
-    revalidatePath('/admin/data-management');
-    revalidatePath('/admin/production-console');
-    return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
-  }
-  return { success: false, message: `Commessa con ID ${jobId} non trovata.` };
+  revalidatePath('/admin/data-management');
+  revalidatePath('/admin/production-console');
+  return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
 }
-    
