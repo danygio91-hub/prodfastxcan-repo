@@ -45,7 +45,7 @@ const jobOrderFormSchema = z.object({
   numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
   details: z.string().min(1, "Codice è obbligatorio."),
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
-  dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato data non valido (YYYY-MM-DD)."),
+  dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato data non valido (YYYY-MM-DD).").or(z.literal('')),
   department: z.string().min(1, "Reparto è obbligatorio."),
   postazioneLavoro: z.string().min(1, "Postazione di lavoro è obbligatoria."),
 });
@@ -167,28 +167,29 @@ export default function AdminDataManagementCommessePage() {
         }
         
         const mappedJson = normalizedData.map((row: any) => {
-          let finalDate = row['consegna prevista'];
+          let finalDateStr = '';
+          const dateValue = row['consegna prevista'];
 
-          if (finalDate instanceof Date) {
-            const year = finalDate.getFullYear();
-            if(year > 1900) {
-              const month = String(finalDate.getMonth() + 1).padStart(2, '0');
-              const day = String(finalDate.getDate()).padStart(2, '0');
-              finalDate = `${year}-${month}-${day}`;
-            } else {
-              finalDate = '';
-            }
-          } else if (typeof finalDate === 'string' && finalDate.trim()) {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(finalDate.trim())) {
-                finalDate = finalDate.trim();
-              } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(finalDate.trim())) {
-                const parts = finalDate.trim().split(/[\/-]/);
-                finalDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-              } else {
-                finalDate = '';
+          if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+              const year = dateValue.getFullYear();
+              if (year > 1900) { // Filter out Excel's weird epoch dates
+                  const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+                  const day = String(dateValue.getDate()).padStart(2, '0');
+                  finalDateStr = `${year}-${month}-${day}`;
               }
-          } else {
-             finalDate = '';
+          } else if (typeof dateValue === 'string' && dateValue.trim()) {
+              const trimmedDate = dateValue.trim();
+              if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+                  finalDateStr = trimmedDate;
+              } else {
+                  const parts = trimmedDate.split(/[\/-]/);
+                  if (parts.length === 3) {
+                      const [day, month, year] = parts;
+                      if (day && month && year && year.length === 4) {
+                          finalDateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                      }
+                  }
+              }
           }
 
           const qtaRaw = row['qtà'];
@@ -202,7 +203,7 @@ export default function AdminDataManagementCommessePage() {
             numeroODL: String(row['ordine nr est'] || ''),
             details: String(row['codice'] || ''),
             qta: isNaN(qtaNum) ? 0 : qtaNum,
-            dataConsegnaFinale: String(finalDate || ''),
+            dataConsegnaFinale: finalDateStr,
             department: String(row['reparto'] || ''),
           }
         });
@@ -455,4 +456,3 @@ export default function AdminDataManagementCommessePage() {
   );
 }
 
-    
