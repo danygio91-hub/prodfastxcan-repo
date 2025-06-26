@@ -27,8 +27,8 @@ import { Input } from '@/components/ui/input';
 import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data'; // Import interfaces
-import { mockJobOrders } from '@/lib/mock-data'; // Import mock data
+import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
+import { getJobOrders } from '@/app/admin/data-management/actions';
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
 
@@ -36,7 +36,7 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let totalMilliseconds = 0;
   workPeriods.forEach(period => {
     if (period.end) {
-      totalMilliseconds += period.end.getTime() - period.start.getTime();
+      totalMilliseconds += new Date(period.end).getTime() - new Date(period.start).getTime();
     }
   });
 
@@ -100,14 +100,25 @@ export default function ScanJobPage() {
     setScannedWorkstationIdForPhase(null);
   }
 
-  const handleSimulateJobScan = () => {
+  const handleSimulateJobScan = async () => {
     resetInitialScanState();
     resetProcessingState();
     setIsScanningJob(true);
 
-    const randomJobIndex = Math.floor(Math.random() * mockJobOrders.length);
-    // Create a deep copy to avoid modifying the original mockJobOrders array
-    const randomJob = JSON.parse(JSON.stringify(mockJobOrders[randomJobIndex])) as JobOrder;
+    const availableJobs = await getJobOrders();
+
+    if (availableJobs.length === 0) {
+      setIsScanningJob(false);
+      toast({
+        variant: "destructive",
+        title: "Nessuna Commessa Presente",
+        description: "Impossibile simulare la scansione. Aggiungere commesse da 'Gestione Dati' nell'area admin.",
+      });
+      return;
+    }
+
+    const randomJobIndex = Math.floor(Math.random() * availableJobs.length);
+    const randomJob = JSON.parse(JSON.stringify(availableJobs[randomJobIndex])) as JobOrder;
     
     // Ensure phases have workPeriods initialized as empty arrays
      randomJob.phases = randomJob.phases.map(p => ({
@@ -570,7 +581,7 @@ export default function ScanJobPage() {
            )}
           {job.overallStartTime && (
             <CardDescription className="text-xs text-muted-foreground mt-1">
-              Iniziata il: {format(job.overallStartTime, "dd/MM/yyyy HH:mm:ss")}
+              Iniziata il: {format(new Date(job.overallStartTime), "dd/MM/yyyy HH:mm:ss")}
             </CardDescription>
           )}
         </CardHeader>
