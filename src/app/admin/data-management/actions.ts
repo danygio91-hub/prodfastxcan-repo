@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -16,24 +17,40 @@ export async function getJobOrders(): Promise<JobOrder[]> {
   return JSON.parse(JSON.stringify(jobOrdersStore));
 }
 
+// Schema for manual form validation
 const jobOrderFormSchema = z.object({
+  cliente: z.string().min(1, 'Cliente è obbligatorio.'),
   ordinePF: z.string().min(1, 'Ordine PF è obbligatorio.'),
-  numeroODL: z.string().min(1, 'Numero ODL è obbligatorio.'),
-  department: z.string().min(1, 'Reparto è obbligatorio.'),
-  details: z.string().min(1, 'Codice Articolo è obbligatorio.'),
+  numeroODL: z.string().min(1, 'Ordine Nr Est è obbligatorio.'),
+  details: z.string().min(1, 'Codice è obbligatorio.'),
+  qta: z.coerce.number().positive('La quantità deve essere un numero positivo.'),
   dataConsegnaFinale: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).'),
+  department: z.string().min(1, 'Reparto è obbligatorio.'),
   postazioneLavoro: z.string().min(1, 'Postazione di lavoro è obbligatoria.'),
 });
 
+// Schema for Excel import validation (omits postazioneLavoro which is not in the template)
+const jobOrderImportSchema = jobOrderFormSchema.omit({ postazioneLavoro: true });
+
 export async function addJobOrder(formData: FormData) {
-    const values = Object.fromEntries(formData.entries());
+    const values = {
+      cliente: formData.get('cliente'),
+      ordinePF: formData.get('ordinePF'),
+      numeroODL: formData.get('numeroODL'),
+      details: formData.get('details'),
+      qta: formData.get('qta'),
+      dataConsegnaFinale: formData.get('dataConsegnaFinale'),
+      department: formData.get('department'),
+      postazioneLavoro: formData.get('postazioneLavoro'),
+    };
 
     const validatedFields = jobOrderFormSchema.safeParse(values);
 
     if (!validatedFields.success) {
-      return { success: false, message: "Dati non validi." };
+      const errorMessages = validatedFields.error.issues.map(issue => issue.message).join(' ');
+      return { success: false, message: `Dati non validi: ${errorMessages}` };
     }
 
     const { data } = validatedFields;
@@ -72,7 +89,7 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
 
   for (const row of data) {
     // Row from Excel should already be mapped to the correct keys
-    const validatedFields = jobOrderFormSchema.safeParse(row);
+    const validatedFields = jobOrderImportSchema.safeParse(row);
 
     if (!validatedFields.success || jobOrdersStore.some(job => job.id === row.ordinePF)) {
       skippedCount++;
@@ -90,6 +107,7 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
     const newJobOrder: JobOrder = {
       id: validatedData.ordinePF,
       ...validatedData,
+      postazioneLavoro: 'Da Assegnare', // Set default value for imported orders
       phases: defaultPhases,
       isProblemReported: false,
     };

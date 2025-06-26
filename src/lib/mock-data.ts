@@ -20,11 +20,13 @@ export interface JobPhase {
 
 export interface JobOrder {
   id: string; // Questo sarà uguale a ordinePF
+  cliente: string;
+  qta: number;
   department: string;
-  details: string;
+  details: string; // Corrisponde a 'Codice'
   ordinePF: string;
-  numeroODL: string;
-  dataConsegnaFinale: string; // Formato YYYY-MM-DD
+  numeroODL: string; // Corrisponde a 'Ordine Nr Est'
+  dataConsegnaFinale: string; // Formato YYYY-MM-DD, Corrisponde a 'Consegna prevista'
   postazioneLavoro: string;
   phases: JobPhase[];
   overallStartTime?: Date | null;
@@ -36,6 +38,8 @@ export interface JobOrder {
 export const mockJobOrders: JobOrder[] = [
   {
     id: "PF-001", // ID = ordinePF
+    cliente: "Elettronica Futura Srl",
+    qta: 150,
     department: "Assemblaggio Componenti Elettronici",
     details: "Assemblaggio scheda madre per Prodotto X.",
     ordinePF: "PF-001",
@@ -52,6 +56,8 @@ export const mockJobOrders: JobOrder[] = [
   },
   {
     id: "PF-002", // ID = ordinePF
+    cliente: "Tecno-Sistemi S.p.A.",
+    qta: 300,
     department: "Controllo Qualità",
     details: "Verifica finale Prodotto Y.",
     ordinePF: "PF-002",
@@ -67,6 +73,8 @@ export const mockJobOrders: JobOrder[] = [
   },
   {
     id: "PF-003", // ID = ordinePF
+    cliente: "Global Mechanics",
+    qta: 50,
     department: "Assemblaggio Componenti Elettronici",
     details: "Cablaggio unità di alimentazione per Prodotto Z.",
     ordinePF: "PF-003",
@@ -82,6 +90,8 @@ export const mockJobOrders: JobOrder[] = [
   },
   {
     id: "PF-004", // ID = ordinePF
+    cliente: "Elettronica Futura Srl",
+    qta: 200,
     department: "Assemblaggio Componenti Elettronici",
     details: "Assemblaggio pannello frontale per Prodotto Alpha.",
     ordinePF: "PF-004",
@@ -96,6 +106,8 @@ export const mockJobOrders: JobOrder[] = [
   },
   {
     id: "PF-005", // ID = ordinePF
+    cliente: "Tecno-Sistemi S.p.A.",
+    qta: 75,
     department: "Controllo Qualità",
     details: "Test di burn-in per Prodotto Beta.",
     ordinePF: "PF-005",
@@ -110,4 +122,3 @@ export const mockJobOrders: JobOrder[] = [
     isProblemReported: false,
   }
 ];
-

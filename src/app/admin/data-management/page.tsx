@@ -40,11 +40,13 @@ import { useToast } from "@/hooks/use-toast";
 import { getJobOrders, addJobOrder, importJobOrders } from './actions';
 
 const jobOrderFormSchema = z.object({
+  cliente: z.string().min(1, "Cliente è obbligatorio."),
   ordinePF: z.string().min(1, "Ordine PF è obbligatorio."),
-  numeroODL: z.string().min(1, "Numero ODL è obbligatorio."),
-  department: z.string().min(1, "Reparto è obbligatorio."),
-  details: z.string().min(1, "Codice Articolo è obbligatorio."),
+  numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
+  details: z.string().min(1, "Codice è obbligatorio."),
+  qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
   dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato data non valido (YYYY-MM-DD)."),
+  department: z.string().min(1, "Reparto è obbligatorio."),
   postazioneLavoro: z.string().min(1, "Postazione di lavoro è obbligatoria."),
 });
 
@@ -66,17 +68,20 @@ export default function AdminDataManagementCommessePage() {
   const form = useForm<JobOrderFormValues>({
     resolver: zodResolver(jobOrderFormSchema),
     defaultValues: {
+      cliente: "",
       ordinePF: "",
       numeroODL: "",
-      department: "",
       details: "",
+      qta: "",
       dataConsegnaFinale: "",
+      department: "",
       postazioneLavoro: "",
     },
   });
 
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
     const formData = new FormData();
+    // Convert flat object to FormData
     Object.entries(values).forEach(([key, value]) => {
       formData.append(key, value);
     });
@@ -132,20 +137,22 @@ export default function AdminDataManagementCommessePage() {
           return;
         }
 
+        // Map Excel columns to the structure expected by the server action
         const mappedJson = json.map((row: any) => {
-          let finalDate = row['Data Consegna Finale'] || row['dataConsegnaFinale'];
+          let finalDate = row['Consegna prevista'] || row['dataConsegnaFinale'];
           if (finalDate instanceof Date) {
             finalDate.setMinutes(finalDate.getMinutes() - finalDate.getTimezoneOffset());
             finalDate = finalDate.toISOString().split('T')[0];
           }
 
           return {
-            ordinePF: String(row['Ordine PF'] || row['ordinePF'] || ''),
-            numeroODL: String(row['Numero ODL'] || row['numeroODL'] || ''),
-            department: String(row['Reparto'] || row['department'] || ''),
-            details: String(row['Codice Articolo / Descrizione Lavorazione'] || row['details'] || ''),
+            cliente: String(row['Cliente'] || ''),
+            ordinePF: String(row['Ordine PF'] || ''),
+            numeroODL: String(row['Ordine Nr Est'] || ''),
+            details: String(row['Codice'] || ''),
+            qta: Number(row['Qtà'] || 0),
             dataConsegnaFinale: String(finalDate || ''),
-            postazioneLavoro: String(row['Postazione di Lavoro Prevista'] || row['postazioneLavoro'] || ''),
+            department: String(row['Reparto'] || ''),
           }
         });
 
@@ -220,6 +227,19 @@ export default function AdminDataManagementCommessePage() {
                   </DialogHeader>
                   <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleAddNewJobOrder)} className="space-y-4 py-4">
+                       <FormField
+                        control={form.control}
+                        name="cliente"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Cliente</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Es. Rossi S.p.A." {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                       <FormField
                         control={form.control}
                         name="ordinePF"
@@ -238,9 +258,48 @@ export default function AdminDataManagementCommessePage() {
                         name="numeroODL"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Numero ODL</FormLabel>
+                            <FormLabel>Ordine Nr Est</FormLabel>
                             <FormControl>
-                              <Input placeholder="Es. ODL-800" {...field} />
+                              <Input placeholder="Es. ORD-CLIENTE-01" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="details"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Codice</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Es. ART-00123" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="qta"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Quantità</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="Es. 100" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="dataConsegnaFinale"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Consegna prevista</FormLabel>
+                            <FormControl>
+                              <Input type="date" placeholder="YYYY-MM-DD" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -253,33 +312,7 @@ export default function AdminDataManagementCommessePage() {
                           <FormItem>
                             <FormLabel>Reparto</FormLabel>
                             <FormControl>
-                              <Input placeholder="Es. Assemblaggio Componenti Elettronici" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="details"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Codice Articolo / Descrizione Lavorazione</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. Assemblaggio prodotto Alfa" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="dataConsegnaFinale"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Data Consegna Finale</FormLabel>
-                            <FormControl>
-                              <Input type="date" placeholder="YYYY-MM-DD" {...field} />
+                              <Input placeholder="Es. Assemblaggio" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -326,24 +359,28 @@ export default function AdminDataManagementCommessePage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Cliente</TableHead>
                       <TableHead>Ordine PF</TableHead>
-                      <TableHead>N° ODL</TableHead>
+                      <TableHead>Ordine Nr Est</TableHead>
+                      <TableHead className="min-w-[200px]">Codice</TableHead>
+                      <TableHead>Qtà</TableHead>
+                      <TableHead>Consegna Prevista</TableHead>
                       <TableHead>Reparto</TableHead>
-                      <TableHead className="min-w-[250px]">Codice Articolo</TableHead>
-                      <TableHead>Data Consegna</TableHead>
                       <TableHead>Postazione Lavoro</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {jobOrders.map((job) => (
                       <TableRow key={job.id}>
+                        <TableCell>{job.cliente}</TableCell>
                         <TableCell className="font-medium">{job.ordinePF}</TableCell>
                         <TableCell>{job.numeroODL}</TableCell>
-                        <TableCell>{job.department}</TableCell>
                         <TableCell>{job.details}</TableCell>
+                        <TableCell>{job.qta}</TableCell>
                         <TableCell>
                           {format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it })}
                         </TableCell>
+                        <TableCell>{job.department}</TableCell>
                         <TableCell>{job.postazioneLavoro}</TableCell>
                       </TableRow>
                     ))}
