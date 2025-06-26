@@ -113,7 +113,6 @@ export default function AdminDataManagementCommessePage() {
     Object.entries(values).forEach(([key, value]) => {
       formData.append(key, value || '');
     });
-    // Add the empty postazioneLavoro for the server action
     formData.append('postazioneLavoro', '');
 
     const result = await addJobOrder(formData);
@@ -161,7 +160,7 @@ export default function AdminDataManagementCommessePage() {
         const worksheet = workbook.Sheets[sheetName];
         
         const json = XLSX.utils.sheet_to_json(worksheet, {
-            raw: false,
+            raw: true, // Keep raw values to handle dates robustly
         });
 
         const filteredData = json.filter((row: any) => 
@@ -202,21 +201,27 @@ export default function AdminDataManagementCommessePage() {
 
           if (dateValue) {
             let parsedDate: Date | null = null;
-
-            if (dateValue instanceof Date) {
-              parsedDate = dateValue;
-            } else {
-              const dateString = String(dateValue).trim();
-              if (dateString) {
-                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
-                for (const fmt of formatsToTry) {
-                    const tempDate = parse(dateString, fmt, new Date());
-                    if (isValid(tempDate)) {
-                        parsedDate = tempDate;
-                        break; 
+            if (dateValue instanceof Date && isValid(dateValue)) {
+                parsedDate = dateValue;
+            } else if (typeof dateValue === 'string') {
+                 const dateString = String(dateValue).trim();
+                 if (dateString) {
+                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
+                    for (const fmt of formatsToTry) {
+                        const tempDate = parse(dateString, fmt, new Date());
+                        if (isValid(tempDate)) {
+                            parsedDate = tempDate;
+                            break; 
+                        }
                     }
+                 }
+            } else if (typeof dateValue === 'number') {
+                // Fallback for Excel serial dates if cellDates:true fails
+                const excelEpoch = new Date(1899, 11, 30);
+                const jsDate = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+                if (isValid(jsDate)) {
+                    parsedDate = jsDate;
                 }
-              }
             }
             
             if (parsedDate && isValid(parsedDate)) {
@@ -470,5 +475,3 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
-    
