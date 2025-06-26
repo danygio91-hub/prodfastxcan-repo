@@ -58,7 +58,7 @@ const jobOrderFormSchema = z.object({
   numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
   details: z.string().min(1, "Codice è obbligatorio."),
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
-  dataConsegnaFinale: z.string().optional(), // Can be empty or a valid date string
+  dataConsegnaFinale: z.string().optional(),
   department: z.string().min(1, "Reparto è obbligatorio."),
 });
 
@@ -168,7 +168,7 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { dateNF: 'yyyy-mm-dd' });
+        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false, dateNF: 'yyyy-mm-dd' });
 
         const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -192,32 +192,51 @@ export default function AdminDataManagementCommessePage() {
         });
 
         const mappedJson = normalizedData.map((row: any) => {
-          let finalDateStr = '';
-          const dateValue = row['dataConsegnaFinale'];
-          if (dateValue) {
-            let parsedDate: Date | null = null;
-            if (dateValue instanceof Date && isValid(dateValue)) {
-              parsedDate = dateValue;
-            } else if (typeof dateValue === 'string' || typeof dateValue === 'number') {
-              const dateString = String(dateValue).trim();
-              if (dateString) {
-                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
-                for (const fmt of formatsToTry) {
-                  const tempDate = parse(dateString, fmt, new Date());
-                  if (isValid(tempDate)) {
-                    parsedDate = tempDate;
-                    break;
-                  }
+            const dataToSend = { ...row };
+            
+            // --- Date Logic ---
+            const dateValue = dataToSend['dataConsegnaFinale'];
+            let finalDateStr = '';
+            if (dateValue) {
+                let parsedDate: Date | null = null;
+                // Check if it's already a valid date object from cellDates:true
+                if (dateValue instanceof Date && isValid(dateValue)) {
+                    parsedDate = dateValue;
+                } 
+                // Check if it's a string that needs parsing
+                else if (typeof dateValue === 'string') {
+                    const dateString = String(dateValue).trim();
+                    if (dateString) {
+                        const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
+                        for (const fmt of formatsToTry) {
+                            const tempDate = parse(dateString, fmt, new Date());
+                            if (isValid(tempDate)) {
+                                parsedDate = tempDate;
+                                break;
+                            }
+                        }
+                    }
                 }
-              }
+                if (parsedDate && isValid(parsedDate)) {
+                    finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+                }
             }
-            if (parsedDate && isValid(parsedDate)) {
-              finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+            dataToSend.dataConsegnaFinale = finalDateStr;
+
+            // --- Quantity Logic ---
+            const qtaRaw = dataToSend['qta'];
+            if (qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '') {
+                const qtaNum = Number(String(qtaRaw).replace(',', '.'));
+                if (!isNaN(qtaNum)) {
+                    dataToSend.qta = qtaNum;
+                } else {
+                    delete dataToSend.qta; // Invalid number, remove it
+                }
+            } else {
+                delete dataToSend.qta; // Empty cell, remove it
             }
-          }
-          const qtaRaw = row['qta'];
-          const qtaNum = qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '' ? Number(String(qtaRaw).replace(',', '.')) : 0;
-          return { ...row, qta: isNaN(qtaNum) ? 0 : qtaNum, dataConsegnaFinale: finalDateStr };
+
+            return dataToSend;
         });
 
         const result = await processAndValidateImport(mappedJson);
@@ -499,3 +518,5 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    
