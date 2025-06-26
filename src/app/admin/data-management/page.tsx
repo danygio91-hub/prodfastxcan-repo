@@ -45,7 +45,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
-import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -163,13 +162,11 @@ export default function AdminDataManagementCommessePage() {
         const data = e.target?.result;
         if (!data) throw new Error("FileReader non ha restituito dati.");
         
-        // Read workbook without cellDates for consistent raw values
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        // Read raw values. Dates will be numbers, text will be text.
         const json = XLSX.utils.sheet_to_json(worksheet, {raw: true});
 
         const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== '' && cell !== undefined));
@@ -196,14 +193,12 @@ export default function AdminDataManagementCommessePage() {
         const mappedJson = normalizedData.map((row: any) => {
             const dataToSend = { ...row };
             
-            // --- Robust Date Logic ---
             const dateValue = dataToSend['dataConsegnaFinale'];
             let finalDateStr = '';
             if (dateValue !== null && dateValue !== undefined && String(dateValue).trim() !== '') {
                 let parsedDate: Date | null = null;
                 
                 if (typeof dateValue === 'number') {
-                    // Handle Excel's serial date number format
                     const excelEpoch = new Date(1899, 11, 30);
                     const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
                     const tempDate = new Date(jsTimestamp);
@@ -229,17 +224,16 @@ export default function AdminDataManagementCommessePage() {
             }
             dataToSend.dataConsegnaFinale = finalDateStr;
 
-            // --- Robust Quantity Logic ---
             const qtaRaw = dataToSend['qta'];
             if (qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '') {
                 const qtaNum = Number(String(qtaRaw).replace(',', '.').trim());
-                if (!isNaN(qtaNum)) {
+                if (!isNaN(qtaNum) && qtaNum > 0) {
                     dataToSend.qta = qtaNum;
                 } else {
-                    delete dataToSend.qta; // Remove invalid number to not break validation
+                    delete dataToSend.qta;
                 }
             } else {
-                delete dataToSend.qta; // Remove if empty
+                delete dataToSend.qta;
             }
 
             return dataToSend;
@@ -464,7 +458,7 @@ export default function AdminDataManagementCommessePage() {
                         <TableCell>{job.details}</TableCell>
                         <TableCell>{job.qta}</TableCell>
                         <TableCell>
-                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy") : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
                         <TableCell>
