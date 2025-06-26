@@ -2,13 +2,13 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { mockJobOrders, type JobOrder, type JobPhase } from '@/lib/mock-data';
+import { type JobOrder, type JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // THIS IS A SERVER-SIDE IN-MEMORY "DATABASE" SIMULATION.
 // In a real app, you would use Firestore, Prisma, etc.
 // NOTE: This data will reset every time the server restarts.
-let jobOrdersStore: JobOrder[] = [...mockJobOrders];
+let jobOrdersStore: JobOrder[] = [];
 
 
 export async function getJobOrders(): Promise<JobOrder[]> {
@@ -133,4 +133,25 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
   };
 }
 
+export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
+  const initialCount = jobOrdersStore.length;
+  jobOrdersStore = jobOrdersStore.filter(job => !ids.includes(job.id));
+  const deletedCount = initialCount - jobOrdersStore.length;
+
+  if (deletedCount > 0) {
+    revalidatePath('/admin/data-management');
+    return { success: true, message: `${deletedCount} commesse eliminate con successo.` };
+  }
+  return { success: false, message: 'Nessuna commessa trovata da eliminare.' };
+}
+
+export async function deleteAllJobOrders(): Promise<{ success: boolean; message: string }> {
+  const count = jobOrdersStore.length;
+  if (count === 0) {
+    return { success: false, message: 'Nessuna commessa da eliminare.' };
+  }
+  jobOrdersStore = [];
+  revalidatePath('/admin/data-management');
+  return { success: true, message: `Tutte le ${count} commesse sono state eliminate.` };
+}
     

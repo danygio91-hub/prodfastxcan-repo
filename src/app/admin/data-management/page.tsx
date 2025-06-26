@@ -26,10 +26,22 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download } from 'lucide-react';
+import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2 } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -37,7 +49,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getJobOrders, addJobOrder, importJobOrders } from './actions';
+import { getJobOrders, addJobOrder, importJobOrders, deleteSelectedJobOrders, deleteAllJobOrders } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -56,13 +68,18 @@ export default function AdminDataManagementCommessePage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
+  const fetchJobOrders = () => {
     getJobOrders().then(orders => {
       setJobOrders(orders);
     });
+  }
+  
+  useEffect(() => {
+    fetchJobOrders();
   }, []);
 
   const form = useForm<JobOrderFormValues>({
@@ -78,6 +95,20 @@ export default function AdminDataManagementCommessePage() {
       postazioneLavoro: "",
     },
   });
+  
+  const handleSelectAll = (checked: boolean | 'indeterminate') => {
+    if (checked === true) {
+      setSelectedRows(jobOrders.map(job => job.id));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+
+  const handleSelectRow = (id: string) => {
+    setSelectedRows(prev =>
+      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+    );
+  };
 
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
     const formData = new FormData();
@@ -94,9 +125,7 @@ export default function AdminDataManagementCommessePage() {
       });
       form.reset();
       setIsAddDialogOpen(false);
-      getJobOrders().then(orders => {
-        setJobOrders(orders);
-      });
+      fetchJobOrders();
     } else {
        toast({
         variant: "destructive",
@@ -136,7 +165,6 @@ export default function AdminDataManagementCommessePage() {
             dateNF: 'YYYY-MM-DD' // Formatta automaticamente le date
         });
 
-        // Filter out empty rows that might be read by the library
         const filteredData = json.filter((row: any) => 
             Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -175,15 +203,12 @@ export default function AdminDataManagementCommessePage() {
 
           if (typeof dateValue === 'string' && dateValue.trim()) {
               const trimmedDate = dateValue.trim();
-              // L'opzione dateNF dovrebbe aver già formattato la data in YYYY-MM-DD.
-              // Aggiungiamo un fallback per le celle che erano testo e non formattate come data in Excel.
               if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
                   finalDateStr = trimmedDate;
               } else {
                   const parts = trimmedDate.split(/[\/-]/);
                   if (parts.length === 3) {
                       const [day, month, year] = parts.map(p => p.trim());
-                      // Validazione di base per DD/MM/YYYY o D/M/YYYY
                       if (day && month && year && year.length === 4 && day.length <= 2 && month.length <= 2) {
                           finalDateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                       }
@@ -202,7 +227,7 @@ export default function AdminDataManagementCommessePage() {
             numeroODL: String(row['ordine nr est'] || ''),
             details: String(row['codice'] || ''),
             qta: isNaN(qtaNum) ? 0 : qtaNum,
-            dataConsegnaFinale: finalDateStr, // finalDateStr sarà '' se non è una data valida
+            dataConsegnaFinale: finalDateStr,
             department: String(row['reparto'] || ''),
           }
         });
@@ -214,8 +239,8 @@ export default function AdminDataManagementCommessePage() {
           description: result.message,
         });
 
-        if (result.success && result.message.includes('importate')) {
-          getJobOrders().then(setJobOrders);
+        if (result.success) {
+          fetchJobOrders();
         }
       } catch (error) {
          toast({
@@ -233,34 +258,57 @@ export default function AdminDataManagementCommessePage() {
     reader.readAsArrayBuffer(file);
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedRows.length === 0) return;
+    const result = await deleteSelectedJobOrders(selectedRows);
+    if (result.success) {
+      toast({ title: "Operazione Riuscita", description: result.message });
+      fetchJobOrders();
+      setSelectedRows([]);
+    } else {
+      toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    const result = await deleteAllJobOrders();
+    if (result.success) {
+      toast({ title: "Operazione Riuscita", description: result.message });
+      fetchJobOrders();
+      setSelectedRows([]);
+    } else {
+      toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+  };
+
   return (
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-4 flex-wrap">
             <Link href="/admin/dashboard" passHref>
               <Button variant="outline">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Torna alla Dashboard Admin
               </Button>
             </Link>
-            <div className="flex items-center gap-4">
-              <Button asChild variant="outline">
-                <a href="/template_import_commesse.xlsx" download>
-                  <Download className="mr-2 h-4 w-4" />
-                  Scarica Template
-                </a>
-              </Button>
-              <input
+            <div className="flex items-center gap-2 flex-wrap justify-end flex-grow">
+               <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileChange}
                 accept=".xlsx, .xls"
                 className="hidden"
               />
+              <Button asChild variant="outline">
+                <a href="/template_import_commesse.xlsx" download>
+                  <Download className="mr-2 h-4 w-4" />
+                  Scarica Template
+                </a>
+              </Button>
               <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
                 {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                {isImporting ? "Importazione..." : "Importa da Excel"}
+                Importa da Excel
               </Button>
               <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
                 <DialogTrigger asChild>
@@ -278,114 +326,16 @@ export default function AdminDataManagementCommessePage() {
                   </DialogHeader>
                   <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleAddNewJobOrder)} className="space-y-4 py-4">
-                       <FormField
-                        control={form.control}
-                        name="cliente"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Cliente</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. Rossi S.p.A." {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="ordinePF"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Ordine PF (ID Commessa)</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. PF-006" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="numeroODL"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Ordine Nr Est</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. ORD-CLIENTE-01" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                       <FormField
-                        control={form.control}
-                        name="details"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Codice</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. ART-00123" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="qta"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Quantità</FormLabel>
-                            <FormControl>
-                              <Input type="number" placeholder="Es. 100" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="dataConsegnaFinale"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Consegna prevista</FormLabel>
-                            <FormControl>
-                              <Input type="date" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="department"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Reparto</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. Assemblaggio" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="postazioneLavoro"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Postazione di Lavoro Prevista</FormLabel>
-                            <FormControl>
-                              <Input placeholder="Es. Postazione A-01" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                       <FormField control={form.control} name="cliente" render={({ field }) => ( <FormItem> <FormLabel>Cliente</FormLabel> <FormControl> <Input placeholder="Es. Rossi S.p.A." {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="ordinePF" render={({ field }) => ( <FormItem> <FormLabel>Ordine PF (ID Commessa)</FormLabel> <FormControl> <Input placeholder="Es. PF-006" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="numeroODL" render={({ field }) => ( <FormItem> <FormLabel>Ordine Nr Est</FormLabel> <FormControl> <Input placeholder="Es. ORD-CLIENTE-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="details" render={({ field }) => ( <FormItem> <FormLabel>Codice</FormLabel> <FormControl> <Input placeholder="Es. ART-00123" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="qta" render={({ field }) => ( <FormItem> <FormLabel>Quantità</FormLabel> <FormControl> <Input type="number" placeholder="Es. 100" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="department" render={({ field }) => ( <FormItem> <FormLabel>Reparto</FormLabel> <FormControl> <Input placeholder="Es. Assemblaggio" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="postazioneLavoro" render={({ field }) => ( <FormItem> <FormLabel>Postazione di Lavoro Prevista</FormLabel> <FormControl> <Input placeholder="Es. Postazione A-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                       <DialogFooter>
-                        <DialogClose asChild>
-                          <Button type="button" variant="outline">Annulla</Button>
-                        </DialogClose>
+                        <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                         <Button type="submit">Aggiungi Commessa</Button>
                       </DialogFooter>
                     </form>
@@ -397,19 +347,73 @@ export default function AdminDataManagementCommessePage() {
 
           <Card className="shadow-lg">
             <CardHeader>
-              <div className="flex items-center space-x-3">
-                <ListChecks className="h-8 w-8 text-primary" />
-                <div>
-                  <CardTitle className="text-2xl font-headline mb-1">Gestione Dati: Elenco Commesse</CardTitle>
-                  <CardDescription>Visualizza, aggiungi o importa le commesse di produzione.</CardDescription>
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center space-x-3">
+                    <ListChecks className="h-8 w-8 text-primary" />
+                    <div>
+                    <CardTitle className="text-2xl font-headline mb-1">Gestione Dati: Elenco Commesse</CardTitle>
+                    <CardDescription>Visualizza, aggiungi o importa le commesse di produzione.</CardDescription>
+                    </div>
+                </div>
+                 <div className="flex items-center gap-2">
+                  {selectedRows.length > 0 && (
+                     <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Elimina Selezionate ({selectedRows.length})
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annulla</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                   <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                         <Button variant="outline" size="sm" disabled={jobOrders.length === 0}>
+                           Svuota Elenco
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Questa azione non può essere annullata. Verranno eliminate tutte le {jobOrders.length} commesse.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annulla</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               {jobOrders.length > 0 ? (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead padding="checkbox">
+                        <Checkbox
+                          checked={selectedRows.length > 0 && selectedRows.length === jobOrders.length}
+                          onCheckedChange={handleSelectAll}
+                          aria-label="Seleziona tutte"
+                          indeterminate={selectedRows.length > 0 && selectedRows.length < jobOrders.length}
+                        />
+                      </TableHead>
                       <TableHead>Cliente</TableHead>
                       <TableHead>Ordine PF</TableHead>
                       <TableHead>Ordine Nr Est</TableHead>
@@ -422,7 +426,14 @@ export default function AdminDataManagementCommessePage() {
                   </TableHeader>
                   <TableBody>
                     {jobOrders.map((job) => (
-                      <TableRow key={job.id}>
+                      <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
+                        <TableCell padding="checkbox">
+                           <Checkbox
+                            checked={selectedRows.includes(job.id)}
+                            onCheckedChange={() => handleSelectRow(job.id)}
+                            aria-label={`Seleziona commessa ${job.id}`}
+                          />
+                        </TableCell>
                         <TableCell>{job.cliente}</TableCell>
                         <TableCell className="font-medium">{job.ordinePF}</TableCell>
                         <TableCell>{job.numeroODL}</TableCell>
@@ -437,13 +448,13 @@ export default function AdminDataManagementCommessePage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 text-center">
                   <Package className="h-16 w-16 text-muted-foreground mb-4" />
                   <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
-
                   <p className="text-sm text-muted-foreground">
-                    Non ci sono commesse attualmente nel sistema. Puoi aggiungerne una manualmente o importarle da un file Excel.
+                    Aggiungi una commessa manualmente o importa da un file Excel per iniziare.
                   </p>
                 </div>
               )}
