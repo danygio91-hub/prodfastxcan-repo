@@ -180,7 +180,7 @@ export default function AdminDataManagementCommessePage() {
         const normalizedData = filteredData.map((row: any) => {
           const normalizedRow: { [key: string]: any } = {};
           const headerMapping: { [key: string]: string } = {
-            'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qtà': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
+            'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qta': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
           };
           for (const key in row) {
             const normalizedKey = key.trim().toLowerCase();
@@ -529,3 +529,5 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    
