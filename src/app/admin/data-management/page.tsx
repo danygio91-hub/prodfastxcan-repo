@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -29,13 +29,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, ListChecks, Package, PlusCircle } from 'lucide-react';
-import { mockJobOrders, type JobOrder, type JobPhase } from '@/lib/mock-data';
+import { type JobOrder } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
+import { getJobOrders, addJobOrder } from './actions';
 
 const jobOrderFormSchema = z.object({
   ordinePF: z.string().min(1, "Ordine PF è obbligatorio."),
@@ -49,9 +50,15 @@ const jobOrderFormSchema = z.object({
 type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
 
 export default function AdminDataManagementCommessePage() {
-  const [jobOrders, setJobOrders] = useState<JobOrder[]>(mockJobOrders);
+  const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    getJobOrders().then(orders => {
+      setJobOrders(orders);
+    });
+  }, []);
 
   const form = useForm<JobOrderFormValues>({
     resolver: zodResolver(jobOrderFormSchema),
@@ -65,27 +72,32 @@ export default function AdminDataManagementCommessePage() {
     },
   });
 
-  const handleAddNewJobOrder = (values: JobOrderFormValues) => {
-    const defaultPhases: JobPhase[] = [
-      { id: `${values.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-      { id: `${values.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-      { id: `${values.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-    ];
-
-    const newJobOrder: JobOrder = {
-      id: values.ordinePF, // ID = ordinePF
-      ...values,
-      phases: defaultPhases,
-      isProblemReported: false,
-    };
-
-    setJobOrders(prevJobOrders => [...prevJobOrders, newJobOrder]);
-    toast({
-      title: "Commessa Aggiunta",
-      description: `La commessa ${newJobOrder.ordinePF} è stata aggiunta con successo.`,
+  const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
+    const formData = new FormData();
+    Object.entries(values).forEach(([key, value]) => {
+      formData.append(key, value);
     });
-    form.reset();
-    setIsAddDialogOpen(false);
+
+    const result = await addJobOrder(formData);
+
+    if (result.success) {
+      toast({
+        title: "Operazione Riuscita",
+        description: result.message,
+      });
+      form.reset();
+      setIsAddDialogOpen(false);
+      // Re-fetch the job orders to update the list
+      getJobOrders().then(orders => {
+        setJobOrders(orders);
+      });
+    } else {
+       toast({
+        variant: "destructive",
+        title: "Errore",
+        description: result.message || "Impossibile aggiungere la commessa.",
+      });
+    }
   };
 
   return (
@@ -259,5 +271,3 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
-    
