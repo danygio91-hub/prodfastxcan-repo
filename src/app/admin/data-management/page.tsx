@@ -45,7 +45,7 @@ const jobOrderFormSchema = z.object({
   numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
   details: z.string().min(1, "Codice è obbligatorio."),
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
-  dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Formato data non valido (YYYY-MM-DD).").or(z.literal('')),
+  dataConsegnaFinale: z.string().optional(), // Can be empty or a valid date string
   department: z.string().min(1, "Reparto è obbligatorio."),
   postazioneLavoro: z.string().min(1, "Postazione di lavoro è obbligatoria."),
 });
@@ -82,7 +82,7 @@ export default function AdminDataManagementCommessePage() {
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
-      formData.append(key, value);
+      formData.append(key, value || '');
     });
 
     const result = await addJobOrder(formData);
@@ -131,7 +131,10 @@ export default function AdminDataManagementCommessePage() {
         }
         const worksheet = workbook.Sheets[sheetName];
         
-        const json = XLSX.utils.sheet_to_json(worksheet, { cellDates: true, raw: false });
+        const json = XLSX.utils.sheet_to_json(worksheet, {
+            raw: false, // Ottieni testo formattato
+            dateNF: 'YYYY-MM-DD' // Formatta automaticamente le date
+        });
 
         // Filter out empty rows that might be read by the library
         const filteredData = json.filter((row: any) => 
@@ -170,22 +173,18 @@ export default function AdminDataManagementCommessePage() {
           let finalDateStr = '';
           const dateValue = row['consegna prevista'];
 
-          if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-              const year = dateValue.getFullYear();
-              if (year > 1900) { // Filter out Excel's weird epoch dates
-                  const month = String(dateValue.getMonth() + 1).padStart(2, '0');
-                  const day = String(dateValue.getDate()).padStart(2, '0');
-                  finalDateStr = `${year}-${month}-${day}`;
-              }
-          } else if (typeof dateValue === 'string' && dateValue.trim()) {
+          if (typeof dateValue === 'string' && dateValue.trim()) {
               const trimmedDate = dateValue.trim();
+              // L'opzione dateNF dovrebbe aver già formattato la data in YYYY-MM-DD.
+              // Aggiungiamo un fallback per le celle che erano testo e non formattate come data in Excel.
               if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
                   finalDateStr = trimmedDate;
               } else {
                   const parts = trimmedDate.split(/[\/-]/);
                   if (parts.length === 3) {
-                      const [day, month, year] = parts;
-                      if (day && month && year && year.length === 4) {
+                      const [day, month, year] = parts.map(p => p.trim());
+                      // Validazione di base per DD/MM/YYYY o D/M/YYYY
+                      if (day && month && year && year.length === 4 && day.length <= 2 && month.length <= 2) {
                           finalDateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                       }
                   }
@@ -203,7 +202,7 @@ export default function AdminDataManagementCommessePage() {
             numeroODL: String(row['ordine nr est'] || ''),
             details: String(row['codice'] || ''),
             qta: isNaN(qtaNum) ? 0 : qtaNum,
-            dataConsegnaFinale: finalDateStr,
+            dataConsegnaFinale: finalDateStr, // finalDateStr sarà '' se non è una data valida
             department: String(row['reparto'] || ''),
           }
         });
@@ -351,7 +350,7 @@ export default function AdminDataManagementCommessePage() {
                           <FormItem>
                             <FormLabel>Consegna prevista</FormLabel>
                             <FormControl>
-                              <Input type="date" placeholder="YYYY-MM-DD" {...field} />
+                              <Input type="date" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -455,4 +454,3 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
