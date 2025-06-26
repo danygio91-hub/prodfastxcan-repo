@@ -163,14 +163,16 @@ export default function AdminDataManagementCommessePage() {
         const data = e.target?.result;
         if (!data) throw new Error("FileReader non ha restituito dati.");
         
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        // Read workbook without cellDates for consistent raw values
+        const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet);
+        // Read raw values. Dates will be numbers, text will be text.
+        const json = XLSX.utils.sheet_to_json(worksheet, {raw: true});
 
-        const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== ''));
+        const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== '' && cell !== undefined));
 
         if (filteredData.length === 0) {
           toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
@@ -194,47 +196,50 @@ export default function AdminDataManagementCommessePage() {
         const mappedJson = normalizedData.map((row: any) => {
             const dataToSend = { ...row };
             
-            // --- Date Logic ---
+            // --- Robust Date Logic ---
             const dateValue = dataToSend['dataConsegnaFinale'];
             let finalDateStr = '';
-            if (dateValue) {
+            if (dateValue !== null && dateValue !== undefined && String(dateValue).trim() !== '') {
                 let parsedDate: Date | null = null;
-                // 1. Check if it's already a valid JS Date from cellDates:true
-                if (dateValue instanceof Date && isValid(dateValue)) {
-                    parsedDate = dateValue;
-                } 
-                // 2. Fallback: check if it's a string that needs parsing
-                else if (typeof dateValue === 'string') {
+                
+                if (typeof dateValue === 'number') {
+                    // Handle Excel's serial date number format
+                    const excelEpoch = new Date(1899, 11, 30);
+                    const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
+                    const tempDate = new Date(jsTimestamp);
+                     if (isValid(tempDate)) {
+                        const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
+                        parsedDate = adjustedDate;
+                    }
+                } else if (typeof dateValue === 'string') {
                     const dateString = String(dateValue).trim();
-                    if (dateString) {
-                        const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
-                        for (const fmt of formatsToTry) {
-                            const tempDate = parse(dateString, fmt, new Date());
-                            if (isValid(tempDate)) {
-                                parsedDate = tempDate;
-                                break;
-                            }
+                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
+                    for (const fmt of formatsToTry) {
+                        const tempDate = parse(dateString, fmt, new Date());
+                        if (isValid(tempDate)) {
+                            parsedDate = tempDate;
+                            break;
                         }
                     }
                 }
-                // If any method succeeded, format it to the standard YYYY-MM-DD
+                
                 if (parsedDate && isValid(parsedDate)) {
                     finalDateStr = format(parsedDate, 'yyyy-MM-dd');
                 }
             }
             dataToSend.dataConsegnaFinale = finalDateStr;
 
-            // --- Quantity Logic ---
+            // --- Robust Quantity Logic ---
             const qtaRaw = dataToSend['qta'];
             if (qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '') {
-                const qtaNum = Number(String(qtaRaw).replace(',', '.'));
+                const qtaNum = Number(String(qtaRaw).replace(',', '.').trim());
                 if (!isNaN(qtaNum)) {
                     dataToSend.qta = qtaNum;
                 } else {
-                    delete dataToSend.qta; // Invalid number, remove it
+                    delete dataToSend.qta; // Remove invalid number to not break validation
                 }
             } else {
-                delete dataToSend.qta; // Empty cell, remove it
+                delete dataToSend.qta; // Remove if empty
             }
 
             return dataToSend;
