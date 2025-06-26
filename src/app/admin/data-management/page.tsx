@@ -193,20 +193,24 @@ export default function AdminDataManagementCommessePage() {
         const mappedJson = normalizedData.map((row: any) => {
             const dataToSend = { ...row };
             
+            // DATE HANDLING
             const dateValue = dataToSend['dataConsegnaFinale'];
             let finalDateStr = '';
             if (dateValue !== null && dateValue !== undefined && String(dateValue).trim() !== '') {
                 let parsedDate: Date | null = null;
                 
-                if (typeof dateValue === 'number') {
+                if (typeof dateValue === 'number' && dateValue > 0) {
+                    // Handle Excel serial date
                     const excelEpoch = new Date(1899, 11, 30);
                     const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
                     const tempDate = new Date(jsTimestamp);
                      if (isValid(tempDate)) {
+                        // Adjust for timezone offset to get the correct calendar day
                         const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
                         parsedDate = adjustedDate;
                     }
                 } else if (typeof dateValue === 'string') {
+                    // Handle string date
                     const dateString = String(dateValue).trim();
                     const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
                     for (const fmt of formatsToTry) {
@@ -224,16 +228,15 @@ export default function AdminDataManagementCommessePage() {
             }
             dataToSend.dataConsegnaFinale = finalDateStr;
 
+            // QUANTITY HANDLING
             const qtaRaw = dataToSend['qta'];
-            if (qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== '') {
-                const qtaNum = Number(String(qtaRaw).replace(',', '.').trim());
-                if (!isNaN(qtaNum) && qtaNum > 0) {
-                    dataToSend.qta = qtaNum;
-                } else {
-                    delete dataToSend.qta;
-                }
+            if (qtaRaw !== undefined && qtaRaw !== null) {
+                // Pass the raw value as a string. The server's `z.coerce.number()` will handle it.
+                dataToSend.qta = String(qtaRaw).replace(',', '.').trim();
             } else {
-                delete dataToSend.qta;
+                // If quantity is missing, send an empty string.
+                // This will correctly fail server-side validation (`positive()`) but won't be a JS error.
+                dataToSend.qta = '';
             }
 
             return dataToSend;
