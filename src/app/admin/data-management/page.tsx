@@ -41,7 +41,7 @@ import { getJobOrders, addJobOrder, importJobOrders } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
-  ordinePF: z.string().min(1, "Ordine PF è obbligatorio."),
+  ordinePF: z.string().min(1, "Ordine PF (ID Commessa) è obbligatorio."),
   numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
   details: z.string().min(1, "Codice è obbligatorio."),
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
@@ -81,7 +81,6 @@ export default function AdminDataManagementCommessePage() {
 
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
     const formData = new FormData();
-    // Convert flat object to FormData
     Object.entries(values).forEach(([key, value]) => {
       formData.append(key, value);
     });
@@ -95,7 +94,6 @@ export default function AdminDataManagementCommessePage() {
       });
       form.reset();
       setIsAddDialogOpen(false);
-      // Re-fetch the job orders to update the list
       getJobOrders().then(orders => {
         setJobOrders(orders);
       });
@@ -135,19 +133,22 @@ export default function AdminDataManagementCommessePage() {
         
         const json = XLSX.utils.sheet_to_json(worksheet, { cellDates: true, raw: false });
 
-        if (json.length === 0) {
+        // Filter out empty rows that might be read by the library
+        const filteredData = json.filter((row: any) => 
+            Object.values(row).some(cell => cell !== null && cell !== ''));
+
+        if (filteredData.length === 0) {
           toast({
             variant: "destructive",
             title: "File Vuoto o Invalido",
-            description: "Il file Excel non contiene righe di dati o le intestazioni mancano.",
+            description: "Il file Excel non contiene righe di dati valide.",
           });
           setIsImporting(false);
           if (event.target) event.target.value = "";
           return;
         }
 
-        // Normalize all keys to lowercase and trim whitespace for robust matching
-        const normalizedData = json.map((row: any) => {
+        const normalizedData = filteredData.map((row: any) => {
             const normalizedRow: { [key: string]: any } = {};
             for (const key in row) {
                 if (Object.prototype.hasOwnProperty.call(row, key)) {
@@ -157,7 +158,6 @@ export default function AdminDataManagementCommessePage() {
             return normalizedRow;
         });
 
-        // Check for required headers using the normalized keys
         const requiredHeaders = ['cliente', 'ordine pf', 'ordine nr est', 'codice', 'qtà', 'consegna prevista', 'reparto'];
         const firstRowHeaders = Object.keys(normalizedData[0] as any);
         const missingHeaders = requiredHeaders.filter(h => !firstRowHeaders.includes(h));
@@ -167,7 +167,6 @@ export default function AdminDataManagementCommessePage() {
         }
         
         const mappedJson = normalizedData.map((row: any) => {
-          // Access data using the normalized, lowercase keys
           let finalDate = row['consegna prevista'];
 
           if (finalDate instanceof Date) {
@@ -179,21 +178,30 @@ export default function AdminDataManagementCommessePage() {
             } else {
               finalDate = '';
             }
-          } else if (typeof finalDate === 'string') {
-             if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(finalDate)) {
-                const parts = finalDate.split(/[\/-]/);
+          } else if (typeof finalDate === 'string' && finalDate.trim()) {
+              if (/^\d{4}-\d{2}-\d{2}$/.test(finalDate.trim())) {
+                finalDate = finalDate.trim();
+              } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(finalDate.trim())) {
+                const parts = finalDate.trim().split(/[\/-]/);
                 finalDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-             }
+              } else {
+                finalDate = '';
+              }
           } else {
              finalDate = '';
           }
+
+          const qtaRaw = row['qtà'];
+          const qtaNum = qtaRaw !== undefined && qtaRaw !== null && String(qtaRaw).trim() !== ''
+            ? Number(String(qtaRaw).replace(',', '.'))
+            : 0;
 
           return {
             cliente: String(row['cliente'] || ''),
             ordinePF: String(row['ordine pf'] || ''),
             numeroODL: String(row['ordine nr est'] || ''),
             details: String(row['codice'] || ''),
-            qta: row['qtà'] ? Number(String(row['qtà']).replace(',', '.')) : 0,
+            qta: isNaN(qtaNum) ? 0 : qtaNum,
             dataConsegnaFinale: String(finalDate || ''),
             department: String(row['reparto'] || ''),
           }
@@ -206,7 +214,7 @@ export default function AdminDataManagementCommessePage() {
           description: result.message,
         });
 
-        if (result.message.includes('importate')) {
+        if (result.success && result.message.includes('importate')) {
           getJobOrders().then(setJobOrders);
         }
       } catch (error) {
@@ -309,7 +317,7 @@ export default function AdminDataManagementCommessePage() {
                           </FormItem>
                         )}
                       />
-                      <FormField
+                       <FormField
                         control={form.control}
                         name="details"
                         render={({ field }) => (
@@ -421,7 +429,7 @@ export default function AdminDataManagementCommessePage() {
                         <TableCell>{job.details}</TableCell>
                         <TableCell>{job.qta}</TableCell>
                         <TableCell>
-                          {format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it })}
+                          {job.dataConsegnaFinale ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
                         <TableCell>{job.postazioneLavoro}</TableCell>
@@ -433,6 +441,7 @@ export default function AdminDataManagementCommessePage() {
                 <div className="flex flex-col items-center justify-center py-10 text-center">
                   <Package className="h-16 w-16 text-muted-foreground mb-4" />
                   <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
+
                   <p className="text-sm text-muted-foreground">
                     Non ci sono commesse attualmente nel sistema. Puoi aggiungerne una manualmente o importarle da un file Excel.
                   </p>
@@ -445,3 +454,5 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    

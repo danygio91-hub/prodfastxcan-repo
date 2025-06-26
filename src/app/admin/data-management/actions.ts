@@ -20,13 +20,14 @@ export async function getJobOrders(): Promise<JobOrder[]> {
 // Schema for manual form validation
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, 'Cliente è obbligatorio.'),
-  ordinePF: z.string().min(1, 'Ordine PF è obbligatorio.'),
+  ordinePF: z.string().min(1, 'Ordine PF (ID Commessa) è obbligatorio.'),
   numeroODL: z.string().min(1, 'Ordine Nr Est è obbligatorio.'),
   details: z.string().min(1, 'Codice è obbligatorio.'),
   qta: z.coerce.number().positive('La quantità deve essere un numero positivo.'),
   dataConsegnaFinale: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).'),
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).')
+    .or(z.string().length(0)), // Allow empty string
   department: z.string().min(1, 'Reparto è obbligatorio.'),
   postazioneLavoro: z.string().min(1, 'Postazione di lavoro è obbligatoria.'),
 });
@@ -72,7 +73,6 @@ export async function addJobOrder(formData: FormData) {
       isProblemReported: false,
     };
 
-    // In a real app: await db.jobOrder.create({ data: newJobOrder });
     jobOrdersStore.push(newJobOrder);
     
     revalidatePath('/admin/data-management');
@@ -88,7 +88,12 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
   let skippedCount = 0;
 
   for (const row of data) {
-    // Row from Excel should already be mapped to the correct keys
+    // Skip rows that don't even have a basic ID
+    if (!row.ordinePF) {
+      skippedCount++;
+      continue;
+    }
+
     const validatedFields = jobOrderImportSchema.safeParse(row);
 
     if (!validatedFields.success || jobOrdersStore.some(job => job.id === row.ordinePF)) {
@@ -119,9 +124,13 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
   if (importedCount > 0) {
     revalidatePath('/admin/data-management');
   }
-
+  
+  const message = `Importazione completata. ${importedCount} commesse importate, ${skippedCount} ignorate (duplicati o dati non validi).`;
+  
   return {
-    success: true,
-    message: `Importazione completata. ${importedCount} commesse importate, ${skippedCount} ignorate (duplicati o dati non validi).`,
+    success: importedCount > 0,
+    message: message,
   };
 }
+
+    
