@@ -162,67 +162,60 @@ export default function AdminDataManagementCommessePage() {
         const data = e.target?.result;
         if (!data) throw new Error("FileReader non ha restituito dati.");
         
-        // Read the file with raw: true to get original values
         const workbook = XLSX.read(data, { type: 'array', raw: true });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, {raw: true});
+        const json = XLSX.utils.sheet_to_json(worksheet, {raw: true, defval: null});
 
-        const filteredData = json.filter((row: any) => Object.values(row).some(cell => cell !== null && cell !== '' && cell !== undefined));
+        const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
 
         if (filteredData.length === 0) {
           toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
           return;
         }
 
-        const normalizedData = filteredData.map((row: any) => {
-          const normalizedRow: { [key: string]: any } = {};
-          const headerMapping: { [key: string]: string } = {
-            'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qta': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
-          };
-          for (const key in row) {
-            const normalizedKey = key.trim().toLowerCase();
-            if (headerMapping[normalizedKey]) {
-              normalizedRow[headerMapping[normalizedKey]] = row[key];
-            }
-          }
-          return normalizedRow;
-        });
+        const headerMapping: { [key: string]: string } = {
+          'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qta': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
+        };
 
-        const mappedJson = normalizedData.map((row: any) => {
-            const dataToSend: { [key: string]: any } = {};
-
-            // Copy over only the fields that have a non-empty value.
-            // This is crucial for partial updates not to send empty strings.
-            Object.keys(row).forEach(key => {
-                if (row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
-                    dataToSend[key] = row[key];
-                }
-            });
-
-            if (Object.keys(dataToSend).length === 0 || !dataToSend.ordinePF) {
-                return null;
+        const mappedJson = filteredData.map((row: any) => {
+            const normalizedRow: { [key: string]: any } = {};
+            for (const key in row) {
+              const normalizedKey = key.trim().toLowerCase();
+              if (headerMapping[normalizedKey]) {
+                  normalizedRow[headerMapping[normalizedKey]] = row[key];
+              }
             }
 
-            // DATE HANDLING
-            if (dataToSend.dataConsegnaFinale) {
-                const dateValue = dataToSend.dataConsegnaFinale;
+            if (!normalizedRow.ordinePF) {
+              return null;
+            }
+
+            const dataToSend: { [key:string]: any } = {};
+
+            dataToSend.ordinePF = String(normalizedRow.ordinePF);
+
+            if (normalizedRow.cliente != null) dataToSend.cliente = String(normalizedRow.cliente);
+            if (normalizedRow.numeroODL != null) dataToSend.numeroODL = String(normalizedRow.numeroODL);
+            if (normalizedRow.details != null) dataToSend.details = String(normalizedRow.details);
+            if (normalizedRow.department != null) dataToSend.department = String(normalizedRow.department);
+            if (normalizedRow.qta != null) dataToSend.qta = String(normalizedRow.qta).replace(',', '.').trim();
+
+            if (normalizedRow.dataConsegnaFinale) {
+                const dateValue = normalizedRow.dataConsegnaFinale;
                 let parsedDate: Date | null = null;
                 
                 if (typeof dateValue === 'number' && dateValue > 0) {
-                    // Handle Excel serial date
                     const excelEpoch = new Date(1899, 11, 30);
                     const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
                     const tempDate = new Date(jsTimestamp);
                      if (isValid(tempDate)) {
-                        // Adjust for timezone offset to get the correct calendar day
                         const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
                         parsedDate = adjustedDate;
                     }
                 } else if (typeof dateValue === 'string') {
-                    // Handle string date
                     const dateString = String(dateValue).trim();
                     const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
                     for (const fmt of formatsToTry) {
@@ -236,31 +229,27 @@ export default function AdminDataManagementCommessePage() {
                 
                 if (parsedDate && isValid(parsedDate)) {
                     dataToSend.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
-                } else {
-                    delete dataToSend.dataConsegnaFinale; // Remove if invalid
                 }
             }
-
-            // QUANTITY HANDLING
-            if (dataToSend.qta) {
-                // Pass the raw value as a string. The server's `z.coerce.number()` will handle it.
-                dataToSend.qta = String(dataToSend.qta).replace(',', '.').trim();
-            }
-
             return dataToSend;
-        }).filter(Boolean); // Filter out null/empty rows
+        }).filter(Boolean);
 
-        const result = await processAndValidateImport(mappedJson);
+        if (mappedJson.length === 0) {
+          toast({ variant: "destructive", title: "Dati non validi", description: "Nessuna riga valida trovata nel file. Controllare che la colonna 'Ordine PF' sia presente e compilata."});
+          return;
+        }
+
+        const result = await processAndValidateImport(mappedJson as any[]);
         toast({ title: "Analisi File", description: result.message });
 
-        if (result.success) {
-          if (result.jobsToUpdate.length > 0) {
-            setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
-          } else if (result.newJobs.length > 0) {
-            const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
-            toast({ title: "Importazione Riuscita", description: commitResult.message });
-            fetchJobOrders();
-          }
+        if (result.success && (result.newJobs.length > 0 || result.jobsToUpdate.length > 0)) {
+            if (result.jobsToUpdate.length > 0) {
+                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+            } else {
+                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
+                toast({ title: "Importazione Riuscita", description: commitResult.message });
+                fetchJobOrders();
+            }
         }
       } catch (error) {
          toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
@@ -447,7 +436,7 @@ export default function AdminDataManagementCommessePage() {
                       <TableHead>Ordine PF</TableHead>
                       <TableHead>Ordine Nr Est</TableHead>
                       <TableHead className="min-w-[200px]">Codice</TableHead>
-                      <TableHead>Qtà</TableHead>
+                      <TableHead>Qta</TableHead>
                       <TableHead>Data Consegna prevista</TableHead>
                       <TableHead>Reparto</TableHead>
                       <TableHead>Azioni</TableHead>

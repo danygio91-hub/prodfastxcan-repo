@@ -90,13 +90,13 @@ export async function processAndValidateImport(data: any[]): Promise<{
     let skippedCount = 0;
 
     const importSchema = z.object({
-      cliente: z.string().optional(),
-      ordinePF: z.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
-      numeroODL: z.string().optional(),
-      details: z.string().optional(),
+      cliente: z.coerce.string().optional(),
+      ordinePF: z.coerce.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
+      numeroODL: z.coerce.string().optional(),
+      details: z.coerce.string().optional(),
       qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
       dataConsegnaFinale: z.string().optional(),
-      department: z.string().optional(),
+      department: z.coerce.string().optional(),
     });
 
     for (const row of data) {
