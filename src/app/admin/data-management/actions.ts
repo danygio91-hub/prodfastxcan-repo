@@ -29,7 +29,7 @@ const jobOrderFormSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).')
     .or(z.string().length(0)), // Allow empty string
   department: z.string().min(1, 'Reparto è obbligatorio.'),
-  postazioneLavoro: z.string().min(1, 'Postazione di lavoro è obbligatoria.'),
+  postazioneLavoro: z.string().optional(),
 });
 
 // Schema for Excel import validation (omits postazioneLavoro which is not in the template)
@@ -69,6 +69,7 @@ export async function addJobOrder(formData: FormData) {
     const newJobOrder: JobOrder = {
       id: data.ordinePF,
       ...data,
+      postazioneLavoro: data.postazioneLavoro || 'Da Assegnare',
       phases: defaultPhases,
       isProblemReported: false,
     };

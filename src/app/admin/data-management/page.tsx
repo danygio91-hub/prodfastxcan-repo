@@ -43,7 +43,7 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2 } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
-import { format } from 'date-fns';
+import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -59,7 +59,6 @@ const jobOrderFormSchema = z.object({
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
   dataConsegnaFinale: z.string().optional(), // Can be empty or a valid date string
   department: z.string().min(1, "Reparto è obbligatorio."),
-  postazioneLavoro: z.string().min(1, "Postazione di lavoro è obbligatoria."),
 });
 
 type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
@@ -92,7 +91,6 @@ export default function AdminDataManagementCommessePage() {
       qta: "",
       dataConsegnaFinale: "",
       department: "",
-      postazioneLavoro: "",
     },
   });
   
@@ -161,8 +159,8 @@ export default function AdminDataManagementCommessePage() {
         const worksheet = workbook.Sheets[sheetName];
         
         const json = XLSX.utils.sheet_to_json(worksheet, {
-            raw: false, // Ottieni testo formattato
-            dateNF: 'YYYY-MM-DD' // Formatta automaticamente le date
+            raw: false,
+            dateNF: 'YYYY-MM-DD'
         });
 
         const filteredData = json.filter((row: any) => 
@@ -199,21 +197,35 @@ export default function AdminDataManagementCommessePage() {
         
         const mappedJson = normalizedData.map((row: any) => {
           let finalDateStr = '';
-          const dateValue = row['consegna prevista'];
+          const dateValue = String(row['consegna prevista'] || '').trim();
 
-          if (typeof dateValue === 'string' && dateValue.trim()) {
-              const trimmedDate = dateValue.trim();
-              if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
-                  finalDateStr = trimmedDate;
-              } else {
-                  const parts = trimmedDate.split(/[\/-]/);
-                  if (parts.length === 3) {
-                      const [day, month, year] = parts.map(p => p.trim());
-                      if (day && month && year && year.length === 4 && day.length <= 2 && month.length <= 2) {
-                          finalDateStr = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-                      }
-                  }
-              }
+          if (dateValue) {
+            let parsedDate: Date | null = null;
+            
+            // Try parsing YYYY-MM-DD (result of dateNF)
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+                const tempDate = new Date(dateValue);
+                // Check if it's a real date, not just a string that looks like one
+                 if (isValid(tempDate) && tempDate.toISOString().startsWith(dateValue)) {
+                    parsedDate = tempDate;
+                 }
+            }
+
+            // If not parsed yet, try other common formats
+            if (!parsedDate) {
+                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy'];
+                for (const fmt of formatsToTry) {
+                    const tempDate = parse(dateValue, fmt, new Date());
+                    if (isValid(tempDate)) {
+                        parsedDate = tempDate;
+                        break; 
+                    }
+                }
+            }
+            
+            if (parsedDate && isValid(parsedDate)) {
+                 finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+            }
           }
 
           const qtaRaw = row['qtà'];
@@ -333,7 +345,6 @@ export default function AdminDataManagementCommessePage() {
                        <FormField control={form.control} name="qta" render={({ field }) => ( <FormItem> <FormLabel>Quantità</FormLabel> <FormControl> <Input type="number" placeholder="Es. 100" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="department" render={({ field }) => ( <FormItem> <FormLabel>Reparto</FormLabel> <FormControl> <Input placeholder="Es. Assemblaggio" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                       <FormField control={form.control} name="postazioneLavoro" render={({ field }) => ( <FormItem> <FormLabel>Postazione di Lavoro Prevista</FormLabel> <FormControl> <Input placeholder="Es. Postazione A-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                       <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                         <Button type="submit">Aggiungi Commessa</Button>
@@ -421,7 +432,6 @@ export default function AdminDataManagementCommessePage() {
                       <TableHead>Qtà</TableHead>
                       <TableHead>Consegna Prevista</TableHead>
                       <TableHead>Reparto</TableHead>
-                      <TableHead>Postazione Lavoro</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -443,7 +453,6 @@ export default function AdminDataManagementCommessePage() {
                           {job.dataConsegnaFinale ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
-                        <TableCell>{job.postazioneLavoro}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
