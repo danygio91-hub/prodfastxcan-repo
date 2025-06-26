@@ -41,7 +41,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2 } from 'lucide-react';
+import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -106,6 +106,13 @@ export default function AdminDataManagementCommessePage() {
     setSelectedRows(prev =>
       prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
     );
+  };
+  
+  const handleCreateOdl = (jobId: string) => {
+    toast({
+      title: "Funzionalità in sviluppo",
+      description: `La creazione dell'ODL per la commessa ${jobId} sarà implementata a breve.`,
+    });
   };
 
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
@@ -433,6 +440,7 @@ export default function AdminDataManagementCommessePage() {
                       <TableHead>Qtà</TableHead>
                       <TableHead>Data Consegna prevista</TableHead>
                       <TableHead>Reparto</TableHead>
+                      <TableHead>Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -454,6 +462,12 @@ export default function AdminDataManagementCommessePage() {
                           {job.dataConsegnaFinale ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
+                        <TableCell>
+                          <Button variant="outline" size="sm" onClick={() => handleCreateOdl(job.id)}>
+                            <FileText className="mr-2 h-4 w-4" />
+                            Crea ODL
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -475,3 +489,5 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    
