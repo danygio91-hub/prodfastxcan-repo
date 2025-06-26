@@ -36,7 +36,7 @@ const jobOrderFormSchema = z.object({
 });
 
 // Schema for Excel import validation
-const jobOrderImportSchema = jobOrderFormSchema.omit({ postazioneLavoro: true });
+const jobOrderImportSchema = jobOrderFormSchema;
 
 export async function addJobOrder(formData: FormData) {
     const values = {
@@ -104,35 +104,66 @@ export async function processAndValidateImport(data: any[]): Promise<{
             continue;
         }
 
-        const validatedFields = jobOrderImportSchema.safeParse(row);
+        const existingJob = jobOrdersStore.find(job => job.id === row.ordinePF);
 
-        if (!validatedFields.success) {
-            skippedCount++;
-            continue;
-        }
-
-        const { data: validatedData } = validatedFields;
-
-        const defaultPhases: JobPhase[] = [
-            { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
-            { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
-            { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
-        ];
-
-        const jobOrderObject: JobOrder = {
-            id: validatedData.ordinePF,
-            ...validatedData,
-            postazioneLavoro: 'Da Assegnare',
-            phases: defaultPhases,
-            isProblemReported: false,
-            status: 'planned',
-        };
-
-        const existingJob = jobOrdersStore.find(job => job.id === jobOrderObject.id);
         if (existingJob) {
-            jobsToUpdate.push({ ...jobOrderObject, status: existingJob.status }); // Preserve status of existing job
+            // It's a potential update. Merge existing data with new data from the row.
+            // This ensures that if the Excel row only has a few columns for an update,
+            // the other required fields are filled from the existing record before validation.
+            const dataForValidation = {
+                ...existingJob,
+                ...row,
+            };
+
+            const validatedFields = jobOrderImportSchema.safeParse(dataForValidation);
+
+            if (validatedFields.success) {
+                const { data: validatedData } = validatedFields;
+
+                // Construct the final updated object, using validated data but preserving
+                // the status and other non-imported fields from the original existing job.
+                const updatedJobObject: JobOrder = {
+                    id: validatedData.ordinePF,
+                    cliente: validatedData.cliente,
+                    ordinePF: validatedData.ordinePF,
+                    numeroODL: validatedData.numeroODL,
+                    details: validatedData.details,
+                    qta: validatedData.qta,
+                    dataConsegnaFinale: validatedData.dataConsegnaFinale,
+                    department: validatedData.department,
+                    postazioneLavoro: existingJob.postazioneLavoro, // Preserve
+                    phases: existingJob.phases, // Preserve
+                    isProblemReported: existingJob.isProblemReported, // Preserve
+                    status: existingJob.status, // Preserve
+                };
+                jobsToUpdate.push(updatedJobObject);
+            } else {
+                // The merged data is still invalid, so we skip this row.
+                skippedCount++;
+            }
         } else {
-            newJobs.push(jobOrderObject);
+            // It's a new job. Validate the row as is.
+            const validatedFields = jobOrderImportSchema.safeParse(row);
+            if (validatedFields.success) {
+                const { data: validatedData } = validatedFields;
+                const defaultPhases: JobPhase[] = [
+                    { id: `${validatedData.ordinePF}-phase-1`, name: "Preparazione Materiali", status: 'pending', materialReady: true, workPeriods: [], sequence: 1, workstationScannedAndVerified: false },
+                    { id: `${validatedData.ordinePF}-phase-2`, name: "Lavorazione Principale", status: 'pending', materialReady: false, workPeriods: [], sequence: 2, workstationScannedAndVerified: false },
+                    { id: `${validatedData.ordinePF}-phase-3`, name: "Controllo Finale", status: 'pending', materialReady: false, workPeriods: [], sequence: 3, workstationScannedAndVerified: false },
+                ];
+                const newJobOrder: JobOrder = {
+                    id: validatedData.ordinePF,
+                    ...validatedData,
+                    postazioneLavoro: 'Da Assegnare',
+                    phases: defaultPhases,
+                    isProblemReported: false,
+                    status: 'planned',
+                };
+                newJobs.push(newJobOrder);
+            } else {
+                // The new job data is invalid.
+                skippedCount++;
+            }
         }
     }
 
@@ -148,7 +179,8 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     jobsToUpdate.forEach(updatedJob => {
         const index = jobOrdersStore.findIndex(job => job.id === updatedJob.id);
         if (index !== -1) {
-            jobOrdersStore[index] = updatedJob; // Overwrite with new data, status is preserved from previous step
+            // Overwrite with the fully constructed updatedJob object
+            jobOrdersStore[index] = updatedJob;
         }
     });
 
@@ -169,14 +201,15 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
   const initialCount = jobOrdersStore.length;
-  jobOrdersStore = jobOrdersStore.filter(job => !ids.includes(job.id));
+  // Only delete from planned jobs
+  jobOrdersStore = jobOrdersStore.filter(job => !(ids.includes(job.id) && job.status === 'planned'));
   const deletedCount = initialCount - jobOrdersStore.length;
 
   if (deletedCount > 0) {
     revalidatePath('/admin/data-management');
     return { success: true, message: `${deletedCount} commesse eliminate con successo.` };
   }
-  return { success: false, message: 'Nessuna commessa trovata da eliminare.' };
+  return { success: false, message: 'Nessuna commessa pianificata trovata da eliminare con gli ID forniti.' };
 }
 
 export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
