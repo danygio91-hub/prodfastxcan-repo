@@ -78,17 +78,6 @@ export async function addJobOrder(formData: FormData) {
     };
 }
 
-const importSchema = z.object({
-  cliente: z.string().optional(),
-  ordinePF: z.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
-  numeroODL: z.string().optional(),
-  details: z.string().optional(),
-  qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
-  dataConsegnaFinale: z.string().optional(),
-  department: z.string().optional(),
-});
-
-
 export async function processAndValidateImport(data: any[]): Promise<{
     success: boolean;
     message: string;
@@ -100,67 +89,64 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const jobsToUpdate: JobOrder[] = [];
     let skippedCount = 0;
 
+    const importSchema = z.object({
+      cliente: z.string().optional(),
+      ordinePF: z.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
+      numeroODL: z.string().optional(),
+      details: z.string().optional(),
+      qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
+      dataConsegnaFinale: z.string().optional(),
+      department: z.string().optional(),
+    });
+
     for (const row of data) {
-        // Ensure required fields for identification exist
-        if (!row.ordinePF) {
+        const validated = importSchema.safeParse(row);
+
+        if (!validated.success) {
             skippedCount++;
             continue;
         }
 
-        const existingJobIndex = jobOrdersStore.findIndex(j => j.id === row.ordinePF);
+        const { data: validData } = validated;
+        const existingJob = jobOrdersStore.find(j => j.id === validData.ordinePF);
 
-        if (existingJobIndex > -1) {
-            // This is a potential update
-            const existingJob = jobOrdersStore[existingJobIndex];
-            // Merge new data over existing data
-            const mergedData = { 
-                ...existingJob, 
-                ...row,
-                // Ensure qta is coerced to number if present
-                qta: row.qta !== undefined ? Number(String(row.qta).replace(',', '.')) : existingJob.qta,
+        if (existingJob) {
+            // It's an update. Merge and add to jobsToUpdate.
+            const updatedJob: JobOrder = {
+                ...existingJob,
+                ...validData,
+                // Ensure required fields that might be optional in the import are not wiped out
+                qta: validData.qta ?? existingJob.qta,
+                cliente: validData.cliente ?? existingJob.cliente,
+                numeroODL: validData.numeroODL ?? existingJob.numeroODL,
+                details: validData.details ?? existingJob.details,
+                department: validData.department ?? existingJob.department,
+                dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
             };
-            
-            // Re-validate the merged data
-            const validated = importSchema.safeParse(mergedData);
-            if (validated.success) {
-                const updatedJob: JobOrder = {
-                    ...existingJob,
-                    ...validated.data,
-                    id: existingJob.id,
-                    qta: validated.data.qta ?? existingJob.qta,
-                    dataConsegnaFinale: validated.data.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
-                    department: validated.data.department ?? existingJob.department,
-                };
-                jobsToUpdate.push(updatedJob);
-            } else {
-                skippedCount++;
-            }
+            jobsToUpdate.push(updatedJob);
         } else {
-            // This is a new job. qta is required for new jobs.
-            if (row.qta === undefined || isNaN(Number(row.qta)) || Number(row.qta) <= 0) {
-                 skippedCount++;
-                 continue;
-            }
-            const validated = importSchema.safeParse(row);
-            if (validated.success) {
-                const department = validated.data.department || "Reparto Generico";
-                const newJob: JobOrder = {
-                    id: validated.data.ordinePF,
-                    cliente: validated.data.cliente || "N/D",
-                    ordinePF: validated.data.ordinePF,
-                    numeroODL: validated.data.numeroODL || "N/D",
-                    details: validated.data.details || "N/D",
-                    qta: validated.data.qta!,
-                    dataConsegnaFinale: validated.data.dataConsegnaFinale || '',
-                    department: department,
-                    status: 'planned',
-                    postazioneLavoro: 'Da Assegnare',
-                    phases: createDefaultPhases(department),
-                };
-                newJobs.push(newJob);
-            } else {
+            // It's a new job. Check for required fields for creation.
+            if (validData.qta === undefined) {
                 skippedCount++;
+                continue; // qta is required for new jobs
             }
+
+            const department = validData.department || "Reparto Generico";
+            const newJob: JobOrder = {
+                id: validData.ordinePF,
+                status: 'planned',
+                postazioneLavoro: 'Da Assegnare',
+                phases: createDefaultPhases(department),
+                // Fill in the rest, providing defaults for optional fields
+                cliente: validData.cliente || "N/D",
+                ordinePF: validData.ordinePF,
+                numeroODL: validData.numeroODL || "N/D",
+                details: validData.details || "N/D",
+                qta: validData.qta, // We already checked it exists
+                dataConsegnaFinale: validData.dataConsegnaFinale || '',
+                department: department,
+            };
+            newJobs.push(newJob);
         }
     }
     
@@ -248,5 +234,3 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
   revalidatePath('/admin/production-console');
   return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
 }
-
-    
