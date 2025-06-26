@@ -162,7 +162,8 @@ export default function AdminDataManagementCommessePage() {
         const data = e.target?.result;
         if (!data) throw new Error("FileReader non ha restituito dati.");
         
-        const workbook = XLSX.read(data, { type: 'array' });
+        // Read the file with raw: true to get original values
+        const workbook = XLSX.read(data, { type: 'array', raw: true });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
@@ -191,12 +192,23 @@ export default function AdminDataManagementCommessePage() {
         });
 
         const mappedJson = normalizedData.map((row: any) => {
-            const dataToSend = { ...row };
-            
+            const dataToSend: { [key: string]: any } = {};
+
+            // Copy over only the fields that have a non-empty value.
+            // This is crucial for partial updates not to send empty strings.
+            Object.keys(row).forEach(key => {
+                if (row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== '') {
+                    dataToSend[key] = row[key];
+                }
+            });
+
+            if (Object.keys(dataToSend).length === 0 || !dataToSend.ordinePF) {
+                return null;
+            }
+
             // DATE HANDLING
-            const dateValue = dataToSend['dataConsegnaFinale'];
-            let finalDateStr = '';
-            if (dateValue !== null && dateValue !== undefined && String(dateValue).trim() !== '') {
+            if (dataToSend.dataConsegnaFinale) {
+                const dateValue = dataToSend.dataConsegnaFinale;
                 let parsedDate: Date | null = null;
                 
                 if (typeof dateValue === 'number' && dateValue > 0) {
@@ -223,24 +235,20 @@ export default function AdminDataManagementCommessePage() {
                 }
                 
                 if (parsedDate && isValid(parsedDate)) {
-                    finalDateStr = format(parsedDate, 'yyyy-MM-dd');
+                    dataToSend.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
+                } else {
+                    delete dataToSend.dataConsegnaFinale; // Remove if invalid
                 }
             }
-            dataToSend.dataConsegnaFinale = finalDateStr;
 
             // QUANTITY HANDLING
-            const qtaRaw = dataToSend['qta'];
-            if (qtaRaw !== undefined && qtaRaw !== null) {
+            if (dataToSend.qta) {
                 // Pass the raw value as a string. The server's `z.coerce.number()` will handle it.
-                dataToSend.qta = String(qtaRaw).replace(',', '.').trim();
-            } else {
-                // If quantity is missing, send an empty string.
-                // This will correctly fail server-side validation (`positive()`) but won't be a JS error.
-                dataToSend.qta = '';
+                dataToSend.qta = String(dataToSend.qta).replace(',', '.').trim();
             }
 
             return dataToSend;
-        });
+        }).filter(Boolean); // Filter out null/empty rows
 
         const result = await processAndValidateImport(mappedJson);
         toast({ title: "Analisi File", description: result.message });

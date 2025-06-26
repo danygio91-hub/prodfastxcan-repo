@@ -99,6 +99,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
     let skippedCount = 0;
 
     for (const row of data) {
+        // The client-side now filters out rows without an ID.
+        // This check is a safeguard.
         if (!row.ordinePF) {
             skippedCount++;
             continue;
@@ -107,9 +109,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const existingJob = jobOrdersStore.find(job => job.id === row.ordinePF);
 
         if (existingJob) {
-            // It's a potential update. Merge existing data with new data from the row.
-            // This ensures that if the Excel row only has a few columns for an update,
-            // the other required fields are filled from the existing record before validation.
+            // This is a potential update. Merge existing data with new data from the row.
+            // The `row` object from the client now only contains fields that were present in the Excel file,
+            // which prevents accidentally overwriting existing data with empty values.
             const dataForValidation = {
                 ...existingJob,
                 ...row,
@@ -123,26 +125,17 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 // Construct the final updated object, using validated data but preserving
                 // the status and other non-imported fields from the original existing job.
                 const updatedJobObject: JobOrder = {
-                    id: validatedData.ordinePF,
-                    cliente: validatedData.cliente,
-                    ordinePF: validatedData.ordinePF,
-                    numeroODL: validatedData.numeroODL,
-                    details: validatedData.details,
-                    qta: validatedData.qta,
-                    dataConsegnaFinale: validatedData.dataConsegnaFinale,
-                    department: validatedData.department,
-                    postazioneLavoro: existingJob.postazioneLavoro, // Preserve
-                    phases: existingJob.phases, // Preserve
-                    isProblemReported: existingJob.isProblemReported, // Preserve
-                    status: existingJob.status, // Preserve
+                    ...existingJob, // Start with the existing job
+                    ...validatedData, // Overwrite with validated data from the file
+                    id: validatedData.ordinePF, // ensure ID is correct
                 };
                 jobsToUpdate.push(updatedJobObject);
             } else {
-                // The merged data is still invalid, so we skip this row.
+                // The merged data is still invalid (e.g., qta is negative), so we skip this row.
                 skippedCount++;
             }
         } else {
-            // It's a new job. Validate the row as is.
+            // This is a new job. Validate the row as is.
             const validatedFields = jobOrderImportSchema.safeParse(row);
             if (validatedFields.success) {
                 const { data: validatedData } = validatedFields;
@@ -161,7 +154,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 };
                 newJobs.push(newJobOrder);
             } else {
-                // The new job data is invalid.
+                // The new job data is invalid (e.g., missing required fields).
                 skippedCount++;
             }
         }
