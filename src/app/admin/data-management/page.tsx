@@ -113,6 +113,8 @@ export default function AdminDataManagementCommessePage() {
     Object.entries(values).forEach(([key, value]) => {
       formData.append(key, value || '');
     });
+    // Add the empty postazioneLavoro for the server action
+    formData.append('postazioneLavoro', '');
 
     const result = await addJobOrder(formData);
 
@@ -151,7 +153,7 @@ export default function AdminDataManagementCommessePage() {
           throw new Error("FileReader non ha restituito dati.");
         }
 
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) {
             throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
@@ -160,7 +162,6 @@ export default function AdminDataManagementCommessePage() {
         
         const json = XLSX.utils.sheet_to_json(worksheet, {
             raw: false,
-            dateNF: 'YYYY-MM-DD'
         });
 
         const filteredData = json.filter((row: any) => 
@@ -187,7 +188,7 @@ export default function AdminDataManagementCommessePage() {
             return normalizedRow;
         });
 
-        const requiredHeaders = ['cliente', 'ordine pf', 'ordine nr est', 'codice', 'qtà', 'consegna prevista', 'reparto'];
+        const requiredHeaders = ['cliente', 'ordine pf', 'ordine nr est', 'codice', 'qtà', 'data consegna prevista', 'reparto'];
         const firstRowHeaders = Object.keys(normalizedData[0] as any);
         const missingHeaders = requiredHeaders.filter(h => !firstRowHeaders.includes(h));
         
@@ -197,30 +198,25 @@ export default function AdminDataManagementCommessePage() {
         
         const mappedJson = normalizedData.map((row: any) => {
           let finalDateStr = '';
-          const dateValue = String(row['consegna prevista'] || '').trim();
+          const dateValue = row['data consegna prevista'];
 
           if (dateValue) {
             let parsedDate: Date | null = null;
-            
-            // Try parsing YYYY-MM-DD (result of dateNF)
-            if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
-                const tempDate = new Date(dateValue);
-                // Check if it's a real date, not just a string that looks like one
-                 if (isValid(tempDate) && tempDate.toISOString().startsWith(dateValue)) {
-                    parsedDate = tempDate;
-                 }
-            }
 
-            // If not parsed yet, try other common formats
-            if (!parsedDate) {
-                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy'];
+            if (dateValue instanceof Date) {
+              parsedDate = dateValue;
+            } else {
+              const dateString = String(dateValue).trim();
+              if (dateString) {
+                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
                 for (const fmt of formatsToTry) {
-                    const tempDate = parse(dateValue, fmt, new Date());
+                    const tempDate = parse(dateString, fmt, new Date());
                     if (isValid(tempDate)) {
                         parsedDate = tempDate;
                         break; 
                     }
                 }
+              }
             }
             
             if (parsedDate && isValid(parsedDate)) {
@@ -343,7 +339,7 @@ export default function AdminDataManagementCommessePage() {
                        <FormField control={form.control} name="numeroODL" render={({ field }) => ( <FormItem> <FormLabel>Ordine Nr Est</FormLabel> <FormControl> <Input placeholder="Es. ORD-CLIENTE-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="details" render={({ field }) => ( <FormItem> <FormLabel>Codice</FormLabel> <FormControl> <Input placeholder="Es. ART-00123" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="qta" render={({ field }) => ( <FormItem> <FormLabel>Quantità</FormLabel> <FormControl> <Input type="number" placeholder="Es. 100" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                       <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Data Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="department" render={({ field }) => ( <FormItem> <FormLabel>Reparto</FormLabel> <FormControl> <Input placeholder="Es. Assemblaggio" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                       <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
@@ -430,7 +426,7 @@ export default function AdminDataManagementCommessePage() {
                       <TableHead>Ordine Nr Est</TableHead>
                       <TableHead className="min-w-[200px]">Codice</TableHead>
                       <TableHead>Qtà</TableHead>
-                      <TableHead>Consegna Prevista</TableHead>
+                      <TableHead>Data Consegna prevista</TableHead>
                       <TableHead>Reparto</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -474,3 +470,5 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    
