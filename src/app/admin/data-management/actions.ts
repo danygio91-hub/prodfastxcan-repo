@@ -11,10 +11,14 @@ import * as z from 'zod';
 let jobOrdersStore: JobOrder[] = [];
 
 
-export async function getJobOrders(): Promise<JobOrder[]> {
-  // In a real app: return await db.jobOrder.findMany();
+export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   // Return a copy to prevent mutation issues
-  return JSON.parse(JSON.stringify(jobOrdersStore));
+  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'planned')));
+}
+
+export async function getProductionJobOrders(): Promise<JobOrder[]> {
+  // Return a copy to prevent mutation issues
+  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'production')));
 }
 
 // Schema for manual form validation
@@ -29,7 +33,6 @@ const jobOrderFormSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).')
     .or(z.string().length(0)), // Allow empty string
   department: z.string().min(1, 'Reparto è obbligatorio.'),
-  postazioneLavoro: z.string().optional(),
 });
 
 // Schema for Excel import validation (omits postazioneLavoro which is not in the template)
@@ -44,7 +47,6 @@ export async function addJobOrder(formData: FormData) {
       qta: formData.get('qta'),
       dataConsegnaFinale: formData.get('dataConsegnaFinale'),
       department: formData.get('department'),
-      postazioneLavoro: formData.get('postazioneLavoro'),
     };
 
     const validatedFields = jobOrderFormSchema.safeParse(values);
@@ -69,9 +71,10 @@ export async function addJobOrder(formData: FormData) {
     const newJobOrder: JobOrder = {
       id: data.ordinePF,
       ...data,
-      postazioneLavoro: data.postazioneLavoro || 'Da Assegnare',
+      postazioneLavoro: 'Da Assegnare',
       phases: defaultPhases,
       isProblemReported: false,
+      status: 'planned',
     };
 
     jobOrdersStore.push(newJobOrder);
@@ -116,6 +119,7 @@ export async function importJobOrders(data: any[]): Promise<{ success: boolean; 
       postazioneLavoro: 'Da Assegnare', // Set default value for imported orders
       phases: defaultPhases,
       isProblemReported: false,
+      status: 'planned',
     };
 
     jobOrdersStore.push(newJobOrder);
@@ -146,13 +150,27 @@ export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success:
   return { success: false, message: 'Nessuna commessa trovata da eliminare.' };
 }
 
-export async function deleteAllJobOrders(): Promise<{ success: boolean; message: string }> {
-  const count = jobOrdersStore.length;
-  if (count === 0) {
-    return { success: false, message: 'Nessuna commessa da eliminare.' };
+export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
+    const plannedJobsCount = jobOrdersStore.filter(j => j.status === 'planned').length;
+    if (plannedJobsCount === 0) {
+        return { success: false, message: 'Nessuna commessa pianificata da eliminare.' };
+    }
+    jobOrdersStore = jobOrdersStore.filter(j => j.status !== 'planned');
+    revalidatePath('/admin/data-management');
+    return { success: true, message: `Tutte le ${plannedJobsCount} commesse pianificate sono state eliminate.` };
+}
+
+export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
+  const job = jobOrdersStore.find(j => j.id === jobId);
+  if (job) {
+    if (job.status === 'production') {
+      return { success: false, message: `L'ODL per la commessa ${jobId} è già stato creato.` };
+    }
+    job.status = 'production';
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
+    return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
   }
-  jobOrdersStore = [];
-  revalidatePath('/admin/data-management');
-  return { success: true, message: `Tutte le ${count} commesse sono state eliminate.` };
+  return { success: false, message: `Commessa con ID ${jobId} non trovata.` };
 }
     

@@ -28,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
-import { getJobOrders } from '@/app/admin/data-management/actions';
+import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
 
@@ -105,14 +105,14 @@ export default function ScanJobPage() {
     resetProcessingState();
     setIsScanningJob(true);
 
-    const availableJobs = await getJobOrders();
+    const availableJobs = await getProductionJobOrders();
 
     if (availableJobs.length === 0) {
       setIsScanningJob(false);
       toast({
         variant: "destructive",
-        title: "Nessuna Commessa Presente",
-        description: "Impossibile simulare la scansione. Aggiungere commesse da 'Gestione Dati' nell'area admin.",
+        title: "Nessuna Commessa in Produzione",
+        description: "Impossibile simulare la scansione. Creare un ODL da 'Gestione Dati' nell'area admin.",
       });
       return;
     }

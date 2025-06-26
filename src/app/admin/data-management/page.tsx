@@ -49,7 +49,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getJobOrders, addJobOrder, importJobOrders, deleteSelectedJobOrders, deleteAllJobOrders } from './actions';
+import { getPlannedJobOrders, addJobOrder, importJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -72,7 +72,7 @@ export default function AdminDataManagementCommessePage() {
   const { toast } = useToast();
 
   const fetchJobOrders = () => {
-    getJobOrders().then(orders => {
+    getPlannedJobOrders().then(orders => {
       setJobOrders(orders);
     });
   }
@@ -108,11 +108,16 @@ export default function AdminDataManagementCommessePage() {
     );
   };
   
-  const handleCreateOdl = (jobId: string) => {
+  const handleCreateOdl = async (jobId: string) => {
+    const result = await createODL(jobId);
     toast({
-      title: "Funzionalità in sviluppo",
-      description: `La creazione dell'ODL per la commessa ${jobId} sarà implementata a breve.`,
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+      fetchJobOrders();
+    }
   };
 
   const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
@@ -120,7 +125,6 @@ export default function AdminDataManagementCommessePage() {
     Object.entries(values).forEach(([key, value]) => {
       formData.append(key, value || '');
     });
-    formData.append('postazioneLavoro', '');
 
     const result = await addJobOrder(formData);
 
@@ -167,7 +171,7 @@ export default function AdminDataManagementCommessePage() {
         const worksheet = workbook.Sheets[sheetName];
         
         const json = XLSX.utils.sheet_to_json(worksheet, {
-            raw: true, // Keep raw values to handle dates robustly
+            dateNF: 'yyyy-mm-dd',
         });
 
         const filteredData = json.filter((row: any) => 
@@ -213,22 +217,20 @@ export default function AdminDataManagementCommessePage() {
             } else if (typeof dateValue === 'string') {
                  const dateString = String(dateValue).trim();
                  if (dateString) {
-                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
-                    for (const fmt of formatsToTry) {
-                        const tempDate = parse(dateString, fmt, new Date());
-                        if (isValid(tempDate)) {
-                            parsedDate = tempDate;
-                            break; 
+                    // Check for YYYY-MM-DD from sheet_to_json
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+                         parsedDate = parse(dateString, 'yyyy-MM-dd', new Date());
+                    } else {
+                        const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy'];
+                        for (const fmt of formatsToTry) {
+                            const tempDate = parse(dateString, fmt, new Date());
+                            if (isValid(tempDate)) {
+                                parsedDate = tempDate;
+                                break; 
+                            }
                         }
                     }
                  }
-            } else if (typeof dateValue === 'number') {
-                // Fallback for Excel serial dates if cellDates:true fails
-                const excelEpoch = new Date(1899, 11, 30);
-                const jsDate = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-                if (isValid(jsDate)) {
-                    parsedDate = jsDate;
-                }
             }
             
             if (parsedDate && isValid(parsedDate)) {
@@ -291,7 +293,7 @@ export default function AdminDataManagementCommessePage() {
   };
 
   const handleDeleteAll = async () => {
-    const result = await deleteAllJobOrders();
+    const result = await deleteAllPlannedJobOrders();
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
       fetchJobOrders();
@@ -339,9 +341,9 @@ export default function AdminDataManagementCommessePage() {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[525px]">
                   <DialogHeader>
-                    <DialogTitle>Aggiungi Nuova Commessa</DialogTitle>
+                    <DialogTitle>Aggiungi Nuova Commessa Pianificata</DialogTitle>
                     <DialogDescription>
-                      Inserisci i dettagli per la nuova commessa di produzione.
+                      Inserisci i dettagli per la nuova commessa. Apparirà in questo elenco.
                     </DialogDescription>
                   </DialogHeader>
                   <Form {...form}>
@@ -370,8 +372,8 @@ export default function AdminDataManagementCommessePage() {
                 <div className="flex items-center space-x-3">
                     <ListChecks className="h-8 w-8 text-primary" />
                     <div>
-                    <CardTitle className="text-2xl font-headline mb-1">Gestione Dati: Elenco Commesse</CardTitle>
-                    <CardDescription>Visualizza, aggiungi o importa le commesse di produzione.</CardDescription>
+                    <CardTitle className="text-2xl font-headline mb-1">Commesse Pianificate</CardTitle>
+                    <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
                     </div>
                 </div>
                  <div className="flex items-center gap-2">
@@ -387,7 +389,7 @@ export default function AdminDataManagementCommessePage() {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse.
+                            Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -407,7 +409,7 @@ export default function AdminDataManagementCommessePage() {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            Questa azione non può essere annullata. Verranno eliminate tutte le {jobOrders.length} commesse.
+                            Questa azione non può essere annullata. Verranno eliminate tutte le {jobOrders.length} commesse pianificate.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -459,7 +461,7 @@ export default function AdminDataManagementCommessePage() {
                         <TableCell>{job.details}</TableCell>
                         <TableCell>{job.qta}</TableCell>
                         <TableCell>
-                          {job.dataConsegnaFinale ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                          {job.dataConsegnaFinale && isValid(new Date(job.dataConsegnaFinale)) ? format(new Date(job.dataConsegnaFinale), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
                         <TableCell>

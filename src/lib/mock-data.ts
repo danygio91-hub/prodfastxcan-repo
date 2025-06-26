@@ -1,3 +1,4 @@
+
 // src/lib/mock-data.ts
 
 // Definizioni delle interfacce trasferite da scan-job/page.tsx
@@ -30,6 +31,7 @@ export interface JobOrder {
   overallStartTime?: Date | null;
   overallEndTime?: Date | null;
   isProblemReported?: boolean;
+  status: 'planned' | 'production';
 }
 
 // Mock data per le commesse. Ora è vuoto di default.

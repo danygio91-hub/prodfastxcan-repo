@@ -4,13 +4,13 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Briefcase, Package2 } from 'lucide-react';
-import { getJobOrders } from '@/app/admin/data-management/actions';
+import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 import type { JobOrder } from '@/lib/mock-data';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 
 
 export default async function ProductionConsolePage() {
-  const jobOrders: JobOrder[] = await getJobOrders();
+  const jobOrders: JobOrder[] = await getProductionJobOrders();
 
   return (
     <AdminAuthGuard>
@@ -23,7 +23,7 @@ export default async function ProductionConsolePage() {
                     Console Controllo Produzione
                 </h1>
                 <p className="text-muted-foreground">
-                    Panoramica in tempo reale dello stato di avanzamento di tutte le commesse.
+                    Panoramica in tempo reale delle commesse inviate in produzione.
                 </p>
             </div>
             <Link href="/admin/dashboard" passHref>
@@ -45,7 +45,7 @@ export default async function ProductionConsolePage() {
                 <Package2 className="h-16 w-16 text-muted-foreground mb-4" />
                 <h2 className="text-xl font-semibold text-muted-foreground">Nessuna Commessa in Produzione</h2>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto mt-2">
-                    Non ci sono commesse attive. Aggiungi nuove commesse dalla sezione 'Gestione Dati' per visualizzarle qui.
+                    Non ci sono commesse attive. Crea un ODL dalla sezione 'Gestione Dati' per visualizzarle qui.
                 </p>
                 <Link href="/admin/data-management" passHref>
                     <Button className="mt-6">Vai a Gestione Dati</Button>
