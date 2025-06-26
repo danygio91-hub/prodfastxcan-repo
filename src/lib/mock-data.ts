@@ -1,6 +1,4 @@
-
 // src/lib/mock-data.ts
-"use client";
 
 // Definizioni delle interfacce trasferite da scan-job/page.tsx
 export interface WorkPeriod {
