@@ -1,8 +1,6 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
@@ -19,7 +17,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { ArrowLeft, ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
+import { ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperatorName } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -29,6 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { getProductionJobOrders } from '@/app/admin/data-management/actions';
+import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
 
@@ -808,12 +807,7 @@ export default function ScanJobPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <Link href="/dashboard" passHref>
-            <Button variant="outline">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Torna alla Dashboard
-            </Button>
-          </Link>
+          <OperatorNavMenu />
         <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
 
           {!isProcessingJob && !activeJobOrder?.overallEndTime && !scannedJobOrder && renderJobScanArea()}

@@ -1,16 +1,14 @@
-
 "use client";
 
 import React from 'react';
-import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Users, User, Mail, Factory } from 'lucide-react';
+import { Users, User, Mail, Factory } from 'lucide-react';
 import { getOperatorName } from '@/lib/auth';
+import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
 interface OperatorData {
   firstName: string;
@@ -58,12 +56,7 @@ export default function OperatorDataPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <Link href="/dashboard" passHref>
-            <Button variant="outline">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Torna alla Dashboard
-            </Button>
-          </Link>
+          <OperatorNavMenu />
 
           <Card className="shadow-lg">
             <CardHeader>

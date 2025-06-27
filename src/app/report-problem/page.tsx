@@ -1,15 +1,14 @@
-
 "use client";
 
 import React from 'react';
-import Link from 'next/link';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Wrench, PauseCircle, Boxes } from 'lucide-react';
+import { Wrench, PauseCircle, Boxes } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
 export default function ReportProblemPage() {
   const { toast } = useToast();
@@ -27,12 +26,7 @@ export default function ReportProblemPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-8 max-w-2xl mx-auto">
-          <Link href="/dashboard" passHref>
-            <Button variant="outline">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Torna alla Dashboard
-            </Button>
-          </Link>
+          <OperatorNavMenu />
 
           <Card className="shadow-md">
             <CardHeader>
