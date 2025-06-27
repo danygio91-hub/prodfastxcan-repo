@@ -2,8 +2,9 @@
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
+import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Briefcase, Package2 } from 'lucide-react';
+import { Briefcase, Package2 } from 'lucide-react';
 import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 import type { JobOrder } from '@/lib/mock-data';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -17,6 +18,7 @@ export default async function ProductionConsolePage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
+          <AdminNavMenu />
           <div className="flex justify-between items-center gap-4 flex-wrap">
             <div className='space-y-2'>
                 <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
@@ -27,12 +29,6 @@ export default async function ProductionConsolePage() {
                     Panoramica in tempo reale delle commesse inviate in produzione.
                 </p>
             </div>
-            <Link href="/admin/dashboard" passHref>
-              <Button variant="outline">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Torna alla Dashboard Admin
-              </Button>
-            </Link>
           </div>
           
           {jobOrders.length > 0 ? (

@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
+import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -41,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
+import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -167,7 +167,7 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: false });
+        const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
         const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -201,37 +201,36 @@ export default function AdminDataManagementCommessePage() {
             if (!normalizedRow.ordinePF) {
               return null;
             }
-
-            if (normalizedRow.dataConsegnaFinale) {
-                const dateValue = normalizedRow.dataConsegnaFinale;
+            
+            // Handle Excel date serial numbers
+            if (typeof normalizedRow.dataConsegnaFinale === 'number') {
+                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                const jsTimestamp = excelEpoch.getTime() + normalizedRow.dataConsegnaFinale * 86400 * 1000;
+                const date = new Date(jsTimestamp);
+                if (isValid(date)) {
+                    normalizedRow.dataConsegnaFinale = format(date, 'yyyy-MM-dd');
+                } else {
+                     delete normalizedRow.dataConsegnaFinale;
+                }
+            } else if (typeof normalizedRow.dataConsegnaFinale === 'string') {
+                // Attempt to parse string dates
+                const dateString = String(normalizedRow.dataConsegnaFinale).trim();
+                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
                 let parsedDate: Date | null = null;
-                
-                if (typeof dateValue === 'number' && dateValue > 0) {
-                    const excelEpoch = new Date(1899, 11, 30);
-                    const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
-                    const tempDate = new Date(jsTimestamp);
-                     if (isValid(tempDate)) {
-                        const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
-                        parsedDate = adjustedDate;
-                    }
-                } else if (typeof dateValue === 'string') {
-                    const dateString = String(dateValue).trim();
-                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
-                    for (const fmt of formatsToTry) {
-                        const tempDate = parse(dateString, fmt, new Date());
-                        if (isValid(tempDate)) {
-                            parsedDate = tempDate;
-                            break;
-                        }
+                for (const fmt of formatsToTry) {
+                    const tempDate = parse(dateString, fmt, new Date());
+                    if (isValid(tempDate)) {
+                        parsedDate = tempDate;
+                        break;
                     }
                 }
-
-                if (parsedDate && isValid(parsedDate)) {
+                 if (parsedDate && isValid(parsedDate)) {
                     normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
                 } else {
-                    delete normalizedRow.dataConsegnaFinale; 
+                    delete normalizedRow.dataConsegnaFinale;
                 }
             }
+
 
             return normalizedRow;
         }).filter(Boolean);
@@ -246,13 +245,7 @@ export default function AdminDataManagementCommessePage() {
         toast({ title: "Analisi File", description: result.message });
 
         if (result.success && (result.newJobs.length > 0 || result.jobsToUpdate.length > 0)) {
-            if (result.jobsToUpdate.length > 0) {
-                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
-            } else {
-                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
-                toast({ title: "Importazione Riuscita", description: commitResult.message });
-                fetchJobOrders();
-            }
+             setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
         }
       } catch (error) {
          toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
@@ -307,14 +300,8 @@ export default function AdminDataManagementCommessePage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <div className="flex justify-between items-center gap-4 flex-wrap">
-            <Link href="/admin/dashboard" passHref>
-              <Button variant="outline">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Torna alla Dashboard Admin
-              </Button>
-            </Link>
-            <div className="flex items-center gap-2 flex-wrap justify-end flex-grow">
+          <AdminNavMenu />
+          <div className="flex justify-end items-center gap-2 flex-wrap">
                <input
                 type="file"
                 ref={fileInputRef}
@@ -363,7 +350,6 @@ export default function AdminDataManagementCommessePage() {
                   </Form>
                 </DialogContent>
               </Dialog>
-            </div>
           </div>
 
           <Card className="shadow-lg">
