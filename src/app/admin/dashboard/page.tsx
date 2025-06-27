@@ -1,12 +1,21 @@
 "use client";
 
 import React from 'react';
+import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { LayoutDashboard } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Users, Settings, ArrowRight } from 'lucide-react';
 
+const navItems = [
+  { href: '/admin/data-management', label: 'Gestione Dati', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
+  { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
+  { href: '/admin/reports', label: 'Report', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },
+  { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Gestisci gli account e i permessi.', icon: Users },
+  { href: '/admin/settings', label: 'Configurazione', description: 'Impostazioni generali dell\'applicazione.', icon: Settings },
+];
 
 export default function AdminDashboardPage() {
   return (
@@ -18,22 +27,30 @@ export default function AdminDashboardPage() {
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Amministrazione</h1>
             <p className="text-muted-foreground">
-             Usa il menu di navigazione in alto per spostarti tra le sezioni.
+              Seleziona un'opzione qui sotto o usa il menu rapido in alto per iniziare.
             </p>
           </header>
 
-           <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <LayoutDashboard className="h-6 w-6 text-primary" />
-                    Benvenuto nella Dashboard
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p>Questa è la dashboard principale. Seleziona una delle icone nel menu in alto per accedere alle diverse aree di gestione: visualizzare e importare dati, monitorare la console di produzione, generare report e configurare le impostazioni.</p>
-            </CardContent>
-           </Card>
-
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {navItems.map((item) => (
+              <Link href={item.href} key={item.href} passHref className="block h-full">
+                <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 flex flex-col h-full group">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <item.icon className="h-10 w-10 text-primary" />
+                       <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                          <ArrowRight className="h-5 w-5" />
+                       </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="flex-grow">
+                    <CardTitle className="text-xl font-headline mb-1">{item.label}</CardTitle>
+                    <CardDescription>{item.description}</CardDescription>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
         </div>
       </AppShell>
     </AdminAuthGuard>

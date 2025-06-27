@@ -167,6 +167,7 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
+        // Read with raw: true to get original values (numbers for dates)
         const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
         const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
@@ -189,31 +190,36 @@ export default function AdminDataManagementCommessePage() {
         const mappedJson = filteredData.map((row: any) => {
             const normalizedRow: { [key: string]: any } = {};
             for (const key in row) {
-              const normalizedKey = key.trim().toLowerCase();
-              if (headerMapping[normalizedKey]) {
-                  const rawValue = row[key];
-                  if (rawValue !== null && rawValue !== '') {
-                      normalizedRow[headerMapping[normalizedKey]] = rawValue;
-                  }
-              }
+                const normalizedKey = key.trim().toLowerCase();
+                const targetKey = headerMapping[normalizedKey];
+                if (targetKey) {
+                    const rawValue = row[key];
+                    if (rawValue !== null && rawValue !== undefined && rawValue !== '') {
+                        normalizedRow[targetKey] = rawValue;
+                    }
+                }
             }
-
+            
+            // Skip row if the essential ID is missing
             if (!normalizedRow.ordinePF) {
               return null;
             }
             
-            // Handle Excel date serial numbers
+            // Handle Excel date serial numbers robustly
             if (typeof normalizedRow.dataConsegnaFinale === 'number') {
                 const excelEpoch = new Date(Date.UTC(1899, 11, 30));
                 const jsTimestamp = excelEpoch.getTime() + normalizedRow.dataConsegnaFinale * 86400 * 1000;
                 const date = new Date(jsTimestamp);
                 if (isValid(date)) {
-                    normalizedRow.dataConsegnaFinale = format(date, 'yyyy-MM-dd');
+                    // Adjust for timezone offset to prevent day-before issues
+                    const timezoneOffset = date.getTimezoneOffset() * 60000;
+                    const adjustedDate = new Date(date.getTime() + timezoneOffset);
+                    normalizedRow.dataConsegnaFinale = format(adjustedDate, 'yyyy-MM-dd');
                 } else {
                      delete normalizedRow.dataConsegnaFinale;
                 }
             } else if (typeof normalizedRow.dataConsegnaFinale === 'string') {
-                // Attempt to parse string dates
+                // Attempt to parse various string date formats
                 const dateString = String(normalizedRow.dataConsegnaFinale).trim();
                 const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
                 let parsedDate: Date | null = null;
@@ -231,9 +237,8 @@ export default function AdminDataManagementCommessePage() {
                 }
             }
 
-
             return normalizedRow;
-        }).filter(Boolean);
+        }).filter(Boolean); // Filter out null rows
 
 
         if (mappedJson.length === 0) {
