@@ -26,7 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
-import { getProductionJobOrders } from '@/app/admin/data-management/actions';
+import { getScannableJob, updateJob } from './actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
@@ -77,6 +77,18 @@ export default function ScanJobPage() {
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
 
+  const persistJobUpdate = useCallback(async (updatedJob: JobOrder | null) => {
+    if (!updatedJob) return;
+    const result = await updateJob(updatedJob);
+    if (!result.success) {
+        toast({
+            variant: "destructive",
+            title: "Errore di Sincronizzazione",
+            description: result.message || "Impossibile salvare lo stato della commessa. Prova a ricaricare la pagina.",
+        });
+    }
+  }, [toast]);
+
 
   const resetInitialScanState = () => {
     setIsScanningJob(false);
@@ -104,110 +116,77 @@ export default function ScanJobPage() {
     resetProcessingState();
     setIsScanningJob(true);
 
-    const availableJobs = await getProductionJobOrders();
-
-    if (availableJobs.length === 0) {
-      setIsScanningJob(false);
-      toast({
-        variant: "destructive",
-        title: "Nessuna Commessa in Produzione",
-        description: "Impossibile simulare la scansione. Creare un ODL da 'Gestione Dati' nell'area admin.",
-      });
-      return;
+    const operatorName = getOperatorName();
+    let operatorDepartment: string;
+    if (operatorName === "Daniel") {
+      operatorDepartment = "Assemblaggio Componenti Elettronici";
+    } else if (operatorName === "Ruben") {
+      operatorDepartment = "Controllo Qualità";
+    } else {
+      operatorDepartment = "Reparto Generico";
     }
 
-    const randomJobIndex = Math.floor(Math.random() * availableJobs.length);
-    const randomJob = JSON.parse(JSON.stringify(availableJobs[randomJobIndex])) as JobOrder;
-    
-    // Ensure phases have workPeriods initialized as empty arrays
-     randomJob.phases = randomJob.phases.map(p => ({
-      ...p,
-      workPeriods: [], // Initialize workPeriods as empty array
-      workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-    }));
+    const result = await getScannableJob(operatorDepartment);
+    setIsScanningJob(false);
 
-
-    setTimeout(() => {
-      setIsScanningJob(false);
-      const operatorName = getOperatorName();
-      let operatorDepartment: string;
-      if (operatorName === "Daniel") {
-        operatorDepartment = "Assemblaggio Componenti Elettronici";
-      } else if (operatorName === "Ruben") {
-        operatorDepartment = "Controllo Qualità";
-      } else {
-        operatorDepartment = "Reparto Generico";
-      }
-
-
-      if (randomJob.department !== operatorDepartment) {
-        setJobAlertInfo({
-          title: "Errore Reparto",
-          description: `Commessa non del tuo reparto.`
-        });
-        setIsJobAlertOpen(true);
-      } else {
-        setJobScanSuccess(true);
-        const jobWithInitializedState = {
-          ...randomJob,
-          isProblemReported: randomJob.isProblemReported || false,
-          phases: randomJob.phases.map(p => ({ 
-            ...p, 
-            workstationScannedAndVerified: false, // Reset this on new scan
-            workPeriods: [], // Ensure workPeriods is an array
-           }))
-        };
-        setScannedJobOrder(jobWithInitializedState);
+    if ('error' in result) {
         toast({
-          title: "Scansione Commessa Riuscita!",
-          description: `Commessa ${randomJob.id} (${randomJob.department}) scansionata.`,
-          action: <CheckCircle className="text-green-500" />,
+            variant: "destructive",
+            title: result.title || "Errore Scansione",
+            description: result.error,
         });
-        setTimeout(() => setJobScanSuccess(false), 3000);
-      }
-    }, 1500);
+        return;
+    }
+    
+    setJobScanSuccess(true);
+    setScannedJobOrder(result);
+    toast({
+        title: "Scansione Commessa Riuscita!",
+        description: `Commessa ${result.id} (${result.department}) scansionata.`,
+        action: <CheckCircle className="text-green-500" />,
+    });
+    setTimeout(() => setJobScanSuccess(false), 3000);
   };
 
   const handleTriggerWorkstationScanForPhase = (phaseId: string) => {
     setPhaseRequiringWorkstationScan(phaseId);
     setScannedWorkstationIdForPhase(null);
     if (activeJobOrder) {
-        setActiveJobOrder(prev => {
-            if (!prev) return null;
-            return {
-                ...prev,
-                phases: prev.phases.map(p => p.id === phaseId ? { ...p, workstationScannedAndVerified: false } : p)
-            }
-        })
+        const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+        const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+        if (phaseToUpdate) {
+            phaseToUpdate.workstationScannedAndVerified = false;
+        }
+        setActiveJobOrder(jobToUpdate);
     }
   };
 
   const handleSimulateWorkstationScanForPhase = (phaseId: string) => {
     if (!activeJobOrder) return;
+
     setIsScanningWorkstationForPhase(true);
     const simulatedScannedId = activeJobOrder.postazioneLavoro; 
     setScannedWorkstationIdForPhase(simulatedScannedId);
 
     setTimeout(() => {
       setIsScanningWorkstationForPhase(false);
-      if (simulatedScannedId === activeJobOrder.postazioneLavoro) {
-        setActiveJobOrder(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            phases: prev.phases.map(p => p.id === phaseId ? { ...p, workstationScannedAndVerified: true } : p)
-          };
-        });
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+      const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+
+      if (simulatedScannedId === jobToUpdate.postazioneLavoro && phaseToUpdate) {
+        phaseToUpdate.workstationScannedAndVerified = true;
+        setActiveJobOrder(jobToUpdate);
+        persistJobUpdate(jobToUpdate);
         toast({
           title: "Scansione Postazione Riuscita!",
-          description: `Postazione ${simulatedScannedId} verificata per fase ${activeJobOrder.phases.find(p=>p.id === phaseId)?.name}.`,
+          description: `Postazione ${simulatedScannedId} verificata per fase ${phaseToUpdate.name}.`,
           action: <CheckCircle className="text-green-500" />,
         });
         setPhaseRequiringWorkstationScan(null);
       } else {
         setPhaseWorkstationAlertInfo({
           title: "Errore Postazione",
-          description: `Postazione ${simulatedScannedId} non corretta per commessa ${activeJobOrder.id} (Attesa: ${activeJobOrder.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+          description: `Postazione ${simulatedScannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
         });
         setIsPhaseWorkstationAlertOpen(true);
       }
@@ -236,6 +215,7 @@ export default function ScanJobPage() {
         }))
     };
     setActiveJobOrder(jobToStart);
+    persistJobUpdate(jobToStart);
     setIsProcessingJob(true);
     toast({
       title: "Lavorazione Avviata",
@@ -245,202 +225,129 @@ export default function ScanJobPage() {
   };
 
  const handleStartPhase = (phaseId: string) => {
-    let toastInfo: ToastInfo | null = null;
-    let phaseStartedSuccessfully = false;
-    let triggerWorkstationScanForPhaseId: string | null = null;
-    let newCurrentPhaseIdState: string | null = null;
+    if (!activeJobOrder) return;
 
-    setActiveJobOrder(prev => {
-      if (!prev) return prev;
-       if (prev.isProblemReported) {
-        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." };
-        return prev;
-      }
-      const phaseToStart = prev.phases.find(p => p.id === phaseId);
-      if (!phaseToStart) return prev;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
 
-      if (!phaseToStart.workstationScannedAndVerified) {
-          toastInfo = { variant: "destructive", title: "Errore", description: "Scansionare e verificare la postazione prima di avviare la fase." };
-          triggerWorkstationScanForPhaseId = phaseId;
-          return prev;
-      }
-
-      const currentPhaseIndex = prev.phases.findIndex(p => p.id === phaseId);
-      if (currentPhaseIndex === -1) return prev; 
-
-      if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
-        toastInfo = { variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` };
-        return prev;
-      }
-
-
-      if (prev.phases.some(p => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
-        toastInfo = { variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." };
-        return prev;
-      }
-      if (currentPhaseIndex > 0 && prev.phases[currentPhaseIndex - 1].status !== 'completed') {
-        toastInfo = { variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." };
-        return prev;
-      }
-
-      const updatedPhases = prev.phases.map(phase =>
-        phase.id === phaseId 
-        ? { 
-            ...phase, 
-            status: 'in-progress' as 'in-progress', 
-            workPeriods: [...(phase.workPeriods || []), { start: new Date(), end: null }] 
-          } 
-        : phase
-      );
-      const startedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
-      toastInfo = { title: "Fase Avviata", description: `Fase "${startedPhaseName}" avviata.` };
-      phaseStartedSuccessfully = true;
-      newCurrentPhaseIdState = phaseId;
-      return { ...prev, phases: updatedPhases };
-    });
-
-    if (toastInfo) {
-      toast(toastInfo);
+    if (jobToUpdate.isProblemReported) {
+      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." });
+      return;
     }
-    if (phaseStartedSuccessfully && newCurrentPhaseIdState) {
-      setCurrentPhaseId(newCurrentPhaseIdState);
+    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    if (!phaseToStart) return;
+
+    if (!phaseToStart.workstationScannedAndVerified) {
+        toast({ variant: "destructive", title: "Errore", description: "Scansionare e verificare la postazione prima di avviare la fase." });
+        setPhaseRequiringWorkstationScan(phaseId);
+        return;
     }
-    if (triggerWorkstationScanForPhaseId) {
-      setPhaseRequiringWorkstationScan(triggerWorkstationScanForPhaseId);
+
+    const currentPhaseIndex = jobToUpdate.phases.findIndex((p: JobPhase) => p.id === phaseId);
+    if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
+      toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
+      return;
     }
+
+    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
+      toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
+      return;
+    }
+    if (currentPhaseIndex > 0 && jobToUpdate.phases[currentPhaseIndex - 1].status !== 'completed') {
+      toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
+      return;
+    }
+
+    phaseToStart.status = 'in-progress';
+    phaseToStart.workPeriods.push({ start: new Date(), end: null });
+
+    setActiveJobOrder(jobToUpdate);
+    persistJobUpdate(jobToUpdate);
+    setCurrentPhaseId(phaseId);
+    toast({ title: "Fase Avviata", description: `Fase "${phaseToStart.name}" avviata.` });
   };
 
 
   const handlePausePhase = (phaseId: string) => {
-    let toastInfo: ToastInfo | null = null;
+    if (!activeJobOrder) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-    setActiveJobOrder(prev => {
-      if (!prev) return prev;
-      if (prev.isProblemReported) {
-        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile mettere in pausa, problema segnalato." };
-        return prev;
-      }
-      const phaseToPause = prev.phases.find(p => p.id === phaseId);
-      if (!phaseToPause || phaseToPause.status !== 'in-progress') {
-        toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." };
-        return prev;
-      }
-      const updatedPhases = prev.phases.map(p => {
-        if (p.id === phaseId) {
-          const currentWorkPeriods = p.workPeriods || [];
-          const updatedWorkPeriods = currentWorkPeriods.map((wp, index) => 
-            index === currentWorkPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
-          );
-          return { ...p, status: 'paused' as 'paused', workPeriods: updatedWorkPeriods };
-        }
-        return p;
-      });
-      toastInfo = { title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` };
-      return { ...prev, phases: updatedPhases };
-    });
-
-    if (toastInfo) {
-      toast(toastInfo);
+    if (jobToUpdate.isProblemReported) {
+      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile mettere in pausa, problema segnalato." });
+      return;
     }
+    if (!phaseToPause || phaseToPause.status !== 'in-progress') {
+      toast({ variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." });
+      return;
+    }
+    
+    const lastWorkPeriod = phaseToPause.workPeriods[phaseToPause.workPeriods.length - 1];
+    if (lastWorkPeriod && !lastWorkPeriod.end) {
+        lastWorkPeriod.end = new Date();
+    }
+    phaseToPause.status = 'paused';
+
+    setActiveJobOrder(jobToUpdate);
+    persistJobUpdate(jobToUpdate);
+    toast({ title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` });
   };
 
   const handleResumePhase = (phaseId: string) => {
-    let toastInfo: ToastInfo | null = null;
+    if (!activeJobOrder) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-    setActiveJobOrder(prev => {
-      if (!prev) return prev;
-      if (prev.isProblemReported) {
-        toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." };
-        return prev;
-      }
-      const phaseToResume = prev.phases.find(p => p.id === phaseId);
-      if (!phaseToResume || phaseToResume.status !== 'paused') {
-        toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è in pausa." };
-        return prev;
-      }
-      if (prev.phases.some(p => p.id !== phaseId && p.status === 'in-progress')) {
-         toastInfo = { variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." };
-        return prev;
-      }
-
-      const updatedPhases = prev.phases.map(phase =>
-        phase.id === phaseId 
-        ? { 
-            ...phase, 
-            status: 'in-progress' as 'in-progress',
-            workPeriods: [...(phase.workPeriods || []), { start: new Date(), end: null }] 
-          } 
-        : phase
-      );
-      const resumedPhaseName = updatedPhases.find(p=>p.id === phaseId)?.name || "sconosciuta";
-      toastInfo = { title: "Fase Ripresa", description: `Fase "${resumedPhaseName}" ripresa.` };
-      return { ...prev, phases: updatedPhases };
-    });
-    if (toastInfo) {
-      toast(toastInfo);
+    if (jobToUpdate.isProblemReported) {
+      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." });
+      return;
     }
+    if (!phaseToResume || phaseToResume.status !== 'paused') {
+      toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
+      return;
+    }
+    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && p.status === 'in-progress')) {
+       toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
+      return;
+    }
+
+    phaseToResume.status = 'in-progress';
+    phaseToResume.workPeriods.push({ start: new Date(), end: null });
+    
+    setActiveJobOrder(jobToUpdate);
+    persistJobUpdate(jobToUpdate);
+    toast({ title: "Fase Ripresa", description: `Fase "${phaseToResume.name}" ripresa.` });
   };
 
   const handleCompletePhase = (phaseId: string) => {
-    let toastInfo: ToastInfo | null = null;
-    let phaseCompletedSuccessfully = false;
-    let nextPhaseMaterialToastInfo: ToastInfo | null = null;
-    let newCurrentPhaseIdState: string | null = null;
+    if (!activeJobOrder) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-
-    setActiveJobOrder(prev => {
-      if (!prev) return null;
-      const phaseToComplete = prev.phases.find(p => p.id === phaseId);
-      if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
-        toastInfo = { variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." };
-        return prev;
-      }
-      
-      // Allow completing phase even if job has a problem, to save progress made before problem.
-      // if (prev.isProblemReported && phaseToComplete.status !== 'completed') {
-      //   toastInfo = { variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile completare la fase, problema segnalato per la commessa." };
-      //   return prev;
-      // }
-
-      let updatedPhases = prev.phases.map(p => {
-        if (p.id === phaseId) {
-          let currentWorkPeriods = p.workPeriods || [];
-          let updatedWorkPeriods = currentWorkPeriods;
-          if (p.status === 'in-progress') { 
-            updatedWorkPeriods = currentWorkPeriods.map((wp, index) =>
-              index === currentWorkPeriods.length - 1 && wp.end === null ? { ...wp, end: new Date() } : wp
-            );
-          }
-          return { ...p, status: 'completed' as 'completed', workPeriods: updatedWorkPeriods };
+    if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
+      toast({ variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." });
+      return;
+    }
+    
+    if (phaseToComplete.status === 'in-progress') {
+        const lastWorkPeriod = phaseToComplete.workPeriods[phaseToComplete.workPeriods.length - 1];
+        if (lastWorkPeriod && !lastWorkPeriod.end) {
+            lastWorkPeriod.end = new Date();
         }
-        return p;
-      });
-
-      const completedPhaseSequence = phaseToComplete.sequence;
-      const nextPhase = updatedPhases.find(p => p.sequence === completedPhaseSequence + 1);
-
-      if (nextPhase && nextPhase.status === 'pending') { 
-        updatedPhases = updatedPhases.map(p => 
-          p.id === nextPhase.id ? { ...p, materialReady: true } : p
-        );
-        nextPhaseMaterialToastInfo = { title: "Materiale Pronto", description: `Materiale per la fase "${nextPhase.name}" ora disponibile.`};
-      }
-      
-      toastInfo = { title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> };
-      phaseCompletedSuccessfully = true;
-      newCurrentPhaseIdState = null; 
-      return { ...prev, phases: updatedPhases };
-    });
-
-    if (toastInfo) {
-      toast(toastInfo);
     }
-    if (nextPhaseMaterialToastInfo) {
-      toast(nextPhaseMaterialToastInfo);
+    phaseToComplete.status = 'completed';
+
+    const completedPhaseSequence = phaseToComplete.sequence;
+    const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === completedPhaseSequence + 1);
+
+    if (nextPhase && nextPhase.status === 'pending') { 
+      nextPhase.materialReady = true;
+      toast({ title: "Materiale Pronto", description: `Materiale per la fase "${nextPhase.name}" ora disponibile.`});
     }
-    if (phaseCompletedSuccessfully) {
-      setCurrentPhaseId(newCurrentPhaseIdState);
-    }
+    
+    setActiveJobOrder(jobToUpdate);
+    persistJobUpdate(jobToUpdate);
+    setCurrentPhaseId(null);
+    toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
 
   const handleConcludeOverallJob = () => {
@@ -453,12 +360,17 @@ export default function ScanJobPage() {
       });
       return;
     }
-    setActiveJobOrder(prev => prev ? ({ ...prev, overallEndTime: new Date() }) : null);
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    jobToUpdate.overallEndTime = new Date();
+
+    persistJobUpdate(jobToUpdate);
     toast({
       title: "Commessa Conclusa",
-      description: `Lavorazione per commessa ${activeJobOrder.id} terminata con successo.`,
+      description: `Lavorazione per commessa ${jobToUpdate.id} terminata con successo.`,
       action: <PowerOff className="text-primary" />
     });
+    
     resetInitialScanState();
     resetProcessingState();
   };
@@ -468,11 +380,21 @@ export default function ScanJobPage() {
   const handleJobProblemReported = () => {
     const targetJobId = activeJobOrder?.id || scannedJobOrder?.id;
     if (targetJobId) {
-        if (activeJobOrder && activeJobOrder.id === targetJobId) {
-            setActiveJobOrder(prev => prev ? { ...prev, isProblemReported: true } : null);
-        } else if (scannedJobOrder && scannedJobOrder.id === targetJobId) {
-            setScannedJobOrder(prev => prev ? { ...prev, isProblemReported: true } : null);
-        }
+      let jobToUpdate: JobOrder | null = null;
+      if (activeJobOrder && activeJobOrder.id === targetJobId) {
+        jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+        jobToUpdate.isProblemReported = true;
+        setActiveJobOrder(jobToUpdate);
+      } else if (scannedJobOrder && scannedJobOrder.id === targetJobId) {
+        jobToUpdate = JSON.parse(JSON.stringify(scannedJobOrder));
+        jobToUpdate.isProblemReported = true;
+        setScannedJobOrder(jobToUpdate);
+      }
+
+      if (jobToUpdate) {
+        persistJobUpdate(jobToUpdate);
+      }
+
       toast({
         variant: "destructive",
         title: "Problema Segnalato per Commessa",
