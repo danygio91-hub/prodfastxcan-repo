@@ -34,5 +34,17 @@ export interface JobOrder {
   status: 'planned' | 'production';
 }
 
-// Mock data per le commesse. Ora è vuoto di default.
-export const mockJobOrders: JobOrder[] = [];
+// This is a simple in-memory store that mimics a database.
+// It's designed to persist across hot reloads in development.
+type GlobalWithJobOrders = typeof globalThis & {
+  _jobOrders?: JobOrder[];
+};
+
+// Use a global variable to store the data, so it's not lost on hot reload
+const a: GlobalWithJobOrders = globalThis;
+if (!a._jobOrders) {
+  a._jobOrders = [];
+}
+
+// Mock data per le commesse.
+export const mockJobOrders: JobOrder[] = a._jobOrders;
