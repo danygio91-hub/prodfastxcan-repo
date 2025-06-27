@@ -2,11 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { type JobOrder, type JobPhase } from '@/lib/mock-data';
+import { type JobOrder, type JobPhase, mockJobOrders } from '@/lib/mock-data';
 import * as z from 'zod';
-
-// In-memory data store is re-enabled.
-let jobOrdersStore: JobOrder[] = [];
 
 const createDefaultPhases = (department: string): JobPhase[] => {
   if (department === 'Assemblaggio Componenti Elettronici') {
@@ -29,12 +26,12 @@ const createDefaultPhases = (department: string): JobPhase[] => {
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   // Return a deep copy to avoid mutations affecting the store directly
-  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'planned')));
+  return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'planned')));
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
   // Return a deep copy
-  return JSON.parse(JSON.stringify(jobOrdersStore.filter(job => job.status === 'production')));
+  return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'production')));
 }
 
 const jobOrderFormSchema = z.object({
@@ -55,7 +52,7 @@ export async function addJobOrder(formData: FormData) {
       return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
 
-    const existingJob = jobOrdersStore.find(job => job.ordinePF === validatedFields.data.ordinePF);
+    const existingJob = mockJobOrders.find(job => job.ordinePF === validatedFields.data.ordinePF);
     if (existingJob) {
       return { success: false, message: `La commessa con ID ${validatedFields.data.ordinePF} esiste già.` };
     }
@@ -70,7 +67,7 @@ export async function addJobOrder(formData: FormData) {
       dataConsegnaFinale: validatedFields.data.dataConsegnaFinale || '',
     };
 
-    jobOrdersStore.push(newJobOrder);
+    mockJobOrders.push(newJobOrder);
     revalidatePath('/admin/data-management');
     return {
       success: true,
@@ -108,7 +105,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         }
 
         const { data: validData } = validated;
-        const existingJob = jobOrdersStore.find(j => j.id === validData.ordinePF);
+        const existingJob = mockJobOrders.find(j => j.id === validData.ordinePF);
 
         if (existingJob) {
             // It's an update. Merge and add to jobsToUpdate.
@@ -171,16 +168,16 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
     data.newJobs.forEach(job => {
         // Final check to prevent duplicates if called multiple times
-        if (!jobOrdersStore.some(j => j.id === job.id)) {
-            jobOrdersStore.push(job);
+        if (!mockJobOrders.some(j => j.id === job.id)) {
+            mockJobOrders.push(job);
             newCount++;
         }
     });
 
     data.jobsToUpdate.forEach(job => {
-        const index = jobOrdersStore.findIndex(j => j.id === job.id);
+        const index = mockJobOrders.findIndex(j => j.id === job.id);
         if (index !== -1) {
-            jobOrdersStore[index] = job;
+            mockJobOrders[index] = job;
             updatedCount++;
         }
     });
@@ -194,9 +191,14 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
-  const initialCount = jobOrdersStore.length;
-  jobOrdersStore = jobOrdersStore.filter(job => !ids.includes(job.id));
-  const deletedCount = initialCount - jobOrdersStore.length;
+  let deletedCount = 0;
+  // Iterate backwards to safely remove items from the array
+  for (let i = mockJobOrders.length - 1; i >= 0; i--) {
+    if (ids.includes(mockJobOrders[i].id)) {
+      mockJobOrders.splice(i, 1);
+      deletedCount++;
+    }
+  }
 
   if (deletedCount > 0) {
     revalidatePath('/admin/data-management');
@@ -206,9 +208,14 @@ export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success:
 }
 
 export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
-    const initialCount = jobOrdersStore.length;
-    jobOrdersStore = jobOrdersStore.filter(j => j.status !== 'planned');
-    const deletedCount = initialCount - jobOrdersStore.length;
+    let deletedCount = 0;
+    // Iterate backwards to safely remove items from the array
+    for (let i = mockJobOrders.length - 1; i >= 0; i--) {
+        if (mockJobOrders[i].status === 'planned') {
+            mockJobOrders.splice(i, 1);
+            deletedCount++;
+        }
+    }
 
     if (deletedCount > 0) {
         revalidatePath('/admin/data-management');
@@ -218,16 +225,16 @@ export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; m
 }
 
 export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
-  const jobIndex = jobOrdersStore.findIndex(job => job.id === jobId && job.status === 'planned');
+  const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
   if (jobIndex === -1) {
     return { success: false, message: `Commessa ${jobId} non trovata o già in produzione.` };
   }
 
-  jobOrdersStore[jobIndex].status = 'production';
+  mockJobOrders[jobIndex].status = 'production';
   
   // Define phases based on department, if they don't exist
-  if (!jobOrdersStore[jobIndex].phases || jobOrdersStore[jobIndex].phases.length === 0) {
-      jobOrdersStore[jobIndex].phases = createDefaultPhases(jobOrdersStore[jobIndex].department);
+  if (!mockJobOrders[jobIndex].phases || mockJobOrders[jobIndex].phases.length === 0) {
+      mockJobOrders[jobIndex].phases = createDefaultPhases(mockJobOrders[jobIndex].department);
   }
 
   revalidatePath('/admin/data-management');
