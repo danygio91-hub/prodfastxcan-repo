@@ -49,7 +49,7 @@ export default function DashboardPage() {
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Accedi alle funzioni di ProdFast Tracker.
+              Accedi alle funzioni di ProdFastXcan.
             </p>
           </header>
 
@@ -77,7 +77,7 @@ export default function DashboardPage() {
               <AlertDialogTrigger asChild>
                 <DashboardItem
                   title="Timbratrice"
-                  description="Registra il tuo orario di entrata o uscita."
+                  description="Registra il tuo orario di entrata o di uscita."
                   icon={Clock}
                   isDialogTrigger={true}
                 />
