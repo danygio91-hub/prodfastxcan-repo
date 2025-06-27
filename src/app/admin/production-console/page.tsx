@@ -8,6 +8,7 @@ import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 import type { JobOrder } from '@/lib/mock-data';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 
+export const dynamic = 'force-dynamic';
 
 export default async function ProductionConsolePage() {
   const jobOrders: JobOrder[] = await getProductionJobOrders();
