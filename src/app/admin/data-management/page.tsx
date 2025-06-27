@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -45,6 +44,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ArrowLeft, ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
+import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -167,7 +167,7 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null });
+        const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, raw: false });
 
         const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
 
@@ -177,7 +177,13 @@ export default function AdminDataManagementCommessePage() {
         }
 
         const headerMapping: { [key: string]: string } = {
-          'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'codice': 'details', 'qta': 'qta', 'data consegna prevista': 'dataConsegnaFinale', 'reparto': 'department'
+          'cliente': 'cliente',
+          'ordine pf': 'ordinePF',
+          'ordine nr est': 'numeroODL',
+          'codice': 'details',
+          'qta': 'qta',
+          'data consegna prevista': 'dataConsegnaFinale',
+          'reparto': 'department'
         };
 
         const mappedJson = filteredData.map((row: any) => {
@@ -185,35 +191,32 @@ export default function AdminDataManagementCommessePage() {
             for (const key in row) {
               const normalizedKey = key.trim().toLowerCase();
               if (headerMapping[normalizedKey]) {
-                  // Only include keys that are in our mapping
-                  normalizedRow[headerMapping[normalizedKey]] = row[key];
+                  const rawValue = row[key];
+                  if (rawValue !== null && rawValue !== '') {
+                      normalizedRow[headerMapping[normalizedKey]] = rawValue;
+                  }
               }
             }
-            
-            // A job order MUST have an ID
+
             if (!normalizedRow.ordinePF) {
               return null;
             }
 
-            // Handle date conversion directly on the normalizedRow
             if (normalizedRow.dataConsegnaFinale) {
                 const dateValue = normalizedRow.dataConsegnaFinale;
                 let parsedDate: Date | null = null;
                 
                 if (typeof dateValue === 'number' && dateValue > 0) {
-                    // It's an Excel serial date number
                     const excelEpoch = new Date(1899, 11, 30);
                     const jsTimestamp = excelEpoch.getTime() + dateValue * 86400 * 1000;
                     const tempDate = new Date(jsTimestamp);
                      if (isValid(tempDate)) {
-                        // Adjust for timezone offset
                         const adjustedDate = new Date(tempDate.getTime() + (tempDate.getTimezoneOffset() * 60000));
                         parsedDate = adjustedDate;
                     }
                 } else if (typeof dateValue === 'string') {
-                    // It's a date string, try to parse it
                     const dateString = String(dateValue).trim();
-                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd'];
+                    const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
                     for (const fmt of formatsToTry) {
                         const tempDate = parse(dateString, fmt, new Date());
                         if (isValid(tempDate)) {
@@ -222,11 +225,11 @@ export default function AdminDataManagementCommessePage() {
                         }
                     }
                 }
-                
+
                 if (parsedDate && isValid(parsedDate)) {
                     normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
                 } else {
-                    delete normalizedRow.dataConsegnaFinale; // Remove invalid date so it doesn't cause validation issues
+                    delete normalizedRow.dataConsegnaFinale; 
                 }
             }
 
@@ -458,7 +461,7 @@ export default function AdminDataManagementCommessePage() {
                         <TableCell>{job.details}</TableCell>
                         <TableCell>{job.qta}</TableCell>
                         <TableCell>
-                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy") : 'N/D'}
+                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
                         </TableCell>
                         <TableCell>{job.department}</TableCell>
                         <TableCell>
@@ -518,5 +521,3 @@ export default function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
-    
