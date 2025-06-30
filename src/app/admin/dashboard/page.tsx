@@ -8,15 +8,13 @@ import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Workflow, Computer } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2 } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },
   { href: '/admin/settings', label: 'Configurazione Azienda', description: 'Gestisci operatori, reparti, fasi e postazioni.', icon: Building2 },
-  { href: '/admin/work-phase-management', label: 'Gestione Fasi', description: 'Definisci le fasi di lavorazione standard.', icon: Workflow },
-  { href: '/admin/workstation-management', label: 'Gestione Postazioni', description: 'Configura le postazioni e i macchinari.', icon: Computer },
   { href: '/admin/app-settings', label: 'Gestione App', description: 'Personalizza il tema e l\'aspetto dell\'applicazione.', icon: Settings },
 ];
 
