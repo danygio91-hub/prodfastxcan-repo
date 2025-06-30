@@ -1,5 +1,5 @@
 
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
 import { initialOperators } from './mock-data';
@@ -26,14 +26,12 @@ export async function login(username: string, password_used: string): Promise<Op
   
   let emailForAuth: string;
 
-  // Determine the email to use for authentication
+  // Handle both username and email input
   if (username.toLowerCase() === 'daniel') {
-      // Specific fix for the admin user to bypass potentially stale data in DB
       emailForAuth = ADMIN_EMAIL;
   } else if (username.includes('@')) {
     emailForAuth = username.toLowerCase();
   } else {
-    // For other users, find them by name and construct the email
     const operatorByName = allOperators.find(op => op.nome.toLowerCase() === username.toLowerCase());
     if (operatorByName) {
       emailForAuth = `${operatorByName.nome.toLowerCase()}.${operatorByName.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
@@ -44,45 +42,47 @@ export async function login(username: string, password_used: string): Promise<Op
   }
 
   try {
-    // Authenticate with Firebase Auth. This is the source of truth for the password.
     const userCredential = await signInWithEmailAndPassword(auth, emailForAuth, password_used);
     const authenticatedUser = userCredential.user;
-    
-    // Now that we are authenticated, find the corresponding operator profile from our DB
+
+    // --- Admin Safeguard ---
+    // If the logged-in user is the admin, force their profile to prevent issues with bad DB data.
+    if (authenticatedUser.email === ADMIN_EMAIL) {
+      const adminProfile = initialOperators.find(op => op.role === 'admin');
+      if (!adminProfile) {
+        console.error("Critical error: Admin profile not found in mock data.");
+        await logout();
+        return null;
+      }
+      
+      const operator = { ...adminProfile }; // Use a copy
+      
+      // Ensure the data in Firestore is also correct for the future.
+      try {
+        const operatorRef = doc(db, "operators", operator.id);
+        await setDoc(operatorRef, operator, { merge: true }); // Overwrite/correct the DB record
+      } catch (updateError) {
+        console.error("Failed to correct admin operator record in Firestore:", updateError);
+      }
+      
+      // Store and return the guaranteed admin profile
+      if (typeof window !== 'undefined') {
+        const { password, ...operatorToStore } = operator;
+        localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
+      }
+      return operator;
+    }
+
+    // --- Logic for non-admin users ---
     const nameFromEmail = authenticatedUser.email?.split('@')[0].split('.')[0];
-    let operator = allOperators.find(op => op.nome.toLowerCase() === nameFromEmail);
+    const operator = allOperators.find(op => op.nome.toLowerCase() === nameFromEmail?.toLowerCase());
 
     if (!operator) {
         console.error(`Authentication successful for ${authenticatedUser.email}, but no matching operator profile found in the database.`);
         await logout();
         return null;
     }
-
-    // --- Safeguard and Data Correction ---
-    // If the logged-in user is the admin, ensure their role is 'admin'
-    // and correct their data in Firestore if it's inconsistent.
-    if (authenticatedUser.email === ADMIN_EMAIL) {
-      const needsUpdate = operator.role !== 'admin' || operator.cognome !== 'Giorlando';
-      
-      operator.role = 'admin';
-      operator.cognome = 'Giorlando';
-      
-      if (needsUpdate) {
-        try {
-          const operatorRef = doc(db, "operators", operator.id);
-          await updateDoc(operatorRef, {
-            role: 'admin',
-            cognome: 'Giorlando'
-          });
-          console.log(`Admin operator record for ${operator.id} was corrected in Firestore.`);
-        } catch (updateError) {
-          console.error("Failed to correct admin operator record in Firestore:", updateError);
-          // Don't fail the login, just log the error. The role is already corrected in memory.
-        }
-      }
-    }
     
-    // If login is successful, store operator data and return it.
     if (typeof window !== 'undefined') {
       const { password, ...operatorToStore } = operator;
       localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
@@ -91,7 +91,7 @@ export async function login(username: string, password_used: string): Promise<Op
 
   } catch (error: any) {
     console.error("Firebase Authentication failed:", error.code, error.message);
-    await logout(); // Ensure any partial state is cleared
+    await logout();
     return null;
   }
 }
@@ -106,7 +106,6 @@ export async function logout(): Promise<void> {
     console.error("Error signing out from Firebase:", error);
   }
 }
-
 
 export function getOperator(): Operator | null {
   if (typeof window !== 'undefined') {
