@@ -73,10 +73,10 @@ if (!a._jobOrders) {
 }
 if (!a._operators) {
   a._operators = [
-    { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'CP', stato: 'inattivo', password: '1234', role: 'admin' },
-    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'CG', stato: 'inattivo', password: '1234', role: 'superadvisor' },
-    { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator' },
-    { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator' },
+    { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'CP', stato: 'inattivo', password: '1234', role: 'admin', privacySigned: false },
+    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'CG', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: false },
+    { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
+    { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
   ];
 }
 

@@ -59,6 +59,7 @@ export async function saveOperator(formData: FormData) {
       role,
       stato: 'inattivo', // Default state for new operators
       password: '1234', // Default password for new operators
+      privacySigned: false, // Default privacy status
     };
     mockOperators.push(newOperator);
     revalidatePath('/admin/operator-management');

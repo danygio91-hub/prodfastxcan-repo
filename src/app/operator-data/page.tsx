@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -14,6 +15,7 @@ import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from "@/hooks/use-toast";
+import { signPrivacyPolicy } from './actions';
 
 
 export default function OperatorDataPage() {
@@ -25,10 +27,12 @@ export default function OperatorDataPage() {
   useEffect(() => {
     const operator = getOperator();
     setOperatorData(operator);
-    // In a real app, you would fetch the signature status from the database.
     if (operator?.privacySigned) {
         setIsSigned(true);
         setPrivacyAccepted(true);
+    } else {
+        setIsSigned(false);
+        setPrivacyAccepted(false);
     }
   }, []);
 
@@ -38,14 +42,32 @@ export default function OperatorDataPage() {
 
   const email = operatorData ? `${operatorData.nome.toLowerCase()}.${operatorData.cognome.toLowerCase()}@example.com` : "N/A";
   
-  const handleSaveSignature = () => {
-    setIsSigned(true);
-    toast({
-        title: "Firma Salvata",
-        description: "Grazie per aver accettato l'informativa sulla privacy.",
-    });
-    if (operatorData) {
-        operatorData.privacySigned = true;
+  const handleSaveSignature = async () => {
+    if (!operatorData) {
+        toast({
+            variant: "destructive",
+            title: "Errore",
+            description: "Dati operatore non trovati. Impossibile salvare la firma.",
+        });
+        return;
+    }
+
+    const result = await signPrivacyPolicy(operatorData.id);
+
+    if (result.success) {
+        setIsSigned(true);
+        toast({
+            title: "Firma Salvata",
+            description: "Grazie per aver accettato l'informativa sulla privacy.",
+        });
+        // Update local state to reflect change immediately
+        setOperatorData({ ...operatorData, privacySigned: true });
+    } else {
+         toast({
+            variant: "destructive",
+            title: "Errore",
+            description: result.message,
+        });
     }
   };
 
