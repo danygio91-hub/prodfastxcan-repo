@@ -1,7 +1,8 @@
 
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import type { Operator } from './mock-data';
+import { initialOperators } from './mock-data';
 
 const AUTH_KEY = 'prodtime_tracker_auth';
 
@@ -28,40 +29,49 @@ function getAuthData(): AuthData | null {
 
 export async function login(username: string, password_used: string): Promise<boolean> {
   const operatorsRef = collection(db, "operators");
-  const q = query(
-    operatorsRef, 
-    where("nome", "==", username), 
-    where("password", "==", password_used) // In production, use hashed passwords
-  );
 
   try {
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) {
-      // For case-insensitive fallback, fetch all and filter in code
-      const allOperatorsSnap = await getDocs(collection(db, "operators"));
+    const allOperatorsSnap = await getDocs(operatorsRef);
+
+    let operator: Operator | undefined;
+
+    if (!allOperatorsSnap.empty) {
+      // The database has users, so we authenticate against Firestore.
       const allOperators = allOperatorsSnap.docs.map(doc => doc.data() as Operator);
-      const operator = allOperators.find(op => 
+      operator = allOperators.find(op => 
         op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
       );
-
-      if (operator && typeof window !== 'undefined') {
-        const authDataToStore: AuthData = { loggedIn: true, operator };
-        localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
-        return true;
-      }
-      return false;
+    } else {
+      // The database is empty. This is likely the first run, so we
+      // authenticate against the hardcoded initial operators as a fallback.
+      console.log("Firestore 'operators' collection is empty. Falling back to initial mock data for login.");
+      operator = initialOperators.find(op =>
+        op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
+      );
     }
 
-    const operator = querySnapshot.docs[0].data() as Operator;
     if (operator && typeof window !== 'undefined') {
       const authDataToStore: AuthData = { loggedIn: true, operator };
       localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
       return true;
     }
+
+    // If we reach here, no user was found.
     return false;
+
   } catch (error) {
-    console.error("Error logging in:", error);
+    console.error("Error logging in from Firestore:", error);
+    // If there's a network error connecting to Firestore, we can also fallback to the mock data.
+    // This allows login even if Firebase is temporarily unreachable.
+    console.log("Attempting login against local mock data due to Firestore error.");
+    const operator = initialOperators.find(op =>
+        op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
+    );
+    if (operator && typeof window !== 'undefined') {
+        const authDataToStore: AuthData = { loggedIn: true, operator };
+        localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
+        return true;
+    }
     return false;
   }
 }
@@ -79,7 +89,7 @@ export function isAuthenticated(): boolean {
 
 export function getOperator(): Operator | null {
   if (typeof window !== 'undefined') {
-    const authData = getAuthData();
+    const authData = getAuth-data();
     return authData?.operator || null;
   }
   return null;
