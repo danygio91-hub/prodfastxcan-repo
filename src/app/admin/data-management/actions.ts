@@ -241,3 +241,39 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
   revalidatePath('/admin/production-console');
   return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
 }
+
+export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
+  let createdCount = 0;
+  let failedCount = 0;
+
+  jobIds.forEach(jobId => {
+    const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
+    if (jobIndex !== -1) {
+      mockJobOrders[jobIndex].status = 'production';
+      if (!mockJobOrders[jobIndex].phases || mockJobOrders[jobIndex].phases.length === 0) {
+        mockJobOrders[jobIndex].phases = createDefaultPhases(mockJobOrders[jobIndex].department);
+      }
+      createdCount++;
+    } else {
+      failedCount++;
+    }
+  });
+
+  if (createdCount > 0) {
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
+  }
+
+  let message = '';
+  if (createdCount > 0) {
+    message += `${createdCount} ODL creati con successo. Le commesse sono ora in produzione.`;
+  }
+  if (failedCount > 0) {
+    message += ` ${failedCount} commesse non sono state processate perché non trovate o già in produzione.`;
+  }
+  if (createdCount === 0 && failedCount > 0) {
+      return { success: false, message: `Nessun ODL creato. Le commesse selezionate non sono valide per questa operazione.` };
+  }
+
+  return { success: true, message: message.trim() };
+}

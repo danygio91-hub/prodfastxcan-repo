@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -49,7 +50,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL } from './actions';
+import { getPlannedJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -118,6 +119,20 @@ export default function AdminDataManagementCommessePage() {
     });
     if (result.success) {
       fetchJobOrders();
+    }
+  };
+
+  const handleCreateSelectedOdls = async () => {
+    if (selectedRows.length === 0) return;
+    const result = await createMultipleODLs(selectedRows);
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+        fetchJobOrders();
+        setSelectedRows([]);
     }
   };
 
@@ -369,26 +384,48 @@ export default function AdminDataManagementCommessePage() {
                 </div>
                  <div className="flex items-center gap-2">
                   {selectedRows.length > 0 && (
-                     <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" size="sm">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Elimina Selezionate ({selectedRows.length})
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                    <>
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                  <FileText className="mr-2 h-4 w-4" />
+                                  Crea ODL Selezionate ({selectedRows.length})
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                              <AlertDialogHeader>
+                              <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                  Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
+                              </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                              </AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="destructive" size="sm">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Elimina Selezionate ({selectedRows.length})
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </>
                   )}
                    <AlertDialog>
                       <AlertDialogTrigger asChild>
