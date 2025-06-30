@@ -31,13 +31,13 @@ const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
   cognome: z.string().min(1, "Il cognome è obbligatorio."),
-  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D']),
+  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina']),
   role: z.enum(['admin', 'superadvisor', 'operator']),
 });
 
 type OperatorFormValues = z.infer<typeof operatorFormSchema>;
 
-const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D'];
+const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'];
 const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 
 const StatusBadge = ({ status }: { status: StatoOperatore }) => (
@@ -70,6 +70,16 @@ export default function AdminOperatorManagementPage() {
       role: 'operator',
     },
   });
+
+  const watchedRole = form.watch('role');
+
+  useEffect(() => {
+    if (watchedRole === 'admin') {
+      form.setValue('reparto', 'N/D');
+    } else if (watchedRole === 'superadvisor') {
+      form.setValue('reparto', 'Officina');
+    }
+  }, [watchedRole, form]);
 
   const fetchOperators = async () => {
     const data = await getOperators();
@@ -234,7 +244,7 @@ export default function AdminOperatorManagementPage() {
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => { e.preventDefault(); handleCloseDialog(); }} onEscapeKeyDown={(e) => { e.preventDefault(); handleCloseDialog(); }}>
             <DialogHeader>
               <DialogTitle>{editingOperator ? "Modifica Operatore" : "Aggiungi Nuovo Operatore"}</DialogTitle>
               <DialogDescription>
@@ -257,26 +267,10 @@ export default function AdminOperatorManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="reparto" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reparto</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleziona un reparto" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {reparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
                  <FormField control={form.control} name="role" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Ruolo</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Seleziona un ruolo" />
@@ -289,6 +283,24 @@ export default function AdminOperatorManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
+                {watchedRole !== 'admin' && (
+                  <FormField control={form.control} name="reparto" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reparto</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={watchedRole === 'superadvisor'}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona un reparto" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {reparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                )}
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
                   <Button type="submit">{editingOperator ? "Salva Modifiche" : "Aggiungi Operatore"}</Button>

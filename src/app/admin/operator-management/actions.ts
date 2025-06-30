@@ -10,7 +10,7 @@ const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
   cognome: z.string().min(1, 'Il cognome è obbligatorio.'),
-  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D'], {
+  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'], {
     errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
   }),
   role: z.enum(['admin', 'superadvisor', 'operator'], {
@@ -27,7 +27,7 @@ export async function getOperators(): Promise<Operator[]> {
 
 export async function saveOperator(formData: FormData) {
   const rawData = Object.fromEntries(formData.entries());
-  const validatedFields = operatorFormSchema.safeParse(rawData);
+  let validatedFields = operatorFormSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
     return {
@@ -37,6 +37,13 @@ export async function saveOperator(formData: FormData) {
     };
   }
   
+  // Enforce business rules on the server-side for data integrity
+  if (validatedFields.data.role === 'admin') {
+    validatedFields.data.reparto = 'N/D';
+  } else if (validatedFields.data.role === 'superadvisor') {
+    validatedFields.data.reparto = 'Officina';
+  }
+
   const { id, nome, cognome, reparto, role } = validatedFields.data;
 
   if (id) {
