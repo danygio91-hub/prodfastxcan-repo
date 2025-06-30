@@ -19,7 +19,7 @@ import {
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
 import { ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
-import { getOperatorName } from '@/lib/auth';
+import { getOperator } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from "@/components/ui/switch";
@@ -116,17 +116,18 @@ export default function ScanJobPage() {
     resetProcessingState();
     setIsScanningJob(true);
 
-    const operatorName = getOperatorName();
-    let operatorDepartment: string;
-    if (operatorName === "Daniel") {
-      operatorDepartment = "Assemblaggio Componenti Elettronici";
-    } else if (operatorName === "Ruben") {
-      operatorDepartment = "Controllo Qualità";
-    } else {
-      operatorDepartment = "Reparto Generico";
+    const operator = getOperator();
+    if (!operator) {
+        toast({
+            variant: "destructive",
+            title: "Errore Autenticazione",
+            description: "Dati operatore non trovati. Prova a fare di nuovo il login.",
+        });
+        setIsScanningJob(false);
+        return;
     }
 
-    const result = await getScannableJob(operatorDepartment);
+    const result = await getScannableJob(operator);
     setIsScanningJob(false);
 
     if ('error' in result) {

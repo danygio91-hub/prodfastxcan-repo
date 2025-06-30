@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { mockJobOrders, type JobOrder } from '@/lib/mock-data';
+import { mockJobOrders, type JobOrder, type Operator, departmentMap } from '@/lib/mock-data';
 
 /**
  * Finds a job order in the mock database and returns a deep copy.
@@ -30,10 +30,10 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 
 /**
  * Simulates scanning for a job available for a specific department.
- * @param operatorDepartment The department of the operator scanning.
+ * @param operator The operator who is scanning.
  * @returns A job order or an error object.
  */
-export async function getScannableJob(operatorDepartment: string): Promise<JobOrder | { error: string, title?: string }> {
+export async function getScannableJob(operator: Operator): Promise<JobOrder | { error: string, title?: string }> {
     const availableJobs = mockJobOrders.filter(job => job.status === 'production');
 
     if (availableJobs.length === 0) {
@@ -43,13 +43,23 @@ export async function getScannableJob(operatorDepartment: string): Promise<JobOr
         };
     }
     
-    // For simulation, find a job that matches the department
-    const suitableJobs = availableJobs.filter(job => job.department === operatorDepartment);
+    let suitableJobs: JobOrder[] = [];
+
+    // Superadvisor and Admin can work on any department's jobs
+    if (operator.role === 'superadvisor' || operator.role === 'admin') {
+        suitableJobs = availableJobs;
+    } else {
+        // Regular operators are restricted to their department
+        const operatorDepartmentName = departmentMap[operator.reparto];
+        suitableJobs = availableJobs.filter(job => job.department === operatorDepartmentName);
+    }
     
     if (suitableJobs.length === 0) {
        return { 
-           error: "Nessuna commessa disponibile per il tuo reparto al momento.",
-           title: "Nessuna Commessa per il Reparto"
+           error: operator.role === 'superadvisor' || operator.role === 'admin' 
+            ? "Nessuna commessa di produzione attiva trovata."
+            : `Nessuna commessa disponibile per il tuo reparto (${departmentMap[operator.reparto]}) al momento.`,
+           title: "Nessuna Commessa Disponibile"
         };
     }
 

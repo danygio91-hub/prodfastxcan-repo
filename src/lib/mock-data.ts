@@ -36,6 +36,7 @@ export interface JobOrder {
 // Nuova interfaccia per l'operatore
 export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D';
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
+export type OperatorRole = 'admin' | 'superadvisor' | 'operator';
 
 export interface Operator {
   id: string;
@@ -43,7 +44,17 @@ export interface Operator {
   cognome: string;
   reparto: Reparto;
   stato: StatoOperatore;
+  password?: string;
+  role: OperatorRole;
 }
+
+export const departmentMap: { [key in Reparto]: string } = {
+  CP: 'Assemblaggio Componenti Elettronici',
+  CG: 'Controllo Qualità',
+  BF: 'Burattatura e Finitura',
+  MAG: 'Magazzino',
+  'N/D': 'Non Definito',
+};
 
 
 // This is a simple in-memory store that mimics a database.
@@ -60,10 +71,10 @@ if (!a._jobOrders) {
 }
 if (!a._operators) {
   a._operators = [
-    { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'CP', stato: 'inattivo' },
-    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'CG', stato: 'inattivo' },
-    { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo' },
-    { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo' },
+    { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'CP', stato: 'inattivo', password: '1234', role: 'admin' },
+    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'CG', stato: 'inattivo', password: '1234', role: 'superadvisor' },
+    { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator' },
+    { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator' },
   ];
 }
 

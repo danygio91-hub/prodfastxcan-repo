@@ -1,57 +1,32 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory } from 'lucide-react';
-import { getOperatorName } from '@/lib/auth';
+import { getOperator } from '@/lib/auth';
+import type { Operator } from '@/lib/mock-data';
+import { departmentMap } from '@/lib/mock-data';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
-
-interface OperatorData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  department: string;
-}
-
-// Mock data for operators
-const mockDanielOperatorData: OperatorData = {
-  firstName: "Daniel",
-  lastName: "Rossi",
-  email: "daniel.rossi@example.com",
-  department: "Assemblaggio Componenti Elettronici",
-};
-
-const mockRubenOperatorData: OperatorData = {
-  firstName: "Ruben",
-  lastName: "Bianchi",
-  email: "ruben.bianchi@example.com",
-  department: "Controllo Qualità",
-};
 
 
 export default function OperatorDataPage() {
-  const operatorName = getOperatorName(); 
+  const [operatorData, setOperatorData] = useState<Operator | null>(null);
 
-  let operatorData: OperatorData;
+  useEffect(() => {
+    const operator = getOperator();
+    setOperatorData(operator);
+  }, []);
 
-  if (operatorName === "Daniel") {
-    operatorData = mockDanielOperatorData;
-  } else if (operatorName === "Ruben") {
-    operatorData = mockRubenOperatorData;
-  } else {
-    operatorData = {
-      firstName: "N/A",
-      lastName: "N/A",
-      email: "N/A",
-      department: "N/A",
-    };
+  const getFullDepartmentName = (repartoCode: string) => {
+    return departmentMap[repartoCode as keyof typeof departmentMap] || 'N/D';
   }
 
-
+  const email = operatorData ? `${operatorData.nome.toLowerCase()}.${operatorData.cognome.toLowerCase()}@example.com` : "N/A";
+  
   return (
     <AuthGuard>
       <AppShell>
@@ -64,7 +39,7 @@ export default function OperatorDataPage() {
                 <Users className="h-8 w-8 text-primary" />
                 <div>
                   <CardTitle className="text-xl font-headline mb-1">Dati Operatore</CardTitle>
-                  <CardDescription>Visualizza le informazioni dell'operatore.</CardDescription>
+                  <CardDescription>Le tue informazioni personali. Contatta un amministratore per modificarle.</CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -75,35 +50,30 @@ export default function OperatorDataPage() {
                     <User className="mr-2 h-5 w-5 text-primary" />
                     Nome
                   </Label>
-                  <Input id="firstName" value={operatorData.firstName} readOnly className="bg-input text-foreground" />
+                  <Input id="firstName" value={operatorData?.nome || '...'} readOnly className="bg-input text-foreground" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="lastName" className="flex items-center text-foreground/80">
                     <User className="mr-2 h-5 w-5 text-primary" />
                     Cognome
                   </Label>
-                  <Input id="lastName" value={operatorData.lastName} readOnly className="bg-input text-foreground" />
+                  <Input id="lastName" value={operatorData?.cognome || '...'} readOnly className="bg-input text-foreground" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email" className="flex items-center text-foreground/80">
                     <Mail className="mr-2 h-5 w-5 text-primary" />
                     Email
                   </Label>
-                  <Input id="email" type="email" value={operatorData.email} readOnly className="bg-input text-foreground" />
+                  <Input id="email" type="email" value={email} readOnly className="bg-input text-foreground" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="department" className="flex items-center text-foreground/80">
                     <Factory className="mr-2 h-5 w-5 text-primary" />
                     Reparto di Produzione
                   </Label>
-                  <Input id="department" value={operatorData.department} readOnly className="bg-input text-foreground" />
+                  <Input id="department" value={operatorData ? getFullDepartmentName(operatorData.reparto) : '...'} readOnly className="bg-input text-foreground" />
                 </div>
               </div>
-               {operatorName !== "Daniel" && operatorName !== "Ruben" && (
-                <p className="text-sm text-muted-foreground text-center mt-4">
-                  Dati operatore di esempio visualizzati. Effettua il login come 'Daniel' o 'Ruben' per vedere i dati specifici.
-                </p>
-              )}
             </CardContent>
           </Card>
         </div>
