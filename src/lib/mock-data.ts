@@ -142,17 +142,17 @@ const writeData = async <T>(filePath: string, data: T): Promise<void> => {
 };
 
 // --- Data Accessor Functions ---
-export const getJobOrdersStore = () => readData<JobOrder[]>(JOB_ORDERS_FILE, initialJobOrders);
-export const saveJobOrdersStore = (data: JobOrder[]) => writeData(JOB_ORDERS_FILE, data);
+export const getJobOrdersStore = async () => readData<JobOrder[]>(JOB_ORDERS_FILE, initialJobOrders);
+export const saveJobOrdersStore = async (data: JobOrder[]) => writeData(JOB_ORDERS_FILE, data);
 
-export const getOperatorsStore = () => readData<Operator[]>(OPERATORS_FILE, initialOperators);
-export const saveOperatorsStore = (data: Operator[]) => writeData(OPERATORS_FILE, data);
+export const getOperatorsStore = async () => readData<Operator[]>(OPERATORS_FILE, initialOperators);
+export const saveOperatorsStore = async (data: Operator[]) => writeData(OPERATORS_FILE, data);
 
-export const getDepartmentMapStore = () => readData<{ [key in Reparto]: string }>(DEPARTMENT_MAP_FILE, initialDepartmentMap);
-export const saveDepartmentMapStore = (data: { [key in Reparto]: string }) => writeData(DEPARTMENT_MAP_FILE, data);
+export const getDepartmentMapStore = async () => readData<{ [key in Reparto]: string }>(DEPARTMENT_MAP_FILE, initialDepartmentMap);
+export const saveDepartmentMapStore = async (data: { [key in Reparto]: string }) => writeData(DEPARTMENT_MAP_FILE, data);
 
-export const getWorkPhaseTemplatesStore = () => readData<WorkPhaseTemplate[]>(WORK_PHASE_TEMPLATES_FILE, initialWorkPhaseTemplates);
-export const saveWorkPhaseTemplatesStore = (data: WorkPhaseTemplate[]) => writeData(WORK_PHASE_TEMPLATES_FILE, data);
+export const getWorkPhaseTemplatesStore = async () => readData<WorkPhaseTemplate[]>(WORK_PHASE_TEMPLATES_FILE, initialWorkPhaseTemplates);
+export const saveWorkPhaseTemplatesStore = async (data: WorkPhaseTemplate[]) => writeData(WORK_PHASE_TEMPLATES_FILE, data);
 
-export const getWorkstationsStore = () => readData<Workstation[]>(WORKSTATIONS_FILE, initialWorkstations);
-export const saveWorkstationsStore = (data: Workstation[]) => writeData(WORKSTATIONS_FILE, data);
+export const getWorkstationsStore = async () => readData<Workstation[]>(WORKSTATIONS_FILE, initialWorkstations);
+export const saveWorkstationsStore = async (data: Workstation[]) => writeData(WORKSTATIONS_FILE, data);
