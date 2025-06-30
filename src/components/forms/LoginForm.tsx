@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -8,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AnimatePresence, motion } from 'framer-motion';
 
-import { login, isAdmin as checkIsAdmin } from '@/lib/auth';
+import { login } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { mockOperators } from '@/lib/mock-data';
 
@@ -117,18 +118,18 @@ export default function LoginForm() {
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
-        const success = await login(username, password_used);
+        const operator = await login(username, password_used);
         
-        if (success) {
+        if (operator) {
             toast({
                 title: "Accesso Riuscito",
-                description: `Benvenuto, ${username}! Reindirizzamento...`,
+                description: `Benvenuto, ${operator.nome}! Reindirizzamento...`,
             });
-            router.push(checkIsAdmin() ? "/admin/dashboard" : "/dashboard");
+            router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
         } else {
             toast({
                 title: "Accesso Fallito",
-                description: "Le credenziali o l'autenticazione biometrica non sono valide.",
+                description: "Credenziali non valide o utente non configurato in Firebase. Contatta un amministratore.",
                 variant: "destructive",
             });
             setStep('initial');

@@ -1,29 +1,26 @@
+
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated } from '@/lib/auth';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from '@/components/ui/skeleton';
-
 
 interface AuthGuardProps {
   children: React.ReactNode;
 }
 
 export default function AuthGuard({ children }: AuthGuardProps) {
+  const { user, loading } = useAuth();
   const router = useRouter();
-  const [isVerified, setIsVerified] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.replace('/'); 
-    } else {
-      setIsVerified(true);
+    if (!loading && !user) {
+      router.replace('/');
     }
-  }, [router]);
+  }, [user, loading, router]);
 
-  if (!isVerified) {
-    // Optional: show a loading spinner or skeleton screen
+  if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <Skeleton className="h-12 w-1/2 mb-4" />
@@ -33,5 +30,9 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  return <>{children}</>;
+  if (user) {
+    return <>{children}</>;
+  }
+
+  return null;
 }

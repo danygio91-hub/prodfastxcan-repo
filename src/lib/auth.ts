@@ -1,22 +1,19 @@
 
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
 import { initialOperators } from './mock-data';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const AUTH_KEY = 'prodtime_tracker_auth';
+const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
-interface AuthData {
-  loggedIn: boolean;
-  operator: Operator;
-}
-
-function getAuthData(): AuthData | null {
+export function getOperator(): Operator | null {
   if (typeof window !== 'undefined') {
     const authDataString = localStorage.getItem(AUTH_KEY);
     if (authDataString) {
       try {
-        return JSON.parse(authDataString) as AuthData;
+        return JSON.parse(authDataString) as Operator;
       } catch (e) {
         console.error("Failed to parse auth data from localStorage", e);
         localStorage.removeItem(AUTH_KEY);
@@ -27,85 +24,57 @@ function getAuthData(): AuthData | null {
   return null;
 }
 
-export async function login(username: string, password_used: string): Promise<boolean> {
-  const operatorsRef = collection(db, "operators");
+export async function login(username: string, password_used: string): Promise<Operator | null> {
+  let allOperators: Operator[] = [];
+  try {
+    const operatorsSnap = await getDocs(collection(db, "operators"));
+    if (!operatorsSnap.empty) {
+      allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
+    } else {
+      console.warn("Firestore 'operators' collection is empty. Falling back to initial mock data for login.");
+      allOperators = initialOperators;
+    }
+  } catch (error) {
+    console.error("Error fetching operators from Firestore, falling back to mock data:", error);
+    allOperators = initialOperators;
+  }
+  
+  const operator = allOperators.find(op => 
+    op.nome.toLowerCase() === username.toLowerCase()
+  );
+
+  if (!operator || operator.password !== password_used) {
+    console.error("Operator not found in Firestore or password incorrect.");
+    return null;
+  }
+
+  const email = `${operator.nome.toLowerCase()}.${operator.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
 
   try {
-    const allOperatorsSnap = await getDocs(operatorsRef);
-
-    let operator: Operator | undefined;
-
-    if (!allOperatorsSnap.empty) {
-      // The database has users, so we authenticate against Firestore.
-      const allOperators = allOperatorsSnap.docs.map(doc => doc.data() as Operator);
-      operator = allOperators.find(op => 
-        op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
-      );
-    } else {
-      // The database is empty. This is likely the first run, so we
-      // authenticate against the hardcoded initial operators as a fallback.
-      console.log("Firestore 'operators' collection is empty. Falling back to initial mock data for login.");
-      operator = initialOperators.find(op =>
-        op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
-      );
+    await signInWithEmailAndPassword(auth, email, password_used);
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(AUTH_KEY, JSON.stringify(operator));
     }
+    return operator;
 
-    if (operator && typeof window !== 'undefined') {
-      const authDataToStore: AuthData = { loggedIn: true, operator };
-      localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
-      return true;
+  } catch (error: any) {
+    console.error("Firebase Authentication failed:", error);
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        console.error(`L'utente con email ${email} non esiste in Firebase Authentication o le credenziali sono errate. Crealo dalla console di Firebase.`);
     }
-
-    // If we reach here, no user was found.
-    return false;
-
-  } catch (error) {
-    console.error("Error logging in from Firestore:", error);
-    // If there's a network error connecting to Firestore, we can also fallback to the mock data.
-    // This allows login even if Firebase is temporarily unreachable.
-    console.log("Attempting login against local mock data due to Firestore error.");
-    const operator = initialOperators.find(op =>
-        op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used
-    );
-    if (operator && typeof window !== 'undefined') {
-        const authDataToStore: AuthData = { loggedIn: true, operator };
-        localStorage.setItem(AUTH_KEY, JSON.stringify(authDataToStore));
-        return true;
-    }
-    return false;
+    await logout();
+    return null;
   }
 }
 
-export function logout(): void {
+export async function logout(): Promise<void> {
   if (typeof window !== 'undefined') {
     localStorage.removeItem(AUTH_KEY);
   }
-}
-
-export function isAuthenticated(): boolean {
-  const authData = getAuthData();
-  return authData?.loggedIn === true;
-}
-
-export function getOperator(): Operator | null {
-  if (typeof window !== 'undefined') {
-    const authData = getAuthData();
-    return authData?.operator || null;
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Error signing out from Firebase:", error);
   }
-  return null;
-}
-
-export function getOperatorName(): string | null {
-  const operator = getOperator();
-  return operator ? `${operator.nome} ${operator.cognome}` : null;
-}
-
-export function isAdmin(): boolean {
-  const operator = getOperator();
-  return operator?.role === 'admin';
-}
-
-export function isSuperadvisor(): boolean {
-  const operator = getOperator();
-  return operator?.role === 'superadvisor';
 }

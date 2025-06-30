@@ -1,12 +1,12 @@
+
 "use client";
 
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { logout, getOperatorName } from '@/lib/auth';
 import { LogOut, RefreshCw } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthProvider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,17 +24,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Header() {
-  const router = useRouter();
-  const [operatorName, setOperatorName] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    setOperatorName(getOperatorName());
-  }, []);
-
-  const handleLogout = () => {
-    logout();
-    router.push('/');
-  };
+  const { operator, logout } = useAuth();
+  const operatorName = operator ? `${operator.nome} ${operator.cognome}` : null;
 
   const handleRefresh = () => {
     window.location.reload();
@@ -88,7 +79,7 @@ export default function Header() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+              <DropdownMenuItem onClick={logout} className="cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Esci</span>
               </DropdownMenuItem>
