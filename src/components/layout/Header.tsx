@@ -47,33 +47,31 @@ export default function Header() {
           <Image src="/logo.svg" alt="PFXcan Logo" width={75} height={50} className="mr-3" />
         </Link>
         <div className="flex items-center space-x-4">
-          {operatorName && (
-             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(operatorName)}`} alt={operatorName} data-ai-hint="avatar persona" />
-                    <AvatarFallback>{getInitials(operatorName)}</AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56" align="end" forceMount>
-                <DropdownMenuLabel className="font-normal">
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">Accesso come</p>
-                    <p className="text-xs leading-none text-muted-foreground">
-                      {operatorName}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Esci</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+           <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(operatorName)}`} alt={operatorName || "Operatore"} data-ai-hint="avatar persona" />
+                  <AvatarFallback>{getInitials(operatorName)}</AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">Accesso come</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {operatorName || "Operatore"}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Esci</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
