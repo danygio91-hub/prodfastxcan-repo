@@ -1,28 +1,29 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
 // Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// This is taken from your project settings and connects the app to your database.
 const firebaseConfig = {
-  // ------------------------------------------------------------------
-  // INSERISCI QUI LA CONFIGURAZIONE DEL TUO PROGETTO FIREBASE
-  // La trovi in: Console Firebase > Impostazioni Progetto > Generale > Le tue app > App Web
-  // Esempio:
-  apiKey: "AIzaSyXXXXXXXXXXXXXXXXXXX",
-  authDomain: "tuo-progetto.firebaseapp.com",
-  projectId: "tuo-progetto",
-  storageBucket: "tuo-progetto.appspot.com",
-  messagingSenderId: "1234567890",
-  appId: "1:1234567890:web:XXXXXXXXXXXXXXXXXXXXXX"
-  // ------------------------------------------------------------------
+  apiKey: "AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU",
+  authDomain: "prodfastxcan.firebaseapp.com",
+  projectId: "prodfastxcan",
+  storageBucket: "prodfastxcan.appspot.com",
+  messagingSenderId: "724257897568",
+  appId: "1:724257897568:web:2054074f18364ed0e91705",
+  measurementId: "G-8XZHSKPWPP"
 };
 
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+let app;
+// Prevent Firebase from initializing multiple times, which can happen in development environments
+if (!getApps().length) {
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApps()[0];
+}
+
 const db = getFirestore(app);
 
+// We export the db instance to be used in other parts of the application
 export { db };
