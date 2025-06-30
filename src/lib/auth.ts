@@ -89,7 +89,7 @@ export function isAuthenticated(): boolean {
 
 export function getOperator(): Operator | null {
   if (typeof window !== 'undefined') {
-    const authData = getAuth-data();
+    const authData = getAuthData();
     return authData?.operator || null;
   }
   return null;
