@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -7,7 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { logout, getOperatorName } from '@/lib/auth';
-import { LogOut } from 'lucide-react';
+import { LogOut, RefreshCw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +15,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Header() {
@@ -29,6 +34,10 @@ export default function Header() {
   const handleLogout = () => {
     logout();
     router.push('/');
+  };
+
+  const handleRefresh = () => {
+    window.location.reload();
   };
 
   const getInitials = (name: string | null) => {
@@ -46,7 +55,20 @@ export default function Header() {
         <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
           <Image src="/logo.svg" alt="PFXcan Logo" width={75} height={50} className="mr-3" />
         </Link>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <TooltipProvider delayDuration={0}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={handleRefresh} aria-label="Aggiorna pagina">
+                  <RefreshCw className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Aggiorna pagina</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
