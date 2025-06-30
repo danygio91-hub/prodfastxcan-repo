@@ -3,6 +3,7 @@
 
 import React from 'react';
 import Header from './Header';
+import { ThemeToggler } from '@/components/ThemeToggler';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -18,6 +19,7 @@ export default function AppShell({ children }: AppShellProps) {
       <footer className="py-4 text-center text-sm text-muted-foreground border-t border-border">
         © {new Date().getFullYear()} ProdFast Tracker. Tutti i diritti riservati.
       </footer>
+      <ThemeToggler />
     </div>
   );
 }
