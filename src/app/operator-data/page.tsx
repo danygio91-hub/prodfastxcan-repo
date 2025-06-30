@@ -9,19 +9,20 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory, FileLock, Check } from 'lucide-react';
 import { getOperator } from '@/lib/auth';
-import type { Operator } from '@/lib/mock-data';
-import { departmentMap } from '@/lib/mock-data';
+import { type Operator, type Reparto } from '@/lib/mock-data';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from "@/hooks/use-toast";
 import { signPrivacyPolicy } from './actions';
+import { getDepartmentMap } from '@/app/admin/settings/actions';
 
 
 export default function OperatorDataPage() {
   const [operatorData, setOperatorData] = useState<Operator | null>(null);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [isSigned, setIsSigned] = useState(false); 
+  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -34,6 +35,7 @@ export default function OperatorDataPage() {
         setIsSigned(false);
         setPrivacyAccepted(false);
     }
+    getDepartmentMap().then(setDepartmentMap);
   }, []);
 
   const getFullDepartmentName = (repartoCode: string) => {

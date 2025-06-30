@@ -1,15 +1,18 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { departmentMap, reparti, type Reparto } from '@/lib/mock-data';
+import { getDepartmentMapStore, saveDepartmentMapStore, reparti, type Reparto } from '@/lib/mock-data';
 
 export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
+  const departmentMap = await getDepartmentMapStore();
   // Return a copy to avoid client-side mutations affecting the server state
   return JSON.parse(JSON.stringify(departmentMap));
 }
 
 export async function updateDepartmentNames(formData: FormData): Promise<{ success: boolean; message: string; }> {
   try {
+    const departmentMap = await getDepartmentMapStore();
     const newNames: { [key: string]: string } = {};
     for (const code of reparti) {
       const value = formData.get(code) as string;
@@ -26,6 +29,8 @@ export async function updateDepartmentNames(formData: FormData): Promise<{ succe
             departmentMap[code as Reparto] = newNames[code];
         }
     }
+
+    await saveDepartmentMapStore(departmentMap);
 
     // Revalidate paths that might display department names
     revalidatePath('/admin/settings');

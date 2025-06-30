@@ -2,9 +2,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { mockOperators } from '@/lib/mock-data';
+import { getOperatorsStore, saveOperatorsStore } from '@/lib/mock-data';
 
 export async function signPrivacyPolicy(operatorId: string): Promise<{ success: boolean; message: string }> {
+  const mockOperators = await getOperatorsStore();
   const operatorIndex = mockOperators.findIndex(op => op.id === operatorId);
 
   if (operatorIndex === -1) {
@@ -12,6 +13,8 @@ export async function signPrivacyPolicy(operatorId: string): Promise<{ success: 
   }
 
   mockOperators[operatorIndex].privacySigned = true;
+
+  await saveOperatorsStore(mockOperators);
 
   // Revalidate the path for the admin dashboard to see the change
   revalidatePath('/admin/operator-management');

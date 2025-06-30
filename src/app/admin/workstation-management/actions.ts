@@ -3,7 +3,14 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { mockWorkstations, type Workstation, type Reparto, reparti } from '@/lib/mock-data';
+import { 
+    getWorkstationsStore, 
+    saveWorkstationsStore, 
+    getDepartmentMapStore,
+    type Workstation, 
+    type Reparto, 
+    reparti 
+} from '@/lib/mock-data';
 
 // --- Schemas ---
 const workstationSchema = z.object({
@@ -17,8 +24,13 @@ const workstationSchema = z.object({
 // --- Actions ---
 
 export async function getWorkstations(): Promise<Workstation[]> {
-  // Return a deep copy
-  return JSON.parse(JSON.stringify(mockWorkstations));
+  const workstations = await getWorkstationsStore();
+  return JSON.parse(JSON.stringify(workstations));
+}
+
+export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
+    const map = await getDepartmentMapStore();
+    return JSON.parse(JSON.stringify(map));
 }
 
 export async function saveWorkstation(formData: FormData) {
@@ -34,6 +46,7 @@ export async function saveWorkstation(formData: FormData) {
   }
 
   const { id, name, departmentCode } = validatedFields.data;
+  const mockWorkstations = await getWorkstationsStore();
 
   if (id) {
     // Update
@@ -44,7 +57,6 @@ export async function saveWorkstation(formData: FormData) {
     mockWorkstations[index] = { id, name, departmentCode };
   } else {
     // Add new
-    // Check for duplicate name
     if (mockWorkstations.some(ws => ws.name.toLowerCase() === name.toLowerCase())) {
         return { success: false, message: `Una postazione con nome "${name}" esiste già.` };
     }
@@ -53,17 +65,20 @@ export async function saveWorkstation(formData: FormData) {
     mockWorkstations.push(newWorkstation);
   }
 
+  await saveWorkstationsStore(mockWorkstations);
   revalidatePath('/admin/workstation-management');
   return { success: true, message: `Postazione salvata con successo.` };
 }
 
 export async function deleteWorkstation(id: string): Promise<{ success: boolean; message: string }> {
+  const mockWorkstations = await getWorkstationsStore();
   const index = mockWorkstations.findIndex((ws) => ws.id === id);
   if (index === -1) {
     return { success: false, message: 'Postazione non trovata.' };
   }
 
   mockWorkstations.splice(index, 1);
+  await saveWorkstationsStore(mockWorkstations);
   revalidatePath('/admin/workstation-management');
   return { success: true, message: 'Postazione eliminata con successo.' };
 }

@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { mockOperators, type Operator } from '@/lib/mock-data';
+import { getOperatorsStore, saveOperatorsStore, type Operator } from '@/lib/mock-data';
 
 // --- Schemas ---
 const operatorFormSchema = z.object({
@@ -21,8 +21,9 @@ const operatorFormSchema = z.object({
 // --- Actions ---
 
 export async function getOperators(): Promise<Operator[]> {
+  const operators = await getOperatorsStore();
   // Return a deep copy to avoid mutations affecting the store directly
-  return JSON.parse(JSON.stringify(mockOperators));
+  return JSON.parse(JSON.stringify(operators));
 }
 
 export async function saveOperator(formData: FormData) {
@@ -37,7 +38,6 @@ export async function saveOperator(formData: FormData) {
     };
   }
   
-  // Enforce business rules on the server-side for data integrity
   if (validatedFields.data.role === 'admin') {
     validatedFields.data.reparto = 'N/D';
   } else if (validatedFields.data.role === 'superadvisor') {
@@ -45,6 +45,7 @@ export async function saveOperator(formData: FormData) {
   }
 
   const { id, nome, cognome, reparto, role } = validatedFields.data;
+  const mockOperators = await getOperatorsStore();
 
   if (id) {
     // Update existing operator
@@ -53,6 +54,7 @@ export async function saveOperator(formData: FormData) {
       return { success: false, message: 'Operatore non trovato.' };
     }
     mockOperators[index] = { ...mockOperators[index], nome, cognome, reparto, role };
+    await saveOperatorsStore(mockOperators);
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
@@ -69,18 +71,21 @@ export async function saveOperator(formData: FormData) {
       privacySigned: false, // Default privacy status
     };
     mockOperators.push(newOperator);
+    await saveOperatorsStore(mockOperators);
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiunto con successo.' };
   }
 }
 
 export async function deleteOperator(id: string): Promise<{ success: boolean; message: string }> {
+  const mockOperators = await getOperatorsStore();
   const index = mockOperators.findIndex((op) => op.id === id);
   if (index === -1) {
     return { success: false, message: 'Operatore non trovato.' };
   }
 
   mockOperators.splice(index, 1);
+  await saveOperatorsStore(mockOperators);
   revalidatePath('/admin/operator-management');
   return { success: true, message: 'Operatore eliminato con successo.' };
 }

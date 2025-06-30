@@ -7,8 +7,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type WorkPhaseTemplate, type Reparto, reparti, departmentMap } from '@/lib/mock-data';
-import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate } from './actions';
+import { type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
+import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap } from './actions';
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -16,7 +16,7 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,7 @@ export default function AdminWorkPhaseManagementPage() {
   const [phases, setPhases] = useState<WorkPhaseTemplate[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
+  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
 
   const form = useForm<WorkPhaseFormValues>({
@@ -51,6 +52,7 @@ export default function AdminWorkPhaseManagementPage() {
 
   useEffect(() => {
     fetchPhases();
+    getDepartmentMap().then(setDepartmentMap);
   }, []);
 
   const handleOpenDialog = (phase: WorkPhaseTemplate | null = null) => {
@@ -141,7 +143,7 @@ export default function AdminWorkPhaseManagementPage() {
                         <TableRow key={phase.id}>
                           <TableCell className="font-medium">{phase.name}</TableCell>
                           <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
-                          <TableCell>{departmentMap[phase.departmentCode]}</TableCell>
+                          <TableCell>{departmentMap[phase.departmentCode] || phase.departmentCode}</TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(phase)}>
                               <Edit className="h-4 w-4" />
@@ -214,7 +216,7 @@ export default function AdminWorkPhaseManagementPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r]}</SelectItem>)}
+                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <FormMessage />

@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { type JobOrder, type JobPhase, mockJobOrders } from '@/lib/mock-data';
+import { getJobOrdersStore, saveJobOrdersStore, type JobOrder, type JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
 
 const createDefaultPhases = (department: string): JobPhase[] => {
@@ -25,12 +25,12 @@ const createDefaultPhases = (department: string): JobPhase[] => {
 };
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  // Return a deep copy to avoid mutations affecting the store directly
+  const mockJobOrders = await getJobOrdersStore();
   return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'planned')));
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-  // Return a deep copy
+  const mockJobOrders = await getJobOrdersStore();
   return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'production')));
 }
 
@@ -47,10 +47,12 @@ const jobOrderFormSchema = z.object({
 export async function addJobOrder(formData: FormData) {
     const rawData = Object.fromEntries(formData.entries());
     const validatedFields = jobOrderFormSchema.safeParse(rawData);
-
+    
     if (!validatedFields.success) {
       return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
+    
+    const mockJobOrders = await getJobOrdersStore();
 
     const existingJob = mockJobOrders.find(job => job.ordinePF === validatedFields.data.ordinePF);
     if (existingJob) {
@@ -68,6 +70,7 @@ export async function addJobOrder(formData: FormData) {
     };
 
     mockJobOrders.push(newJobOrder);
+    await saveJobOrdersStore(mockJobOrders);
     revalidatePath('/admin/data-management');
     return {
       success: true,
@@ -85,6 +88,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
     let skippedCount = 0;
+    
+    const mockJobOrders = await getJobOrdersStore();
 
     const importSchema = z.object({
       cliente: z.coerce.string().optional(),
@@ -108,11 +113,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const existingJob = mockJobOrders.find(j => j.id === validData.ordinePF);
 
         if (existingJob) {
-            // It's an update. Merge and add to jobsToUpdate.
             const updatedJob: JobOrder = {
                 ...existingJob,
                 ...validData,
-                // Ensure required fields that might be optional in the import are not wiped out
                 qta: validData.qta ?? existingJob.qta,
                 cliente: validData.cliente ?? existingJob.cliente,
                 numeroODL: validData.numeroODL ?? existingJob.numeroODL,
@@ -122,10 +125,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
             };
             jobsToUpdate.push(updatedJob);
         } else {
-            // It's a new job. Check for required fields for creation.
             if (validData.qta === undefined) {
                 skippedCount++;
-                continue; // qta is required for new jobs
+                continue; 
             }
 
             const department = validData.department || "Reparto Generico";
@@ -134,12 +136,11 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 status: 'planned',
                 postazioneLavoro: 'Da Assegnare',
                 phases: createDefaultPhases(department),
-                // Fill in the rest, providing defaults for optional fields
                 cliente: validData.cliente || "N/D",
                 ordinePF: validData.ordinePF,
                 numeroODL: validData.numeroODL || "N/D",
                 details: validData.details || "N/D",
-                qta: validData.qta, // We already checked it exists
+                qta: validData.qta,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
             };
@@ -165,9 +166,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
     let newCount = 0;
     let updatedCount = 0;
+    const mockJobOrders = await getJobOrdersStore();
 
     data.newJobs.forEach(job => {
-        // Final check to prevent duplicates if called multiple times
         if (!mockJobOrders.some(j => j.id === job.id)) {
             mockJobOrders.push(job);
             newCount++;
@@ -181,6 +182,10 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
             updatedCount++;
         }
     });
+    
+    if(newCount > 0 || updatedCount > 0) {
+        await saveJobOrdersStore(mockJobOrders);
+    }
 
     revalidatePath('/admin/data-management');
     return {
@@ -192,15 +197,17 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
   let deletedCount = 0;
-  // Iterate backwards to safely remove items from the array
-  for (let i = mockJobOrders.length - 1; i >= 0; i--) {
-    if (ids.includes(mockJobOrders[i].id)) {
-      mockJobOrders.splice(i, 1);
+  const mockJobOrders = await getJobOrdersStore();
+  const remainingJobs = mockJobOrders.filter(job => {
+    if (ids.includes(job.id)) {
       deletedCount++;
+      return false;
     }
-  }
+    return true;
+  });
 
   if (deletedCount > 0) {
+    await saveJobOrdersStore(remainingJobs);
     revalidatePath('/admin/data-management');
     return { success: true, message: `${deletedCount} commesse eliminate con successo.` };
   }
@@ -208,16 +215,18 @@ export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success:
 }
 
 export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
+    const mockJobOrders = await getJobOrdersStore();
     let deletedCount = 0;
-    // Iterate backwards to safely remove items from the array
-    for (let i = mockJobOrders.length - 1; i >= 0; i--) {
-        if (mockJobOrders[i].status === 'planned') {
-            mockJobOrders.splice(i, 1);
+    const remainingJobs = mockJobOrders.filter(job => {
+        if (job.status === 'planned') {
             deletedCount++;
+            return false;
         }
-    }
+        return true;
+    });
 
     if (deletedCount > 0) {
+        await saveJobOrdersStore(remainingJobs);
         revalidatePath('/admin/data-management');
         return { success: true, message: `Tutte le ${deletedCount} commesse pianificate sono state eliminate.` };
     }
@@ -225,18 +234,20 @@ export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; m
 }
 
 export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
+  const mockJobOrders = await getJobOrdersStore();
   const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
+  
   if (jobIndex === -1) {
     return { success: false, message: `Commessa ${jobId} non trovata o già in produzione.` };
   }
 
   mockJobOrders[jobIndex].status = 'production';
   
-  // Define phases based on department, if they don't exist
   if (!mockJobOrders[jobIndex].phases || mockJobOrders[jobIndex].phases.length === 0) {
       mockJobOrders[jobIndex].phases = createDefaultPhases(mockJobOrders[jobIndex].department);
   }
-
+  
+  await saveJobOrdersStore(mockJobOrders);
   revalidatePath('/admin/data-management');
   revalidatePath('/admin/production-console');
   return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
@@ -245,6 +256,7 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
   let createdCount = 0;
   let failedCount = 0;
+  const mockJobOrders = await getJobOrdersStore();
 
   jobIds.forEach(jobId => {
     const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
@@ -260,6 +272,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   });
 
   if (createdCount > 0) {
+    await saveJobOrdersStore(mockJobOrders);
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
   }

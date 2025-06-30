@@ -3,7 +3,14 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { mockWorkPhaseTemplates, type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
+import { 
+  getWorkPhaseTemplatesStore, 
+  saveWorkPhaseTemplatesStore, 
+  getDepartmentMapStore,
+  type WorkPhaseTemplate, 
+  type Reparto, 
+  reparti 
+} from '@/lib/mock-data';
 
 // --- Schemas ---
 const workPhaseSchema = z.object({
@@ -18,9 +25,15 @@ const workPhaseSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  // Return a deep copy to avoid mutations affecting the store directly
-  return JSON.parse(JSON.stringify(mockWorkPhaseTemplates));
+  const templates = await getWorkPhaseTemplatesStore();
+  return JSON.parse(JSON.stringify(templates));
 }
+
+export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
+    const map = await getDepartmentMapStore();
+    return JSON.parse(JSON.stringify(map));
+}
+
 
 export async function saveWorkPhaseTemplate(formData: FormData) {
   const rawData = Object.fromEntries(formData.entries());
@@ -35,6 +48,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
   }
 
   const { id, name, description, departmentCode } = validatedFields.data;
+  const mockWorkPhaseTemplates = await getWorkPhaseTemplatesStore();
 
   if (id) {
     // Update existing phase
@@ -50,17 +64,20 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
     mockWorkPhaseTemplates.push(newPhase);
   }
 
+  await saveWorkPhaseTemplatesStore(mockWorkPhaseTemplates);
   revalidatePath('/admin/work-phase-management');
   return { success: true, message: `Fase di lavorazione salvata con successo.` };
 }
 
 export async function deleteWorkPhaseTemplate(id: string): Promise<{ success: boolean; message: string }> {
+  const mockWorkPhaseTemplates = await getWorkPhaseTemplatesStore();
   const index = mockWorkPhaseTemplates.findIndex((phase) => phase.id === id);
   if (index === -1) {
     return { success: false, message: 'Fase non trovata.' };
   }
 
   mockWorkPhaseTemplates.splice(index, 1);
+  await saveWorkPhaseTemplatesStore(mockWorkPhaseTemplates);
   revalidatePath('/admin/work-phase-management');
   return { success: true, message: 'Fase eliminata con successo.' };
 }

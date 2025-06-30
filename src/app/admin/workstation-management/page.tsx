@@ -7,8 +7,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type Workstation, type Reparto, reparti, departmentMap } from '@/lib/mock-data';
-import { getWorkstations, saveWorkstation, deleteWorkstation } from './actions';
+import { type Workstation, type Reparto, reparti } from '@/lib/mock-data';
+import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartmentMap } from './actions';
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -35,6 +35,7 @@ export default function AdminWorkstationManagementPage() {
   const [workstations, setWorkstations] = useState<Workstation[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingWorkstation, setEditingWorkstation] = useState<Workstation | null>(null);
+  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
 
   const form = useForm<WorkstationFormValues>({
@@ -49,6 +50,7 @@ export default function AdminWorkstationManagementPage() {
 
   useEffect(() => {
     fetchWorkstations();
+    getDepartmentMap().then(setDepartmentMap);
   }, []);
 
   const handleOpenDialog = (workstation: Workstation | null = null) => {
@@ -137,7 +139,7 @@ export default function AdminWorkstationManagementPage() {
                       workstations.map((ws) => (
                         <TableRow key={ws.id}>
                           <TableCell className="font-medium">{ws.name}</TableCell>
-                          <TableCell>{departmentMap[ws.departmentCode]}</TableCell>
+                          <TableCell>{departmentMap[ws.departmentCode] || ws.departmentCode}</TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(ws)}>
                               <Edit className="h-4 w-4" />
@@ -203,7 +205,7 @@ export default function AdminWorkstationManagementPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r]}</SelectItem>)}
+                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <FormMessage />

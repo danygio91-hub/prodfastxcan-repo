@@ -1,7 +1,7 @@
+
 'use server';
 
-import { mockJobOrders, mockOperators } from '@/lib/mock-data';
-import type { JobOrder, JobPhase, Operator, WorkPeriod } from '@/lib/mock-data';
+import { getJobOrdersStore, getOperatorsStore, type JobOrder, type JobPhase, type Operator, type WorkPeriod } from '@/lib/mock-data';
 import { differenceInMilliseconds, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
 // --- Helper Functions ---
@@ -17,6 +17,7 @@ function formatDuration(ms: number): string {
 
 function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   return periods.reduce((acc, period) => {
+    // Ensure dates are actual Date objects before calculation
     const end = period.end ? new Date(period.end) : new Date(); // Use now for active periods
     const start = new Date(period.start);
     return acc + differenceInMilliseconds(end, start);
@@ -27,8 +28,8 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 // --- Main Action Functions ---
 
 export async function getJobsReport() {
-    // Deep copy to avoid mutations
-    const jobs = JSON.parse(JSON.stringify(mockJobOrders)) as JobOrder[];
+    const jobs = await getJobOrdersStore();
+    const mockOperators = await getOperatorsStore();
 
     return jobs
         .filter(job => job.status === 'production' || job.status === 'completed')
@@ -64,8 +65,8 @@ export async function getJobsReport() {
 }
 
 export async function getOperatorsReport() {
-    const operators = JSON.parse(JSON.stringify(mockOperators)) as Operator[];
-    const jobs = JSON.parse(JSON.stringify(mockJobOrders)) as JobOrder[];
+    const operators = await getOperatorsStore();
+    const jobs = await getJobOrdersStore();
     const allWorkPeriods = jobs.flatMap(job => job.phases.flatMap(phase => phase.workPeriods));
 
     const now = new Date();
@@ -98,7 +99,9 @@ export async function getOperatorsReport() {
 }
 
 export async function getJobDetailReport(jobId: string) {
-    const job = mockJobOrders.find(j => j.id === jobId);
+    const jobs = await getJobOrdersStore();
+    const mockOperators = await getOperatorsStore();
+    const job = jobs.find(j => j.id === jobId);
     if (!job) return null;
     
     // Deep copy
