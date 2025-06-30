@@ -3,7 +3,7 @@
 
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
-import { collection, writeBatch, getDocs } from 'firebase/firestore';
+import { collection, writeBatch, getDocs, doc, getDoc } from 'firebase/firestore';
 
 export async function seedDatabase(): Promise<{ success: boolean; message: string; }> {
   const batch = writeBatch(db);
@@ -15,19 +15,18 @@ export async function seedDatabase(): Promise<{ success: boolean; message: strin
     const operatorsSnap = await getDocs(operatorsRef);
     if (operatorsSnap.empty) {
         initialOperators.forEach(op => {
-            const docRef = collection(db, "operators").doc(op.id);
+            const docRef = doc(db, "operators", op.id);
             batch.set(docRef, op);
             operationsCount++;
         });
     }
 
     // Seed Department Map
-    const configRef = collection(db, "configuration");
-    const departmentMapDoc = configRef.doc("departmentMap");
-    const departmentMapSnap = await departmentMapDoc.get();
+    const departmentMapDocRef = doc(db, "configuration", "departmentMap");
+    const departmentMapSnap = await getDoc(departmentMapDocRef);
 
     if (!departmentMapSnap.exists()) {
-        batch.set(departmentMapDoc, initialDepartmentMap);
+        batch.set(departmentMapDocRef, initialDepartmentMap);
         operationsCount++;
     }
 
@@ -36,7 +35,7 @@ export async function seedDatabase(): Promise<{ success: boolean; message: strin
     const phasesSnap = await getDocs(phasesRef);
     if (phasesSnap.empty) {
         initialWorkPhaseTemplates.forEach(phase => {
-            const docRef = collection(db, "workPhaseTemplates").doc(phase.id);
+            const docRef = doc(db, "workPhaseTemplates", phase.id);
             batch.set(docRef, phase);
             operationsCount++;
         });
@@ -47,7 +46,7 @@ export async function seedDatabase(): Promise<{ success: boolean; message: strin
     const workstationsSnap = await getDocs(workstationsRef);
     if (workstationsSnap.empty) {
         initialWorkstations.forEach(ws => {
-            const docRef = collection(db, "workstations").doc(ws.id);
+            const docRef = doc(db, "workstations", ws.id);
             batch.set(docRef, ws);
             operationsCount++;
         });
