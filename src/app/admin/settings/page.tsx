@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useTransition } from 'react';
@@ -66,7 +67,7 @@ export default function AdminCompanySettingsPage() {
           </header>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <Link href="/admin/operator-management">
+            <Link href="/admin/operator-management" className="block h-full">
                 <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
                     <CardHeader>
                         <CardTitle className="flex items-center justify-between">
@@ -119,29 +120,43 @@ export default function AdminCompanySettingsPage() {
               </Card>
             </form>
 
-             <Card className="opacity-50 cursor-not-allowed">
+            <Link href="/admin/work-phase-management" className="block h-full">
+             <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-3">
-                        <Workflow className="h-7 w-7 text-primary" />
-                        <span>Gestione Fasi di Lavorazione</span>
+                    <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <Workflow className="h-7 w-7 text-primary" />
+                            <span>Gestione Fasi di Lavorazione</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                            <ArrowRight className="h-5 w-5" />
+                        </Button>
                     </CardTitle>
                     <CardDescription>
-                        Definisci le fasi standard per ogni reparto. (Prossimamente)
+                        Definisci le fasi standard per ogni reparto.
                     </CardDescription>
                 </CardHeader>
             </Card>
+            </Link>
 
-            <Card className="opacity-50 cursor-not-allowed">
+            <Link href="/admin/workstation-management" className="block h-full">
+            <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-3">
-                        <Computer className="h-7 w-7 text-primary" />
-                        <span>Gestione Postazioni di Lavoro</span>
+                    <CardTitle className="flex items-center justify-between">
+                         <div className="flex items-center gap-3">
+                            <Computer className="h-7 w-7 text-primary" />
+                            <span>Gestione Postazioni di Lavoro</span>
+                        </div>
+                        <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                            <ArrowRight className="h-5 w-5" />
+                        </Button>
                     </CardTitle>
                     <CardDescription>
-                       Configura e assegna le postazioni di lavoro. (Prossimamente)
+                       Configura e assegna le postazioni di lavoro e i macchinari.
                     </CardDescription>
                 </CardHeader>
             </Card>
+            </Link>
           </div>
         </div>
       </AppShell>

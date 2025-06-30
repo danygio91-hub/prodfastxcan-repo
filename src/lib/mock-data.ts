@@ -1,3 +1,4 @@
+
 // src/lib/mock-data.ts
 
 // Definizioni delle interfacce trasferite da scan-job/page.tsx
@@ -54,6 +55,19 @@ export interface Operator {
   privacySigned?: boolean;
 }
 
+export interface WorkPhaseTemplate {
+  id: string;
+  name: string;
+  description: string;
+  departmentCode: Reparto;
+}
+
+export interface Workstation {
+    id: string;
+    name: string;
+    departmentCode: Reparto;
+}
+
 
 // This is a simple in-memory store that mimics a database.
 // It's designed to persist across hot reloads in development.
@@ -61,6 +75,8 @@ type GlobalWithMockData = typeof globalThis & {
   _jobOrders?: JobOrder[];
   _operators?: Operator[];
   _departmentMap?: { [key in Reparto]: string };
+  _workPhaseTemplates?: WorkPhaseTemplate[];
+  _workstations?: Workstation[];
 };
 
 // Use a global variable to store the data, so it's not lost on hot reload
@@ -86,9 +102,28 @@ if (!a._departmentMap) {
     Officina: 'Officina',
   };
 }
+if (!a._workPhaseTemplates) {
+  a._workPhaseTemplates = [
+    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCode: 'CP' },
+    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCode: 'CP' },
+    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCode: 'CP' },
+    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCode: 'CG' },
+    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCode: 'CG' },
+  ];
+}
+if (!a._workstations) {
+    a._workstations = [
+        { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },
+        { id: 'ws-2', name: 'Stazione Saldatura A', departmentCode: 'CP' },
+        { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
+        { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
+    ];
+}
 
 
 // Mock data per le commesse.
 export const mockJobOrders: JobOrder[] = a._jobOrders;
 export const mockOperators: Operator[] = a._operators;
 export const departmentMap: { [key in Reparto]: string } = a._departmentMap;
+export const mockWorkPhaseTemplates: WorkPhaseTemplate[] = a._workPhaseTemplates;
+export const mockWorkstations: Workstation[] = a._workstations;
