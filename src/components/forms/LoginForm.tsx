@@ -232,7 +232,7 @@ export default function LoginForm() {
                              <span className="text-sm text-muted-foreground">Tocca il sensore</span>
                          </CardContent>
                          <CardFooter>
-                            <Button variant="link" className="w-full" onClick={() => setStep('initial')}>Accedi con password</Button>
+                            <Button variant="link" className="w-full" onClick={() => setStep('initial')}>Accedi con un'altra modalità</Button>
                          </CardFooter>
                      </motion.div>
                 );
