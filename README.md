@@ -1,5 +1,5 @@
 
-# ProdFast Tracker
+# ProdFast Xcan
 
 Questo è uno starter NextJS in Firebase Studio.
 

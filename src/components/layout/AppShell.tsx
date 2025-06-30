@@ -17,7 +17,7 @@ export default function AppShell({ children }: AppShellProps) {
         {children}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t border-border">
-        © {new Date().getFullYear()} ProdFast Tracker. Tutti i diritti riservati.
+        © {new Date().getFullYear()} ProdFast Xcan. Tutti i diritti riservati.
       </footer>
       <ThemeToggler />
     </div>

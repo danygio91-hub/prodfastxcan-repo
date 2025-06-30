@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from '@/components/layout/ThemeProvider';
 
 export const metadata: Metadata = {
-  title: 'ProdFast Tracker',
+  title: 'ProdFast Xcan',
   description: 'Applicazione per il Tracciamento dei Tempi di Produzione',
 };
 
