@@ -3,7 +3,9 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { getOperatorsStore, saveOperatorsStore, type Operator } from '@/lib/mock-data';
+import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { Operator } from '@/lib/mock-data';
 
 // --- Schemas ---
 const operatorFormSchema = z.object({
@@ -21,9 +23,10 @@ const operatorFormSchema = z.object({
 // --- Actions ---
 
 export async function getOperators(): Promise<Operator[]> {
-  const operators = await getOperatorsStore();
-  // Return a deep copy to avoid mutations affecting the store directly
-  return JSON.parse(JSON.stringify(operators));
+  const operatorsCol = collection(db, 'operators');
+  const operatorSnapshot = await getDocs(operatorsCol);
+  const operatorList = operatorSnapshot.docs.map(doc => doc.data() as Operator);
+  return operatorList;
 }
 
 export async function saveOperator(formData: FormData) {
@@ -45,21 +48,17 @@ export async function saveOperator(formData: FormData) {
   }
 
   const { id, nome, cognome, reparto, role } = validatedFields.data;
-  const mockOperators = await getOperatorsStore();
-
+  
   if (id) {
     // Update existing operator
-    const index = mockOperators.findIndex((op) => op.id === id);
-    if (index === -1) {
-      return { success: false, message: 'Operatore non trovato.' };
-    }
-    mockOperators[index] = { ...mockOperators[index], nome, cognome, reparto, role };
-    await saveOperatorsStore(mockOperators);
+    const operatorRef = doc(db, "operators", id);
+    await setDoc(operatorRef, { nome, cognome, reparto, role }, { merge: true });
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
     // Add new operator
     const newId = `op-${Date.now()}`;
+    const operatorRef = doc(db, "operators", newId);
     const newOperator: Operator = {
       id: newId,
       nome,
@@ -70,22 +69,19 @@ export async function saveOperator(formData: FormData) {
       password: '1234', // Default password for new operators
       privacySigned: false, // Default privacy status
     };
-    mockOperators.push(newOperator);
-    await saveOperatorsStore(mockOperators);
+    await setDoc(operatorRef, newOperator);
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiunto con successo.' };
   }
 }
 
 export async function deleteOperator(id: string): Promise<{ success: boolean; message: string }> {
-  const mockOperators = await getOperatorsStore();
-  const index = mockOperators.findIndex((op) => op.id === id);
-  if (index === -1) {
-    return { success: false, message: 'Operatore non trovato.' };
+  try {
+    await deleteDoc(doc(db, "operators", id));
+    revalidatePath('/admin/operator-management');
+    return { success: true, message: 'Operatore eliminato con successo.' };
+  } catch (error) {
+    console.error("Error deleting operator:", error);
+    return { success: false, message: 'Errore durante l\'eliminazione dell\'operatore.' };
   }
-
-  mockOperators.splice(index, 1);
-  await saveOperatorsStore(mockOperators);
-  revalidatePath('/admin/operator-management');
-  return { success: true, message: 'Operatore eliminato con successo.' };
 }

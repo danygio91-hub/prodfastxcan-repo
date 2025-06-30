@@ -2,8 +2,32 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getJobOrdersStore, saveJobOrdersStore, type JobOrder, type JobPhase } from '@/lib/mock-data';
+import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
+
+// Helper function to convert Firestore Timestamps to Dates in nested objects
+function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
+    }
+
+    if (obj.toDate && typeof obj.toDate === 'function') {
+        return obj.toDate();
+    }
+    
+    if (Array.isArray(obj)) {
+        return obj.map(item => convertTimestampsToDates(item));
+    }
+
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+        newObj[key] = convertTimestampsToDates(obj[key]);
+    }
+    return newObj;
+}
+
 
 const createDefaultPhases = (department: string): JobPhase[] => {
   if (department === 'Assemblaggio Componenti Elettronici') {
@@ -25,13 +49,19 @@ const createDefaultPhases = (department: string): JobPhase[] => {
 };
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  const mockJobOrders = await getJobOrdersStore();
-  return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'planned')));
+  const jobsRef = collection(db, "jobOrders");
+  const q = query(jobsRef, where("status", "==", "planned"));
+  const querySnapshot = await getDocs(q);
+  const jobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+  return jobs;
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-  const mockJobOrders = await getJobOrdersStore();
-  return JSON.parse(JSON.stringify(mockJobOrders.filter(job => job.status === 'production')));
+    const jobsRef = collection(db, "jobOrders");
+    const q = query(jobsRef, where("status", "==", "production"));
+    const querySnapshot = await getDocs(q);
+    const jobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    return jobs;
 }
 
 const jobOrderFormSchema = z.object({
@@ -52,16 +82,17 @@ export async function addJobOrder(formData: FormData) {
       return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
     
-    const mockJobOrders = await getJobOrdersStore();
+    const jobId = validatedFields.data.ordinePF;
+    const jobRef = doc(db, "jobOrders", jobId);
+    const docSnap = await getDoc(jobRef);
 
-    const existingJob = mockJobOrders.find(job => job.ordinePF === validatedFields.data.ordinePF);
-    if (existingJob) {
-      return { success: false, message: `La commessa con ID ${validatedFields.data.ordinePF} esiste già.` };
+    if (docSnap.exists()) {
+      return { success: false, message: `La commessa con ID ${jobId} esiste già.` };
     }
 
     const newJobOrder: JobOrder = {
       ...validatedFields.data,
-      id: validatedFields.data.ordinePF,
+      id: jobId,
       status: 'planned',
       postazioneLavoro: "Da Assegnare",
       phases: createDefaultPhases(validatedFields.data.department),
@@ -69,8 +100,7 @@ export async function addJobOrder(formData: FormData) {
       dataConsegnaFinale: validatedFields.data.dataConsegnaFinale || '',
     };
 
-    mockJobOrders.push(newJobOrder);
-    await saveJobOrdersStore(mockJobOrders);
+    await setDoc(jobRef, newJobOrder);
     revalidatePath('/admin/data-management');
     return {
       success: true,
@@ -88,8 +118,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
     let skippedCount = 0;
-    
-    const mockJobOrders = await getJobOrdersStore();
 
     const importSchema = z.object({
       cliente: z.coerce.string().optional(),
@@ -103,16 +131,17 @@ export async function processAndValidateImport(data: any[]): Promise<{
 
     for (const row of data) {
         const validated = importSchema.safeParse(row);
-
         if (!validated.success) {
             skippedCount++;
             continue;
         }
-
+        
         const { data: validData } = validated;
-        const existingJob = mockJobOrders.find(j => j.id === validData.ordinePF);
+        const jobRef = doc(db, "jobOrders", validData.ordinePF);
+        const docSnap = await getDoc(jobRef);
 
-        if (existingJob) {
+        if (docSnap.exists()) {
+            const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
             const updatedJob: JobOrder = {
                 ...existingJob,
                 ...validData,
@@ -129,7 +158,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 skippedCount++;
                 continue; 
             }
-
             const department = validData.department || "Reparto Generico";
             const newJob: JobOrder = {
                 id: validData.ordinePF,
@@ -164,27 +192,22 @@ export async function processAndValidateImport(data: any[]): Promise<{
 
 
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
-    let newCount = 0;
-    let updatedCount = 0;
-    const mockJobOrders = await getJobOrdersStore();
+    const batch = writeBatch(db);
+    let newCount = data.newJobs.length;
+    let updatedCount = data.jobsToUpdate.length;
 
     data.newJobs.forEach(job => {
-        if (!mockJobOrders.some(j => j.id === job.id)) {
-            mockJobOrders.push(job);
-            newCount++;
-        }
+        const docRef = doc(db, "jobOrders", job.id);
+        batch.set(docRef, job);
     });
 
     data.jobsToUpdate.forEach(job => {
-        const index = mockJobOrders.findIndex(j => j.id === job.id);
-        if (index !== -1) {
-            mockJobOrders[index] = job;
-            updatedCount++;
-        }
+        const docRef = doc(db, "jobOrders", job.id);
+        batch.set(docRef, job, { merge: true }); // Use merge to update existing documents
     });
     
     if(newCount > 0 || updatedCount > 0) {
-        await saveJobOrdersStore(mockJobOrders);
+        await batch.commit();
     }
 
     revalidatePath('/admin/data-management');
@@ -196,58 +219,57 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
 
 export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
-  let deletedCount = 0;
-  const mockJobOrders = await getJobOrdersStore();
-  const remainingJobs = mockJobOrders.filter(job => {
-    if (ids.includes(job.id)) {
-      deletedCount++;
-      return false;
-    }
-    return true;
+  if (ids.length === 0) {
+    return { success: false, message: 'Nessun ID fornito.' };
+  }
+  const batch = writeBatch(db);
+  ids.forEach(id => {
+    const docRef = doc(db, "jobOrders", id);
+    batch.delete(docRef);
   });
 
-  if (deletedCount > 0) {
-    await saveJobOrdersStore(remainingJobs);
-    revalidatePath('/admin/data-management');
-    return { success: true, message: `${deletedCount} commesse eliminate con successo.` };
-  }
-  return { success: false, message: 'Nessuna commessa trovata con gli ID forniti.' };
+  await batch.commit();
+  revalidatePath('/admin/data-management');
+  return { success: true, message: `${ids.length} commesse eliminate con successo.` };
 }
 
 export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
-    const mockJobOrders = await getJobOrdersStore();
+    const jobsRef = collection(db, "jobOrders");
+    const q = query(jobsRef, where("status", "==", "planned"));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+        return { success: false, message: 'Nessuna commessa pianificata da eliminare.' };
+    }
+
+    const batch = writeBatch(db);
     let deletedCount = 0;
-    const remainingJobs = mockJobOrders.filter(job => {
-        if (job.status === 'planned') {
-            deletedCount++;
-            return false;
-        }
-        return true;
+    querySnapshot.docs.forEach(docSnap => {
+        batch.delete(docSnap.ref);
+        deletedCount++;
     });
 
-    if (deletedCount > 0) {
-        await saveJobOrdersStore(remainingJobs);
-        revalidatePath('/admin/data-management');
-        return { success: true, message: `Tutte le ${deletedCount} commesse pianificate sono state eliminate.` };
-    }
-    return { success: false, message: `Nessuna commessa pianificata da eliminare.`};
+    await batch.commit();
+    revalidatePath('/admin/data-management');
+    return { success: true, message: `Tutte le ${deletedCount} commesse pianificate sono state eliminate.` };
 }
 
 export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
-  const mockJobOrders = await getJobOrdersStore();
-  const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
+  const jobRef = doc(db, "jobOrders", jobId);
+  const docSnap = await getDoc(jobRef);
   
-  if (jobIndex === -1) {
+  if (!docSnap.exists() || docSnap.data().status !== 'planned') {
     return { success: false, message: `Commessa ${jobId} non trovata o già in produzione.` };
   }
 
-  mockJobOrders[jobIndex].status = 'production';
-  
-  if (!mockJobOrders[jobIndex].phases || mockJobOrders[jobIndex].phases.length === 0) {
-      mockJobOrders[jobIndex].phases = createDefaultPhases(mockJobOrders[jobIndex].department);
+  const jobData = docSnap.data() as JobOrder;
+  if (!jobData.phases || jobData.phases.length === 0) {
+      jobData.phases = createDefaultPhases(jobData.department);
   }
+  jobData.status = 'production';
+
+  await setDoc(jobRef, jobData, { merge: true });
   
-  await saveJobOrdersStore(mockJobOrders);
   revalidatePath('/admin/data-management');
   revalidatePath('/admin/production-console');
   return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
@@ -256,23 +278,28 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
   let createdCount = 0;
   let failedCount = 0;
-  const mockJobOrders = await getJobOrdersStore();
 
-  jobIds.forEach(jobId => {
-    const jobIndex = mockJobOrders.findIndex(job => job.id === jobId && job.status === 'planned');
-    if (jobIndex !== -1) {
-      mockJobOrders[jobIndex].status = 'production';
-      if (!mockJobOrders[jobIndex].phases || mockJobOrders[jobIndex].phases.length === 0) {
-        mockJobOrders[jobIndex].phases = createDefaultPhases(mockJobOrders[jobIndex].department);
-      }
-      createdCount++;
+  const batch = writeBatch(db);
+
+  for (const jobId of jobIds) {
+    const jobRef = doc(db, "jobOrders", jobId);
+    const docSnap = await getDoc(jobRef);
+
+    if (docSnap.exists() && docSnap.data().status === 'planned') {
+        const jobData = docSnap.data() as JobOrder;
+        let phases = jobData.phases;
+        if (!phases || phases.length === 0) {
+            phases = createDefaultPhases(jobData.department);
+        }
+        batch.update(jobRef, { status: 'production', phases: phases });
+        createdCount++;
     } else {
-      failedCount++;
+        failedCount++;
     }
-  });
+  }
 
   if (createdCount > 0) {
-    await saveJobOrdersStore(mockJobOrders);
+    await batch.commit();
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
   }

@@ -3,13 +3,13 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { 
-  getWorkPhaseTemplatesStore, 
-  saveWorkPhaseTemplatesStore, 
-  getDepartmentMapStore,
   type WorkPhaseTemplate, 
   type Reparto, 
-  reparti 
+  reparti,
+  initialDepartmentMap
 } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -25,13 +25,22 @@ const workPhaseSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  const templates = await getWorkPhaseTemplatesStore();
-  return JSON.parse(JSON.stringify(templates));
+  const templatesCol = collection(db, 'workPhaseTemplates');
+  const snapshot = await getDocs(templatesCol);
+  const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
+  return list;
 }
 
 export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
-    const map = await getDepartmentMapStore();
-    return JSON.parse(JSON.stringify(map));
+  const docRef = doc(db, "configuration", "departmentMap");
+  const docSnap = await getDoc(docRef);
+
+  if (docSnap.exists()) {
+    return docSnap.data() as { [key in Reparto]: string };
+  } else {
+    // Return initial map if not found in DB
+    return initialDepartmentMap;
+  }
 }
 
 
@@ -48,36 +57,29 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
   }
 
   const { id, name, description, departmentCode } = validatedFields.data;
-  const mockWorkPhaseTemplates = await getWorkPhaseTemplatesStore();
-
+  
   if (id) {
     // Update existing phase
-    const index = mockWorkPhaseTemplates.findIndex((phase) => phase.id === id);
-    if (index === -1) {
-      return { success: false, message: 'Fase non trovata.' };
-    }
-    mockWorkPhaseTemplates[index] = { id, name, description, departmentCode };
+    const phaseRef = doc(db, "workPhaseTemplates", id);
+    await setDoc(phaseRef, { name, description, departmentCode }, { merge: true });
   } else {
     // Add new phase
     const newId = `phase-tpl-${Date.now()}`;
+    const phaseRef = doc(db, "workPhaseTemplates", newId);
     const newPhase: WorkPhaseTemplate = { id: newId, name, description, departmentCode };
-    mockWorkPhaseTemplates.push(newPhase);
+    await setDoc(phaseRef, newPhase);
   }
 
-  await saveWorkPhaseTemplatesStore(mockWorkPhaseTemplates);
   revalidatePath('/admin/work-phase-management');
   return { success: true, message: `Fase di lavorazione salvata con successo.` };
 }
 
 export async function deleteWorkPhaseTemplate(id: string): Promise<{ success: boolean; message: string }> {
-  const mockWorkPhaseTemplates = await getWorkPhaseTemplatesStore();
-  const index = mockWorkPhaseTemplates.findIndex((phase) => phase.id === id);
-  if (index === -1) {
-    return { success: false, message: 'Fase non trovata.' };
+  try {
+    await deleteDoc(doc(db, "workPhaseTemplates", id));
+    revalidatePath('/admin/work-phase-management');
+    return { success: true, message: 'Fase eliminata con successo.' };
+  } catch(error) {
+     return { success: false, message: 'Errore durante l\'eliminazione.' };
   }
-
-  mockWorkPhaseTemplates.splice(index, 1);
-  await saveWorkPhaseTemplatesStore(mockWorkPhaseTemplates);
-  revalidatePath('/admin/work-phase-management');
-  return { success: true, message: 'Fase eliminata con successo.' };
 }

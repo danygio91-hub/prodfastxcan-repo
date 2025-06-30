@@ -2,24 +2,29 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { getOperatorsStore, saveOperatorsStore } from '@/lib/mock-data';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export async function signPrivacyPolicy(operatorId: string): Promise<{ success: boolean; message: string }> {
-  const mockOperators = await getOperatorsStore();
-  const operatorIndex = mockOperators.findIndex(op => op.id === operatorId);
+  const operatorRef = doc(db, "operators", operatorId);
 
-  if (operatorIndex === -1) {
-    return { success: false, message: 'Operatore non trovato.' };
+  try {
+    const docSnap = await getDoc(operatorRef);
+    if (!docSnap.exists()) {
+      return { success: false, message: 'Operatore non trovato.' };
+    }
+
+    await updateDoc(operatorRef, {
+      privacySigned: true
+    });
+
+    // Revalidate paths to show updated data
+    revalidatePath('/admin/operator-management');
+    revalidatePath('/operator-data');
+    
+    return { success: true, message: 'Informativa sulla privacy firmata con successo.' };
+  } catch (error) {
+    console.error("Error signing privacy policy:", error);
+    return { success: false, message: 'Errore durante la firma dell\'informativa.' };
   }
-
-  mockOperators[operatorIndex].privacySigned = true;
-
-  await saveOperatorsStore(mockOperators);
-
-  // Revalidate the path for the admin dashboard to see the change
-  revalidatePath('/admin/operator-management');
-  // Revalidate the operator data page itself to ensure consistency
-  revalidatePath('/operator-data');
-
-  return { success: true, message: 'Informativa sulla privacy firmata con successo.' };
 }

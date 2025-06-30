@@ -3,13 +3,13 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, query, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { 
-    getWorkstationsStore, 
-    saveWorkstationsStore, 
-    getDepartmentMapStore,
     type Workstation, 
     type Reparto, 
-    reparti 
+    reparti,
+    initialDepartmentMap 
 } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -24,13 +24,19 @@ const workstationSchema = z.object({
 // --- Actions ---
 
 export async function getWorkstations(): Promise<Workstation[]> {
-  const workstations = await getWorkstationsStore();
-  return JSON.parse(JSON.stringify(workstations));
+  const workstationsCol = collection(db, 'workstations');
+  const snapshot = await getDocs(workstationsCol);
+  const list = snapshot.docs.map(doc => doc.data() as Workstation);
+  return list;
 }
 
 export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
-    const map = await getDepartmentMapStore();
-    return JSON.parse(JSON.stringify(map));
+    const docRef = doc(db, "configuration", "departmentMap");
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as { [key in Reparto]: string };
+    }
+    return initialDepartmentMap;
 }
 
 export async function saveWorkstation(formData: FormData) {
@@ -46,39 +52,35 @@ export async function saveWorkstation(formData: FormData) {
   }
 
   const { id, name, departmentCode } = validatedFields.data;
-  const mockWorkstations = await getWorkstationsStore();
 
   if (id) {
     // Update
-    const index = mockWorkstations.findIndex((ws) => ws.id === id);
-    if (index === -1) {
-      return { success: false, message: 'Postazione non trovata.' };
-    }
-    mockWorkstations[index] = { id, name, departmentCode };
+    const wsRef = doc(db, "workstations", id);
+    await setDoc(wsRef, { name, departmentCode }, { merge: true });
   } else {
-    // Add new
-    if (mockWorkstations.some(ws => ws.name.toLowerCase() === name.toLowerCase())) {
+    // Add new - check for uniqueness
+    const q = query(collection(db, "workstations"), where("name", "==", name));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
         return { success: false, message: `Una postazione con nome "${name}" esiste già.` };
     }
+
     const newId = `ws-${Date.now()}`;
+    const wsRef = doc(db, "workstations", newId);
     const newWorkstation: Workstation = { id: newId, name, departmentCode };
-    mockWorkstations.push(newWorkstation);
+    await setDoc(wsRef, newWorkstation);
   }
 
-  await saveWorkstationsStore(mockWorkstations);
   revalidatePath('/admin/workstation-management');
   return { success: true, message: `Postazione salvata con successo.` };
 }
 
 export async function deleteWorkstation(id: string): Promise<{ success: boolean; message: string }> {
-  const mockWorkstations = await getWorkstationsStore();
-  const index = mockWorkstations.findIndex((ws) => ws.id === id);
-  if (index === -1) {
-    return { success: false, message: 'Postazione non trovata.' };
-  }
-
-  mockWorkstations.splice(index, 1);
-  await saveWorkstationsStore(mockWorkstations);
-  revalidatePath('/admin/workstation-management');
-  return { success: true, message: 'Postazione eliminata con successo.' };
+    try {
+        await deleteDoc(doc(db, "workstations", id));
+        revalidatePath('/admin/workstation-management');
+        return { success: true, message: 'Postazione eliminata con successo.' };
+    } catch(e) {
+        return { success: false, message: 'Errore durante l\'eliminazione.' };
+    }
 }

@@ -2,51 +2,46 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { 
-  getJobOrdersStore, 
-  saveJobOrdersStore, 
-  getOperatorsStore, 
-  getDepartmentMapStore,
-  type JobOrder, 
-  type Operator, 
-} from '@/lib/mock-data';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
+import { getDepartmentMap } from '@/app/admin/settings/actions';
 
-/**
- * Finds a job order in the mock database and returns a deep copy.
- * @param jobId The ID of the job to find.
- * @returns An object containing the job and its index, or null if not found.
- */
-const findJob = async (jobId: string) => {
-    const mockJobOrders = await getJobOrdersStore();
-    const jobIndex = mockJobOrders.findIndex(j => j.id === jobId);
-    if (jobIndex === -1) {
-        return { job: null, jobIndex: -1 };
+// Helper function to convert Firestore Timestamps to Dates in nested objects
+function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
     }
-    // Return a deep copy to avoid direct mutation of the found object before it's intentionally replaced
-    return { job: JSON.parse(JSON.stringify(mockJobOrders[jobIndex])), jobIndex, allJobs: mockJobOrders };
-};
 
-/**
- * Retrieves a single job order by its ID.
- * @param id The ID of the job order.
- * @returns A deep copy of the job order or null if not found.
- */
-export async function getJobOrderById(id: string): Promise<JobOrder | null> {
-    const mockJobOrders = await getJobOrdersStore();
-    const job = mockJobOrders.find(j => j.id === id);
-    if (!job) return null;
-    return JSON.parse(JSON.stringify(job));
+    if (obj.toDate && typeof obj.toDate === 'function') {
+        return obj.toDate();
+    }
+    
+    if (Array.isArray(obj)) {
+        return obj.map(item => convertTimestampsToDates(item));
+    }
+
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+        newObj[key] = convertTimestampsToDates(obj[key]);
+    }
+    return newObj;
 }
 
-/**
- * Simulates scanning for a job available for a specific department.
- * @param operator The operator who is scanning.
- * @returns A job order or an error object.
- */
+
+export async function getJobOrderById(id: string): Promise<JobOrder | null> {
+    const jobRef = doc(db, "jobOrders", id);
+    const docSnap = await getDoc(jobRef);
+    if (!docSnap.exists()) return null;
+    return convertTimestampsToDates(docSnap.data()) as JobOrder;
+}
+
+
 export async function getScannableJob(operator: Operator): Promise<JobOrder | { error: string, title?: string }> {
-    const mockJobOrders = await getJobOrdersStore();
-    const departmentMap = await getDepartmentMapStore();
-    const availableJobs = mockJobOrders.filter(job => job.status === 'production');
+    const jobsRef = collection(db, "jobOrders");
+    const q = query(jobsRef, where("status", "==", "production"));
+    const querySnapshot = await getDocs(q);
+    const availableJobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     if (availableJobs.length === 0) {
         return { 
@@ -56,12 +51,11 @@ export async function getScannableJob(operator: Operator): Promise<JobOrder | { 
     }
     
     let suitableJobs: JobOrder[] = [];
+    const departmentMap = await getDepartmentMap();
 
-    // Superadvisor and Admin can work on any department's jobs
     if (operator.role === 'superadvisor' || operator.role === 'admin') {
         suitableJobs = availableJobs;
     } else {
-        // Regular operators are restricted to their department
         const operatorDepartmentName = departmentMap[operator.reparto];
         suitableJobs = availableJobs.filter(job => job.department === operatorDepartmentName);
     }
@@ -77,10 +71,15 @@ export async function getScannableJob(operator: Operator): Promise<JobOrder | { 
 
     const randomJobIndex = Math.floor(Math.random() * suitableJobs.length);
     const job = suitableJobs[randomJobIndex];
+    if (!job) {
+         return { 
+           error: `Errore inaspettato durante la selezione di una commessa casuale.`,
+           title: "Errore"
+        };
+    }
     
-    // Return a clean copy of the job order, ensuring nested arrays and flags are initialized
     const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
-     jobCopy.phases = jobCopy.phases.map(p => ({
+     jobCopy.phases = (jobCopy.phases || []).map(p => ({
       ...p,
       workPeriods: p.workPeriods || [], 
       workstationScannedAndVerified: p.workstationScannedAndVerified || false,
@@ -90,34 +89,28 @@ export async function getScannableJob(operator: Operator): Promise<JobOrder | { 
     return jobCopy;
 }
 
-/**
- * Updates an entire job order in the mock database with the provided data.
- * @param jobData The full, updated job order object.
- * @returns A success or failure message.
- */
 export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; message: string; }> {
-    const { jobIndex, allJobs } = await findJob(jobData.id);
+    const jobRef = doc(db, "jobOrders", jobData.id);
 
-    if (jobIndex === -1) {
-        return { success: false, message: 'Commessa non trovata. Impossibile aggiornare.' };
+    try {
+        const allPhasesCompleted = (jobData.phases || []).every(p => p.status === 'completed');
+        if (allPhasesCompleted && jobData.overallEndTime) {
+            jobData.status = 'completed';
+        }
+
+        // Convert Date objects back to Firestore Timestamps before writing
+        const dataToSave = JSON.parse(JSON.stringify(jobData));
+
+        await setDoc(jobRef, dataToSave, { merge: true });
+        
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/reports');
+        revalidatePath(`/admin/reports/${jobData.id}`);
+
+        return { success: true, message: `Commessa ${jobData.id} aggiornata con successo.` };
+    } catch (error) {
+        console.error("Error updating job:", error);
+        return { success: false, message: 'Commessa non trovata o errore durante l\'aggiornamento.' };
     }
-    
-    // If all phases are completed and there is an overallEndTime, the job is completed.
-    const allPhasesCompleted = jobData.phases.every(p => p.status === 'completed');
-    if(allPhasesCompleted && jobData.overallEndTime){
-        jobData.status = 'completed';
-    }
-
-
-    // Replace the old job order object with the new, updated one
-    allJobs[jobIndex] = jobData;
-    await saveJobOrdersStore(allJobs);
-    
-    // Revalidate paths to ensure both operator and admin dashboards update
-    revalidatePath('/scan-job');
-    revalidatePath('/admin/production-console');
-    revalidatePath('/admin/reports');
-    revalidatePath(`/admin/reports/${jobData.id}`);
-
-    return { success: true, message: `Commessa ${jobData.id} aggiornata con successo.` };
 }
