@@ -38,6 +38,7 @@ const operatorFormSchema = z.object({
 type OperatorFormValues = z.infer<typeof operatorFormSchema>;
 
 const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'];
+const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG'];
 const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 
 const StatusBadge = ({ status }: { status: StatoOperatore }) => (
@@ -66,7 +67,7 @@ export default function AdminOperatorManagementPage() {
       id: undefined,
       nome: "",
       cognome: "",
-      reparto: 'N/D',
+      reparto: 'CP',
       role: 'operator',
     },
   });
@@ -95,7 +96,7 @@ export default function AdminOperatorManagementPage() {
     if (operator) {
       form.reset(operator);
     } else {
-      form.reset({ id: undefined, nome: "", cognome: "", reparto: 'N/D', role: 'operator' });
+      form.reset({ id: undefined, nome: "", cognome: "", reparto: 'CP', role: 'operator' });
     }
     setIsDialogOpen(true);
   };
@@ -294,7 +295,7 @@ export default function AdminOperatorManagementPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {reparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                          {(watchedRole === 'operator' ? operatorReparti : reparti).map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                         </SelectContent>
                       </Select>
                       <FormMessage />
