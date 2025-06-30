@@ -4,6 +4,7 @@
 export interface WorkPeriod {
   start: Date;
   end: Date | null;
+  operatorId: string;
 }
 
 export interface JobPhase {
@@ -30,7 +31,7 @@ export interface JobOrder {
   overallStartTime?: Date | null;
   overallEndTime?: Date | null;
   isProblemReported?: boolean;
-  status: 'planned' | 'production';
+  status: 'planned' | 'production' | 'completed';
 }
 
 // Nuova interfaccia per l'operatore

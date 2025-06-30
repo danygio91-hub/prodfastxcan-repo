@@ -89,6 +89,13 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     if (jobIndex === -1) {
         return { success: false, message: 'Commessa non trovata. Impossibile aggiornare.' };
     }
+    
+    // If all phases are completed and there is an overallEndTime, the job is completed.
+    const allPhasesCompleted = jobData.phases.every(p => p.status === 'completed');
+    if(allPhasesCompleted && jobData.overallEndTime){
+        jobData.status = 'completed';
+    }
+
 
     // Replace the old job order object with the new, updated one
     mockJobOrders[jobIndex] = jobData;
@@ -96,6 +103,8 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     // Revalidate paths to ensure both operator and admin dashboards update
     revalidatePath('/scan-job');
     revalidatePath('/admin/production-console');
+    revalidatePath('/admin/reports');
+    revalidatePath(`/admin/reports/${jobData.id}`);
 
     return { success: true, message: `Commessa ${jobData.id} aggiornata con successo.` };
 }

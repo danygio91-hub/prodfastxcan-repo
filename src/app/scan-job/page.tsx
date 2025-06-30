@@ -25,7 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
 import { getScannableJob, updateJob } from './actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
@@ -58,6 +58,7 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 
 export default function ScanJobPage() {
   const { toast } = useToast();
+  const [operator, setOperator] = useState<Operator | null>(null);
   const [isScanningJob, setIsScanningJob] = React.useState(false);
   const [jobScanSuccess, setJobScanSuccess] = React.useState(false);
   const [scannedJobOrder, setScannedJobOrder] = React.useState<JobOrder | null>(null);
@@ -76,6 +77,10 @@ export default function ScanJobPage() {
   const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
+  
+  useEffect(() => {
+      setOperator(getOperator());
+  }, []);
 
   const persistJobUpdate = useCallback(async (updatedJob: JobOrder | null) => {
     if (!updatedJob) return;
@@ -116,7 +121,6 @@ export default function ScanJobPage() {
     resetProcessingState();
     setIsScanningJob(true);
 
-    const operator = getOperator();
     if (!operator) {
         toast({
             variant: "destructive",
@@ -226,7 +230,7 @@ export default function ScanJobPage() {
   };
 
  const handleStartPhase = (phaseId: string) => {
-    if (!activeJobOrder) return;
+    if (!activeJobOrder || !operator) return;
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
 
@@ -259,7 +263,7 @@ export default function ScanJobPage() {
     }
 
     phaseToStart.status = 'in-progress';
-    phaseToStart.workPeriods.push({ start: new Date(), end: null });
+    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
     setActiveJobOrder(jobToUpdate);
     persistJobUpdate(jobToUpdate);
@@ -294,7 +298,7 @@ export default function ScanJobPage() {
   };
 
   const handleResumePhase = (phaseId: string) => {
-    if (!activeJobOrder) return;
+    if (!activeJobOrder || !operator) return;
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
     const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
@@ -312,7 +316,7 @@ export default function ScanJobPage() {
     }
 
     phaseToResume.status = 'in-progress';
-    phaseToResume.workPeriods.push({ start: new Date(), end: null });
+    phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
     setActiveJobOrder(jobToUpdate);
     persistJobUpdate(jobToUpdate);
@@ -364,6 +368,7 @@ export default function ScanJobPage() {
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
     jobToUpdate.overallEndTime = new Date();
+    jobToUpdate.status = 'completed';
 
     persistJobUpdate(jobToUpdate);
     toast({
