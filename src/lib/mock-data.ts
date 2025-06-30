@@ -47,6 +47,7 @@ export interface Operator {
   stato: StatoOperatore;
   password?: string;
   role: OperatorRole;
+  privacySigned?: boolean;
 }
 
 export const departmentMap: { [key in Reparto]: string } = {
