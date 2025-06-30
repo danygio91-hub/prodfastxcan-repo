@@ -54,21 +54,13 @@ export interface Operator {
   privacySigned?: boolean;
 }
 
-export const departmentMap: { [key in Reparto]: string } = {
-  CP: 'Assemblaggio Componenti Elettronici',
-  CG: 'Controllo Qualità',
-  BF: 'Burattatura e Finitura',
-  MAG: 'Magazzino',
-  'N/D': 'Non Definito',
-  Officina: 'Officina',
-};
-
 
 // This is a simple in-memory store that mimics a database.
 // It's designed to persist across hot reloads in development.
 type GlobalWithMockData = typeof globalThis & {
   _jobOrders?: JobOrder[];
   _operators?: Operator[];
+  _departmentMap?: { [key in Reparto]: string };
 };
 
 // Use a global variable to store the data, so it's not lost on hot reload
@@ -79,13 +71,24 @@ if (!a._jobOrders) {
 if (!a._operators) {
   a._operators = [
     { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'N/D', stato: 'inattivo', password: '1234', role: 'admin', privacySigned: false },
-    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: false },
+    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: true },
     { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
     { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
   ];
+}
+if (!a._departmentMap) {
+  a._departmentMap = {
+    CP: 'Assemblaggio Componenti Elettronici',
+    CG: 'Controllo Qualità',
+    BF: 'Burattatura e Finitura',
+    MAG: 'Magazzino',
+    'N/D': 'Non Definito',
+    Officina: 'Officina',
+  };
 }
 
 
 // Mock data per le commesse.
 export const mockJobOrders: JobOrder[] = a._jobOrders;
 export const mockOperators: Operator[] = a._operators;
+export const departmentMap: { [key in Reparto]: string } = a._departmentMap;

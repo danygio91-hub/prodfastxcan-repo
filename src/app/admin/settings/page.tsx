@@ -1,15 +1,54 @@
+"use client";
+
+import React, { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight } from 'lucide-react';
-import { departmentMap, reparti } from '@/lib/mock-data';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Save, Loader2 } from 'lucide-react';
+import { type Reparto } from '@/lib/mock-data';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
+import { getDepartmentMap, updateDepartmentNames } from './actions';
 
 export default function AdminCompanySettingsPage() {
+  const [departments, setDepartments] = useState<{ [key in Reparto]?: string }>({});
+  const [isPending, startTransition] = useTransition();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    getDepartmentMap().then(setDepartments);
+  }, []);
+
+  const handleInputChange = (code: Reparto, value: string) => {
+    setDepartments(prev => ({ ...prev, [code]: value }));
+  };
+
+  const handleFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(async () => {
+      const result = await updateDepartmentNames(formData);
+      if (result.success) {
+        toast({
+          title: 'Successo',
+          description: result.message,
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Errore',
+          description: result.message,
+        });
+      }
+    });
+  };
+
+  const departmentCodes = Object.keys(departments) as Reparto[];
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -46,30 +85,39 @@ export default function AdminCompanySettingsPage() {
                 </Card>
             </Link>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-3">
-                  <ListTodo className="h-7 w-7 text-primary" />
-                  Gestione/Nomi Reparti
-                </CardTitle>
-                <CardDescription>
-                  Visualizza i nomi dei reparti. La modifica sarà disponibile in futuro.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {reparti.map(code => (
-                  <div key={code} className="flex items-center gap-4">
-                    <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
-                    <Input
-                      id={`reparto-${code}`}
-                      value={departmentMap[code as keyof typeof departmentMap] || 'Non Definito'}
-                      readOnly
-                      className="bg-muted/50"
-                    />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+            <form onSubmit={handleFormSubmit}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-3">
+                    <ListTodo className="h-7 w-7 text-primary" />
+                    Gestione/Nomi Reparti
+                  </CardTitle>
+                  <CardDescription>
+                    Modifica i nomi visualizzati per ogni reparto.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {departmentCodes.length > 0 ? departmentCodes.map(code => (
+                    <div key={code} className="flex items-center gap-4">
+                      <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
+                      <Input
+                        id={`reparto-${code}`}
+                        name={code}
+                        value={departments[code] || ''}
+                        onChange={(e) => handleInputChange(code, e.target.value)}
+                        className="bg-background"
+                      />
+                    </div>
+                  )) : <p className="text-muted-foreground">Caricamento reparti...</p>}
+                </CardContent>
+                <CardFooter>
+                    <Button type="submit" disabled={isPending} className="w-full">
+                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                        Salva Modifiche
+                    </Button>
+                </CardFooter>
+              </Card>
+            </form>
 
              <Card className="opacity-50 cursor-not-allowed">
                 <CardHeader>
