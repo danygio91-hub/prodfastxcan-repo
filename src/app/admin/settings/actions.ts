@@ -37,6 +37,6 @@ export async function updateDepartmentNames(formData: FormData): Promise<{ succe
 
     return { success: true, message: 'Nomi dei reparti aggiornati con successo.' };
   } catch (error) {
-    return { success: false, message: 'Si è verificato un errore durante l'aggiornamento.' };
+    return { success: false, message: "Si è verificato un errore durante l'aggiornamento." };
   }
 }
