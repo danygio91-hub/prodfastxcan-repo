@@ -70,7 +70,7 @@ export interface Workstation {
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
-    { id: 'op-1', nome: 'Daniel', cognome: 'Rossi', reparto: 'N/D', stato: 'inattivo', password: '1234', role: 'admin', privacySigned: false },
+    { id: 'op-1', nome: 'Daniel', cognome: 'Giorlando', reparto: 'N/D', stato: 'inattivo', password: 'Filapara.9!', role: 'admin', privacySigned: false },
     { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: true },
     { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
     { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
