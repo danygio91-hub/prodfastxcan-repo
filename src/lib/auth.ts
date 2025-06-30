@@ -24,9 +24,9 @@ function getAuthData(): AuthData | null {
 export function login(username: string, password_used: string): Promise<boolean> {
   return new Promise((resolve) => {
     setTimeout(() => {
-      // Find operator by first name. Assumes names are unique for login purposes.
+      // Find operator by first name (case-insensitive). Assumes names are unique for login purposes.
       // TODO: In un ambiente di produzione, le password devono essere hashate e salate, mai memorizzate in chiaro.
-      const operator = mockOperators.find(op => op.nome === username && op.password === password_used);
+      const operator = mockOperators.find(op => op.nome.toLowerCase() === username.toLowerCase() && op.password === password_used);
 
       if (operator && typeof window !== 'undefined') {
         const authDataToStore: AuthData = { loggedIn: true, operatorId: operator.id };
