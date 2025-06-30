@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -11,7 +10,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 import { login } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
-import { mockOperators } from '@/lib/mock-data';
+import { initialOperators } from '@/lib/mock-data';
 
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -24,7 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { QrCode, Fingerprint, Lock, LogIn, User, CameraOff, Loader2, KeyRound } from 'lucide-react';
 
 const manualLoginSchema = z.object({
-  username: z.string().min(1, { message: "Il nome utente è obbligatorio." }),
+  username: z.string().min(1, { message: "Il nome utente o l'email sono obbligatori." }),
   password: z.string().min(1, { message: "La password è obbligatoria." }),
 });
 
@@ -75,7 +74,7 @@ export default function LoginForm() {
         setIsLoading(true);
         setStep('camera');
         setTimeout(() => {
-            const operators = mockOperators.filter(op => op.role !== 'admin');
+            const operators = initialOperators.filter(op => op.role !== 'admin');
             const randomOperator = operators.length > 0 ? operators[Math.floor(Math.random() * operators.length)] : null;
             if (randomOperator) {
                 setScannedOperator(randomOperator);
@@ -248,7 +247,7 @@ export default function LoginForm() {
                                     <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
                                  </CardHeader>
                                 <CardContent className="space-y-6">
-                                    <FormField control={manualForm.control} name="username" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><User className="mr-2 h-5 w-5" />Nome Utente</FormLabel> <FormControl><Input placeholder="Es. Mario" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                    <FormField control={manualForm.control} name="username" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><User className="mr-2 h-5 w-5" />Nome Utente o Email</FormLabel> <FormControl><Input placeholder="Es. Daniel o daniel.giorlando@..." {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                     <FormField control={manualForm.control} name="password" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Lock className="mr-2 h-5 w-5" />Password</FormLabel> <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">

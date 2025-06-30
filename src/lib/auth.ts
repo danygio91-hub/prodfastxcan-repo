@@ -23,27 +23,39 @@ export async function login(username: string, password_used: string): Promise<Op
     allOperators = initialOperators;
   }
   
-  // Find operator by username to get their full details (like cognome for email)
-  const operator = allOperators.find(op => 
-    op.nome.toLowerCase() === username.toLowerCase()
-  );
+  let operator: Operator | undefined;
+  let emailForAuth: string;
 
-  // If we can't find an operator profile in our DB, we can't proceed.
+  if (username.includes('@')) {
+    // User entered an email address
+    emailForAuth = username.toLowerCase();
+    const nameFromEmail = emailForAuth.split('@')[0].split('.')[0];
+    operator = allOperators.find(op => op.nome.toLowerCase() === nameFromEmail);
+  } else {
+    // User entered a username (first name)
+    operator = allOperators.find(op => 
+      op.nome.toLowerCase() === username.toLowerCase()
+    );
+    if (operator) {
+      emailForAuth = `${operator.nome.toLowerCase()}.${operator.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
+    } else {
+      console.error(`No operator profile found for username: ${username}`);
+      return null;
+    }
+  }
+
+  // If we couldn't find an operator profile, we can't proceed.
   if (!operator) {
-    console.error(`No operator profile found for username: ${username}`);
+    console.error(`No operator profile found for username/email: ${username}`);
     return null;
   }
 
-  // Construct the email address that should exist in Firebase Auth.
-  const email = `${operator.nome.toLowerCase()}.${operator.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
-
   try {
     // Authenticate directly with Firebase Auth. This is the source of truth for passwords.
-    await signInWithEmailAndPassword(auth, email, password_used);
+    await signInWithEmailAndPassword(auth, emailForAuth, password_used);
     
     // If login is successful, store operator data and return it.
     if (typeof window !== 'undefined') {
-      // We don't want to store the password in localStorage.
       const { password, ...operatorToStore } = operator;
       localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
     }
@@ -51,7 +63,6 @@ export async function login(username: string, password_used: string): Promise<Op
 
   } catch (error: any) {
     console.error("Firebase Authentication failed:", error.code, error.message);
-    // Let the UI know that the credentials were bad or the user doesn't exist in Auth.
     await logout(); // Ensure any partial state is cleared
     return null;
   }
