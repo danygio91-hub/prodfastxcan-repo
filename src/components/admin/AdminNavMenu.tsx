@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Users, Settings } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 
@@ -14,8 +14,8 @@ const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati', icon: ListChecks },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
-  { href: '/admin/operator-management', label: 'Gestione Operatori', icon: Users },
-  { href: '/admin/settings', label: 'Configurazione', icon: Settings },
+  { href: '/admin/settings', label: 'Configurazione Azienda', icon: Building2 },
+  { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
 ];
 
 export default function AdminNavMenu() {
@@ -26,7 +26,7 @@ export default function AdminNavMenu() {
         <TooltipProvider delayDuration={0}>
             <div className="flex items-center justify-center gap-2 flex-wrap">
             {navItems.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive = pathname.startsWith(item.href);
                 return (
                 <Tooltip key={item.href}>
                     <TooltipTrigger asChild>

@@ -1,110 +1,100 @@
+import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Settings, Brush, ListTodo } from 'lucide-react';
+import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight } from 'lucide-react';
 import { departmentMap, reparti } from '@/lib/mock-data';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from '@/components/ui/separator';
-import { ThemeToggler } from '@/components/ThemeToggler';
 
-export default function AdminSettingsPage() {
+export default function AdminCompanySettingsPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-8">
-            <AdminNavMenu />
+          <AdminNavMenu />
 
-            <header className="space-y-2">
-                <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-                    <Settings className="h-8 w-8 text-primary" />
-                    Configurazione App
-                </h1>
-                <p className="text-muted-foreground">
-                    Impostazioni generali e personalizzazione dell'applicazione.
-                </p>
-            </header>
+          <header className="space-y-2">
+            <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+              <Building2 className="h-8 w-8 text-primary" />
+              Configurazione Azienda
+            </h1>
+            <p className="text-muted-foreground">
+              Gestisci le impostazioni operative principali della tua azienda.
+            </p>
+          </header>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <Link href="/admin/operator-management">
+                <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <ListTodo className="h-6 w-6 text-primary" />
-                            Nomi Reparti
+                        <CardTitle className="flex items-center justify-between">
+                             <div className="flex items-center gap-3">
+                                <Users className="h-7 w-7 text-primary" />
+                                <span>Gestione Operatori</span>
+                            </div>
+                           <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                                <ArrowRight className="h-5 w-5" />
+                           </Button>
                         </CardTitle>
                         <CardDescription>
-                            Visualizza i nomi associati ai codici dei reparti. La modifica sarà disponibile in un aggiornamento futuro.
+                          Aggiungi, modifica o rimuovi gli operatori e i loro permessi.
                         </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                        {reparti.map(code => (
-                            <div key={code} className="flex items-center gap-4">
-                               <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
-                               <Input 
-                                id={`reparto-${code}`}
-                                value={departmentMap[code as keyof typeof departmentMap] || 'Non Definito'} 
-                                readOnly 
-                                className="bg-muted/50"
-                               />
-                            </div>
-                        ))}
-                    </CardContent>
                 </Card>
+            </Link>
 
-                <Card>
-                    <CardHeader>
-                         <CardTitle className="flex items-center gap-2">
-                            <Brush className="h-6 w-6 text-primary" />
-                            Personalizzazione Tema
-                        </CardTitle>
-                        <CardDescription>
-                            Scegli il tema dell'applicazione. Puoi cambiarlo in qualsiasi momento usando il pulsante in basso a destra.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        <div>
-                             <Label>Tema Attuale</Label>
-                             <p className="text-sm text-muted-foreground">
-                                L'applicazione supporta un tema chiaro e uno scuro. Usa il selettore per cambiare l'aspetto.
-                             </p>
-                             <div className="mt-4">
-                                <ThemeToggler />
-                             </div>
-                        </div>
-                        <Separator />
-                        <div>
-                            <Label>Anteprima Colori Principali</Label>
-                            <div className="flex space-x-4 mt-2">
-                                <div className="flex flex-col items-center">
-                                    <div className="w-10 h-10 rounded-full bg-primary border-2 border-border"></div>
-                                    <span className="text-xs mt-1">Primary</span>
-                                </div>
-                                 <div className="flex flex-col items-center">
-                                    <div className="w-10 h-10 rounded-full bg-secondary border-2 border-border"></div>
-                                    <span className="text-xs mt-1">Secondary</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <div className="w-10 h-10 rounded-full bg-accent border-2 border-border"></div>
-                                    <span className="text-xs mt-1">Accent</span>
-                                </div>
-                                <div className="flex flex-col items-center">
-                                    <div className="w-10 h-10 rounded-full bg-destructive border-2 border-border"></div>
-                                    <span className="text-xs mt-1">Destructive</span>
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-3">
+                  <ListTodo className="h-7 w-7 text-primary" />
+                  Gestione/Nomi Reparti
+                </CardTitle>
+                <CardDescription>
+                  Visualizza i nomi dei reparti. La modifica sarà disponibile in futuro.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {reparti.map(code => (
+                  <div key={code} className="flex items-center gap-4">
+                    <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
+                    <Input
+                      id={`reparto-${code}`}
+                      value={departmentMap[code as keyof typeof departmentMap] || 'Non Definito'}
+                      readOnly
+                      className="bg-muted/50"
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+             <Card className="opacity-50 cursor-not-allowed">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-3">
+                        <Workflow className="h-7 w-7 text-primary" />
+                        <span>Gestione Fasi di Lavorazione</span>
+                    </CardTitle>
+                    <CardDescription>
+                        Definisci le fasi standard per ogni reparto. (Prossimamente)
+                    </CardDescription>
+                </CardHeader>
+            </Card>
+
+            <Card className="opacity-50 cursor-not-allowed">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-3">
+                        <Computer className="h-7 w-7 text-primary" />
+                        <span>Gestione Postazioni di Lavoro</span>
+                    </CardTitle>
+                    <CardDescription>
+                       Configura e assegna le postazioni di lavoro. (Prossimamente)
+                    </CardDescription>
+                </CardHeader>
+            </Card>
+          </div>
         </div>
       </AppShell>
     </AdminAuthGuard>

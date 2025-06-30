@@ -7,14 +7,14 @@ import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ListChecks, Briefcase, BarChart3, Users, Settings, ArrowRight } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2 } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },
-  { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Gestisci gli account e i permessi.', icon: Users },
-  { href: '/admin/settings', label: 'Configurazione', description: 'Impostazioni generali dell\'applicazione.', icon: Settings },
+  { href: '/admin/settings', label: 'Configurazione Azienda', description: 'Gestisci operatori, reparti e postazioni di lavoro.', icon: Building2 },
+  { href: '/admin/app-settings', label: 'Gestione App', description: 'Personalizza il tema e l\'aspetto dell\'applicazione.', icon: Settings },
 ];
 
 export default function AdminDashboardPage() {
