@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle } from 'lucide-react';
 
 // Helper functions
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
@@ -27,7 +27,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
     case 'in-progress': return <Hourglass className="h-4 w-4 text-accent animate-spin" />;
-    case 'paused': return <Hourglass className="h-4 w-4 text-accent" />; // No spin for paused
+    case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
     case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
   }
@@ -59,10 +59,16 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
           </p>
         </div>
         {overallStatus === 'In Lavorazione' && currentPhase && (
-          <div className="p-3 bg-accent/10 rounded-md border border-accent/20">
-            <p className="text-sm font-semibold flex items-center gap-2 text-accent-foreground">
-              <Wrench className="h-4 w-4 text-accent" />
-              Fase Attuale: {currentPhase.name}
+           <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>
+            <p className={`text-sm font-semibold flex items-center gap-2 ${currentPhase.status === 'paused' ? 'text-orange-500' : 'text-accent-foreground'}`}>
+              {currentPhase.status === 'paused'
+                ? <PauseCircle className="h-4 w-4" />
+                : <Wrench className="h-4 w-4" />
+              }
+              <span>
+                Fase Attuale: {currentPhase.name}
+                {currentPhase.status === 'paused' && ' (In Pausa)'}
+              </span>
             </p>
           </div>
         )}
