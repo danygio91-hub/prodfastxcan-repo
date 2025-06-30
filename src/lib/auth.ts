@@ -8,22 +8,6 @@ import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 const AUTH_KEY = 'prodtime_tracker_auth';
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
-export function getOperator(): Operator | null {
-  if (typeof window !== 'undefined') {
-    const authDataString = localStorage.getItem(AUTH_KEY);
-    if (authDataString) {
-      try {
-        return JSON.parse(authDataString) as Operator;
-      } catch (e) {
-        console.error("Failed to parse auth data from localStorage", e);
-        localStorage.removeItem(AUTH_KEY);
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
 export async function login(username: string, password_used: string): Promise<Operator | null> {
   let allOperators: Operator[] = [];
   try {
@@ -39,31 +23,36 @@ export async function login(username: string, password_used: string): Promise<Op
     allOperators = initialOperators;
   }
   
+  // Find operator by username to get their full details (like cognome for email)
   const operator = allOperators.find(op => 
     op.nome.toLowerCase() === username.toLowerCase()
   );
 
-  if (!operator || operator.password !== password_used) {
-    console.error("Operator not found in Firestore or password incorrect.");
+  // If we can't find an operator profile in our DB, we can't proceed.
+  if (!operator) {
+    console.error(`No operator profile found for username: ${username}`);
     return null;
   }
 
+  // Construct the email address that should exist in Firebase Auth.
   const email = `${operator.nome.toLowerCase()}.${operator.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
 
   try {
+    // Authenticate directly with Firebase Auth. This is the source of truth for passwords.
     await signInWithEmailAndPassword(auth, email, password_used);
     
+    // If login is successful, store operator data and return it.
     if (typeof window !== 'undefined') {
-      localStorage.setItem(AUTH_KEY, JSON.stringify(operator));
+      // We don't want to store the password in localStorage.
+      const { password, ...operatorToStore } = operator;
+      localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
     }
     return operator;
 
   } catch (error: any) {
-    console.error("Firebase Authentication failed:", error);
-    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-        console.error(`L'utente con email ${email} non esiste in Firebase Authentication o le credenziali sono errate. Crealo dalla console di Firebase.`);
-    }
-    await logout();
+    console.error("Firebase Authentication failed:", error.code, error.message);
+    // Let the UI know that the credentials were bad or the user doesn't exist in Auth.
+    await logout(); // Ensure any partial state is cleared
     return null;
   }
 }
@@ -77,4 +66,21 @@ export async function logout(): Promise<void> {
   } catch (error) {
     console.error("Error signing out from Firebase:", error);
   }
+}
+
+
+export function getOperator(): Operator | null {
+  if (typeof window !== 'undefined') {
+    const authDataString = localStorage.getItem(AUTH_KEY);
+    if (authDataString) {
+      try {
+        return JSON.parse(authDataString) as Operator;
+      } catch (e) {
+        console.error("Failed to parse auth data from localStorage", e);
+        localStorage.removeItem(AUTH_KEY);
+        return null;
+      }
+    }
+  }
+  return null;
 }
