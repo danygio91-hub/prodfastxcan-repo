@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -11,6 +12,9 @@ const operatorFormSchema = z.object({
   cognome: z.string().min(1, 'Il cognome è obbligatorio.'),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D'], {
     errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
+  }),
+  role: z.enum(['admin', 'superadvisor', 'operator'], {
+    errorMap: () => ({ message: 'Selezionare un ruolo valido.' }),
   }),
 });
 
@@ -33,7 +37,7 @@ export async function saveOperator(formData: FormData) {
     };
   }
   
-  const { id, nome, cognome, reparto } = validatedFields.data;
+  const { id, nome, cognome, reparto, role } = validatedFields.data;
 
   if (id) {
     // Update existing operator
@@ -41,7 +45,7 @@ export async function saveOperator(formData: FormData) {
     if (index === -1) {
       return { success: false, message: 'Operatore non trovato.' };
     }
-    mockOperators[index] = { ...mockOperators[index], nome, cognome, reparto };
+    mockOperators[index] = { ...mockOperators[index], nome, cognome, reparto, role };
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
@@ -52,9 +56,9 @@ export async function saveOperator(formData: FormData) {
       nome,
       cognome,
       reparto,
+      role,
       stato: 'inattivo', // Default state for new operators
       password: '1234', // Default password for new operators
-      role: 'operator', // Default role for new operators
     };
     mockOperators.push(newOperator);
     revalidatePath('/admin/operator-management');

@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import type { Operator, Reparto, StatoOperatore } from '@/lib/mock-data';
+import type { Operator, Reparto, StatoOperatore, OperatorRole } from '@/lib/mock-data';
 import { getOperators, saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 
@@ -23,18 +23,22 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+
 
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
   cognome: z.string().min(1, "Il cognome è obbligatorio."),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D']),
+  role: z.enum(['admin', 'superadvisor', 'operator']),
 });
 
 type OperatorFormValues = z.infer<typeof operatorFormSchema>;
 
 const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D'];
+const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 
 const StatusBadge = ({ status }: { status: StatoOperatore }) => (
   <Badge
@@ -63,6 +67,7 @@ export default function AdminOperatorManagementPage() {
       nome: "",
       cognome: "",
       reparto: 'N/D',
+      role: 'operator',
     },
   });
 
@@ -80,7 +85,7 @@ export default function AdminOperatorManagementPage() {
     if (operator) {
       form.reset(operator);
     } else {
-      form.reset({ id: undefined, nome: "", cognome: "", reparto: 'N/D' });
+      form.reset({ id: undefined, nome: "", cognome: "", reparto: 'N/D', role: 'operator' });
     }
     setIsDialogOpen(true);
   };
@@ -155,7 +160,9 @@ export default function AdminOperatorManagementPage() {
                       <TableHead>Nome</TableHead>
                       <TableHead>Cognome</TableHead>
                       <TableHead>Reparto</TableHead>
+                      <TableHead>Ruolo</TableHead>
                       <TableHead>Stato</TableHead>
+                      <TableHead>Privacy</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -166,7 +173,26 @@ export default function AdminOperatorManagementPage() {
                           <TableCell className="font-medium">{op.nome}</TableCell>
                           <TableCell>{op.cognome}</TableCell>
                           <TableCell>{op.reparto}</TableCell>
+                          <TableCell className="capitalize">{op.role}</TableCell>
                           <TableCell><StatusBadge status={op.stato} /></TableCell>
+                          <TableCell>
+                             <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center justify-center">
+                                    {op.privacySigned ? (
+                                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                        <ShieldAlert className="h-5 w-5 text-yellow-500" />
+                                    )}
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{op.privacySigned ? 'Informativa Firmata' : 'Informativa Non Firmata'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(op)}>
                               <Edit className="h-4 w-4" />
@@ -197,7 +223,7 @@ export default function AdminOperatorManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                        <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -242,6 +268,22 @@ export default function AdminOperatorManagementPage() {
                       </FormControl>
                       <SelectContent>
                         {reparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                 <FormField control={form.control} name="role" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ruolo</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleziona un ruolo" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {roles.map(r => <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <FormMessage />
