@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 import withPWAInit from '@ducanh2912/next-pwa';
 
@@ -22,4 +23,6 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withPWA(nextConfig);
+// Temporarily disabling PWA to resolve startup issues, likely with Next.js 15
+// export default withPWA(nextConfig);
+export default nextConfig;
