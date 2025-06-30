@@ -12,7 +12,6 @@ import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { seedDatabase } from './actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +23,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { db } from '@/lib/firebase';
+import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
+import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
 
 
 export default function AdminAppSettingsPage() {
@@ -32,9 +34,53 @@ export default function AdminAppSettingsPage() {
 
   const handleSeedDatabase = () => {
     startTransition(async () => {
-      const result = await seedDatabase();
+      const seedDatabaseClientSide = async (): Promise<{ success: boolean; message: string; }> => {
+        try {
+          const operatorsRef = collection(db, "operators");
+          const operatorsSnap = await getDocs(operatorsRef);
+          
+          if (!operatorsSnap.empty) {
+              return { success: false, message: 'Il database sembra essere già popolato. Nessuna operazione eseguita.' };
+          }
+          
+          const batch = writeBatch(db);
+          let totalOperations = 0;
+
+          initialOperators.forEach(op => {
+              const docRef = doc(db, "operators", op.id);
+              batch.set(docRef, op);
+              totalOperations++;
+          });
+
+          const departmentMapDocRef = doc(db, "configuration", "departmentMap");
+          batch.set(departmentMapDocRef, initialDepartmentMap);
+          totalOperations++;
+
+          initialWorkPhaseTemplates.forEach(phase => {
+              const docRef = doc(db, "workPhaseTemplates", phase.id);
+              batch.set(docRef, phase);
+              totalOperations++;
+          });
+
+          initialWorkstations.forEach(ws => {
+              const docRef = doc(db, "workstations", ws.id);
+              batch.set(docRef, ws);
+              totalOperations++;
+          });
+          
+          await batch.commit();
+          return { success: true, message: `Database popolato con successo con ${totalOperations} documenti.` };
+
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error("Errore nel seeding del database:", error);
+          return { success: false, message: `Si è verificato un errore durante il popolamento del database: ${errorMessage}` };
+        }
+      };
+      
+      const result = await seedDatabaseClientSide();
        toast({
-          title: result.success ? "Operazione Completata" : "Operazione Annullata",
+          title: result.success ? "Operazione Completata" : "Operazione Fallita",
           description: result.message,
           variant: result.success ? "default" : "destructive",
         });
