@@ -25,6 +25,7 @@ export function login(username: string, password_used: string): Promise<boolean>
   return new Promise((resolve) => {
     setTimeout(() => {
       // Find operator by first name. Assumes names are unique for login purposes.
+      // TODO: In un ambiente di produzione, le password devono essere hashate e salate, mai memorizzate in chiaro.
       const operator = mockOperators.find(op => op.nome === username && op.password === password_used);
 
       if (operator && typeof window !== 'undefined') {
