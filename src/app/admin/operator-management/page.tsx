@@ -7,9 +7,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import type { Operator, Reparto, StatoOperatore, OperatorRole } from '@/lib/mock-data';
+import { type Operator, type Reparto, type OperatorRole, reparti, operatorReparti, roles } from '@/lib/mock-data';
 import { getOperators, saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
+import type { StatoOperatore } from '@/lib/mock-data';
+
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -36,10 +38,6 @@ const operatorFormSchema = z.object({
 });
 
 type OperatorFormValues = z.infer<typeof operatorFormSchema>;
-
-const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'];
-const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG'];
-const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 
 const StatusBadge = ({ status }: { status: StatoOperatore }) => (
   <Badge

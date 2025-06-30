@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from '@/components/ui/separator';
+import { ThemeToggler } from '@/components/ThemeToggler';
 
 export default function AdminSettingsPage() {
   return (
@@ -75,6 +76,9 @@ export default function AdminSettingsPage() {
                              <p className="text-sm text-muted-foreground">
                                 L'applicazione supporta un tema chiaro e uno scuro. Usa il selettore per cambiare l'aspetto.
                              </p>
+                             <div className="mt-4">
+                                <ThemeToggler />
+                             </div>
                         </div>
                         <Separator />
                         <div>

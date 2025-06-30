@@ -39,6 +39,10 @@ export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina';
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
 export type OperatorRole = 'admin' | 'superadvisor' | 'operator';
 
+export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'];
+export const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG'];
+export const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
+
 export interface Operator {
   id: string;
   nome: string;
