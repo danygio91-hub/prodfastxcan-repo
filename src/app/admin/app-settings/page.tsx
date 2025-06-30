@@ -74,7 +74,11 @@ export default function AdminAppSettingsPage() {
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           console.error("Errore nel seeding del database:", error);
-          return { success: false, message: `Si è verificato un errore durante il popolamento del database: ${errorMessage}` };
+          let userFriendlyMessage = `Si è verificato un errore: ${errorMessage}`;
+          if (errorMessage.toLowerCase().includes('permission-denied') || errorMessage.toLowerCase().includes('insufficient permissions')) {
+            userFriendlyMessage = "Errore di permessi. Assicurati che le regole di sicurezza di Firestore permettano la scrittura. Per lo sviluppo, puoi impostarle temporaneamente su 'allow read, write: if true;' nella console di Firebase.";
+          }
+          return { success: false, message: userFriendlyMessage };
         }
       };
       
@@ -83,6 +87,7 @@ export default function AdminAppSettingsPage() {
           title: result.success ? "Operazione Completata" : "Operazione Fallita",
           description: result.message,
           variant: result.success ? "default" : "destructive",
+          duration: result.success ? 5000 : 9000,
         });
     });
   }
