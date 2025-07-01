@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 import withPWAInit from '@ducanh2912/next-pwa';
 
@@ -22,6 +23,6 @@ const nextConfig: NextConfig = {
   },
 };
 
-// Temporaneamente disabilitato PWA per risolvere problemi di avvio con Next.js 15
+// PWA has been temporarily disabled as it may be causing startup issues with Next.js 15.
 // export default withPWA(nextConfig);
 export default nextConfig;
