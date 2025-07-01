@@ -98,7 +98,7 @@ export default function LoginForm() {
                     return;
                 }
 
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 streamRef.current = localStream;
                 setHasCameraPermission(true);
 
