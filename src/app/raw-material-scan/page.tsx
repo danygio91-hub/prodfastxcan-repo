@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, updateRawMaterialStock } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Weight, ArrowRight, ArrowLeft, Send, Loader2 } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Weight, ArrowRight, ArrowLeft, Send, Loader2, Search, Keyboard } from 'lucide-react';
 
 // BarcodeDetector types for compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -47,9 +47,10 @@ export default function RawMaterialScanPage() {
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'initial' | 'scanning' | 'form'>('initial');
+    const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
+    const [manualCode, setManualCode] = useState('');
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
@@ -72,16 +73,23 @@ export default function RawMaterialScanPage() {
         }
     }, []);
     
-    const handleScannedData = useCallback(async (data: string) => {
+    const handleCodeSubmit = useCallback(async (code: string) => {
         stopCamera();
         setStep('initial'); // Go back to initial to show loading feedback
-        const code = data.trim();
-        toast({ title: "QR Code Rilevato", description: `Ricerca materia prima: ${code}...` });
+        const trimmedCode = code.trim();
+        if (!trimmedCode) {
+            toast({ variant: 'destructive', title: "Codice Vuoto", description: "Inserisci un codice valido." });
+            setStep('manual_input'); // Stay on manual input if empty
+            return;
+        }
+        toast({ title: "Ricerca in corso", description: `Ricerca materia prima: ${trimmedCode}...` });
         
-        const result = await getRawMaterialByCode(code);
+        const result = await getRawMaterialByCode(trimmedCode);
         
         if ('error' in result) {
             toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+            setScannedMaterial(null);
+            setStep('initial');
         } else {
             setScannedMaterial(result);
             form.reset({ materialId: result.id, peso: '', ingresso: '', uscita: '' });
@@ -119,7 +127,7 @@ export default function RawMaterialScanPage() {
                     const barcodes = await barcodeDetector.detect(videoRef.current);
                     if (barcodes.length > 0) {
                         clearInterval(detectionInterval);
-                        handleScannedData(barcodes[0].rawValue);
+                        handleCodeSubmit(barcodes[0].rawValue);
                     }
                 }, 500);
             } catch (err) {
@@ -130,7 +138,7 @@ export default function RawMaterialScanPage() {
 
         startCameraAndScan();
         return () => { clearInterval(detectionInterval); stopCamera(); };
-    }, [step, stopCamera, handleScannedData, toast]);
+    }, [step, stopCamera, handleCodeSubmit, toast]);
 
     async function onSubmit(values: StockUpdateFormValues) {
         const formData = new FormData();
@@ -152,8 +160,9 @@ export default function RawMaterialScanPage() {
         }
     };
     
-    const resetScan = () => {
+    const resetFlow = () => {
         setScannedMaterial(null);
+        setManualCode('');
         form.reset();
         setStep('initial');
     };
@@ -172,9 +181,9 @@ export default function RawMaterialScanPage() {
                          <Card>
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-3"><Boxes className="h-7 w-7 text-primary" /> Scansione Materia Prima</CardTitle>
-                                <CardDescription>Avvia la scansione per registrare un movimento di magazzino o aggiornare la giacenza di una materia prima.</CardDescription>
+                                <CardDescription>Avvia la scansione o inserisci un codice per registrare un movimento di magazzino.</CardDescription>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="space-y-4">
                                 {cameraError && (
                                     <Alert variant="destructive" className="mb-4">
                                         <AlertTriangle className="h-4 w-4" />
@@ -186,7 +195,40 @@ export default function RawMaterialScanPage() {
                                     <QrCode className="mr-2 h-5 w-5" />
                                     Avvia Scansione
                                 </Button>
+                                <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
+                                    <Keyboard className="mr-2 h-5 w-5" />
+                                    Inserisci Codice Manualmente
+                                </Button>
                             </CardContent>
+                        </Card>
+                    )}
+
+                     {step === 'manual_input' && (
+                        <Card>
+                            <form onSubmit={(e) => { e.preventDefault(); handleCodeSubmit(manualCode); }}>
+                                <CardHeader>
+                                    <CardTitle>Inserimento Manuale</CardTitle>
+                                    <CardDescription>Inserisci il codice della materia prima per cercarla.</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <Label htmlFor="manualCode">Codice Materia Prima</Label>
+                                    <Input
+                                        id="manualCode"
+                                        value={manualCode}
+                                        onChange={(e) => setManualCode(e.target.value)}
+                                        placeholder="Es. BOB-123 o TUBI-456"
+                                        autoFocus
+                                        className="mt-1"
+                                    />
+                                </CardContent>
+                                <CardFooter className="flex-col sm:flex-row gap-2">
+                                    <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full sm:w-auto">Annulla</Button>
+                                    <Button type="submit" className="w-full sm:w-auto">
+                                        <Search className="mr-2 h-4 w-4" />
+                                        Cerca Materiale
+                                    </Button>
+                                </CardFooter>
+                            </form>
                         </Card>
                     )}
 
@@ -251,7 +293,7 @@ export default function RawMaterialScanPage() {
                                              </div>
                                         </CardContent>
                                         <CardFooter className="flex-col sm:flex-row gap-2">
-                                            <Button type="button" variant="outline" onClick={resetScan} className="w-full sm:w-auto">Annulla / Scansiona Altro</Button>
+                                            <Button type="button" variant="outline" onClick={resetFlow} className="w-full sm:w-auto">Annulla / Nuova Operazione</Button>
                                             <Button type="submit" className="w-full sm:w-auto" disabled={form.formState.isSubmitting}>
                                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
                                                 Salva Aggiornamento
