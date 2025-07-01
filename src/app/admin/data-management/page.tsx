@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -42,7 +42,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
 import { type JobOrder } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -50,7 +51,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -65,7 +66,8 @@ const jobOrderFormSchema = z.object({
 type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
 
 export default function AdminDataManagementCommessePage() {
-  const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
+  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
+  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -73,15 +75,18 @@ export default function AdminDataManagementCommessePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const fetchJobOrders = () => {
-    getPlannedJobOrders().then(orders => {
-      setJobOrders(orders);
-    });
-  }
+  const fetchPlannedJobOrders = useCallback(() => {
+    getPlannedJobOrders().then(setPlannedJobOrders);
+  }, []);
+
+  const fetchProductionJobOrders = useCallback(() => {
+    getProductionJobOrders().then(setProductionJobOrders);
+  }, []);
   
   useEffect(() => {
-    fetchJobOrders();
-  }, []);
+    fetchPlannedJobOrders();
+    fetchProductionJobOrders();
+  }, [fetchPlannedJobOrders, fetchProductionJobOrders]);
 
   const form = useForm<JobOrderFormValues>({
     resolver: zodResolver(jobOrderFormSchema),
@@ -98,7 +103,7 @@ export default function AdminDataManagementCommessePage() {
   
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedRows(jobOrders.map(job => job.id));
+      setSelectedRows(plannedJobOrders.map(job => job.id));
     } else {
       setSelectedRows([]);
     }
@@ -118,7 +123,21 @@ export default function AdminDataManagementCommessePage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      fetchJobOrders();
+      fetchPlannedJobOrders();
+      fetchProductionJobOrders();
+    }
+  };
+
+  const handleCancelOdl = async (jobId: string) => {
+    const result = await cancelODL(jobId);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      fetchPlannedJobOrders();
+      fetchProductionJobOrders();
     }
   };
 
@@ -131,7 +150,8 @@ export default function AdminDataManagementCommessePage() {
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchJobOrders();
+        fetchPlannedJobOrders();
+        fetchProductionJobOrders();
         setSelectedRows([]);
     }
   };
@@ -151,7 +171,7 @@ export default function AdminDataManagementCommessePage() {
       });
       form.reset();
       setIsAddDialogOpen(false);
-      fetchJobOrders();
+      fetchPlannedJobOrders();
     } else {
        toast({
         variant: "destructive",
@@ -182,7 +202,6 @@ export default function AdminDataManagementCommessePage() {
         if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
         
         const worksheet = workbook.Sheets[sheetName];
-        // Read with raw: true to get original values (numbers for dates)
         const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
         const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
@@ -215,18 +234,15 @@ export default function AdminDataManagementCommessePage() {
                 }
             }
             
-            // Skip row if the essential ID is missing
             if (!normalizedRow.ordinePF) {
               return null;
             }
             
-            // Handle Excel date serial numbers robustly
             if (typeof normalizedRow.dataConsegnaFinale === 'number') {
                 const excelEpoch = new Date(Date.UTC(1899, 11, 30));
                 const jsTimestamp = excelEpoch.getTime() + normalizedRow.dataConsegnaFinale * 86400 * 1000;
                 const date = new Date(jsTimestamp);
                 if (isValid(date)) {
-                    // Adjust for timezone offset to prevent day-before issues
                     const timezoneOffset = date.getTimezoneOffset() * 60000;
                     const adjustedDate = new Date(date.getTime() + timezoneOffset);
                     normalizedRow.dataConsegnaFinale = format(adjustedDate, 'yyyy-MM-dd');
@@ -234,7 +250,6 @@ export default function AdminDataManagementCommessePage() {
                      delete normalizedRow.dataConsegnaFinale;
                 }
             } else if (typeof normalizedRow.dataConsegnaFinale === 'string') {
-                // Attempt to parse various string date formats
                 const dateString = String(normalizedRow.dataConsegnaFinale).trim();
                 const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
                 let parsedDate: Date | null = null;
@@ -253,7 +268,7 @@ export default function AdminDataManagementCommessePage() {
             }
 
             return normalizedRow;
-        }).filter(Boolean); // Filter out null rows
+        }).filter(Boolean);
 
 
         if (mappedJson.length === 0) {
@@ -288,7 +303,7 @@ export default function AdminDataManagementCommessePage() {
     } else {
         const result = await commitImportedJobOrders(dataToCommit);
         toast({ title: "Operazione Completata", description: result.message });
-        fetchJobOrders();
+        fetchPlannedJobOrders();
     }
     setPendingImport(null);
   };
@@ -298,7 +313,7 @@ export default function AdminDataManagementCommessePage() {
     const result = await deleteSelectedJobOrders(selectedRows);
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchJobOrders();
+      fetchPlannedJobOrders();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
@@ -309,7 +324,7 @@ export default function AdminDataManagementCommessePage() {
     const result = await deleteAllPlannedJobOrders();
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchJobOrders();
+      fetchPlannedJobOrders();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
@@ -372,148 +387,240 @@ export default function AdminDataManagementCommessePage() {
               </Dialog>
           </div>
 
-          <Card className="shadow-lg">
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center space-x-3">
-                    <ListChecks className="h-8 w-8 text-primary" />
-                    <div>
-                    <CardTitle className="text-2xl font-headline mb-1">Commesse Pianificate</CardTitle>
-                    <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
+          <Tabs defaultValue="planned" className="mt-6">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="planned">
+                  <ListChecks className="mr-2 h-4 w-4" />
+                  Commesse Pianificate
+              </TabsTrigger>
+              <TabsTrigger value="production">
+                  <Briefcase className="mr-2 h-4 w-4" />
+                  Commesse in Produzione
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="planned">
+                <Card className="shadow-lg">
+                <CardHeader>
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center space-x-3">
+                        <ListChecks className="h-8 w-8 text-primary" />
+                        <div>
+                        <CardTitle className="text-2xl font-headline mb-1">Commesse Pianificate</CardTitle>
+                        <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
+                        </div>
                     </div>
-                </div>
-                 <div className="flex items-center gap-2">
-                  {selectedRows.length > 0 && (
-                    <>
-                      <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                  <FileText className="mr-2 h-4 w-4" />
-                                  Crea ODL Selezionate ({selectedRows.length})
+                    <div className="flex items-center gap-2">
+                      {selectedRows.length > 0 && (
+                        <>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="outline" size="sm">
+                                      <FileText className="mr-2 h-4 w-4" />
+                                      Crea ODL Selezionate ({selectedRows.length})
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                  <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                      Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
+                                  </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Elimina Selezionate ({selectedRows.length})
                               </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
                               <AlertDialogHeader>
-                              <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                  Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
-                              </AlertDialogDescription>
+                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
+                                </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                              <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
                               </AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </>
+                      )}
                       <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Elimina Selezionate ({selectedRows.length})
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="outline" size="sm" disabled={plannedJobOrders.length === 0}>
+                              Svuota Elenco
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione non può essere annullata. Verranno eliminate tutte le {plannedJobOrders.length} commesse pianificate.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {plannedJobOrders.length > 0 ? (
+                    <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead padding="checkbox">
+                            <Checkbox
+                              checked={selectedRows.length > 0 && selectedRows.length === plannedJobOrders.length}
+                              onCheckedChange={handleSelectAll}
+                              aria-label="Seleziona tutte"
+                              indeterminate={selectedRows.length > 0 && selectedRows.length < plannedJobOrders.length}
+                            />
+                          </TableHead>
+                          <TableHead>Cliente</TableHead>
+                          <TableHead>Ordine PF</TableHead>
+                          <TableHead>Ordine Nr Est</TableHead>
+                          <TableHead className="min-w-[200px]">Codice</TableHead>
+                          <TableHead>Qta</TableHead>
+                          <TableHead>Data Consegna prevista</TableHead>
+                          <TableHead>Reparto</TableHead>
+                          <TableHead>Azioni</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {plannedJobOrders.map((job) => (
+                          <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                checked={selectedRows.includes(job.id)}
+                                onCheckedChange={() => handleSelectRow(job.id)}
+                                aria-label={`Seleziona commessa ${job.id}`}
+                              />
+                            </TableCell>
+                            <TableCell>{job.cliente}</TableCell>
+                            <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                            <TableCell>{job.numeroODL}</TableCell>
+                            <TableCell>{job.details}</TableCell>
+                            <TableCell>{job.qta}</TableCell>
+                            <TableCell>
+                              {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                            </TableCell>
+                            <TableCell>{job.department}</TableCell>
+                            <TableCell>
+                              <Button variant="outline" size="sm" onClick={() => handleCreateOdl(job.id)}>
+                                <FileText className="mr-2 h-4 w-4" />
+                                Crea ODL
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <Package className="h-16 w-16 text-muted-foreground mb-4" />
+                      <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
+                      <p className="text-sm text-muted-foreground">
+                        Aggiungi una commessa manualmente o importa da un file Excel per iniziare.
+                      </p>
+                    </div>
                   )}
-                   <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                         <Button variant="outline" size="sm" disabled={jobOrders.length === 0}>
-                           Svuota Elenco
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Questa azione non può essere annullata. Verranno eliminate tutte le {jobOrders.length} commesse pianificate.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {jobOrders.length > 0 ? (
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead padding="checkbox">
-                        <Checkbox
-                          checked={selectedRows.length > 0 && selectedRows.length === jobOrders.length}
-                          onCheckedChange={handleSelectAll}
-                          aria-label="Seleziona tutte"
-                          indeterminate={selectedRows.length > 0 && selectedRows.length < jobOrders.length}
-                        />
-                      </TableHead>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead>Ordine PF</TableHead>
-                      <TableHead>Ordine Nr Est</TableHead>
-                      <TableHead className="min-w-[200px]">Codice</TableHead>
-                      <TableHead>Qta</TableHead>
-                      <TableHead>Data Consegna prevista</TableHead>
-                      <TableHead>Reparto</TableHead>
-                      <TableHead>Azioni</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {jobOrders.map((job) => (
-                      <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
-                        <TableCell padding="checkbox">
-                           <Checkbox
-                            checked={selectedRows.includes(job.id)}
-                            onCheckedChange={() => handleSelectRow(job.id)}
-                            aria-label={`Seleziona commessa ${job.id}`}
-                          />
-                        </TableCell>
-                        <TableCell>{job.cliente}</TableCell>
-                        <TableCell className="font-medium">{job.ordinePF}</TableCell>
-                        <TableCell>{job.numeroODL}</TableCell>
-                        <TableCell>{job.details}</TableCell>
-                        <TableCell>{job.qta}</TableCell>
-                        <TableCell>
-                          {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
-                        </TableCell>
-                        <TableCell>{job.department}</TableCell>
-                        <TableCell>
-                          <Button variant="outline" size="sm" onClick={() => handleCreateOdl(job.id)}>
-                            <FileText className="mr-2 h-4 w-4" />
-                            Crea ODL
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                  <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
-                  <p className="text-sm text-muted-foreground">
-                    Aggiungi una commessa manualmente o importa da un file Excel per iniziare.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="production">
+                <Card className="shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center space-x-3">
+                        <Briefcase className="h-8 w-8 text-primary" />
+                        <div>
+                        <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
+                        <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
+                        </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {productionJobOrders.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Cliente</TableHead>
+                              <TableHead>Ordine PF</TableHead>
+                              <TableHead>Ordine Nr Est</TableHead>
+                              <TableHead className="min-w-[200px]">Codice</TableHead>
+                              <TableHead>Qta</TableHead>
+                              <TableHead>Data Consegna</TableHead>
+                              <TableHead>Reparto</TableHead>
+                              <TableHead>Azioni</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {productionJobOrders.map((job) => (
+                              <TableRow key={job.id}>
+                                <TableCell>{job.cliente}</TableCell>
+                                <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                                <TableCell>{job.numeroODL}</TableCell>
+                                <TableCell>{job.details}</TableCell>
+                                <TableCell>{job.qta}</TableCell>
+                                <TableCell>
+                                  {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                                </TableCell>
+                                <TableCell>{job.department}</TableCell>
+                                <TableCell>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="destructive" size="sm">
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                        Annulla ODL
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro di voler annullare l'ODL?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Questa azione riporterà la commessa '{job.id}' allo stato di "Pianificata" e la rimuoverà dalla Console di Produzione.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleCancelOdl(job.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <Package className="h-16 w-16 text-muted-foreground mb-4" />
+                        <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa in produzione.</p>
+                        <p className="text-sm text-muted-foreground">
+                          Crea un ODL dalla tabella delle commesse pianificate per vederle qui.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+            </TabsContent>
+          </Tabs>
         </div>
         
         <AlertDialog open={!!pendingImport} onOpenChange={(open) => !open && setPendingImport(null)}>

@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -316,4 +316,19 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   }
 
   return { success: true, message: message.trim() };
+}
+
+export async function cancelODL(jobId: string): Promise<{ success: boolean; message: string }> {
+  const jobRef = doc(db, "jobOrders", jobId);
+  const docSnap = await getDoc(jobRef);
+  
+  if (!docSnap.exists() || docSnap.data().status !== 'production') {
+    return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
+  }
+
+  await setDoc(jobRef, { status: 'planned' }, { merge: true });
+  
+  revalidatePath('/admin/data-management');
+  revalidatePath('/admin/production-console');
+  return { success: true, message: `ODL per la commessa ${jobId} annullato. La commessa è di nuovo pianificata.` };
 }
