@@ -106,13 +106,13 @@ export async function addJobOrder(formData: FormData) {
     const docSnap = await getDoc(jobRef);
 
     if (docSnap.exists()) {
-      return { success: false, message: `La commessa con ID ${jobId} esiste già.` };
+      return { success: false, message: `La commessa con ID ${data.ordinePF} esiste già.` };
     }
 
     const newJobOrder: JobOrder = {
       ...data,
       id: jobId,
-      ordinePF: jobId, // Overwrite with sanitized ID
+      ordinePF: data.ordinePF, // Keep original user-facing ID
       status: 'planned',
       postazioneLavoro: "Da Assegnare",
       phases: createDefaultPhases(data.department),
@@ -124,7 +124,7 @@ export async function addJobOrder(formData: FormData) {
     revalidatePath('/admin/data-management');
     return {
       success: true,
-      message: `Commessa ${newJobOrder.id} aggiunta con successo.`,
+      message: `Commessa ${newJobOrder.ordinePF} aggiunta con successo.`,
     };
 }
 
@@ -168,7 +168,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 ...existingJob,
                 ...validData,
                 id: sanitizedId,
-                ordinePF: sanitizedId,
+                ordinePF: validData.ordinePF, // Keep original user-facing ID
                 qta: validData.qta ?? existingJob.qta,
                 cliente: validData.cliente ?? existingJob.cliente,
                 numeroODL: validData.numeroODL ?? existingJob.numeroODL,
@@ -189,7 +189,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 postazioneLavoro: 'Da Assegnare',
                 phases: createDefaultPhases(department),
                 cliente: validData.cliente || "N/D",
-                ordinePF: sanitizedId,
+                ordinePF: validData.ordinePF, // Keep original user-facing ID
                 numeroODL: validData.numeroODL || "N/D",
                 details: validData.details || "N/D",
                 qta: validData.qta,
