@@ -1,3 +1,4 @@
+
 import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
@@ -11,7 +12,6 @@ const ADMIN_EMAIL = `daniel.giorlando@${AUTH_EMAIL_DOMAIN}`;
 export async function login(username: string, password_used: string): Promise<Operator | null> {
   let emailForAuth: string;
 
-  // Handle both username and email input
   if (username.toLowerCase() === 'daniel') {
       emailForAuth = ADMIN_EMAIL;
   } else if (username.includes('@')) {
