@@ -4,7 +4,7 @@
 import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod } from '@/lib/mock-data';
-import { differenceInMilliseconds, isWithinInterval, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -91,8 +91,12 @@ export async function getOperatorsReport() {
     const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
-    const allWorkPeriods = jobs.flatMap(job => job.phases.flatMap(phase => phase.workPeriods || []));
-
+    const allWorkPeriods = jobs.flatMap(job => 
+        job.phases.flatMap(phase => 
+            (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))
+        )
+    );
+    
     const now = new Date();
     const todayInterval = { start: startOfDay(now), end: endOfDay(now) };
     const thisWeekInterval = { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
@@ -103,12 +107,23 @@ export async function getOperatorsReport() {
 
         const getTimeInInterval = (interval: { start: Date, end: Date }) => {
             return operatorPeriods.reduce((acc, period) => {
-                 const start = new Date(period.start);
-                if (period.end && isWithinInterval(start, interval)) {
-                    const end = new Date(period.end);
-                     if (isNaN(start.getTime()) || isNaN(end.getTime())) return acc;
-                    return acc + differenceInMilliseconds(end, start);
+                const periodStart = new Date(period.start);
+                // If a period is still active, its end time is 'now'.
+                const periodEnd = period.end ? new Date(period.end) : new Date();
+
+                if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) {
+                    return acc;
                 }
+
+                // Determine the overlapping interval
+                const overlapStart = Math.max(periodStart.getTime(), interval.start.getTime());
+                const overlapEnd = Math.min(periodEnd.getTime(), interval.end.getTime());
+
+                // If there's a valid overlap, add the duration to the accumulator
+                if (overlapStart < overlapEnd) {
+                    return acc + (overlapEnd - overlapStart);
+                }
+                
                 return acc;
             }, 0);
         };
