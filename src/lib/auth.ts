@@ -1,4 +1,3 @@
-
 import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
@@ -6,7 +5,7 @@ import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const AUTH_KEY = 'prodtime_tracker_auth';
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
-const ADMIN_EMAIL = `daniel.giorlando@${AUTH_EMAIL_DOMAIN}`;
+const ADMIN_EMAIL = `daniel@${AUTH_EMAIL_DOMAIN}`;
 
 // Helper to store operator data in local storage
 export const storeOperator = (operator: Operator | null) => {
@@ -27,10 +26,12 @@ export const storeOperator = (operator: Operator | null) => {
 export async function login(username: string, password_used: string) {
     let emailForAuth: string;
 
-    if (username.toLowerCase() === 'daniel' || username.toLowerCase() === 'daniel.giorlando') {
+    // Special handling for the admin user
+    if (username.toLowerCase() === 'daniel') {
         emailForAuth = ADMIN_EMAIL;
     } 
     else {
+        // For all other users, construct email from username
         emailForAuth = `${username.toLowerCase()}@${AUTH_EMAIL_DOMAIN}`;
     }
 
@@ -47,17 +48,17 @@ export async function logout(): Promise<void> {
 }
 
 export function getOperator(): Operator | null {
-  if (typeof window !== 'undefined') {
-    const authDataString = localStorage.getItem(AUTH_KEY);
-    if (authDataString) {
-      try {
-        return JSON.parse(authDataString) as Operator;
-      } catch (e) {
-        console.error("Failed to parse auth data from localStorage", e);
-        localStorage.removeItem(AUTH_KEY);
-        return null;
+    if (typeof window !== 'undefined') {
+      const authDataString = localStorage.getItem(AUTH_KEY);
+      if (authDataString) {
+        try {
+          return JSON.parse(authDataString) as Operator;
+        } catch (e) {
+          console.error("Failed to parse auth data from localStorage", e);
+          localStorage.removeItem(AUTH_KEY);
+          return null;
+        }
       }
     }
-  }
-  return null;
+    return null;
 }

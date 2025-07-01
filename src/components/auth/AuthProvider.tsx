@@ -8,7 +8,7 @@ import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
 import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
-import { logout as firebaseLogout } from '@/lib/auth';
+import { logout as firebaseLogout, getOperator } from '@/lib/auth';
 
 
 interface AuthContextType {
@@ -20,7 +20,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({ user: null, operator: null, loading: true, logout: () => {} });
 
-const ADMIN_EMAIL = 'daniel.giorlando@prodfastxcan.app';
+const ADMIN_EMAIL = 'daniel@prodfastxcan.app';
 const ADMIN_ID = 'op-1';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -48,10 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             };
             // Ensure admin profile exists and is correct in Firestore
             const adminRef = doc(db, "operators", ADMIN_ID);
-            const adminSnap = await getDoc(adminRef);
-            if (!adminSnap.exists() || adminSnap.data().role !== 'admin') {
-                await setDoc(adminRef, operatorProfile, { merge: true });
-            }
+            await setDoc(adminRef, operatorProfile, { merge: true });
         } 
         // --- OPERATOR PATH ---
         else {
