@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -167,34 +168,62 @@ export default function ScanJobPage() {
   };
 
   const handleSimulateWorkstationScanForPhase = (phaseId: string) => {
-    if (!activeJobOrder) return;
+    if (!activeJobOrder || !operator) return;
 
     setIsScanningWorkstationForPhase(true);
-    const simulatedScannedId = activeJobOrder.postazioneLavoro; 
+    const simulatedScannedId = activeJobOrder.postazioneLavoro;
     setScannedWorkstationIdForPhase(simulatedScannedId);
 
     setTimeout(() => {
       setIsScanningWorkstationForPhase(false);
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-      const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-      if (simulatedScannedId === jobToUpdate.postazioneLavoro && phaseToUpdate) {
-        phaseToUpdate.workstationScannedAndVerified = true;
-        setActiveJobOrder(jobToUpdate);
-        persistJobUpdate(jobToUpdate);
-        toast({
-          title: "Scansione Postazione Riuscita!",
-          description: `Postazione ${simulatedScannedId} verificata per fase ${phaseToUpdate.name}.`,
-          action: <CheckCircle className="text-green-500" />,
-        });
-        setPhaseRequiringWorkstationScan(null);
-      } else {
+      // Check 1: Scan success
+      if (simulatedScannedId !== jobToUpdate.postazioneLavoro || !phaseToStart) {
         setPhaseWorkstationAlertInfo({
           title: "Errore Postazione",
           description: `Postazione ${simulatedScannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
         });
         setIsPhaseWorkstationAlertOpen(true);
+        return; // Exit if scan fails
       }
+      
+      if (jobToUpdate.isProblemReported) {
+        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." });
+        return;
+      }
+      
+      const currentPhaseIndex = jobToUpdate.phases.findIndex((p: JobPhase) => p.id === phaseId);
+      if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
+        toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
+        return;
+      }
+
+      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
+        return;
+      }
+      if (currentPhaseIndex > 0 && jobToUpdate.phases[currentPhaseIndex - 1].status !== 'completed') {
+        toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
+        return;
+      }
+
+      // All checks passed, start the phase.
+      phaseToStart.status = 'in-progress';
+      phaseToStart.workstationScannedAndVerified = true; // Mark as scanned
+      phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+
+      setActiveJobOrder(jobToUpdate);
+      persistJobUpdate(jobToUpdate);
+      setCurrentPhaseId(phaseId);
+      setPhaseRequiringWorkstationScan(null); // Clear the scan requirement UI
+      
+      toast({
+        title: "Fase Avviata!",
+        description: `Postazione verificata e fase "${phaseToStart.name}" avviata.`,
+        action: <CheckCircle className="text-green-500" />,
+      });
     }, 1000);
   };
 
@@ -228,49 +257,6 @@ export default function ScanJobPage() {
       action: <PlayCircle className="text-primary" />,
     });
   };
-
- const handleStartPhase = (phaseId: string) => {
-    if (!activeJobOrder || !operator) return;
-
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-
-    if (jobToUpdate.isProblemReported) {
-      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." });
-      return;
-    }
-    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-    if (!phaseToStart) return;
-
-    if (!phaseToStart.workstationScannedAndVerified) {
-        toast({ variant: "destructive", title: "Errore", description: "Scansionare e verificare la postazione prima di avviare la fase." });
-        setPhaseRequiringWorkstationScan(phaseId);
-        return;
-    }
-
-    const currentPhaseIndex = jobToUpdate.phases.findIndex((p: JobPhase) => p.id === phaseId);
-    if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
-      toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
-      return;
-    }
-
-    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
-      toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
-      return;
-    }
-    if (currentPhaseIndex > 0 && jobToUpdate.phases[currentPhaseIndex - 1].status !== 'completed') {
-      toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
-      return;
-    }
-
-    phaseToStart.status = 'in-progress';
-    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-
-    setActiveJobOrder(jobToUpdate);
-    persistJobUpdate(jobToUpdate);
-    setCurrentPhaseId(phaseId);
-    toast({ title: "Fase Avviata", description: `Fase "${phaseToStart.name}" avviata.` });
-  };
-
 
   const handlePausePhase = (phaseId: string) => {
     if (!activeJobOrder) return;
@@ -615,7 +601,6 @@ export default function ScanJobPage() {
           const materialCheckPassed = phase.materialReady; 
 
           const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
-          const canStartPhase = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !!phase.workstationScannedAndVerified;
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused'; // Allow completing even if job problem
@@ -689,11 +674,6 @@ export default function ScanJobPage() {
                      <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
                         <ScanLine className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
                     </Button>
-                )}
-                {canStartPhase && (
-                  <Button size="sm" onClick={() => handleStartPhase(phase.id)} variant="default" disabled={isJobBlockedByProblem}>
-                    <PlayCircle className="mr-2 h-4 w-4" /> Avvia Fase
-                  </Button>
                 )}
                 {canPausePhase && (
                   <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem}>
