@@ -37,9 +37,9 @@ function convertTimestampsToDates(obj: any): any {
 
 const createDefaultPhases = (department: string): JobPhase[] => {
   const preparationPhases: JobPhase[] = [
-    { id: 'prep-1', name: 'PREP. MATERIA PRIMA TRECCIA/CORDA', status: 'pending', materialReady: true, workPeriods: [], sequence: -3, type: 'preparation' },
-    { id: 'prep-2', name: 'PREP. TUBI', status: 'pending', materialReady: true, workPeriods: [], sequence: -2, type: 'preparation' },
-    { id: 'prep-3', name: 'PREP. GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation' },
+    { id: 'prep-1', name: 'TAGLIO TRECCIA/CORDA', status: 'pending', materialReady: true, workPeriods: [], sequence: -3, type: 'preparation' },
+    { id: 'prep-2', name: 'PREPARAZIONE TUBI', status: 'pending', materialReady: true, workPeriods: [], sequence: -2, type: 'preparation' },
+    { id: 'prep-3', name: 'TAGLIO GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation' },
   ];
   
   let productionPhases: JobPhase[];
