@@ -115,6 +115,10 @@ export default function ActiveJobStatusBar() {
 
   const currentPhase = activeJob.phases.find(p => p.status === 'in-progress' || p.status === 'paused');
 
+  if (!currentPhase) {
+    return null;
+  }
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
         <Card className="p-3 shadow-2xl w-full max-w-lg mx-auto pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300">
@@ -122,23 +126,21 @@ export default function ActiveJobStatusBar() {
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                        {currentPhase ? `Fase Attiva: ${currentPhase.name}` : 'Nessuna fase attiva. Selezionane una.'}
+                        Fase Attiva: {currentPhase.name}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {currentPhase && (
-                        <>
-                            <Button variant="outline" size="icon" className="h-9 w-9" onClick={handlePauseResume} disabled={activeJob.isProblemReported}>
-                                {currentPhase.status === 'in-progress' ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                                <span className="sr-only">{currentPhase.status === 'in-progress' ? 'Pausa' : 'Riprendi'}</span>
-                            </Button>
-                            <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleCompletePhase} disabled={activeJob.isProblemReported}>
-                                <Check className="h-4 w-4" />
-                                <span className="sr-only">Completa</span>
-                            </Button>
-                            <Separator orientation="vertical" className="h-6" />
-                        </>
-                    )}
+                    <>
+                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={handlePauseResume} disabled={activeJob.isProblemReported}>
+                            {currentPhase.status === 'in-progress' ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                            <span className="sr-only">{currentPhase.status === 'in-progress' ? 'Pausa' : 'Riprendi'}</span>
+                        </Button>
+                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleCompletePhase} disabled={activeJob.isProblemReported}>
+                            <Check className="h-4 w-4" />
+                            <span className="sr-only">Completa</span>
+                        </Button>
+                        <Separator orientation="vertical" className="h-6" />
+                    </>
                      <Button asChild variant="default" size="sm" className="h-9">
                         <Link href="/scan-job">
                             <Activity className="mr-2 h-4 w-4" />
