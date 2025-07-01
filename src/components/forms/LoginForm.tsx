@@ -11,7 +11,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 import { login } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
-import { initialOperators } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { useToast } from '@/hooks/use-toast';
@@ -20,31 +19,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { QrCode, Fingerprint, Lock, LogIn, User, CameraOff, Loader2, KeyRound } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound } from 'lucide-react';
+
+// Manual type declaration for BarcodeDetector API to ensure compilation
+interface BarcodeDetectorOptions {
+  formats?: string[];
+}
+interface DetectedBarcode {
+  rawValue: string;
+}
+declare class BarcodeDetector {
+  constructor(options?: BarcodeDetectorOptions);
+  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
+}
 
 const manualLoginSchema = z.object({
   username: z.string().min(1, { message: "Il nome utente è obbligatorio." }),
   password: z.string().min(1, { message: "La password è obbligatoria." }),
 });
 
-type LoginStep = 'initial' | 'camera' | 'welcome' | 'face' | 'touch' | 'manual_login' | 'logging_in';
+type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
-    const [scannedOperator, setScannedOperator] = useState<Operator | null>(null);
-    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
     const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading } = useAuth();
+    
+    // Using a ref to hold the media stream to easily access and stop it
+    const streamRef = useRef<MediaStream | null>(null);
 
     // Effect to handle redirection after login
     useEffect(() => {
         if (loading) return;
-
         if (user && operator) {
             toast({
                 title: "Accesso Riuscito",
@@ -54,88 +63,6 @@ export default function LoginForm() {
         }
     }, [user, operator, loading, router, toast]);
 
-
-    useEffect(() => {
-        const streamRef = videoRef.current?.srcObject as MediaStream | null;
-        
-        if (step === 'camera' || step === 'face') {
-            const getCameraPermission = async () => {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    setHasCameraPermission(true);
-                    if (videoRef.current) {
-                        videoRef.current.srcObject = stream;
-                    }
-                } catch (error) {
-                    console.error('Error accessing camera:', error);
-                    setHasCameraPermission(false);
-                    toast({
-                        variant: 'destructive',
-                        title: 'Accesso Fotocamera Negato',
-                        description: 'Abilita i permessi per la fotocamera nelle impostazioni del browser.',
-                    });
-                    setStep('initial');
-                }
-            };
-            getCameraPermission();
-        }
-
-        return () => {
-            if (streamRef) {
-                streamRef.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, [step, toast]);
-
-    const handleStartQrScan = () => {
-        setIsLoading(true);
-        setStep('camera');
-        setTimeout(() => {
-            const operators = initialOperators.filter(op => op.role !== 'admin');
-            const randomOperator = operators.length > 0 ? operators[Math.floor(Math.random() * operators.length)] : null;
-            if (randomOperator) {
-                setScannedOperator(randomOperator);
-                toast({ title: "QR Code Riconosciuto", description: `Operatore ${randomOperator.nome} trovato.` });
-                setStep('welcome');
-            } else {
-                toast({ variant: 'destructive', title: 'Errore', description: 'Nessun operatore valido trovato per la scansione.' });
-                setStep('initial');
-            }
-            setIsLoading(false);
-        }, 2500);
-    };
-    
-    useEffect(() => {
-      if (step === 'welcome') {
-        const timer = setTimeout(() => setStep('face'), 2500);
-        return () => clearTimeout(timer);
-      }
-      if (step === 'face') {
-         setIsLoading(true);
-        const timer = setTimeout(() => {
-            toast({ title: "Viso Riconosciuto", description: "Autenticazione facciale completata." });
-            setStep('touch');
-            setIsLoading(false);
-        }, 2500);
-        return () => clearTimeout(timer);
-      }
-    }, [step, toast]);
-
-    const handleTouchAuth = async () => {
-        setIsLoading(true);
-        if (scannedOperator && scannedOperator.password) {
-            await performLogin(scannedOperator.nome, scannedOperator.password);
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'Errore',
-                description: 'Dati operatore per login non disponibili.',
-            });
-            setIsLoading(false);
-            setStep('initial');
-        }
-    };
-    
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
@@ -150,11 +77,97 @@ export default function LoginForm() {
                 variant: "destructive",
             });
             setIsLoading(false); // Reset loading on failure
-            setStep('manual_login'); // Go back to manual login form on failure
-        } 
-        // No finally block to reset isLoading, because redirection will unmount the component on success
-    }, [toast]);
+            setStep(step === 'camera' ? 'camera' : 'manual_login'); // Go back to the previous form on failure
+        }
+    }, [toast, step]);
 
+
+    // Effect for handling the camera and QR code detection
+    useEffect(() => {
+        let detectionInterval: NodeJS.Timeout;
+
+        const startScan = async () => {
+            if (step !== 'camera' || !videoRef.current) return;
+
+            if (!('BarcodeDetector' in window)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Funzionalità non Supportata',
+                    description: 'Il tuo browser non supporta la scansione di QR code. Prova ad usare Chrome o accedi manually.',
+                });
+                setStep('initial');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                }
+
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+                
+                detectionInterval = setInterval(async () => {
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
+                    try {
+                        const barcodes = await barcodeDetector.detect(videoRef.current);
+                        if (barcodes.length > 0) {
+                            const scannedData = barcodes[0].rawValue;
+                            const [username, password] = scannedData.split('@');
+                            
+                            if (username && password) {
+                                toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
+                                stopScan();
+                                await performLogin(username, password);
+                            } else {
+                                toast({
+                                    variant: 'destructive',
+                                    title: 'Formato QR Code non Valido',
+                                    description: 'Il QR code deve contenere "nomeutente@password".',
+                                });
+                            }
+                        }
+                    } catch (scanError) {
+                        // Ignore detection errors, they can happen often
+                    }
+                }, 500); // Scan every 500ms
+
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                toast({
+                    variant: 'destructive',
+                    title: 'Accesso Fotocamera Negato',
+                    description: 'Abilita i permessi per la fotocamera nelle impostazioni del browser.',
+                });
+                setStep('initial');
+            }
+        };
+
+        const stopScan = () => {
+             if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
+            }
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+            }
+             if (videoRef.current) {
+                videoRef.current.srcObject = null;
+            }
+        };
+
+        if (step === 'camera') {
+            startScan();
+        }
+
+        return () => {
+            stopScan();
+        };
+    }, [step, performLogin, toast]);
+
+    
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
         defaultValues: { username: "", password: "" },
@@ -162,19 +175,6 @@ export default function LoginForm() {
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
         performLogin(values.username, values.password);
-    };
-
-    const getAvatarFallback = (op: Operator) => {
-      if (!op) return '';
-      const name = op.nome || '';
-      const lastname = op.cognome || '';
-      const firstInitial = name.charAt(0);
-      const lastInitial = lastname.charAt(0);
-
-      if (firstInitial && lastInitial) {
-        return `${firstInitial}${lastInitial}`;
-      }
-      return name.substring(0, 2);
     };
 
     const renderStep = () => {
@@ -188,9 +188,9 @@ export default function LoginForm() {
                              <CardDescription className="text-muted-foreground">Seleziona una modalità di accesso.</CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-4">
-                            <Button onClick={handleStartQrScan} size="lg" className="h-16 text-lg" disabled={isLoading}>
-                               {isLoading ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <QrCode className="mr-3 h-8 w-8" />}
-                                Accesso Rapido con QR
+                            <Button onClick={() => setStep('camera')} size="lg" className="h-16 text-lg" disabled={isLoading}>
+                               <QrCode className="mr-3 h-8 w-8" />
+                                Accedi con QR Code
                             </Button>
                             <Button onClick={() => setStep('manual_login')} variant="outline">
                                 <KeyRound className="mr-2 h-4 w-4" />
@@ -200,78 +200,27 @@ export default function LoginForm() {
                     </motion.div>
                 );
             case 'camera':
-            case 'face':
-                const isFaceScan = step === 'face';
                 return (
                     <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                          <CardHeader>
-                            <CardTitle className="text-center font-headline">{isFaceScan ? "Riconoscimento Facciale" : "Scansione QR Code"}</CardTitle>
-                            <CardDescription className="text-center">{isFaceScan ? "Posiziona il tuo volto nel cerchio." : "Inquadra il QR code del tuo cartellino."}</CardDescription>
+                            <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
+                            <CardDescription className="text-center">Inquadra il tuo QR code personale per accedere.</CardDescription>
                         </CardHeader>
-                        <CardContent className="relative flex items-center justify-center aspect-video bg-black rounded-lg">
-                            {hasCameraPermission === false && (
-                                <Alert variant="destructive" className="flex flex-col items-center text-center m-4">
-                                    <CameraOff className="h-8 w-8 mb-2" />
-                                    <AlertTitle>Fotocamera non disponibile</AlertTitle>
-                                    <AlertDescription>Controlla i permessi nel browser.</AlertDescription>
-                                </Alert>
-                            )}
-                             <video ref={videoRef} className={cn("w-full h-full object-cover rounded-md", hasCameraPermission ? "block" : "hidden")} autoPlay muted playsInline />
-                            {hasCameraPermission && (
-                                <>
-                                    <div className={cn("absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none")}>
-                                        <div className={cn("w-2/3 h-2/3 border-4 border-dashed border-primary/70", isFaceScan ? "rounded-full" : "rounded-lg")} />
-                                    </div>
-                                </>
-                            )}
-                             {isLoading && (
-                                 <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center">
-                                    <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                                    <p className="mt-4 text-lg font-medium text-foreground">{isFaceScan ? "Analisi..." : "Scansione..."}</p>
-                                 </div>
-                             )}
+                        <CardContent className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                             <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                             <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+                                <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
+                             </div>
                         </CardContent>
                         <CardFooter className="pt-6">
                             <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                         </CardFooter>
                     </motion.div>
                 );
-            case 'welcome':
-                if (!scannedOperator) { setStep('initial'); return null; }
-                return (
-                     <motion.div key="welcome" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center p-8 flex flex-col items-center justify-center aspect-video">
-                         <Avatar className="h-24 w-24 mx-auto mb-4 border-4 border-primary">
-                             <AvatarImage src={`https://placehold.co/100x100.png?text=${getAvatarFallback(scannedOperator)}`} alt={scannedOperator.nome} data-ai-hint="avatar persona" />
-                            <AvatarFallback>{getAvatarFallback(scannedOperator)}</AvatarFallback>
-                        </Avatar>
-                        <h2 className="text-3xl font-bold font-headline">Buongiorno, {scannedOperator.nome}!</h2>
-                        <p className="text-muted-foreground mt-2">Autenticazione in corso...</p>
-                        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mt-6" />
-                     </motion.div>
-                );
-            case 'touch':
-                if (!scannedOperator) { setStep('initial'); return null; }
-                return (
-                     <motion.div key="touch" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-                         <CardHeader className="text-center">
-                            <CardTitle className="text-2xl font-headline">Verifica Finale</CardTitle>
-                            <CardDescription>Conferma la tua identità per completare l'accesso.</CardDescription>
-                         </CardHeader>
-                         <CardContent className="flex flex-col items-center justify-center gap-6 py-8">
-                             <Button onClick={handleTouchAuth} variant="outline" className="h-24 w-24 rounded-full border-4 border-primary/50 flex flex-col items-center justify-center hover:bg-primary/10" disabled={isLoading}>
-                                 {isLoading ? <Loader2 className="h-10 w-10 animate-spin text-primary"/> : <Fingerprint className="h-12 w-12 text-primary"/>}
-                             </Button>
-                             <span className="text-sm text-muted-foreground">Tocca il sensore</span>
-                         </CardContent>
-                         <CardFooter>
-                            <Button variant="link" className="w-full" onClick={() => setStep('initial')}>Accedi con un'altra modalità</Button>
-                         </CardFooter>
-                     </motion.div>
-                );
             case 'manual_login':
                  return (
                      <motion.div key="manual_login" initial={{ opacity: 0, x: 100 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 100 }}>
-                        <Form {...manualForm}>
+                        <Form {...form}>
                             <form onSubmit={manualForm.handleSubmit(onManualSubmit)}>
                                  <CardHeader className="items-center text-center">
                                     <Image src="/logo.svg" alt="PFXcan Logo" width={120} height={80} className="mb-4" />
@@ -283,7 +232,7 @@ export default function LoginForm() {
                                     <FormField control={manualForm.control} name="password" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Lock className="mr-2 h-5 w-5" />Password</FormLabel> <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">
-                                    <Button type="submit" className="w-full" disabled={isLoading}>
+                                    <Button type="submit" className="w-full" disabled={isLoading || loading}>
                                         {isLoading || loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
                                         {isLoading || loading ? "Verifica..." : "Accedi"}
                                     </Button>
