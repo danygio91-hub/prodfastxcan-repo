@@ -32,7 +32,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
-  cognome: z.string().min(1, "Il cognome è obbligatorio."),
+  cognome: z.string().optional(),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina']),
   role: z.enum(['admin', 'superadvisor', 'operator']),
 });
@@ -261,7 +261,7 @@ export default function AdminOperatorManagementPage() {
                 )} />
                 <FormField control={form.control} name="cognome" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Cognome</FormLabel>
+                    <FormLabel>Cognome (Opzionale)</FormLabel>
                     <FormControl><Input placeholder="Es. Rossi" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>

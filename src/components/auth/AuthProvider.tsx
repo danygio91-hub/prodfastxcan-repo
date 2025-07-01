@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 
@@ -21,6 +21,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({ user: null, operator: null, loading: true, logout: () => {} });
 
 const ADMIN_EMAIL = 'daniel.giorlando@prodfastxcan.app';
+const ADMIN_ID = 'op-1';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -34,10 +35,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         let operatorProfile: Operator | null = null;
         
+        // --- ADMIN PATH ---
         if (firebaseUser.email === ADMIN_EMAIL) {
-            // Handle Admin User
             operatorProfile = {
-                id: 'op-1',
+                id: ADMIN_ID,
                 nome: 'Daniel',
                 cognome: 'Giorlando',
                 reparto: 'N/D',
@@ -45,31 +46,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 role: 'admin',
                 privacySigned: true,
             };
-            // Ensure Firestore is in sync
-            try {
-                await setDoc(doc(db, "operators", "op-1"), operatorProfile, { merge: true });
-            } catch(e) {
-                console.error("Failed to sync admin profile", e);
+            // Ensure admin profile exists and is correct in Firestore
+            const adminRef = doc(db, "operators", ADMIN_ID);
+            const adminSnap = await getDoc(adminRef);
+            if (!adminSnap.exists() || adminSnap.data().role !== 'admin') {
+                await setDoc(adminRef, operatorProfile, { merge: true });
             }
-        } else {
-            // Handle Regular Operator
+        } 
+        // --- OPERATOR PATH ---
+        else {
             const operatorsSnap = await getDocs(collection(db, 'operators'));
             const allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
             
-            const foundOperator = allOperators.find(op => {
-                const operatorEmail = `${op.nome.toLowerCase()}.${op.cognome.toLowerCase().replace(/\s+/g, '')}@prodfastxcan.app`;
-                return operatorEmail === firebaseUser.email;
-            });
+            // Find operator by matching the start of the email with the name
+            const userNameFromEmail = firebaseUser.email?.split('@')[0];
+            const foundOperator = allOperators.find(op => op.nome.toLowerCase() === userNameFromEmail);
 
             if (foundOperator) {
                 operatorProfile = { ...foundOperator, stato: 'attivo' };
-                 // Update status in Firestore if necessary
+                // Update status in Firestore if necessary
                 if (foundOperator.stato !== 'attivo') {
-                    try {
-                        await setDoc(doc(db, "operators", foundOperator.id), { stato: 'attivo' }, { merge: true });
-                    } catch(e) {
-                        console.error("Failed to update operator status", e);
-                    }
+                    const operatorRef = doc(db, "operators", foundOperator.id);
+                    await setDoc(operatorRef, { stato: 'attivo' }, { merge: true });
                 }
             }
         }
@@ -91,6 +89,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
   
   const handleLogout = useCallback(async () => {
+    // If the logged-out user is an operator, set their status to 'inattivo'
+    const currentOperator = getOperator();
+    if(currentOperator && currentOperator.role !== 'admin') {
+      const operatorRef = doc(db, "operators", currentOperator.id);
+      await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
+    }
+    
     await firebaseLogout();
     router.push('/');
   }, [router]);

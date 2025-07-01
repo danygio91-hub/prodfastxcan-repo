@@ -11,7 +11,7 @@ import type { Operator } from '@/lib/mock-data';
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
-  cognome: z.string().min(1, 'Il cognome è obbligatorio.'),
+  cognome: z.string().optional(),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'], {
     errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
   }),
@@ -47,7 +47,8 @@ export async function saveOperator(formData: FormData) {
     validatedFields.data.reparto = 'Officina';
   }
 
-  const { id, nome, cognome, reparto, role } = validatedFields.data;
+  const { id, nome, reparto, role } = validatedFields.data;
+  const cognome = validatedFields.data.cognome || '';
   
   if (id) {
     // Update existing operator

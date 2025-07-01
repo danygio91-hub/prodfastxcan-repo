@@ -25,7 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { QrCode, Fingerprint, Lock, LogIn, User, CameraOff, Loader2, KeyRound } from 'lucide-react';
 
 const manualLoginSchema = z.object({
-  username: z.string().min(1, { message: "Il nome utente o l'email sono obbligatori." }),
+  username: z.string().min(1, { message: "Il nome utente è obbligatorio." }),
   password: z.string().min(1, { message: "La password è obbligatoria." }),
 });
 
@@ -39,19 +39,20 @@ export default function LoginForm() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const router = useRouter();
     const { toast } = useToast();
-    const { operator, loading } = useAuth();
+    const { user, operator, loading } = useAuth();
 
     // Effect to handle redirection after login
     useEffect(() => {
-        // We are logged in if the operator object is available and not loading
-        if (!loading && operator) {
+        if (loading) return;
+
+        if (user && operator) {
             toast({
                 title: "Accesso Riuscito",
                 description: `Benvenuto, ${operator.nome}! Reindirizzamento...`,
             });
             router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
         }
-    }, [operator, loading, router, toast]);
+    }, [user, operator, loading, router, toast]);
 
 
     useEffect(() => {
@@ -148,10 +149,10 @@ export default function LoginForm() {
                 description: errorMessage,
                 variant: "destructive",
             });
-            setStep('initial');
-        } finally {
-            setIsLoading(false);
-        }
+            setIsLoading(false); // Reset loading on failure
+            setStep('manual_login'); // Go back to manual login form on failure
+        } 
+        // No finally block to reset isLoading, because redirection will unmount the component on success
     }, [toast]);
 
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
@@ -161,6 +162,19 @@ export default function LoginForm() {
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
         performLogin(values.username, values.password);
+    };
+
+    const getAvatarFallback = (op: Operator) => {
+      if (!op) return '';
+      const name = op.nome || '';
+      const lastname = op.cognome || '';
+      const firstInitial = name.charAt(0);
+      const lastInitial = lastname.charAt(0);
+
+      if (firstInitial && lastInitial) {
+        return `${firstInitial}${lastInitial}`;
+      }
+      return name.substring(0, 2);
     };
 
     const renderStep = () => {
@@ -227,8 +241,8 @@ export default function LoginForm() {
                 return (
                      <motion.div key="welcome" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center p-8 flex flex-col items-center justify-center aspect-video">
                          <Avatar className="h-24 w-24 mx-auto mb-4 border-4 border-primary">
-                             <AvatarImage src={`https://placehold.co/100x100.png?text=${scannedOperator.nome.charAt(0)}${scannedOperator.cognome.charAt(0)}`} alt={scannedOperator.nome} data-ai-hint="avatar persona" />
-                            <AvatarFallback>{scannedOperator.nome.charAt(0)}{scannedOperator.cognome.charAt(0)}</AvatarFallback>
+                             <AvatarImage src={`https://placehold.co/100x100.png?text=${getAvatarFallback(scannedOperator)}`} alt={scannedOperator.nome} data-ai-hint="avatar persona" />
+                            <AvatarFallback>{getAvatarFallback(scannedOperator)}</AvatarFallback>
                         </Avatar>
                         <h2 className="text-3xl font-bold font-headline">Buongiorno, {scannedOperator.nome}!</h2>
                         <p className="text-muted-foreground mt-2">Autenticazione in corso...</p>
@@ -265,13 +279,13 @@ export default function LoginForm() {
                                     <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
                                  </CardHeader>
                                 <CardContent className="space-y-6">
-                                    <FormField control={manualForm.control} name="username" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><User className="mr-2 h-5 w-5" />Nome Utente o Email</FormLabel> <FormControl><Input placeholder="Es. Daniel o daniel.giorlando@..." {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                    <FormField control={manualForm.control} name="username" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><User className="mr-2 h-5 w-5" />Nome Utente</FormLabel> <FormControl><Input placeholder="Es. Daniel" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                     <FormField control={manualForm.control} name="password" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Lock className="mr-2 h-5 w-5" />Password</FormLabel> <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">
                                     <Button type="submit" className="w-full" disabled={isLoading}>
-                                        {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                                        {isLoading ? "Verifica..." : "Accedi"}
+                                        {isLoading || loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                                        {isLoading || loading ? "Verifica..." : "Accedi"}
                                     </Button>
                                     <Button variant="link" size="sm" onClick={() => setStep('initial')}>Torna all'accesso rapido</Button>
                                 </CardFooter>

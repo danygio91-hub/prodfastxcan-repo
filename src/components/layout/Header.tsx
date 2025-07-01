@@ -25,7 +25,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function Header() {
   const { operator, logout } = useAuth();
-  const operatorName = operator ? `${operator.nome} ${operator.cognome}` : null;
+  const operatorName = operator ? operator.nome : null;
 
   const handleRefresh = () => {
     window.location.reload();
@@ -34,11 +34,13 @@ export default function Header() {
   const getInitials = (name: string | null) => {
     if (!name) return 'OP';
     const names = name.split(' ');
-    if (names.length > 1) {
-      return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
-    }
-    return name.substring(0, 2).toUpperCase();
+    const firstInitial = names[0]?.[0] || '';
+    const lastInitial = names.length > 1 ? names[names.length - 1][0] : (names[0]?.[1] || '');
+    return `${firstInitial}${lastInitial}`.toUpperCase();
   };
+  
+  const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
+  const displayInitials = getInitials(avatarName);
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
@@ -64,8 +66,8 @@ export default function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-10 w-10 rounded-full">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={`https://placehold.co/100x100.png?text=${getInitials(operatorName)}`} alt={operatorName || "Operatore"} data-ai-hint="avatar persona" />
-                  <AvatarFallback>{getInitials(operatorName)}</AvatarFallback>
+                  <AvatarImage src={`https://placehold.co/100x100.png?text=${displayInitials}`} alt={avatarName} data-ai-hint="avatar persona" />
+                  <AvatarFallback>{displayInitials}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>

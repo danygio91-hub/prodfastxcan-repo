@@ -46,7 +46,7 @@ export const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 export interface Operator {
   id: string;
   nome: string;
-  cognome: string;
+  cognome?: string;
   reparto: Reparto;
   stato: StatoOperatore;
   password?: string;

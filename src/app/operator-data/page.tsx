@@ -7,9 +7,9 @@ import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Users, User, Mail, Factory, FileLock, Check } from 'lucide-react';
-import { getOperator } from '@/lib/auth';
+import { Users, User, Mail, Factory, FileLock, Check, Loader2 } from 'lucide-react';
 import { type Operator, type Reparto } from '@/lib/mock-data';
+import { useAuth } from '@/components/auth/AuthProvider';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -19,33 +19,33 @@ import { getDepartmentMap } from '@/app/admin/settings/actions';
 
 
 export default function OperatorDataPage() {
-  const [operatorData, setOperatorData] = useState<Operator | null>(null);
+  const { user, operator: operatorData, loading } = useAuth();
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [isSigned, setIsSigned] = useState(false); 
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
+  
+  // Use a state to hold a mutable copy of operator data for UI updates
+  const [currentOperator, setCurrentOperator] = useState<Operator | null>(null);
 
   useEffect(() => {
-    const operator = getOperator();
-    setOperatorData(operator);
-    if (operator?.privacySigned) {
-        setIsSigned(true);
-        setPrivacyAccepted(true);
-    } else {
-        setIsSigned(false);
-        setPrivacyAccepted(false);
+    if (operatorData) {
+      setCurrentOperator(operatorData);
+      const signed = !!operatorData.privacySigned;
+      setIsSigned(signed);
+      setPrivacyAccepted(signed);
     }
     getDepartmentMap().then(setDepartmentMap);
-  }, []);
+  }, [operatorData]);
 
   const getFullDepartmentName = (repartoCode: string) => {
     return departmentMap[repartoCode as keyof typeof departmentMap] || 'N/D';
   }
 
-  const email = operatorData ? `${operatorData.nome.toLowerCase()}.${operatorData.cognome.toLowerCase()}@example.com` : "N/A";
+  const email = user?.email || '...';
   
   const handleSaveSignature = async () => {
-    if (!operatorData) {
+    if (!currentOperator) {
         toast({
             variant: "destructive",
             title: "Errore",
@@ -54,7 +54,7 @@ export default function OperatorDataPage() {
         return;
     }
 
-    const result = await signPrivacyPolicy(operatorData.id);
+    const result = await signPrivacyPolicy(currentOperator.id);
 
     if (result.success) {
         setIsSigned(true);
@@ -63,7 +63,7 @@ export default function OperatorDataPage() {
             description: "Grazie per aver accettato l'informativa sulla privacy.",
         });
         // Update local state to reflect change immediately
-        setOperatorData({ ...operatorData, privacySigned: true });
+        setCurrentOperator({ ...currentOperator, privacySigned: true });
     } else {
          toast({
             variant: "destructive",
@@ -72,6 +72,16 @@ export default function OperatorDataPage() {
         });
     }
   };
+
+  if (loading) {
+    return (
+       <AppShell>
+         <div className="space-y-6">
+            <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" />
+         </div>
+       </AppShell>
+    )
+  }
 
   return (
     <AuthGuard>
@@ -96,14 +106,7 @@ export default function OperatorDataPage() {
                     <User className="mr-2 h-5 w-5 text-primary" />
                     Nome
                   </Label>
-                  <Input id="firstName" value={operatorData?.nome || '...'} readOnly className="bg-input text-foreground" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName" className="flex items-center text-foreground/80">
-                    <User className="mr-2 h-5 w-5 text-primary" />
-                    Cognome
-                  </Label>
-                  <Input id="lastName" value={operatorData?.cognome || '...'} readOnly className="bg-input text-foreground" />
+                  <Input id="firstName" value={currentOperator?.nome || '...'} readOnly className="bg-input text-foreground" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email" className="flex items-center text-foreground/80">
@@ -112,12 +115,12 @@ export default function OperatorDataPage() {
                   </Label>
                   <Input id="email" type="email" value={email} readOnly className="bg-input text-foreground" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="department" className="flex items-center text-foreground/80">
                     <Factory className="mr-2 h-5 w-5 text-primary" />
                     Reparto di Produzione
                   </Label>
-                  <Input id="department" value={operatorData ? getFullDepartmentName(operatorData.reparto) : '...'} readOnly className="bg-input text-foreground" />
+                  <Input id="department" value={currentOperator ? getFullDepartmentName(currentOperator.reparto) : '...'} readOnly className="bg-input text-foreground" />
                 </div>
               </div>
             </CardContent>

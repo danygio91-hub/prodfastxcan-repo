@@ -61,7 +61,7 @@ export async function getJobsReport() {
         const operators = operatorIds
             .map(id => {
                 const op = operatorsMap.get(id);
-                return op ? `${op.nome} ${op.cognome}` : 'Sconosciuto';
+                return op ? op.nome : 'Sconosciuto';
             })
             .join(', ');
 
@@ -115,7 +115,7 @@ export async function getOperatorsReport() {
         
         return {
             id: op.id,
-            name: `${op.nome} ${op.cognome}`,
+            name: op.nome,
             department: op.reparto,
             status: op.stato,
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
@@ -141,7 +141,7 @@ export async function getJobDetailReport(jobId: string) {
         const operators = operatorIds
             .map(id => {
                 const op = operatorsMap.get(id);
-                return op ? `${op.nome} ${op.cognome}` : 'Sconosciuto';
+                return op ? op.nome : 'Sconosciuto';
             })
             .join(', ');
 
