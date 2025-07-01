@@ -51,7 +51,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -71,6 +71,7 @@ export default function AdminDataManagementCommessePage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -114,6 +115,20 @@ export default function AdminDataManagementCommessePage() {
       prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
     );
   };
+
+  const handleSelectAllProduction = (checked: boolean | 'indeterminate') => {
+    if (checked === true) {
+      setSelectedProductionRows(productionJobOrders.map(job => job.id));
+    } else {
+      setSelectedProductionRows([]);
+    }
+  };
+
+  const handleSelectProductionRow = (id: string) => {
+    setSelectedProductionRows(prev =>
+      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+    );
+  };
   
   const handleCreateOdl = async (jobId: string) => {
     const result = await createODL(jobId);
@@ -153,6 +168,21 @@ export default function AdminDataManagementCommessePage() {
         fetchPlannedJobOrders();
         fetchProductionJobOrders();
         setSelectedRows([]);
+    }
+  };
+
+   const handleCancelSelectedOdls = async () => {
+    if (selectedProductionRows.length === 0) return;
+    const result = await cancelMultipleODLs(selectedProductionRows);
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+        fetchPlannedJobOrders();
+        fetchProductionJobOrders();
+        setSelectedProductionRows([]);
     }
   };
 
@@ -545,12 +575,36 @@ export default function AdminDataManagementCommessePage() {
             <TabsContent value="production">
                 <Card className="shadow-lg">
                   <CardHeader>
-                    <div className="flex items-center space-x-3">
-                        <Briefcase className="h-8 w-8 text-primary" />
-                        <div>
-                        <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
-                        <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
-                        </div>
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                      <div className="flex items-center space-x-3">
+                          <Briefcase className="h-8 w-8 text-primary" />
+                          <div>
+                          <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
+                          <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
+                          </div>
+                      </div>
+                       {selectedProductionRows.length > 0 && (
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm">
+                                  <XCircle className="mr-2 h-4 w-4" />
+                                  Annulla ODL Selezionati ({selectedProductionRows.length})
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Sei sicuro di voler annullare gli ODL selezionati?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Questa azione riporterà le {selectedProductionRows.length} commesse selezionate allo stato di "Pianificata".
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleCancelSelectedOdls} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                       )}
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -559,6 +613,14 @@ export default function AdminDataManagementCommessePage() {
                         <Table>
                           <TableHeader>
                             <TableRow>
+                               <TableHead padding="checkbox">
+                                <Checkbox
+                                  checked={selectedProductionRows.length > 0 && selectedProductionRows.length === productionJobOrders.length}
+                                  onCheckedChange={handleSelectAllProduction}
+                                  aria-label="Seleziona tutte"
+                                  indeterminate={selectedProductionRows.length > 0 && selectedProductionRows.length < productionJobOrders.length}
+                                />
+                              </TableHead>
                               <TableHead>Cliente</TableHead>
                               <TableHead>Ordine PF</TableHead>
                               <TableHead>Ordine Nr Est</TableHead>
@@ -571,7 +633,14 @@ export default function AdminDataManagementCommessePage() {
                           </TableHeader>
                           <TableBody>
                             {productionJobOrders.map((job) => (
-                              <TableRow key={job.id}>
+                              <TableRow key={job.id} data-state={selectedProductionRows.includes(job.id) ? "selected" : undefined}>
+                                 <TableCell padding="checkbox">
+                                  <Checkbox
+                                    checked={selectedProductionRows.includes(job.id)}
+                                    onCheckedChange={() => handleSelectProductionRow(job.id)}
+                                    aria-label={`Seleziona commessa ${job.id}`}
+                                  />
+                                </TableCell>
                                 <TableCell>{job.cliente}</TableCell>
                                 <TableCell className="font-medium">{job.ordinePF}</TableCell>
                                 <TableCell>{job.numeroODL}</TableCell>

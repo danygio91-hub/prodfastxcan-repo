@@ -345,3 +345,46 @@ export async function cancelODL(jobId: string): Promise<{ success: boolean; mess
   revalidatePath('/admin/production-console');
   return { success: true, message: `ODL per la commessa ${jobId} annullato. La commessa è di nuovo pianificata.` };
 }
+
+
+export async function cancelMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
+  if (jobIds.length === 0) {
+    return { success: false, message: 'Nessun ID fornito.' };
+  }
+  
+  const batch = writeBatch(db);
+  let canceledCount = 0;
+  let failedCount = 0;
+
+  for (const jobId of jobIds) {
+    const jobRef = doc(db, "jobOrders", jobId);
+    const docSnap = await getDoc(jobRef);
+
+    if (docSnap.exists() && docSnap.data().status === 'production') {
+      batch.update(jobRef, { status: 'planned' });
+      canceledCount++;
+    } else {
+      failedCount++;
+    }
+  }
+
+  if (canceledCount > 0) {
+    await batch.commit();
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
+  }
+
+  let message = '';
+  if (canceledCount > 0) {
+    message += `${canceledCount} ODL annullati con successo.`;
+  }
+  if (failedCount > 0) {
+    message += ` ${failedCount} commesse non sono state processate perché non trovate o non in produzione.`;
+  }
+  
+  if (canceledCount === 0 && failedCount > 0) {
+      return { success: false, message: `Nessun ODL annullato. Le commesse selezionate non sono valide per questa operazione.` };
+  }
+  
+  return { success: true, message: message.trim() };
+}
