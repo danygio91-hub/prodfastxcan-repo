@@ -4,8 +4,8 @@
   "description": "Applicazione per il Tracciamento dei Tempi di Produzione",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#22272b",
-  "theme_color": "#22272b",
+  "background_color": "#171a1c",
+  "theme_color": "#171a1c",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
