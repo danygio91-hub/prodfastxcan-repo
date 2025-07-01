@@ -6,7 +6,7 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { getOperatorDetailReport } from '../actions';
+import { getOperatorDetailReport } from '../../actions';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, User, Clock, Calendar, Briefcase } from 'lucide-react';
 
