@@ -45,11 +45,10 @@ export default function LoginForm() {
     const [isLoading, setIsLoading] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
+    const streamRef = useRef<MediaStream | null>(null);
     const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading } = useAuth();
-    
-    const streamRef = useRef<MediaStream | null>(null);
 
     useEffect(() => {
         if (loading) return;
@@ -79,88 +78,80 @@ export default function LoginForm() {
         }
     }, [toast]);
 
-
     useEffect(() => {
-        let detectionInterval: NodeJS.Timeout;
-
-        const stopScan = () => {
-             if (streamRef.current) {
+        if (step !== 'camera') {
+            if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
                 streamRef.current = null;
             }
-            if (detectionInterval) {
-                clearInterval(detectionInterval);
-            }
-             if (videoRef.current) {
-                videoRef.current.srcObject = null;
-            }
-        };
-        
-        const startScan = async () => {
-            if (step !== 'camera' || !videoRef.current) return;
+            return;
+        }
 
-            if (!('BarcodeDetector' in window)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Funzionalità non Supportata',
-                    description: 'Il tuo browser non supporta la scansione di QR code. Prova ad usare Chrome o accedi manualmente.',
-                });
-                setStep('initial');
-                return;
-            }
+        let detectionInterval: ReturnType<typeof setInterval>;
+        let localStream: MediaStream | null = null;
 
+        const startCameraAndScan = async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                streamRef.current = stream;
+                if (!('BarcodeDetector' in window)) {
+                    toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
+                    setStep('manual_login');
+                    return;
+                }
+
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                streamRef.current = localStream;
                 setHasCameraPermission(true);
-                
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play();
+
+                const video = videoRef.current;
+                if (video) {
+                    video.srcObject = localStream;
+                    video.onloadedmetadata = () => {
+                        video.play().catch(e => console.error("Video play failed:", e));
+                    };
                 }
 
                 const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-                
+
                 detectionInterval = setInterval(async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended || !videoRef.current.srcObject) return;
-                    try {
-                        const barcodes = await barcodeDetector.detect(videoRef.current);
-                        if (barcodes.length > 0) {
-                            const scannedData = barcodes[0].rawValue;
-                            const [username, password] = scannedData.split('@');
-                            
-                            if (username && password) {
-                                toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
-                                stopScan();
-                                await performLogin(username, password);
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
+
+                    const barcodes = await barcodeDetector.detect(videoRef.current);
+                    if (barcodes.length > 0) {
+                        const scannedData = barcodes[0].rawValue;
+                        const [username, password] = scannedData.split('@');
+                        
+                        if (username && password) {
+                            clearInterval(detectionInterval);
+                            if (streamRef.current) {
+                                streamRef.current.getTracks().forEach(track => track.stop());
+                                streamRef.current = null;
                             }
+                            toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
+                            performLogin(username, password);
                         }
-                    } catch (scanError) {
-                        // Ignore detection errors, they can happen often
                     }
                 }, 500);
 
-            } catch (error) {
-                console.error('Error accessing camera:', error);
+            } catch (err) {
+                console.error("Camera access error:", err);
                 setHasCameraPermission(false);
-                toast({
-                    variant: 'destructive',
-                    title: 'Accesso Fotocamera Negato',
-                    description: 'Abilita i permessi per la fotocamera nelle impostazioni del browser.',
-                });
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach(track => track.stop());
+                    streamRef.current = null;
+                }
             }
         };
 
-        if (step === 'camera') {
-            startScan();
-        }
+        startCameraAndScan();
 
         return () => {
-            stopScan();
+            clearInterval(detectionInterval);
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+            }
         };
     }, [step, performLogin, toast]);
 
-    
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
         defaultValues: { username: "", password: "" },
