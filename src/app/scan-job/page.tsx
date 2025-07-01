@@ -18,18 +18,19 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2 } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
-import { getOperator } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob } from './actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useActiveJob } from '@/contexts/ActiveJobProvider';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -68,15 +69,13 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 
 export default function ScanJobPage() {
   const { toast } = useToast();
-  const [operator, setOperator] = useState<Operator | null>(null);
-  const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished'>('initial');
+  const { operator } = useAuth();
+  const { activeJob: activeJobOrder, setActiveJob: setActiveJobOrder, isLoading: isJobLoading } = useActiveJob();
+  const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
-
-  const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
-  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
   
@@ -87,15 +86,73 @@ export default function ScanJobPage() {
   const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
   
   useEffect(() => {
-      setOperator(getOperator());
-  }, []);
+    if (!isJobLoading) {
+      if (activeJobOrder) {
+        if (activeJobOrder.status === 'completed') {
+          setStep('finished');
+        } else {
+          setStep('processing');
+        }
+      } else {
+        setStep('initial');
+      }
+    } else {
+      setStep('loading');
+    }
+  }, [isJobLoading, activeJobOrder]);
 
+  const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder | null) => {
+    setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
+    if (updatedJob === null) return;
+
+    const result = await updateJob(updatedJob);
+    if (!result.success) {
+        toast({
+            variant: "destructive",
+            title: "Errore di Sincronizzazione",
+            description: result.message || "Impossibile salvare lo stato della commessa.",
+        });
+        // Optionally revert state here if sync fails
+    }
+  }, [setActiveJobOrder, toast]);
+  
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
     }
   }, []);
+
+  const handleStartOverallJob = useCallback((jobToStart: JobOrder) => {
+    if (!jobToStart) return;
+     if (jobToStart.isProblemReported) {
+      toast({
+        variant: "destructive",
+        title: "Lavorazione Bloccata",
+        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
+      });
+      setStep('initial');
+      return;
+    }
+    const jobWithStartTime = {
+        ...jobToStart,
+        overallStartTime: jobToStart.overallStartTime || new Date(),
+        phases: jobToStart.phases.map(p => ({
+            ...p,
+            status: p.status,
+            workPeriods: p.workPeriods || [], 
+            workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+        }))
+    };
+    handleUpdateAndPersistJob(jobWithStartTime);
+    setStep('processing');
+    toast({
+      title: "Lavorazione Avviata",
+      description: `Lavoro iniziato per commessa ${jobToStart.id}.`,
+      action: <PlayCircle className="text-primary" />,
+    });
+  }, [handleUpdateAndPersistJob, toast]);
+
 
   const handleScannedData = useCallback(async (data: string) => {
     const parts = data.split('@');
@@ -121,7 +178,7 @@ export default function ScanJobPage() {
         toast({ title: "Commessa Verificata!", description: `Pronto per iniziare la lavorazione per ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
         handleStartOverallJob(result);
     }
-  }, [toast]);
+  }, [toast, handleStartOverallJob]);
 
   useEffect(() => {
     if (step !== 'scanning') {
@@ -176,49 +233,6 @@ export default function ScanJobPage() {
         stopCamera();
     }
   }, [step, stopCamera, toast, handleScannedData]);
-
-  const persistJobUpdate = useCallback(async (updatedJob: JobOrder | null) => {
-    if (!updatedJob) return;
-    const result = await updateJob(updatedJob);
-    if (!result.success) {
-        toast({
-            variant: "destructive",
-            title: "Errore di Sincronizzazione",
-            description: result.message || "Impossibile salvare lo stato della commessa. Prova a ricaricare la pagina.",
-        });
-    }
-  }, [toast]);
-
-  const handleStartOverallJob = (jobToStart: JobOrder) => {
-    if (!jobToStart) return;
-     if (jobToStart.isProblemReported) {
-      toast({
-        variant: "destructive",
-        title: "Lavorazione Bloccata",
-        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
-      });
-      setStep('initial');
-      return;
-    }
-    const jobWithStartTime = {
-        ...jobToStart,
-        overallStartTime: new Date(),
-        phases: jobToStart.phases.map(p => ({
-            ...p,
-            status: 'pending' as 'pending',
-            workPeriods: p.workPeriods || [], 
-            workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-        }))
-    };
-    setActiveJobOrder(jobWithStartTime);
-    persistJobUpdate(jobWithStartTime);
-    setStep('processing');
-    toast({
-      title: "Lavorazione Avviata",
-      description: `Lavoro iniziato per commessa ${jobToStart.id}.`,
-      action: <PlayCircle className="text-primary" />,
-    });
-  };
 
   const handleTriggerWorkstationScanForPhase = (phaseId: string) => {
     setPhaseRequiringWorkstationScan(phaseId);
@@ -291,9 +305,7 @@ export default function ScanJobPage() {
       phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
-      setActiveJobOrder(jobToUpdate);
-      persistJobUpdate(jobToUpdate);
-      setCurrentPhaseId(phaseId);
+      handleUpdateAndPersistJob(jobToUpdate);
       setPhaseRequiringWorkstationScan(null);
       
       toast({
@@ -324,8 +336,7 @@ export default function ScanJobPage() {
     }
     phaseToPause.status = 'paused';
 
-    setActiveJobOrder(jobToUpdate);
-    persistJobUpdate(jobToUpdate);
+    handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` });
   };
 
@@ -350,8 +361,7 @@ export default function ScanJobPage() {
     phaseToResume.status = 'in-progress';
     phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
-    setActiveJobOrder(jobToUpdate);
-    persistJobUpdate(jobToUpdate);
+    handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Ripresa", description: `Fase "${phaseToResume.name}" ripresa.` });
   };
 
@@ -395,9 +405,7 @@ export default function ScanJobPage() {
       }
     }
     
-    setActiveJobOrder(jobToUpdate);
-    persistJobUpdate(jobToUpdate);
-    setCurrentPhaseId(null);
+    handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
 
@@ -416,7 +424,7 @@ export default function ScanJobPage() {
     jobToUpdate.overallEndTime = new Date();
     jobToUpdate.status = 'completed';
 
-    persistJobUpdate(jobToUpdate);
+    handleUpdateAndPersistJob(jobToUpdate);
     toast({
       title: "Commessa Conclusa",
       description: `Lavorazione per commessa ${jobToUpdate.id} terminata con successo.`,
@@ -431,8 +439,17 @@ export default function ScanJobPage() {
     if (activeJobOrder) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
       jobToUpdate.isProblemReported = true;
-      setActiveJobOrder(jobToUpdate);
-      persistJobUpdate(jobToUpdate);
+      
+      const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+      if (activePhase) {
+        const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
+        if (lastWorkPeriod && !lastWorkPeriod.end) {
+            lastWorkPeriod.end = new Date();
+        }
+        activePhase.status = 'paused';
+      }
+
+      handleUpdateAndPersistJob(jobToUpdate);
 
       toast({
         variant: "destructive",
@@ -445,11 +462,20 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobOrder(null);
-    setCurrentPhaseId(null);
     setPhaseRequiringWorkstationScan(null);
     setIsScanningWorkstationForPhase(false);
     setScannedWorkstationIdForPhase(null);
     setStep('initial');
+  }
+  
+  if (step === 'loading') {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+      </AppShell>
+    )
   }
 
   const renderScanArea = () => (
@@ -806,5 +832,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-    
