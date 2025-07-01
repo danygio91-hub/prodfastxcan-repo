@@ -56,12 +56,6 @@ export default function DashboardPage() {
           <AlertDialog>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <DashboardItem
-                title="Dati Operatore"
-                description="Visualizza e gestisci le informazioni dell'operatore."
-                icon={Users}
-                href="/operator-data"
-              />
-              <DashboardItem
                 title="Scansione Commessa PF"
                 description="Scansiona un QR code della commessa per iniziare o continuare il lavoro."
                 icon={ScanLine}
@@ -76,12 +70,12 @@ export default function DashboardPage() {
                 />
               )}
               <DashboardItem
-                title="Segnala Problema"
-                description="Segnala eventuali problemi riscontrati durante la produzione."
-                icon={AlertTriangle}
-                href="/report-problem"
+                title="Dati Operatore"
+                description="Visualizza e gestisci le informazioni dell'operatore."
+                icon={Users}
+                href="/operator-data"
               />
-              <AlertDialogTrigger asChild>
+               <AlertDialogTrigger asChild>
                  <DashboardItem
                   title="Timbratrice"
                   description="Registra l'orario di ingresso o di uscita dal turno di lavoro."
@@ -89,6 +83,12 @@ export default function DashboardPage() {
                   isDialogTrigger
                 />
               </AlertDialogTrigger>
+              <DashboardItem
+                title="Segnala Problema"
+                description="Segnala eventuali problemi riscontrati durante la produzione."
+                icon={AlertTriangle}
+                href="/report-problem"
+              />
             </div>
 
             <AlertDialogContent>

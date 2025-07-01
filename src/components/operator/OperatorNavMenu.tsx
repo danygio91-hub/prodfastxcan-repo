@@ -23,13 +23,6 @@ import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/components/auth/AuthProvider';
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/operator-data', label: 'Dati Operatore', icon: Users },
-  { href: '/scan-job', label: 'Scansione Commessa', icon: ScanLine },
-  { href: '/report-problem', label: 'Segnala Problema', icon: AlertTriangle },
-];
-
 export default function OperatorNavMenu() {
   const pathname = usePathname();
   const { toast } = useToast();
@@ -49,36 +42,58 @@ export default function OperatorNavMenu() {
     });
   }, [toast]);
 
+  const navItems = [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/scan-job', label: 'Scansione Commessa', icon: ScanLine },
+      { href: '/operator-data', label: 'Dati Operatore', icon: Users },
+      { href: '/report-problem', label: 'Segnala Problema', icon: AlertTriangle },
+  ];
+
   return (
     <Card className="mb-6 p-2">
         <TooltipProvider delayDuration={0}>
             <div className="flex items-center justify-center gap-2 flex-wrap">
-              {navItems.map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                  <Tooltip key={item.href}>
-                      <TooltipTrigger asChild>
-                      <Link href={item.href} passHref>
-                          <Button
-                          variant={isActive ? 'default' : 'ghost'}
-                          size="icon"
-                          className={cn(
-                              "h-12 w-12",
-                              !isActive && "text-muted-foreground"
-                          )}
-                          aria-label={item.label}
-                          >
-                          <item.icon className="h-6 w-6" />
-                          </Button>
-                      </Link>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                      <p>{item.label}</p>
-                      </TooltipContent>
-                  </Tooltip>
-                  );
-              })}
+              {/* Dashboard */}
+              <Tooltip>
+                  <TooltipTrigger asChild>
+                  <Link href="/dashboard" passHref>
+                      <Button
+                      variant={pathname === '/dashboard' ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                      data-active={pathname === '/dashboard'}
+                      aria-label="Dashboard"
+                      >
+                      <LayoutDashboard className="h-6 w-6" />
+                      </Button>
+                  </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                  <p>Dashboard</p>
+                  </TooltipContent>
+              </Tooltip>
 
+              {/* Scansione Commessa PF */}
+               <Tooltip>
+                  <TooltipTrigger asChild>
+                  <Link href="/scan-job" passHref>
+                      <Button
+                      variant={pathname === '/scan-job' ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                      data-active={pathname === '/scan-job'}
+                      aria-label="Scansione Commessa"
+                      >
+                      <ScanLine className="h-6 w-6" />
+                      </Button>
+                  </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                  <p>Scansione Commessa</p>
+                  </TooltipContent>
+              </Tooltip>
+              
+              {/* Scansione Materie Prime (Conditional) */}
               {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
                  <Tooltip>
                     <TooltipTrigger asChild>
@@ -86,10 +101,8 @@ export default function OperatorNavMenu() {
                         <Button
                         variant={pathname === '/raw-material-scan' ? 'default' : 'ghost'}
                         size="icon"
-                        className={cn(
-                            "h-12 w-12",
-                            pathname !== '/raw-material-scan' && "text-muted-foreground"
-                        )}
+                        className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                        data-active={pathname === '/raw-material-scan'}
                         aria-label="Scansione Materie Prime"
                         >
                         <Boxes className="h-6 w-6" />
@@ -101,6 +114,26 @@ export default function OperatorNavMenu() {
                     </TooltipContent>
                 </Tooltip>
               )}
+
+              {/* Dati Operatore */}
+              <Tooltip>
+                  <TooltipTrigger asChild>
+                  <Link href="/operator-data" passHref>
+                      <Button
+                      variant={pathname === '/operator-data' ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                      data-active={pathname === '/operator-data'}
+                      aria-label="Dati Operatore"
+                      >
+                      <Users className="h-6 w-6" />
+                      </Button>
+                  </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                  <p>Dati Operatore</p>
+                  </TooltipContent>
+              </Tooltip>
 
 
               {/* Timbratrice Button */}
@@ -141,6 +174,25 @@ export default function OperatorNavMenu() {
                 </AlertDialogContent>
               </AlertDialog>
 
+               {/* Segnala Problema */}
+              <Tooltip>
+                  <TooltipTrigger asChild>
+                  <Link href="/report-problem" passHref>
+                      <Button
+                      variant={pathname === '/report-problem' ? 'default' : 'ghost'}
+                      size="icon"
+                      className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                      data-active={pathname === '/report-problem'}
+                      aria-label="Segnala Problema"
+                      >
+                      <AlertTriangle className="h-6 w-6" />
+                      </Button>
+                  </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                  <p>Segnala Problema</p>
+                  </TooltipContent>
+              </Tooltip>
             </div>
         </TooltipProvider>
     </Card>
