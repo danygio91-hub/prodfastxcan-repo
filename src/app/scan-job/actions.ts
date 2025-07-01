@@ -2,10 +2,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
-import { getDepartmentMap } from '@/app/admin/settings/actions';
+import type { JobOrder } from '@/lib/mock-data';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -36,58 +35,49 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
 
+export async function verifyAndGetJobOrder(scannedData: {
+  ordinePF: string;
+  codice: string;
+  qta: string; // Keep as string for comparison flexibility
+}): Promise<JobOrder | { error: string; title?: string }> {
+  const sanitizedId = scannedData.ordinePF.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  const jobRef = doc(db, "jobOrders", sanitizedId);
+  const docSnap = await getDoc(jobRef);
 
-export async function getScannableJob(operator: Operator): Promise<JobOrder | { error: string, title?: string }> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "==", "production"));
-    const querySnapshot = await getDocs(q);
-    const availableJobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+  if (!docSnap.exists()) {
+    return {
+      error: `Commessa con ID "${scannedData.ordinePF}" non trovata nel database.`,
+      title: 'Commessa non Trovata',
+    };
+  }
 
-    if (availableJobs.length === 0) {
-        return { 
-            error: "Nessuna Commessa in Produzione. Creare un ODL da 'Gestione Dati' nell'area admin.",
-            title: "Nessuna Commessa in Produzione"
-        };
-    }
-    
-    let suitableJobs: JobOrder[] = [];
-    const departmentMap = await getDepartmentMap();
+  const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
 
-    if (operator.role === 'superadvisor' || operator.role === 'admin') {
-        suitableJobs = availableJobs;
-    } else {
-        const operatorDepartmentName = departmentMap[operator.reparto];
-        suitableJobs = availableJobs.filter(job => job.department === operatorDepartmentName);
-    }
-    
-    if (suitableJobs.length === 0) {
-       return { 
-           error: operator.role === 'superadvisor' || operator.role === 'admin' 
-            ? "Nessuna commessa di produzione attiva trovata."
-            : `Nessuna commessa disponibile per il tuo reparto (${departmentMap[operator.reparto]}) al momento.`,
-           title: "Nessuna Commessa Disponibile"
-        };
-    }
+  if (job.status !== 'production') {
+     return {
+      error: `La commessa "${scannedData.ordinePF}" non è in produzione. Stato attuale: ${job.status}.`,
+      title: 'Commessa non in Produzione',
+    };
+  }
 
-    const randomJobIndex = Math.floor(Math.random() * suitableJobs.length);
-    const job = suitableJobs[randomJobIndex];
-    if (!job) {
-         return { 
-           error: `Errore inaspettato durante la selezione di una commessa casuale.`,
-           title: "Errore"
-        };
-    }
-    
-    const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
-     jobCopy.phases = (jobCopy.phases || []).map(p => ({
-      ...p,
-      workPeriods: p.workPeriods || [], 
-      workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-    }));
-    jobCopy.isProblemReported = jobCopy.isProblemReported || false;
+  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) {
+     return {
+      error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
+      title: 'Dati non Corrispondenti',
+    };
+  }
+  
+  const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
+  jobCopy.phases = (jobCopy.phases || []).map(p => ({
+    ...p,
+    workPeriods: p.workPeriods || [], 
+    workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+  }));
+  jobCopy.isProblemReported = jobCopy.isProblemReported || false;
 
-    return jobCopy;
+  return jobCopy;
 }
+
 
 export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; message: string; }> {
     const jobRef = doc(db, "jobOrders", jobData.id);

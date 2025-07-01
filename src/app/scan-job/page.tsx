@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
@@ -27,8 +27,17 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
-import { getScannableJob, updateJob } from './actions';
+import { verifyAndGetJobOrder, updateJob } from './actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
+// Manual type declaration for BarcodeDetector API to ensure compilation
+interface BarcodeDetectorOptions { formats?: string[]; }
+interface DetectedBarcode { rawValue: string; }
+declare class BarcodeDetector {
+  constructor(options?: BarcodeDetectorOptions);
+  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
+}
 
 type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
 
@@ -60,28 +69,113 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const [operator, setOperator] = useState<Operator | null>(null);
-  const [isScanningJob, setIsScanningJob] = React.useState(false);
-  const [jobScanSuccess, setJobScanSuccess] = React.useState(false);
-  const [scannedJobOrder, setScannedJobOrder] = React.useState<JobOrder | null>(null);
+  const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished'>('initial');
 
-  const [isJobAlertOpen, setIsJobAlertOpen] = React.useState(false);
-  const [jobAlertInfo, setJobAlertInfo] = React.useState({ title: "", description: "" });
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
+  const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
+  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
+  
+  const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
+  
   const [phaseRequiringWorkstationScan, setPhaseRequiringWorkstationScan] = useState<string | null>(null);
   const [isScanningWorkstationForPhase, setIsScanningWorkstationForPhase] = useState(false);
   const [scannedWorkstationIdForPhase, setScannedWorkstationIdForPhase] = useState<string | null>(null);
   const [isPhaseWorkstationAlertOpen, setIsPhaseWorkstationAlertOpen] = useState(false);
   const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
-
-  const [activeJobOrder, setActiveJobOrder] = useState<JobOrder | null>(null);
-  const [isProcessingJob, setIsProcessingJob] = useState(false);
-  const [currentPhaseId, setCurrentPhaseId] = useState<string | null>(null);
-  
-  const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
   
   useEffect(() => {
       setOperator(getOperator());
   }, []);
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+    }
+  }, []);
+
+  const handleScannedData = useCallback(async (data: string) => {
+    const parts = data.split('@');
+    if (parts.length !== 3) {
+        toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
+        setStep('initial');
+        return;
+    }
+    const [ordinePF, codice, qta] = parts;
+    if (!ordinePF || !codice || !qta) {
+        toast({ variant: 'destructive', title: 'QR Code Incompleto', description: 'Dati mancanti nel QR Code.' });
+        setStep('initial');
+        return;
+    }
+
+    toast({ title: "QR Code Rilevato", description: "Verifica commessa in corso..." });
+    const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
+
+    if ('error' in result) {
+        toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+        setStep('initial');
+    } else {
+        toast({ title: "Commessa Verificata!", description: `Pronto per iniziare la lavorazione per ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
+        handleStartOverallJob(result);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (step !== 'scanning') {
+        stopCamera();
+        return;
+    }
+
+    let detectionInterval: ReturnType<typeof setInterval>;
+
+    const startCameraAndScan = async () => {
+        setCameraError(null);
+        try {
+            if (!('BarcodeDetector' in window)) {
+                toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
+                setStep('initial');
+                return;
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            streamRef.current = stream;
+            const video = videoRef.current;
+            if (video) {
+                video.srcObject = stream;
+                await video.play();
+            }
+
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            
+            detectionInterval = setInterval(async () => {
+                if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
+
+                const barcodes = await barcodeDetector.detect(videoRef.current);
+                if (barcodes.length > 0) {
+                    clearInterval(detectionInterval);
+                    stopCamera();
+                    const scannedData = barcodes[0].rawValue;
+                    handleScannedData(scannedData);
+                }
+            }, 500);
+
+        } catch (err) {
+            console.error("Camera access error:", err);
+            setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi del browser.");
+            stopCamera();
+            setStep('initial');
+        }
+    };
+
+    startCameraAndScan();
+    
+    return () => {
+        clearInterval(detectionInterval);
+        stopCamera();
+    }
+  }, [step, stopCamera, toast, handleScannedData]);
 
   const persistJobUpdate = useCallback(async (updatedJob: JobOrder | null) => {
     if (!updatedJob) return;
@@ -95,63 +189,35 @@ export default function ScanJobPage() {
     }
   }, [toast]);
 
-
-  const resetInitialScanState = () => {
-    setIsScanningJob(false);
-    setJobScanSuccess(false);
-    setScannedJobOrder(null);
-    setIsJobAlertOpen(false);
-
-    setPhaseRequiringWorkstationScan(null);
-    setIsScanningWorkstationForPhase(false);
-    setScannedWorkstationIdForPhase(null);
-    setIsPhaseWorkstationAlertOpen(false);
-  };
-
-  const resetProcessingState = () => {
-    setActiveJobOrder(null);
-    setIsProcessingJob(false);
-    setCurrentPhaseId(null);
-    setPhaseRequiringWorkstationScan(null);
-    setIsScanningWorkstationForPhase(false);
-    setScannedWorkstationIdForPhase(null);
-  }
-
-  const handleSimulateJobScan = async () => {
-    resetInitialScanState();
-    resetProcessingState();
-    setIsScanningJob(true);
-
-    if (!operator) {
-        toast({
-            variant: "destructive",
-            title: "Errore Autenticazione",
-            description: "Dati operatore non trovati. Prova a fare di nuovo il login.",
-        });
-        setIsScanningJob(false);
-        return;
+  const handleStartOverallJob = (jobToStart: JobOrder) => {
+    if (!jobToStart) return;
+     if (jobToStart.isProblemReported) {
+      toast({
+        variant: "destructive",
+        title: "Lavorazione Bloccata",
+        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
+      });
+      setStep('initial');
+      return;
     }
-
-    const result = await getScannableJob(operator);
-    setIsScanningJob(false);
-
-    if ('error' in result) {
-        toast({
-            variant: "destructive",
-            title: result.title || "Errore Scansione",
-            description: result.error,
-        });
-        return;
-    }
-    
-    setJobScanSuccess(true);
-    setScannedJobOrder(result);
+    const jobWithStartTime = {
+        ...jobToStart,
+        overallStartTime: new Date(),
+        phases: jobToStart.phases.map(p => ({
+            ...p,
+            status: 'pending' as 'pending',
+            workPeriods: p.workPeriods || [], 
+            workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+        }))
+    };
+    setActiveJobOrder(jobWithStartTime);
+    persistJobUpdate(jobWithStartTime);
+    setStep('processing');
     toast({
-        title: "Scansione Commessa Riuscita!",
-        description: `Commessa ${result.id} (${result.department}) scansionata.`,
-        action: <CheckCircle className="text-green-500" />,
+      title: "Lavorazione Avviata",
+      description: `Lavoro iniziato per commessa ${jobToStart.id}.`,
+      action: <PlayCircle className="text-primary" />,
     });
-    setTimeout(() => setJobScanSuccess(false), 3000);
   };
 
   const handleTriggerWorkstationScanForPhase = (phaseId: string) => {
@@ -179,14 +245,13 @@ export default function ScanJobPage() {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
       const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-      // Check 1: Scan success
       if (simulatedScannedId !== jobToUpdate.postazioneLavoro || !phaseToStart) {
         setPhaseWorkstationAlertInfo({
           title: "Errore Postazione",
           description: `Postazione ${simulatedScannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
         });
         setIsPhaseWorkstationAlertOpen(true);
-        return; // Exit if scan fails
+        return;
       }
       
       if (jobToUpdate.isProblemReported) {
@@ -222,15 +287,14 @@ export default function ScanJobPage() {
         return;
       }
       
-      // All checks passed, start the phase.
       phaseToStart.status = 'in-progress';
-      phaseToStart.workstationScannedAndVerified = true; // Mark as scanned
+      phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
       setActiveJobOrder(jobToUpdate);
       persistJobUpdate(jobToUpdate);
       setCurrentPhaseId(phaseId);
-      setPhaseRequiringWorkstationScan(null); // Clear the scan requirement UI
+      setPhaseRequiringWorkstationScan(null);
       
       toast({
         title: "Fase Avviata!",
@@ -238,37 +302,6 @@ export default function ScanJobPage() {
         action: <CheckCircle className="text-green-500" />,
       });
     }, 1000);
-  };
-
-
-  const handleStartOverallJob = () => {
-    if (!scannedJobOrder) return;
-     if (scannedJobOrder.isProblemReported) {
-      toast({
-        variant: "destructive",
-        title: "Lavorazione Bloccata",
-        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
-      });
-      return;
-    }
-    const jobToStart = {
-        ...scannedJobOrder,
-        overallStartTime: new Date(),
-        phases: scannedJobOrder.phases.map(p => ({
-            ...p,
-            status: 'pending' as 'pending',
-            workPeriods: p.workPeriods || [], 
-            workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-        }))
-    };
-    setActiveJobOrder(jobToStart);
-    persistJobUpdate(jobToStart);
-    setIsProcessingJob(true);
-    toast({
-      title: "Lavorazione Avviata",
-      description: `Lavoro iniziato per commessa ${scannedJobOrder.id}.`,
-      action: <PlayCircle className="text-primary" />,
-    });
   };
 
   const handlePausePhase = (phaseId: string) => {
@@ -389,103 +422,82 @@ export default function ScanJobPage() {
       description: `Lavorazione per commessa ${jobToUpdate.id} terminata con successo.`,
       action: <PowerOff className="text-primary" />
     });
-    
-    resetInitialScanState();
-    resetProcessingState();
+    setStep('finished');
   };
 
   const allPhasesCompleted = activeJobOrder?.phases.every(phase => phase.status === 'completed');
 
   const handleJobProblemReported = () => {
-    const targetJobId = activeJobOrder?.id || scannedJobOrder?.id;
-    if (targetJobId) {
-      let jobToUpdate: JobOrder | null = null;
-      if (activeJobOrder && activeJobOrder.id === targetJobId) {
-        jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-        jobToUpdate.isProblemReported = true;
-        setActiveJobOrder(jobToUpdate);
-      } else if (scannedJobOrder && scannedJobOrder.id === targetJobId) {
-        jobToUpdate = JSON.parse(JSON.stringify(scannedJobOrder));
-        jobToUpdate.isProblemReported = true;
-        setScannedJobOrder(jobToUpdate);
-      }
-
-      if (jobToUpdate) {
-        persistJobUpdate(jobToUpdate);
-      }
+    if (activeJobOrder) {
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+      jobToUpdate.isProblemReported = true;
+      setActiveJobOrder(jobToUpdate);
+      persistJobUpdate(jobToUpdate);
 
       toast({
         variant: "destructive",
         title: "Problema Segnalato per Commessa",
-        description: `La commessa ${targetJobId} è stata bloccata. Risolvere il problema prima di continuare.`,
+        description: `La commessa ${activeJobOrder.id} è stata bloccata. Risolvere il problema prima di continuare.`,
       });
     }
     setIsProblemReportDialogOpen(false);
   };
 
+  const resetForNewScan = () => {
+    setActiveJobOrder(null);
+    setCurrentPhaseId(null);
+    setPhaseRequiringWorkstationScan(null);
+    setIsScanningWorkstationForPhase(false);
+    setScannedWorkstationIdForPhase(null);
+    setStep('initial');
+  }
 
-  const renderJobScanArea = () => (
+  const renderScanArea = () => (
     <Card>
       <CardHeader>
           <div className="flex items-center space-x-3">
           <QrCode className="h-8 w-8 text-primary" />
           <div>
             <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
-            <CardDescription>Scansiona il QR code sulla commessa.</CardDescription>
+            <CardDescription>Scansiona il QR code sulla commessa per iniziare la lavorazione.</CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col items-center justify-center space-y-6">
-        <div
-          className={`w-full max-w-xs h-48 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-          ${isScanningJob ? 'border-primary animate-pulse' : 'border-border'}
-          ${jobScanSuccess && !isJobAlertOpen ? 'border-green-500 bg-green-500/10' : ''}
-          ${isJobAlertOpen ? 'border-destructive bg-destructive/10' : ''}
-          `}
-        >
-          {isScanningJob && <p className="text-primary font-semibold">Scansione Commessa in corso...</p>}
-          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Allinea QR code commessa</p>}
-          {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
-          {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
-          {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isProcessingJob && <CheckCircle className="h-16 w-16 text-green-500" />}
-        </div>
-
-        <Button
-          onClick={handleSimulateJobScan}
-          disabled={isScanningJob}
-          className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
-        >
-          <QrCode className="mr-2 h-5 w-5" />
-          {isScanningJob ? "Scansione..." : "Simula Scansione QR Code Commessa"}
-        </Button>
-        <p className="text-sm text-muted-foreground">
-          Questo simula la scansione del QR code per la commessa.
-        </p>
+        {step === 'scanning' ? (
+          <div className="relative flex items-center justify-center w-full max-w-xs aspect-square bg-black rounded-lg overflow-hidden">
+            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+              <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
+            </div>
+          </div>
+        ) : (
+          <>
+            {cameraError && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Errore Fotocamera</AlertTitle>
+                <AlertDescription>{cameraError}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              onClick={() => setStep('scanning')}
+              disabled={step === 'scanning'}
+              className="w-full max-w-xs"
+            >
+              <QrCode className="mr-2 h-5 w-5" />
+              Scansiona QR Code Commessa
+            </Button>
+            <p className="text-sm text-muted-foreground text-center px-4">
+              Il QR code deve contenere i dati nel formato: <br/><strong>Ordine PF@Codice@Qta</strong>
+            </p>
+          </>
+        )}
       </CardContent>
     </Card>
   );
 
   const renderJobDetailsCard = (job: JobOrder) => {
-    const isDisplayingScannedJobDetails = !isProcessingJob && job.id === scannedJobOrder?.id && scannedJobOrder !== null;
-    const isDisplayingActiveJobDetails = isProcessingJob && job.id === activeJobOrder?.id && activeJobOrder !== null && !activeJobOrder.overallEndTime;
-    const shouldDisplayAdvancement = isDisplayingScannedJobDetails || isDisplayingActiveJobDetails || (scannedJobOrder !== null && job.id === scannedJobOrder.id && !isProcessingJob);
-
-
-    let nextPhaseForDisplay: JobPhase | undefined = undefined;
-    let postazioneLavoroPerFase: string | undefined = undefined;
-    let allPhasesInCurrentJobCompleted = false;
-
-    if (shouldDisplayAdvancement) {
-        nextPhaseForDisplay = job.phases
-            .filter(p => p.status === 'pending' || p.status === 'in-progress' || p.status === 'paused')
-            .sort((a, b) => a.sequence - b.sequence)[0];
-
-        if (nextPhaseForDisplay) {
-             postazioneLavoroPerFase = job.postazioneLavoro;
-        }
-        allPhasesInCurrentJobCompleted = job.phases.every(p => p.status === 'completed');
-    }
-
     return (
       <Card className="mt-6 shadow-lg">
         <CardHeader>
@@ -499,20 +511,18 @@ export default function ScanJobPage() {
                 <CardDescription>Reparto: {job.department}</CardDescription>
               </div>
             </div>
-            {(isDisplayingActiveJobDetails || isDisplayingScannedJobDetails) && (
-                 <AlertDialogTrigger asChild>
-                    <Button 
-                        variant={job.isProblemReported ? "destructive" : "outline"} 
-                        size="icon"
-                        onClick={() => setIsProblemReportDialogOpen(true)}
-                        title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
-                        className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
-                    >
-                        {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-                        <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
-                    </Button>
-                 </AlertDialogTrigger>
-            )}
+            <AlertDialogTrigger asChild>
+                <Button 
+                    variant={job.isProblemReported ? "destructive" : "outline"} 
+                    size="icon"
+                    onClick={() => setIsProblemReportDialogOpen(true)}
+                    title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
+                    className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
+                >
+                    {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+                    <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
+                </Button>
+            </AlertDialogTrigger>
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
@@ -548,59 +558,10 @@ export default function ScanJobPage() {
             <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
             <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
-
-          {shouldDisplayAdvancement && (
-            <>
-              <Separator className="my-4" />
-              <div className="space-y-2">
-                <h3 className="text-md font-semibold font-headline flex items-center">
-                  <Activity className="mr-2 h-5 w-5 text-primary" />
-                  Stato Avanzamento Corrente
-                </h3>
-                {nextPhaseForDisplay && postazioneLavoroPerFase ? (
-                  <>
-                    <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">
-                        {isProcessingJob && job.id === activeJobOrder?.id && (nextPhaseForDisplay.status === 'in-progress' || nextPhaseForDisplay.status === 'paused')
-                          ? "Fase Corrente:"
-                          : "Prossima Fase:"}
-                      </span> {nextPhaseForDisplay.name} (Seq: {nextPhaseForDisplay.sequence})
-                       {!isProcessingJob && scannedJobOrder && job.id === scannedJobOrder.id && !activeJobOrder && (
-                          (scannedJobOrder.phases.find(p=>p.id===nextPhaseForDisplay.id)?.workstationScannedAndVerified === false && !phaseRequiringWorkstationScan) 
-                            ? " (in attesa scansione postazione per avvio fase)" 
-                            : phaseRequiringWorkstationScan === nextPhaseForDisplay.id ? " (in attesa scansione postazione)" : " (in attesa di avvio lavorazione commessa)"
-                       )}
-                    </p>
-                     <p className="text-sm">
-                      <span className="font-medium text-muted-foreground">Postazione Lavorazione Prevista per la Commessa:</span> {postazioneLavoroPerFase}
-                    </p>
-                  </>
-                ) : allPhasesInCurrentJobCompleted ? (
-                   <p className="text-sm text-green-500 font-medium">Tutte le fasi completate. Pronta per la conclusione.</p>
-                ) : job.isProblemReported ? (
-                    <p className="text-sm text-destructive font-medium">Lavorazione bloccata.</p>
-                ) : (
-                   <p className="text-sm text-muted-foreground">Nessuna fase al momento o stato non determinabile.</p>
-                 )}
-              </div>
-            </>
-          )}
         </CardContent>
-         {!isProcessingJob && scannedJobOrder && (
-            <CardFooter>
-                <Button
-                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                    onClick={handleStartOverallJob}
-                    disabled={scannedJobOrder.isProblemReported}
-                >
-                    <PlayCircle className="mr-2 h-5 w-5" /> Inizia Lavorazione Commessa
-                </Button>
-            </CardFooter>
-        )}
       </Card>
     );
   }
-
 
   const renderPhasesManagement = () => {
     if (!activeJobOrder) return null;
@@ -630,7 +591,7 @@ export default function ScanJobPage() {
           const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && canStartPhase && !phase.workstationScannedAndVerified;
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
-          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused'; // Allow completing even if job problem
+          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -668,7 +629,6 @@ export default function ScanJobPage() {
                 )}
                  <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>
               </div>
-
 
               {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && !isJobBlockedByProblem && (
                 <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
@@ -778,66 +738,50 @@ export default function ScanJobPage() {
     </Card>
   )};
 
+  const renderFinishedView = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>Lavorazione Completata</CardTitle>
+        <CardDescription>La commessa {activeJobOrder?.id} è stata conclusa con successo.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col items-center gap-4">
+        <CheckCircle className="h-16 w-16 text-green-500"/>
+        <p>Pronto per la prossima lavorazione.</p>
+        <Button onClick={resetForNewScan}>
+            <QrCode className="mr-2 h-4 w-4"/>
+            Scansiona Nuova Commessa
+        </Button>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <AuthGuard>
       <AppShell>
         <div className="space-y-6">
           <OperatorNavMenu />
-        <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
+          <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
+            
+            {step === 'initial' && renderScanArea()}
+            {step === 'scanning' && renderScanArea()}
 
-          {!isProcessingJob && !activeJobOrder?.overallEndTime && !scannedJobOrder && renderJobScanArea()}
+            {step === 'processing' && activeJobOrder && (
+              <>
+                {renderJobDetailsCard(activeJobOrder)}
+                {renderPhasesManagement()}
+              </>
+            )}
 
-          {scannedJobOrder && !isProcessingJob && !activeJobOrder?.overallEndTime && (
-             renderJobDetailsCard(scannedJobOrder)
-          )}
+            {step === 'finished' && activeJobOrder && renderFinishedView()}
 
-          {isProcessingJob && activeJobOrder && !activeJobOrder.overallEndTime && (
-            <>
-              {renderJobDetailsCard(activeJobOrder)}
-              {renderPhasesManagement()}
-            </>
-          )}
-
-          {activeJobOrder?.overallEndTime && (
-             <Card className="mt-6">
-                <CardHeader>
-                    <CardTitle>Nuova Scansione</CardTitle>
-                    <CardDescription>La commessa precedente è stata conclusa. Puoi scansionare una nuova commessa.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {renderJobScanArea()}
-                </CardContent>
-             </Card>
-          )}
-
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id || scannedJobOrder?.id}</AlertDialogTitle>
-              <AlertDialogDescription>
-                Descrivi il problema riscontrato per questa commessa. La segnalazione bloccherà temporaneamente la lavorazione.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <ProblemReportForm onSuccess={handleJobProblemReported} showTitle={false} initialSeverity="medium" />
-            {/* Footer removed as submit is in ProblemReportForm now, cancel is implicit with dialog close */}
-          </AlertDialogContent>
-        </AlertDialog>
-
-
-          <AlertDialog open={isJobAlertOpen} onOpenChange={setIsJobAlertOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center">
-                  <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
-                  {jobAlertInfo.title}
-                </AlertDialogTitle>
+                <AlertDialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {jobAlertInfo.description}
+                  Descrivi il problema riscontrato per questa commessa. La segnalazione bloccherà temporaneamente la lavorazione.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction onClick={() => { setIsJobAlertOpen(false); setScannedJobOrder(null); } }>OK</AlertDialogAction>
-              </AlertDialogFooter>
+              <ProblemReportForm onSuccess={handleJobProblemReported} showTitle={false} initialSeverity="medium" />
             </AlertDialogContent>
           </AlertDialog>
 
@@ -853,9 +797,9 @@ export default function ScanJobPage() {
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogAction onClick={() => {
-                  setIsPhaseWorkstationAlertOpen(false);
-                }}>OK</AlertDialogAction>
+                <AlertDialogAction onClick={() => setIsPhaseWorkstationAlertOpen(false)}>
+                  OK
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
