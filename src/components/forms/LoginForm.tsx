@@ -54,8 +54,8 @@ export default function LoginForm() {
         if (loading) return;
         if (user && operator) {
             toast({
-                title: "Accesso Riuscito",
-                description: `Benvenuto, ${operator.nome}! Reindirizzamento...`,
+                title: `Buongiorno, ${operator.nome}!`,
+                description: `Reindirizzamento in corso...`,
             });
             router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
         }
