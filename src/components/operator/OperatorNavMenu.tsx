@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -5,7 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock } from 'lucide-react';
+import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, Boxes } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,6 +21,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -31,6 +33,7 @@ const navItems = [
 export default function OperatorNavMenu() {
   const pathname = usePathname();
   const { toast } = useToast();
+  const { operator } = useAuth();
 
   const handleClockIn = React.useCallback(() => {
     toast({
@@ -75,6 +78,30 @@ export default function OperatorNavMenu() {
                   </Tooltip>
                   );
               })}
+
+              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
+                 <Tooltip>
+                    <TooltipTrigger asChild>
+                    <Link href="/raw-material-scan" passHref>
+                        <Button
+                        variant={pathname === '/raw-material-scan' ? 'default' : 'ghost'}
+                        size="icon"
+                        className={cn(
+                            "h-12 w-12",
+                            pathname !== '/raw-material-scan' && "text-muted-foreground"
+                        )}
+                        aria-label="Scansione Materie Prime"
+                        >
+                        <Boxes className="h-6 w-6" />
+                        </Button>
+                    </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                    <p>Scansione Materie Prime</p>
+                    </TooltipContent>
+                </Tooltip>
+              )}
+
 
               {/* Timbratrice Button */}
               <AlertDialog>
