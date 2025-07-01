@@ -5,13 +5,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2 } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 
 const navItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/data-management', label: 'Gestione Dati', icon: ListChecks },
+  { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
   { href: '/admin/settings', label: 'Configurazione Azienda', icon: Building2 },

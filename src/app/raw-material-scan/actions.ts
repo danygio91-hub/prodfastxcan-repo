@@ -13,30 +13,8 @@ export async function getRawMaterialByCode(code: string): Promise<RawMaterial | 
   const querySnapshot = await getDocs(q);
 
   if (querySnapshot.empty) {
-     // Let's try to create a mock one if not found for demo purposes
-    if (code.startsWith('BOB') || code.startsWith('TUBI')) {
-        const type = code.startsWith('BOB') ? 'BOB' : 'TUBI';
-        const newMaterial: Omit<RawMaterial, 'id'> = {
-            code: code,
-            type: type,
-            description: `Descrizione per ${code}`,
-            details: {
-                sezione: "Sezione Placeholder",
-                filo_el: "Filo Elettrico Placeholder",
-                larghezza: "Larghezza Placeholder",
-                tipologia: "Tipologia Placeholder",
-            },
-            currentStockPcs: 100,
-            currentWeightKg: 50,
-        };
-        const newDocRef = doc(materialsRef); // Create a new doc with auto-generated ID
-        await setDoc(newDocRef, newMaterial);
-        
-        return { ...newMaterial, id: newDocRef.id };
-    }
-
     return {
-      error: `Materia prima con codice "${code}" non trovata.`,
+      error: `Materia prima con codice "${code}" non trovata. Verificare il codice o aggiungerla dall'area amministrazione.`,
       title: 'Materiale non Trovato',
     };
   }
