@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -11,6 +12,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { login } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { initialOperators } from '@/lib/mock-data';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -37,6 +39,20 @@ export default function LoginForm() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const router = useRouter();
     const { toast } = useToast();
+    const { operator, loading } = useAuth();
+
+    // Effect to handle redirection after login
+    useEffect(() => {
+        // We are logged in if the operator object is available and not loading
+        if (!loading && operator) {
+            toast({
+                title: "Accesso Riuscito",
+                description: `Benvenuto, ${operator.nome}! Reindirizzamento...`,
+            });
+            router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
+        }
+    }, [operator, loading, router, toast]);
+
 
     useEffect(() => {
         const streamRef = videoRef.current?.srcObject as MediaStream | null;
@@ -104,37 +120,39 @@ export default function LoginForm() {
       }
     }, [step, toast]);
 
-    const handleTouchAuth = () => {
+    const handleTouchAuth = async () => {
         setIsLoading(true);
-        setTimeout(() => {
-            toast({ title: "Impronta Verificata", description: "Autenticazione biometrica completata." });
-            if (scannedOperator) {
-                performLogin(scannedOperator.nome, scannedOperator.password || '1234');
-            }
-        }, 1500);
+        if (scannedOperator && scannedOperator.password) {
+            await performLogin(scannedOperator.nome, scannedOperator.password);
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'Errore',
+                description: 'Dati operatore per login non disponibili.',
+            });
+            setIsLoading(false);
+            setStep('initial');
+        }
     };
     
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
-        const operator = await login(username, password_used);
-        
-        if (operator) {
-            toast({
-                title: "Accesso Riuscito",
-                description: `Benvenuto, ${operator.nome}! Reindirizzamento...`,
-            });
-            router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
-        } else {
+        try {
+            await login(username, password_used);
+            // Redirection is now handled by the useEffect watching the auth context
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
                 title: "Accesso Fallito",
-                description: "Credenziali non valide o utente non configurato in Firebase. Contatta un amministratore.",
+                description: errorMessage,
                 variant: "destructive",
             });
             setStep('initial');
+        } finally {
             setIsLoading(false);
         }
-    }, [router, toast]);
+    }, [toast]);
 
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
