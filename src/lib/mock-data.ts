@@ -1,5 +1,4 @@
 
-
 // --- Type Definitions ---
 
 export interface WorkPeriod {
@@ -67,6 +66,23 @@ export interface Workstation {
   name: string;
   departmentCode: Reparto;
 }
+
+export interface RawMaterial {
+  id: string; //firestore doc id
+  type: 'BOB' | 'TUBI';
+  code: string; // a unique code, from QR
+  description: string;
+  details: {
+    sezione?: string;
+    filo_el?: string;
+    larghezza?: string;
+    tipologia?: string;
+  };
+  // Stock properties
+  currentWeightKg?: number;
+  currentStockPcs?: number;
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];

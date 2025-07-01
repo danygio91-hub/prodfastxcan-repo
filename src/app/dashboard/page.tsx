@@ -1,9 +1,10 @@
+
 "use client";
 
 import React from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Users, ScanLine, AlertTriangle, Clock } from 'lucide-react';
+import { Users, ScanLine, AlertTriangle, Clock, Boxes } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import {
@@ -18,10 +19,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from '@/components/auth/AuthProvider';
 
 
 export default function DashboardPage() {
   const { toast } = useToast();
+  const { operator } = useAuth();
 
   const handleClockIn = React.useCallback(() => {
     toast({
@@ -64,6 +67,14 @@ export default function DashboardPage() {
                 icon={ScanLine}
                 href="/scan-job"
               />
+              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
+                <DashboardItem
+                  title="Scansione Materie Prime"
+                  description="Registra l'ingresso, l'uscita o il peso dei materiali."
+                  icon={Boxes}
+                  href="/raw-material-scan"
+                />
+              )}
               <DashboardItem
                 title="Segnala Problema"
                 description="Segnala eventuali problemi riscontrati durante la produzione."
