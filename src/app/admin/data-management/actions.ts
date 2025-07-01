@@ -7,6 +7,12 @@ import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import * as z from 'zod';
 
+// Helper function to sanitize Firestore document IDs
+function sanitizeDocumentId(id: string): string {
+  // Replace slashes with dashes, and remove other invalid characters for Firestore IDs
+  return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+}
+
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') {
@@ -82,7 +88,9 @@ export async function addJobOrder(formData: FormData) {
       return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
     
-    const jobId = validatedFields.data.ordinePF;
+    const data = validatedFields.data;
+    const jobId = sanitizeDocumentId(data.ordinePF);
+
     const jobRef = doc(db, "jobOrders", jobId);
     const docSnap = await getDoc(jobRef);
 
@@ -91,13 +99,14 @@ export async function addJobOrder(formData: FormData) {
     }
 
     const newJobOrder: JobOrder = {
-      ...validatedFields.data,
+      ...data,
       id: jobId,
+      ordinePF: jobId, // Overwrite with sanitized ID
       status: 'planned',
       postazioneLavoro: "Da Assegnare",
-      phases: createDefaultPhases(validatedFields.data.department),
-      qta: Number(validatedFields.data.qta),
-      dataConsegnaFinale: validatedFields.data.dataConsegnaFinale || '',
+      phases: createDefaultPhases(data.department),
+      qta: Number(data.qta),
+      dataConsegnaFinale: data.dataConsegnaFinale || '',
     };
 
     await setDoc(jobRef, newJobOrder);
@@ -137,7 +146,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
         }
         
         const { data: validData } = validated;
-        const jobRef = doc(db, "jobOrders", validData.ordinePF);
+        const sanitizedId = sanitizeDocumentId(validData.ordinePF);
+        
+        const jobRef = doc(db, "jobOrders", sanitizedId);
         const docSnap = await getDoc(jobRef);
 
         if (docSnap.exists()) {
@@ -145,6 +156,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
             const updatedJob: JobOrder = {
                 ...existingJob,
                 ...validData,
+                id: sanitizedId,
+                ordinePF: sanitizedId,
                 qta: validData.qta ?? existingJob.qta,
                 cliente: validData.cliente ?? existingJob.cliente,
                 numeroODL: validData.numeroODL ?? existingJob.numeroODL,
@@ -160,12 +173,12 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
             const department = validData.department || "Reparto Generico";
             const newJob: JobOrder = {
-                id: validData.ordinePF,
+                id: sanitizedId,
                 status: 'planned',
                 postazioneLavoro: 'Da Assegnare',
                 phases: createDefaultPhases(department),
                 cliente: validData.cliente || "N/D",
-                ordinePF: validData.ordinePF,
+                ordinePF: sanitizedId,
                 numeroODL: validData.numeroODL || "N/D",
                 details: validData.details || "N/D",
                 qta: validData.qta,
