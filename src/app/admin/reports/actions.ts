@@ -175,3 +175,94 @@ export async function getJobDetailReport(jobId: string) {
         totalTimeElapsed: formatDuration(totalTimeElapsedMs)
     };
 }
+
+export async function getOperatorDetailReport(operatorId: string) {
+    // 1. Get operator details
+    const operatorRef = doc(db, "operators", operatorId);
+    const operatorSnap = await getDoc(operatorRef);
+    if (!operatorSnap.exists()) {
+        return null;
+    }
+    const operator = operatorSnap.data() as Operator;
+
+    // 2. Get all jobs
+    const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
+    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+
+    // 3. Filter work periods for this operator and calculate times
+    const operatorPeriods: (WorkPeriod & {jobId: string, phaseName: string})[] = [];
+    jobs.forEach(job => {
+        (job.phases || []).forEach(phase => {
+            (phase.workPeriods || []).forEach(wp => {
+                if (wp.operatorId === operatorId) {
+                    operatorPeriods.push({ ...wp, jobId: job.id, phaseName: phase.name });
+                }
+            });
+        });
+    });
+    
+    const now = new Date();
+    const todayInterval = { start: startOfDay(now), end: endOfDay(now) };
+    const thisWeekInterval = { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
+    const thisMonthInterval = { start: startOfMonth(now), end: endOfMonth(now) };
+
+    const getTimeInInterval = (interval: { start: Date, end: Date }) => {
+        return operatorPeriods.reduce((acc, period) => {
+            const periodStart = new Date(period.start);
+            const periodEnd = period.end ? new Date(period.end) : new Date(); // Use now for active periods
+             if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) {
+                return acc;
+            }
+            const overlapStart = Math.max(periodStart.getTime(), interval.start.getTime());
+            const overlapEnd = Math.min(periodEnd.getTime(), interval.end.getTime());
+            if (overlapStart < overlapEnd) {
+                return acc + (overlapEnd - overlapStart);
+            }
+            return acc;
+        }, 0);
+    };
+    
+    const timeTodayMs = getTimeInInterval(todayInterval);
+    const timeWeekMs = getTimeInInterval(thisWeekInterval);
+    const timeMonthMs = getTimeInInterval(thisMonthInterval);
+
+    // 4. Group work by job and phase
+    const workSummaryByJob: { [jobId: string]: { cliente: string; details: string; phases: { [phaseName: string]: number } } } = {};
+    operatorPeriods.forEach(period => {
+        const job = jobs.find(j => j.id === period.jobId);
+        if (!job) return;
+
+        if (!workSummaryByJob[period.jobId]) {
+            workSummaryByJob[period.jobId] = {
+                cliente: job.cliente,
+                details: job.details,
+                phases: {}
+            };
+        }
+        
+        const duration = (period.end ? new Date(period.end).getTime() : new Date().getTime()) - new Date(period.start).getTime();
+        
+        if (!workSummaryByJob[period.jobId].phases[period.phaseName]) {
+            workSummaryByJob[period.jobId].phases[period.phaseName] = 0;
+        }
+        workSummaryByJob[period.jobId].phases[period.phaseName] += duration;
+    });
+
+    const jobsWorkedOn = Object.entries(workSummaryByJob).map(([jobId, data]) => ({
+        id: jobId,
+        cliente: data.cliente,
+        details: data.details,
+        phases: Object.entries(data.phases).map(([phaseName, duration]) => ({
+            name: phaseName,
+            time: formatDuration(duration)
+        }))
+    }));
+
+    return {
+        operator,
+        timeToday: formatDuration(timeTodayMs),
+        timeWeek: formatDuration(timeWeekMs),
+        timeMonth: formatDuration(timeMonthMs),
+        jobsWorkedOn
+    };
+}

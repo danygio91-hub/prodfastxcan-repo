@@ -128,6 +128,7 @@ export default async function AdminReportsPage() {
                             <TableHead>Ore Oggi</TableHead>
                             <TableHead>Ore Settimana</TableHead>
                             <TableHead>Ore Mese</TableHead>
+                            <TableHead className="text-right">Dettagli</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -141,10 +142,18 @@ export default async function AdminReportsPage() {
                                 <TableCell>{op.timeToday}</TableCell>
                                 <TableCell>{op.timeWeek}</TableCell>
                                 <TableCell>{op.timeMonth}</TableCell>
+                                <TableCell className="text-right">
+                                    <Button asChild variant="outline" size="sm">
+                                    <Link href={`/admin/reports/operator/${op.id}`}>
+                                        Vedi Dettagli
+                                        <ChevronRight className="ml-2 h-4 w-4" />
+                                    </Link>
+                                    </Button>
+                                </TableCell>
                             </TableRow>
                             )) : (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                                <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
                             </TableRow>
                             )}
                         </TableBody>
