@@ -16,6 +16,7 @@ export interface JobPhase {
   workPeriods: WorkPeriod[];
   sequence: number;
   workstationScannedAndVerified?: boolean;
+  type?: 'preparation' | 'production';
 }
 
 export interface JobOrder {
@@ -71,9 +72,9 @@ export interface Workstation {
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
     { id: 'op-1', nome: 'Daniel', cognome: 'Giorlando', reparto: 'N/D', stato: 'inattivo', password: 'Filapara.9!', role: 'admin', privacySigned: false },
-    { id: 'op-2', nome: 'Ruben', cognome: 'Bianchi', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: true },
-    { id: 'op-3', nome: 'Giovanna', cognome: 'Verdi', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
-    { id: 'op-4', nome: 'Paola', cognome: 'Neri', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
+    { id: 'op-2', nome: 'Ruben', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: true },
+    { id: 'op-3', nome: 'Giovanna', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
+    { id: 'op-4', nome: 'Paola', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false },
 ];
 export const initialDepartmentMap: { [key in Reparto]: string } = {
     CP: 'Assemblaggio Componenti Elettronici',

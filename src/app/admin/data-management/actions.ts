@@ -36,22 +36,33 @@ function convertTimestampsToDates(obj: any): any {
 
 
 const createDefaultPhases = (department: string): JobPhase[] => {
-  if (department === 'Assemblaggio Componenti Elettronici') {
-    return [
-      { id: 'phase-1', name: 'Preparazione Componenti', status: 'pending', materialReady: true, workPeriods: [], sequence: 1 },
-      { id: 'phase-2', name: 'Assemblaggio Scheda', status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
-      { id: 'phase-3', name: 'Saldatura', status: 'pending', materialReady: false, workPeriods: [], sequence: 3 },
-    ];
-  }
-  if (department === 'Controllo Qualità') {
-     return [
-      { id: 'phase-1', name: 'Test Funzionale', status: 'pending', materialReady: true, workPeriods: [], sequence: 1 },
-      { id: 'phase-2', name: 'Ispezione Visiva', status: 'pending', materialReady: false, workPeriods: [], sequence: 2 },
-    ];
-  }
-  return [
-    { id: 'phase-1', name: 'Lavorazione Generica', status: 'pending', materialReady: true, workPeriods: [], sequence: 1 },
+  const preparationPhases: JobPhase[] = [
+    { id: 'prep-1', name: 'PREP. MATERIA PRIMA TRECCIA/CORDA', status: 'pending', materialReady: true, workPeriods: [], sequence: -3, type: 'preparation' },
+    { id: 'prep-2', name: 'PREP. TUBI', status: 'pending', materialReady: true, workPeriods: [], sequence: -2, type: 'preparation' },
+    { id: 'prep-3', name: 'PREP. GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation' },
   ];
+  
+  let productionPhases: JobPhase[];
+
+  if (department === 'Assemblaggio Componenti Elettronici') {
+    productionPhases = [
+      { id: 'phase-1', name: 'Preparazione Componenti', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
+      { id: 'phase-2', name: 'Assemblaggio Scheda', status: 'pending', materialReady: false, workPeriods: [], sequence: 2, type: 'production' },
+      { id: 'phase-3', name: 'Saldatura', status: 'pending', materialReady: false, workPeriods: [], sequence: 3, type: 'production' },
+    ];
+  }
+  else if (department === 'Controllo Qualità') {
+     productionPhases = [
+      { id: 'phase-1', name: 'Test Funzionale', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
+      { id: 'phase-2', name: 'Ispezione Visiva', status: 'pending', materialReady: false, workPeriods: [], sequence: 2, type: 'production' },
+    ];
+  } else {
+     productionPhases = [
+      { id: 'phase-1', name: 'Lavorazione Generica', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
+    ];
+  }
+  
+  return [...preparationPhases, ...productionPhases];
 };
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {

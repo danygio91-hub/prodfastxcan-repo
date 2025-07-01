@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -17,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { ScanLine, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { getOperator } from '@/lib/auth';
 import { Label } from '@/components/ui/label';
@@ -193,21 +194,34 @@ export default function ScanJobPage() {
         return;
       }
       
-      const currentPhaseIndex = jobToUpdate.phases.findIndex((p: JobPhase) => p.id === phaseId);
-      if (phaseToStart.sequence !== 1 && !phaseToStart.materialReady) {
+      const phaseType = phaseToStart.type || 'production';
+
+      if (phaseType === 'production' && !phaseToStart.materialReady) {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
+      }
+
+      if (phaseType === 'production') {
+        if (phaseToStart.sequence === 1) {
+          const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
+          if (!allPrepPhases.every(p => p.status === 'completed')) {
+            toast({ variant: "destructive", title: "Errore di Sequenza", description: "È necessario completare tutte le fasi di preparazione prima di iniziare la produzione." });
+            return;
+          }
+        } else {
+          const prevPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToStart.sequence - 1);
+          if (!prevPhase || prevPhase.status !== 'completed') {
+            toast({ variant: "destructive", title: "Errore di Sequenza", description: "Completare la fase di produzione precedente prima di avviare questa." });
+            return;
+          }
+        }
       }
 
       if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return;
       }
-      if (currentPhaseIndex > 0 && jobToUpdate.phases[currentPhaseIndex - 1].status !== 'completed') {
-        toast({ variant: "destructive", title: "Errore", description: "Completare la fase precedente prima di avviare questa." });
-        return;
-      }
-
+      
       // All checks passed, start the phase.
       phaseToStart.status = 'in-progress';
       phaseToStart.workstationScannedAndVerified = true; // Mark as scanned
@@ -326,12 +340,26 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
 
-    const completedPhaseSequence = phaseToComplete.sequence;
-    const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === completedPhaseSequence + 1);
+    const completedPhaseType = phaseToComplete.type || 'production';
 
-    if (nextPhase && nextPhase.status === 'pending') { 
-      nextPhase.materialReady = true;
-      toast({ title: "Materiale Pronto", description: `Materiale per la fase "${nextPhase.name}" ora disponibile.`});
+    if (completedPhaseType === 'preparation') {
+      const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
+      const allPrepCompleted = allPrepPhases.every((p: JobPhase) => p.status === 'completed');
+
+      if (allPrepCompleted) {
+        const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
+        if (firstProductionPhase && !firstProductionPhase.materialReady) {
+            firstProductionPhase.materialReady = true;
+            toast({ title: "Preparazione Completata", description: `Materiale ora disponibile per la fase: "${firstProductionPhase.name}".`});
+        }
+      }
+    } else {
+      const completedPhaseSequence = phaseToComplete.sequence;
+      const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === completedPhaseSequence + 1);
+      if (nextPhase && nextPhase.status === 'pending') { 
+        nextPhase.materialReady = true;
+        toast({ title: "Materiale Pronto", description: `Materiale per la fase "${nextPhase.name}" ora disponibile.`});
+      }
     }
     
     setActiveJobOrder(jobToUpdate);
@@ -400,7 +428,7 @@ export default function ScanJobPage() {
     <Card>
       <CardHeader>
           <div className="flex items-center space-x-3">
-          <ScanLine className="h-8 w-8 text-primary" />
+          <QrCode className="h-8 w-8 text-primary" />
           <div>
             <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
             <CardDescription>Scansiona il QR code sulla commessa.</CardDescription>
@@ -427,7 +455,7 @@ export default function ScanJobPage() {
           disabled={isScanningJob}
           className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
         >
-          <ScanLine className="mr-2 h-5 w-5" />
+          <QrCode className="mr-2 h-5 w-5" />
           {isScanningJob ? "Scansione..." : "Simula Scansione QR Code Commessa"}
         </Button>
         <p className="text-sm text-muted-foreground">
@@ -577,29 +605,29 @@ export default function ScanJobPage() {
   const renderPhasesManagement = () => {
     if (!activeJobOrder) return null;
     const isJobBlockedByProblem = !!activeJobOrder.isProblemReported;
+    
+    const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
+    const productionPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+    const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
 
-    return (
-    <Card className="mt-6 shadow-lg">
-      <CardHeader>
-        <CardTitle className="font-headline flex items-center">
-          <ListChecks className="mr-3 h-7 w-7 text-primary" />
-          Fasi di Lavorazione Commessa: {activeJobOrder?.id}
-        </CardTitle>
-        <CardDescription>Gestisci l'avanzamento delle fasi. Postazione per questa commessa: <strong>{activeJobOrder?.postazioneLavoro}</strong></CardDescription>
-        {isJobBlockedByProblem && (
-           <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Le operazioni sulle fasi sono bloccate.
-            </p>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {activeJobOrder?.phases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
-          const isPreviousPhaseCompleted = index === 0 || activeJobOrder.phases.find(p => p.sequence === phase.sequence -1)?.status === 'completed';
+    const renderPhaseCard = (phase: JobPhase) => {
+          const phaseType = phase.type || 'production';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
+          const materialCheckPassed = phase.materialReady;
 
-          const materialCheckPassed = phase.materialReady; 
+          let canStartPhase = false;
+          if (phaseType === 'preparation') {
+            canStartPhase = noOtherPhaseActiveOrPaused;
+          } else { // production
+            if (phase.sequence === 1) {
+              canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
+            } else {
+              const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
+              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
+            }
+          }
 
-          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && isPreviousPhaseCompleted && noOtherPhaseActiveOrPaused && !phase.workstationScannedAndVerified;
+          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && canStartPhase && !phase.workstationScannedAndVerified;
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused'; // Allow completing even if job problem
@@ -662,7 +690,7 @@ export default function ScanJobPage() {
                         disabled={isScanningWorkstationForPhase || isJobBlockedByProblem}
                         className="w-full"
                         variant="outline" >
-                        <ScanLine className="mr-2 h-5 w-5" />
+                        <QrCode className="mr-2 h-5 w-5" />
                         {isScanningWorkstationForPhase ? "Scansione..." : "Simula Scansione Postazione per Fase"}
                     </Button>
                 </div>
@@ -671,7 +699,7 @@ export default function ScanJobPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {canTriggerWorkstationScan && phase.status === 'pending' && (
                      <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
-                        <ScanLine className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
+                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
                     </Button>
                 )}
                 {canPausePhase && (
@@ -692,7 +720,48 @@ export default function ScanJobPage() {
               </div>
             </Card>
           );
-        })}
+    }
+    
+    return (
+    <Card className="mt-6 shadow-lg">
+      <CardHeader>
+        <CardTitle className="font-headline flex items-center">
+          <ListChecks className="mr-3 h-7 w-7 text-primary" />
+          Fasi di Lavorazione Commessa: {activeJobOrder?.id}
+        </CardTitle>
+        <CardDescription>Gestisci l'avanzamento delle fasi. Postazione per questa commessa: <strong>{activeJobOrder?.postazioneLavoro}</strong></CardDescription>
+        {isJobBlockedByProblem && (
+           <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Le operazioni sulle fasi sono bloccate.
+            </p>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {preparationPhases.length > 0 && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-muted-foreground">Fasi Preparazione</span>
+              <Separator className="flex-1" />
+            </div>
+            <div className="space-y-4">
+                {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(renderPhaseCard)}
+            </div>
+          </>
+        )}
+        
+        {productionPhases.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 pt-4">
+              <span className="text-sm font-semibold text-muted-foreground">Fasi Produzione</span>
+              <Separator className="flex-1" />
+            </div>
+             <div className="space-y-4">
+                {productionPhases.sort((a,b) => a.sequence - b.sequence).map(renderPhaseCard)}
+            </div>
+          </>
+        )}
+
+
         {allPhasesCompleted && !activeJobOrder?.overallEndTime && (
           <Button 
             onClick={handleConcludeOverallJob} 
