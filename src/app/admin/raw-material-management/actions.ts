@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -101,23 +102,21 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     });
 
     const materialsRef = collection(db, "rawMaterials");
-    const existingCodesSnap = await getDocs(query(materialsRef, where('code', 'in', data.map(d => d.code).filter(Boolean))));
+    // Fetch all existing codes once to avoid 'in' query limitations
+    const existingCodesSnap = await getDocs(query(materialsRef));
     const existingCodes = new Set(existingCodesSnap.docs.map(doc => doc.data().code));
     
     const batch = writeBatch(db);
     let addedCount = 0;
     let skippedCount = 0;
-    let errorMessages: string[] = [];
 
     for (const row of data) {
+        // Ensure row.code is a string before validation for has() check
+        const codeToCheck = row && row.code ? String(row.code) : null;
         const validated = importSchema.safeParse(row);
-        if (!validated.success || existingCodes.has(row.code)) {
+        
+        if (!validated.success || !codeToCheck || existingCodes.has(codeToCheck)) {
             skippedCount++;
-            if(!validated.success) {
-              errorMessages.push(`Riga per codice ${row.code || 'sconosciuto'} ignorata: ${validated.error.flatten().fieldErrors.code}`);
-            } else {
-              errorMessages.push(`Riga per codice ${row.code} ignorata: codice già esistente.`);
-            }
             continue;
         }
 
