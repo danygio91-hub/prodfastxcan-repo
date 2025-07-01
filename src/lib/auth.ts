@@ -1,4 +1,3 @@
-
 import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
@@ -10,20 +9,6 @@ const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 const ADMIN_EMAIL = `daniel.giorlando@${AUTH_EMAIL_DOMAIN}`;
 
 export async function login(username: string, password_used: string): Promise<Operator | null> {
-  let allOperators: Operator[] = [];
-  try {
-    const operatorsSnap = await getDocs(collection(db, "operators"));
-    if (!operatorsSnap.empty) {
-      allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
-    } else {
-      console.warn("Firestore 'operators' collection is empty. Falling back to initial mock data for login.");
-      allOperators = initialOperators;
-    }
-  } catch (error) {
-    console.error("Error fetching operators from Firestore, falling back to mock data:", error);
-    allOperators = initialOperators;
-  }
-  
   let emailForAuth: string;
 
   // Handle both username and email input
@@ -32,6 +17,10 @@ export async function login(username: string, password_used: string): Promise<Op
   } else if (username.includes('@')) {
     emailForAuth = username.toLowerCase();
   } else {
+    // This is for other users logging in with just their name
+    // We need to fetch operators to construct the email from the name
+    const operatorsSnap = await getDocs(collection(db, "operators"));
+    const allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
     const operatorByName = allOperators.find(op => op.nome.toLowerCase() === username.toLowerCase());
     if (operatorByName) {
       emailForAuth = `${operatorByName.nome.toLowerCase()}.${operatorByName.cognome.toLowerCase().replace(/\s+/g, '')}@${AUTH_EMAIL_DOMAIN}`;
@@ -46,7 +35,6 @@ export async function login(username: string, password_used: string): Promise<Op
     const authenticatedUser = userCredential.user;
 
     // --- Admin Safeguard ---
-    // If the logged-in user is the admin, force their profile to prevent issues with bad DB data.
     if (authenticatedUser.email === ADMIN_EMAIL) {
       const adminProfile = initialOperators.find(op => op.role === 'admin');
       if (!adminProfile) {
@@ -71,27 +59,29 @@ export async function login(username: string, password_used: string): Promise<Op
         localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
       }
       return operator;
-    }
+    } else {
+      // --- Logic for non-admin users ---
+      const operatorsSnap = await getDocs(collection(db, "operators"));
+      const allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
+      // Derive name from email, e.g., "john.doe@domain.com" -> "john"
+      const nameFromEmail = authenticatedUser.email?.split('@')[0].split('.')[0];
+      const operator = allOperators.find(op => op.nome.toLowerCase() === nameFromEmail?.toLowerCase());
 
-    // --- Logic for non-admin users ---
-    const nameFromEmail = authenticatedUser.email?.split('@')[0].split('.')[0];
-    const operator = allOperators.find(op => op.nome.toLowerCase() === nameFromEmail?.toLowerCase());
-
-    if (!operator) {
-        console.error(`Authentication successful for ${authenticatedUser.email}, but no matching operator profile found in the database.`);
-        await logout();
-        return null;
+      if (!operator) {
+          console.error(`Authentication successful for ${authenticatedUser.email}, but no matching operator profile found in the database.`);
+          await logout();
+          return null;
+      }
+      
+      if (typeof window !== 'undefined') {
+        const { password, ...operatorToStore } = operator;
+        localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
+      }
+      return operator;
     }
-    
-    if (typeof window !== 'undefined') {
-      const { password, ...operatorToStore } = operator;
-      localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
-    }
-    return operator;
 
   } catch (error: any) {
     console.error("Firebase Authentication failed:", error.code, error.message);
-    await logout();
     return null;
   }
 }
