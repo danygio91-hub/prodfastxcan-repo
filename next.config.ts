@@ -23,6 +23,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-// Temporarily disabling PWA to resolve startup issues, likely with Next.js 15
-// export default withPWA(nextConfig);
-export default nextConfig;
+// Re-enabled PWA for performance benefits.
+export default withPWA(nextConfig);
