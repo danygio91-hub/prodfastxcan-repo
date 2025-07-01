@@ -488,9 +488,6 @@ export default function ScanJobPage() {
               <QrCode className="mr-2 h-5 w-5" />
               Scansiona QR Code Commessa
             </Button>
-            <p className="text-sm text-muted-foreground text-center px-4">
-              Il QR code deve contenere i dati nel formato: <br/><strong>Ordine PF@Codice@Qta</strong>
-            </p>
           </>
         )}
       </CardContent>
@@ -809,3 +806,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
+    
