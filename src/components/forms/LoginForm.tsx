@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -43,15 +43,14 @@ type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
     const [isLoading, setIsLoading] = useState(false);
+    const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
     const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading } = useAuth();
     
-    // Using a ref to hold the media stream to easily access and stop it
     const streamRef = useRef<MediaStream | null>(null);
 
-    // Effect to handle redirection after login
     useEffect(() => {
         if (loading) return;
         if (user && operator) {
@@ -68,7 +67,6 @@ export default function LoginForm() {
         setStep('logging_in');
         try {
             await login(username, password_used);
-            // Redirection is now handled by the useEffect watching the auth context
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
@@ -76,74 +74,14 @@ export default function LoginForm() {
                 description: errorMessage,
                 variant: "destructive",
             });
-            setIsLoading(false); // Reset loading on failure
-            setStep(step === 'camera' ? 'camera' : 'manual_login'); // Go back to the previous form on failure
+            setIsLoading(false);
+            setStep('manual_login');
         }
-    }, [toast, step]);
+    }, [toast]);
 
 
-    // Effect for handling the camera and QR code detection
     useEffect(() => {
         let detectionInterval: NodeJS.Timeout;
-
-        const startScan = async () => {
-            if (step !== 'camera' || !videoRef.current) return;
-
-            if (!('BarcodeDetector' in window)) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Funzionalità non Supportata',
-                    description: 'Il tuo browser non supporta la scansione di QR code. Prova ad usare Chrome o accedi manually.',
-                });
-                setStep('initial');
-                return;
-            }
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                streamRef.current = stream;
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play();
-                }
-
-                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-                
-                detectionInterval = setInterval(async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) return;
-                    try {
-                        const barcodes = await barcodeDetector.detect(videoRef.current);
-                        if (barcodes.length > 0) {
-                            const scannedData = barcodes[0].rawValue;
-                            const [username, password] = scannedData.split('@');
-                            
-                            if (username && password) {
-                                toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
-                                stopScan();
-                                await performLogin(username, password);
-                            } else {
-                                toast({
-                                    variant: 'destructive',
-                                    title: 'Formato QR Code non Valido',
-                                    description: 'Il QR code deve contenere "nomeutente@password".',
-                                });
-                            }
-                        }
-                    } catch (scanError) {
-                        // Ignore detection errors, they can happen often
-                    }
-                }, 500); // Scan every 500ms
-
-            } catch (error) {
-                console.error('Error accessing camera:', error);
-                toast({
-                    variant: 'destructive',
-                    title: 'Accesso Fotocamera Negato',
-                    description: 'Abilita i permessi per la fotocamera nelle impostazioni del browser.',
-                });
-                setStep('initial');
-            }
-        };
 
         const stopScan = () => {
              if (streamRef.current) {
@@ -155,6 +93,61 @@ export default function LoginForm() {
             }
              if (videoRef.current) {
                 videoRef.current.srcObject = null;
+            }
+        };
+        
+        const startScan = async () => {
+            if (step !== 'camera' || !videoRef.current) return;
+
+            if (!('BarcodeDetector' in window)) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Funzionalità non Supportata',
+                    description: 'Il tuo browser non supporta la scansione di QR code. Prova ad usare Chrome o accedi manualmente.',
+                });
+                setStep('initial');
+                return;
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                streamRef.current = stream;
+                setHasCameraPermission(true);
+                
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                }
+
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+                
+                detectionInterval = setInterval(async () => {
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended || !videoRef.current.srcObject) return;
+                    try {
+                        const barcodes = await barcodeDetector.detect(videoRef.current);
+                        if (barcodes.length > 0) {
+                            const scannedData = barcodes[0].rawValue;
+                            const [username, password] = scannedData.split('@');
+                            
+                            if (username && password) {
+                                toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
+                                stopScan();
+                                await performLogin(username, password);
+                            }
+                        }
+                    } catch (scanError) {
+                        // Ignore detection errors, they can happen often
+                    }
+                }, 500);
+
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Accesso Fotocamera Negato',
+                    description: 'Abilita i permessi per la fotocamera nelle impostazioni del browser.',
+                });
             }
         };
 
@@ -211,6 +204,13 @@ export default function LoginForm() {
                              <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
                                 <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
                              </div>
+                             {!hasCameraPermission && (
+                                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                                    <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                                    <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
+                                    <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
+                                </div>
+                            )}
                         </CardContent>
                         <CardFooter className="pt-6">
                             <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
@@ -220,7 +220,7 @@ export default function LoginForm() {
             case 'manual_login':
                  return (
                      <motion.div key="manual_login" initial={{ opacity: 0, x: 100 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 100 }}>
-                        <Form {...form}>
+                        <Form {...manualForm}>
                             <form onSubmit={manualForm.handleSubmit(onManualSubmit)}>
                                  <CardHeader className="items-center text-center">
                                     <Image src="/logo.svg" alt="PFXcan Logo" width={120} height={80} className="mb-4" />
