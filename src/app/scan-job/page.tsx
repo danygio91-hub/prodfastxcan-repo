@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -404,7 +403,7 @@ export default function ScanJobPage() {
           <ScanLine className="h-8 w-8 text-primary" />
           <div>
             <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
-            <CardDescription>Scansiona il codice a barre sulla commessa.</CardDescription>
+            <CardDescription>Scansiona il QR code sulla commessa.</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -417,7 +416,7 @@ export default function ScanJobPage() {
           `}
         >
           {isScanningJob && <p className="text-primary font-semibold">Scansione Commessa in corso...</p>}
-          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Allinea codice a barre commessa</p>}
+          {!isScanningJob && !scannedJobOrder && !isJobAlertOpen && <p className="text-muted-foreground">Allinea QR code commessa</p>}
           {jobScanSuccess && !isScanningJob && !isJobAlertOpen && <CheckCircle className="h-16 w-16 text-green-500" />}
           {isJobAlertOpen && !isScanningJob && <AlertTriangle className="h-16 w-16 text-destructive" />}
           {!isScanningJob && scannedJobOrder && !isJobAlertOpen && !isProcessingJob && <CheckCircle className="h-16 w-16 text-green-500" />}
@@ -429,10 +428,10 @@ export default function ScanJobPage() {
           className="w-full max-w-xs bg-accent text-accent-foreground hover:bg-accent/90"
         >
           <ScanLine className="mr-2 h-5 w-5" />
-          {isScanningJob ? "Scansione..." : "Simula Scansione Codice Commessa"}
+          {isScanningJob ? "Scansione..." : "Simula Scansione QR Code Commessa"}
         </Button>
         <p className="text-sm text-muted-foreground">
-          Questo simula la scansione del codice a barre per la commessa.
+          Questo simula la scansione del QR code per la commessa.
         </p>
       </CardContent>
     </Card>
@@ -646,7 +645,7 @@ export default function ScanJobPage() {
               {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && !isJobBlockedByProblem && (
                 <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
                     <Label className="font-semibold text-primary">Verifica Postazione per Fase: {phase.name}</Label>
-                    <p className="text-sm text-muted-foreground">Scansiona il barcode della postazione: <strong>{activeJobOrder?.postazioneLavoro}</strong></p>
+                    <p className="text-sm text-muted-foreground">Scansiona il QR code della postazione: <strong>{activeJobOrder?.postazioneLavoro}</strong></p>
                      <div
                         className={`w-full h-24 border-2 rounded-lg flex items-center justify-center transition-all duration-300
                         ${isScanningWorkstationForPhase ? 'border-primary animate-pulse' : 'border-border'}
@@ -654,7 +653,7 @@ export default function ScanJobPage() {
                         ${phase.workstationScannedAndVerified && !isScanningWorkstationForPhase ? 'border-green-500 bg-green-500/10' : ''}
                         `} >
                         {isScanningWorkstationForPhase && <p className="text-primary font-semibold">Scansione Postazione...</p>}
-                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Allinea codice a barre postazione</p>}
+                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Allinea QR code postazione</p>}
                         {!isScanningWorkstationForPhase && phase.workstationScannedAndVerified && <CheckCircle className="h-10 w-10 text-green-500" />}
                          {scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <AlertTriangle className="h-10 w-10 text-destructive" />}
                     </div>

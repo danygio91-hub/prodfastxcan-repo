@@ -60,7 +60,7 @@ export default function DashboardPage() {
               />
               <DashboardItem
                 title="Scansione Commessa PF"
-                description="Scansiona un codice a barre della commessa per iniziare o continuare il lavoro."
+                description="Scansiona un QR code della commessa per iniziare o continuare il lavoro."
                 icon={ScanLine}
                 href="/scan-job"
               />
