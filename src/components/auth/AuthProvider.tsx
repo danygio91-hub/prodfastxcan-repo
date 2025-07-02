@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDoc, getDocs, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, writeBatch, query, where } from 'firebase/firestore';
 import { logout as firebaseLogout, getOperator } from '@/lib/auth';
 
 
@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 role: 'admin',
                 privacySigned: true,
                 uid: firebaseUser.uid,
+                nome_normalized: 'daniel',
             };
             // Ensure admin profile exists and is correct in Firestore
             const adminRef = doc(db, "operators", ADMIN_ID);
@@ -53,25 +54,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } 
         // --- OPERATOR PATH ---
         else {
-            const operatorsSnap = await getDocs(collection(db, 'operators'));
-            const allOperators = operatorsSnap.docs.map(doc => doc.data() as Operator);
-            
-            // Find operator by matching the start of the email with the name
             const userNameFromEmail = firebaseUser.email?.split('@')[0];
-            const foundOperator = allOperators.find(op => op.nome.toLowerCase() === userNameFromEmail);
+            if (userNameFromEmail) {
+                const operatorsRef = collection(db, 'operators');
+                // Efficiently query for the operator using the normalized name
+                const q = query(operatorsRef, where("nome_normalized", "==", userNameFromEmail));
+                const querySnapshot = await getDocs(q);
 
-            if (foundOperator) {
-                operatorProfile = { ...foundOperator, stato: 'attivo' };
-                // Link Firebase Auth UID to Operator profile on first login
-                if (!foundOperator.uid) {
-                    const operatorRef = doc(db, "operators", foundOperator.id);
-                    await setDoc(operatorRef, { uid: firebaseUser.uid }, { merge: true });
-                    operatorProfile.uid = firebaseUser.uid;
-                }
-                // Update status in Firestore if necessary
-                if (foundOperator.stato !== 'attivo') {
-                    const operatorRef = doc(db, "operators", foundOperator.id);
-                    await setDoc(operatorRef, { stato: 'attivo' }, { merge: true });
+                if (!querySnapshot.empty) {
+                    const operatorDoc = querySnapshot.docs[0];
+                    const foundOperator = operatorDoc.data() as Operator;
+                    operatorProfile = { ...foundOperator, stato: 'attivo' };
+
+                    // Link Firebase Auth UID to Operator profile on first login
+                    if (!foundOperator.uid) {
+                        await setDoc(operatorDoc.ref, { uid: firebaseUser.uid }, { merge: true });
+                        operatorProfile.uid = firebaseUser.uid;
+                    }
+                    // Update status in Firestore if necessary
+                    if (foundOperator.stato !== 'attivo') {
+                        await setDoc(operatorDoc.ref, { stato: 'attivo' }, { merge: true });
+                    }
                 }
             }
         }

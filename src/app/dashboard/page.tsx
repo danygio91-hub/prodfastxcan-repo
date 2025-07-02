@@ -53,62 +53,61 @@ export default function DashboardPage() {
             </p>
           </header>
 
-          <AlertDialog>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <DashboardItem
+              title="Scansione Commessa PF"
+              description="Scansiona un QR code della commessa per iniziare o continuare il lavoro."
+              icon={ScanLine}
+              href="/scan-job"
+            />
+            {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
               <DashboardItem
-                title="Scansione Commessa PF"
-                description="Scansiona un QR code della commessa per iniziare o continuare il lavoro."
-                icon={ScanLine}
-                href="/scan-job"
+                title="Scansione Materie Prime"
+                description="Registra l'ingresso, l'uscita o il peso dei materiali."
+                icon={Boxes}
+                href="/raw-material-scan"
               />
-              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
+            )}
+            <DashboardItem
+              title="Dati Operatore"
+              description="Visualizza e gestisci le informazioni dell'operatore."
+              icon={Users}
+              href="/operator-data"
+            />
+             <AlertDialog>
+              <AlertDialogTrigger asChild>
                 <DashboardItem
-                  title="Scansione Materie Prime"
-                  description="Registra l'ingresso, l'uscita o il peso dei materiali."
-                  icon={Boxes}
-                  href="/raw-material-scan"
-                />
-              )}
-              <DashboardItem
-                title="Dati Operatore"
-                description="Visualizza e gestisci le informazioni dell'operatore."
-                icon={Users}
-                href="/operator-data"
-              />
-               <AlertDialogTrigger asChild>
-                 <DashboardItem
                   title="Timbratrice"
                   description="Registra l'orario di ingresso o di uscita dal turno di lavoro."
                   icon={Clock}
                   isDialogTrigger
                 />
               </AlertDialogTrigger>
-              <DashboardItem
-                title="Segnala Problema"
-                description="Segnala eventuali problemi riscontrati durante la produzione."
-                icon={AlertTriangle}
-                href="/report-problem"
-              />
-            </div>
-
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Seleziona Azione Timbratura</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Vuoi registrare un orario di ingresso o di uscita?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                <AlertDialogAction onClick={handleClockIn}>
-                  Registra Entrata
-                </AlertDialogAction>
-                <AlertDialogAction onClick={handleClockOut}>
-                  Registra Uscita
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Seleziona Azione Timbratura</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Vuoi registrare un orario di ingresso o di uscita?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleClockIn}>
+                    Registra Entrata
+                  </AlertDialogAction>
+                  <AlertDialogAction onClick={handleClockOut}>
+                    Registra Uscita
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <DashboardItem
+              title="Segnala Problema"
+              description="Segnala eventuali problemi riscontrati durante la produzione."
+              icon={AlertTriangle}
+              href="/report-problem"
+            />
+          </div>
         </div>
       </AppShell>
     </AuthGuard>

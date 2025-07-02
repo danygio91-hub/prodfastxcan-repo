@@ -49,11 +49,12 @@ export async function saveOperator(formData: FormData) {
 
   const { id, nome, reparto, role } = validatedFields.data;
   const cognome = validatedFields.data.cognome || '';
+  const nome_normalized = nome.toLowerCase();
   
   if (id) {
     // Update existing operator
     const operatorRef = doc(db, "operators", id);
-    await setDoc(operatorRef, { nome, cognome, reparto, role }, { merge: true });
+    await setDoc(operatorRef, { nome, cognome, reparto, role, nome_normalized }, { merge: true });
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
@@ -69,6 +70,7 @@ export async function saveOperator(formData: FormData) {
       stato: 'inattivo', // Default state for new operators
       password: '1234', // Default password for new operators
       privacySigned: false, // Default privacy status
+      nome_normalized,
     };
     await setDoc(operatorRef, newOperator);
     revalidatePath('/admin/operator-management');
