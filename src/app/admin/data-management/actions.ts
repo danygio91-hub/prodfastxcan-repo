@@ -350,7 +350,7 @@ export async function cancelODL(jobId: string): Promise<{ success: boolean; mess
     return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
   }
 
-  await setDoc(jobRef, { status: 'planned' }, { merge: true });
+  await updateDoc(jobRef, { status: 'planned' });
   
   revalidatePath('/admin/data-management');
   revalidatePath('/admin/production-console');
