@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, getDoc, query, where } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -20,22 +20,61 @@ export const storeOperator = (operator: Operator | null) => {
 };
 
 /**
- * Attempts to sign in a user with Firebase Auth.
- * It determines the correct email to use based on the input.
+ * Attempts to sign in a user with Firebase Auth, verifies their operator profile,
+ * and updates their status in Firestore. Throws an error if any step fails.
  */
-export async function login(username: string, password_used: string) {
+export async function login(username: string, password_used: string): Promise<Operator> {
     let emailForAuth: string;
+    const lowerCaseUsername = username.toLowerCase();
 
-    // Special handling for the admin user
-    if (username.toLowerCase() === 'daniel') {
+    if (lowerCaseUsername === 'daniel') {
         emailForAuth = ADMIN_EMAIL;
-    } 
-    else {
-        // For all other users, construct email from username
-        emailForAuth = `${username.toLowerCase()}@${AUTH_EMAIL_DOMAIN}`;
+    } else {
+        emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
     }
 
-    return await signInWithEmailAndPassword(auth, emailForAuth, password_used);
+    const userCredential = await signInWithEmailAndPassword(auth, emailForAuth, password_used);
+    const firebaseUser = userCredential.user;
+
+    let operatorProfile: Operator | null = null;
+    let operatorDocRef;
+
+    if (lowerCaseUsername === 'daniel') {
+        operatorDocRef = doc(db, "operators", "op-1");
+        const adminSnap = await getDoc(operatorDocRef);
+        if (adminSnap.exists()) {
+             operatorProfile = adminSnap.data() as Operator;
+             operatorProfile.id = adminSnap.id;
+        } else {
+            await signOut(auth);
+            throw new Error("Profilo amministratore non trovato nel database. Contattare il supporto.");
+        }
+    } else {
+        const operatorsRef = collection(db, 'operators');
+        const q = query(operatorsRef, where("nome_normalized", "==", lowerCaseUsername));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+            const operatorDoc = querySnapshot.docs[0];
+            operatorDocRef = operatorDoc.ref;
+            operatorProfile = operatorDoc.data() as Operator;
+            operatorProfile.id = operatorDoc.id;
+        }
+    }
+    
+    if (!operatorProfile || !operatorDocRef) {
+        await signOut(auth);
+        throw new Error(`Profilo operatore per "${username}" non trovato nel database.`);
+    }
+
+    await setDoc(operatorDocRef, { 
+        uid: firebaseUser.uid,
+        stato: 'attivo'
+    }, { merge: true });
+
+    const finalProfile: Operator = { ...operatorProfile, uid: firebaseUser.uid, stato: 'attivo' };
+    storeOperator(finalProfile);
+    return finalProfile;
 }
 
 

@@ -66,6 +66,9 @@ export default function LoginForm() {
         setStep('logging_in');
         try {
             await login(username, password_used);
+            // On success, the AuthProvider's onAuthStateChanged will trigger,
+            // which will update the context, and the useEffect in this component
+            // will handle the redirection.
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
@@ -73,7 +76,7 @@ export default function LoginForm() {
                 description: errorMessage,
                 variant: "destructive",
             });
-            setIsLoading(false);
+            setIsLoading(false); // Un-stick the UI
             setStep('manual_login');
         }
     }, [toast]);

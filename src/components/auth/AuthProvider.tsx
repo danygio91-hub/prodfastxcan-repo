@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter, usePathname } from 'next/navigation';
-import { collection, doc, getDoc, getDocs, setDoc, writeBatch, query, where } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, query, where, limit } from 'firebase/firestore';
 import { logout as firebaseLogout, getOperator } from '@/lib/auth';
 
 
@@ -20,9 +20,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({ user: null, operator: null, loading: true, logout: () => {} });
 
-const ADMIN_EMAIL = 'daniel@prodfastxcan.app';
-const ADMIN_ID = 'op-1';
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
@@ -30,65 +27,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const handleLogout = useCallback(async () => {
+    const currentOperator = getOperator();
+    if(currentOperator && currentOperator.role !== 'admin') {
+      const operatorRef = doc(db, "operators", currentOperator.id);
+      await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
+    }
+    
+    await firebaseLogout();
+    router.push('/');
+  }, [router]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       if (firebaseUser) {
+        // User is authenticated, find their profile by UID.
+        // UID is the single source of truth linking Auth and Firestore.
+        const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
+        const querySnapshot = await getDocs(q);
+        
         let operatorProfile: Operator | null = null;
+        if (!querySnapshot.empty) {
+            const operatorDoc = querySnapshot.docs[0];
+            operatorProfile = operatorDoc.data() as Operator;
+            operatorProfile.id = operatorDoc.id; // Ensure ID from doc is included
+        }
         
-        // --- ADMIN PATH ---
-        if (firebaseUser.email === ADMIN_EMAIL) {
-            operatorProfile = {
-                id: ADMIN_ID,
-                nome: 'Daniel',
-                cognome: 'Giorlando',
-                reparto: 'N/D',
-                stato: 'attivo',
-                role: 'admin',
-                privacySigned: true,
-                uid: firebaseUser.uid,
-                nome_normalized: 'daniel',
-            };
-            // Ensure admin profile exists and is correct in Firestore
-            const adminRef = doc(db, "operators", ADMIN_ID);
-            await setDoc(adminRef, operatorProfile, { merge: true });
-        } 
-        // --- OPERATOR PATH ---
-        else {
-            const userNameFromEmail = firebaseUser.email?.split('@')[0];
-            if (userNameFromEmail) {
-                const operatorsRef = collection(db, 'operators');
-                // Efficiently query for the operator using the normalized name
-                const q = query(operatorsRef, where("nome_normalized", "==", userNameFromEmail));
-                const querySnapshot = await getDocs(q);
-
-                if (!querySnapshot.empty) {
-                    const operatorDoc = querySnapshot.docs[0];
-                    const foundOperator = operatorDoc.data() as Operator;
-                    operatorProfile = { ...foundOperator, stato: 'attivo' };
-
-                    // Link Firebase Auth UID to Operator profile on first login
-                    if (!foundOperator.uid) {
-                        await setDoc(operatorDoc.ref, { uid: firebaseUser.uid }, { merge: true });
-                        operatorProfile.uid = firebaseUser.uid;
-                    }
-                    // Update status in Firestore if necessary
-                    if (foundOperator.stato !== 'attivo') {
-                        await setDoc(operatorDoc.ref, { stato: 'attivo' }, { merge: true });
-                    }
-                }
+        if (operatorProfile) {
+            setUser(firebaseUser);
+            setOperator(operatorProfile);
+            storeOperator(operatorProfile);
+            
+            if (!operatorProfile.privacySigned && pathname !== '/operator-data') {
+                router.replace('/operator-data');
             }
+        } else {
+            // This case handles when a Firebase session exists but the user profile was deleted
+            // from Firestore, or if the initial login somehow failed to link the UID.
+            // It safely logs out the user.
+            await handleLogout();
         }
-        
-        setUser(firebaseUser);
-        setOperator(operatorProfile);
-        storeOperator(operatorProfile);
-        
-        // ** NEW LOGIC: Enforce privacy policy signature **
-        if (operatorProfile && !operatorProfile.privacySigned && pathname !== '/operator-data') {
-            router.replace('/operator-data');
-        }
-
       } else {
         // User is logged out
         setUser(null);
@@ -99,19 +78,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [router, pathname]);
+  }, [router, pathname, handleLogout]);
   
-  const handleLogout = useCallback(async () => {
-    // If the logged-out user is an operator, set their status to 'inattivo'
-    const currentOperator = getOperator();
-    if(currentOperator && currentOperator.role !== 'admin') {
-      const operatorRef = doc(db, "operators", currentOperator.id);
-      await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
-    }
-    
-    await firebaseLogout();
-    router.push('/');
-  }, [router]);
 
   return (
     <AuthContext.Provider value={{ user, operator, loading, logout: handleLogout }}>
