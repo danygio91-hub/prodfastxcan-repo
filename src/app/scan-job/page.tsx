@@ -94,14 +94,14 @@ export default function ScanJobPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lottoVideoRef = useRef<HTMLVideoElement>(null);
   const materialVideoRef = useRef<HTMLVideoElement>(null);
-  const workstationVideoRef = useRef<HTMLVideoElement>(null);
+  const phaseScanVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
   
-  const [isWorkstationScanDialogOpen, setIsWorkstationScanDialogOpen] = useState(false);
-  const [phaseForWorkstationScan, setPhaseForWorkstationScan] = useState<JobPhase | null>(null);
+  const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
+  const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
 
   const [isMaterialScanDialogOpen, setIsMaterialScanDialogOpen] = useState(false);
   const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
@@ -294,7 +294,7 @@ export default function ScanJobPage() {
     }
   }, [step, stopCamera, toast, handleScannedData]);
 
-  const handleOpenWorkstationScanDialog = (phase: JobPhase) => {
+  const handleOpenPhaseScanDialog = (phase: JobPhase) => {
     if (activeJobOrder) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
       const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phase.id);
@@ -303,22 +303,22 @@ export default function ScanJobPage() {
       }
       setActiveJobOrder(jobToUpdate);
     }
-    setPhaseForWorkstationScan(phase);
-    setIsWorkstationScanDialogOpen(true);
+    setPhaseForPhaseScan(phase);
+    setIsPhaseScanDialogOpen(true);
   };
 
-  const handleWorkstationScanResult = (scannedId: string) => {
-      setIsWorkstationScanDialogOpen(false);
-      if (!activeJobOrder || !operator || !phaseForWorkstationScan) return;
+  const handlePhaseScanResult = (scannedId: string) => {
+      setIsPhaseScanDialogOpen(false);
+      if (!activeJobOrder || !operator || !phaseForPhaseScan) return;
 
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForWorkstationScan.id);
+      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForPhaseScan.id);
 
-      if (scannedId !== jobToUpdate.postazioneLavoro || !phaseToStart) {
+      if (!phaseToStart || scannedId !== phaseToStart.name) {
         toast({
             variant: "destructive",
-            title: "Errore Postazione",
-            description: `Postazione ${scannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+            title: "Errore Scansione Fase",
+            description: `QR Code non valido. Scansionato: "${scannedId}", Atteso: "${phaseToStart?.name}".`,
             duration: 9000,
         });
         return;
@@ -365,7 +365,7 @@ export default function ScanJobPage() {
       
       toast({
         title: "Fase Avviata!",
-        description: `Postazione verificata e fase "${phaseToStart.name}" avviata.`,
+        description: `Fase "${phaseToStart.name}" avviata correttamente.`,
         action: <CheckCircle className="text-green-500" />,
       });
   };
@@ -516,7 +516,7 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobOrder(null);
-    setPhaseForWorkstationScan(null);
+    setPhaseForPhaseScan(null);
     setStep('initial');
   }
 
@@ -686,7 +686,7 @@ export default function ScanJobPage() {
 
 
   useEffect(() => {
-    if (!isWorkstationScanDialogOpen) {
+    if (!isPhaseScanDialogOpen) {
       stopCamera();
       return;
     }
@@ -697,11 +697,11 @@ export default function ScanJobPage() {
         try {
             if (!('BarcodeDetector' in window)) {
                 toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
-                setIsWorkstationScanDialogOpen(false); return;
+                setIsPhaseScanDialogOpen(false); return;
             }
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             streamRef.current = stream;
-            const video = workstationVideoRef.current;
+            const video = phaseScanVideoRef.current;
             if (video) {
                 video.srcObject = stream;
                 await video.play();
@@ -710,22 +710,22 @@ export default function ScanJobPage() {
             const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
             
             detectionInterval = setInterval(async () => {
-                if (!workstationVideoRef.current || workstationVideoRef.current.paused || workstationVideoRef.current.readyState < 2) return;
-                const barcodes = await barcodeDetector.detect(workstationVideoRef.current);
+                if (!phaseScanVideoRef.current || phaseScanVideoRef.current.paused || phaseScanVideoRef.current.readyState < 2) return;
+                const barcodes = await barcodeDetector.detect(phaseScanVideoRef.current);
                 if (barcodes.length > 0) {
                     clearInterval(detectionInterval);
-                    handleWorkstationScanResult(barcodes[0].rawValue);
+                    handlePhaseScanResult(barcodes[0].rawValue);
                 }
             }, 500);
         } catch (err) {
             toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
             stopCamera();
-            setIsWorkstationScanDialogOpen(false);
+            setIsPhaseScanDialogOpen(false);
         }
     };
     startCameraAndScan();
     return () => { clearInterval(detectionInterval); stopCamera(); };
-  }, [isWorkstationScanDialogOpen, stopCamera, handleWorkstationScanResult, toast]);
+  }, [isPhaseScanDialogOpen, stopCamera, handlePhaseScanResult, toast]);
 
 
   useEffect(() => {
@@ -874,10 +874,6 @@ export default function ScanJobPage() {
               <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna Finale</Label>
               <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
             </div>
-            <div>
-              <Label htmlFor="postazioneLavoroJob" className="flex items-center text-sm text-muted-foreground"><Computer className="mr-2 h-4 w-4 text-primary" />Postazione di Lavoro Prevista (Generale)</Label>
-              <Input id="postazioneLavoroJob" value={job.postazioneLavoro} readOnly className="bg-input text-foreground mt-1" />
-            </div>
           </div>
           <div>
             <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
@@ -970,7 +966,6 @@ export default function ScanJobPage() {
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
               </div>
-               <p className="text-xs text-muted-foreground mt-1">Postazione Prevista: {activeJobOrder?.postazioneLavoro}</p>
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {phase.materialConsumption && (
@@ -997,8 +992,8 @@ export default function ScanJobPage() {
                     </Button>
                 )}
                  {canStartWithScan && (
-                     <Button size="sm" onClick={() => handleOpenWorkstationScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
-                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Postazione per Avviare
+                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
+                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
                 )}
                 {canPausePhase && (
@@ -1033,7 +1028,7 @@ export default function ScanJobPage() {
           <ListChecks className="mr-3 h-7 w-7 text-primary" />
           Fasi di Lavorazione Commessa: {activeJobOrder?.id}
         </CardTitle>
-        <CardDescription>Gestisci l'avanzamento delle fasi. Postazione per questa commessa: <strong>{activeJobOrder?.postazioneLavoro}</strong></CardDescription>
+        <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
         {isJobBlockedByProblem && (
            <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
               <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Le operazioni sulle fasi sono bloccate.
@@ -1264,21 +1259,21 @@ export default function ScanJobPage() {
     </Dialog>
   );
 
-  const renderWorkstationScanDialog = () => (
-    <Dialog open={isWorkstationScanDialogOpen} onOpenChange={setIsWorkstationScanDialogOpen}>
+  const renderPhaseScanDialog = () => (
+    <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
         <DialogContent>
             <DialogHeader>
-                <DialogTitle>Scansiona Postazione di Lavoro</DialogTitle>
-                <DialogDescription>Inquadra il QR Code della postazione "{activeJobOrder?.postazioneLavoro}" per avviare la fase "{phaseForWorkstationScan?.name}".</DialogDescription>
+                <DialogTitle>Scansiona QR Code Fase</DialogTitle>
+                <DialogDescription>Inquadra il QR Code con il nome della fase "{phaseForPhaseScan?.name}" per avviarla.</DialogDescription>
             </DialogHeader>
             <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
-                <video ref={workstationVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                <video ref={phaseScanVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                 <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
                     <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
                 </div>
             </div>
             <DialogFooter>
-                <Button variant="outline" onClick={() => setIsWorkstationScanDialogOpen(false)}>Annulla</Button>
+                <Button variant="outline" onClick={() => setIsPhaseScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
     </Dialog>
@@ -1318,7 +1313,7 @@ export default function ScanJobPage() {
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
           {renderClosingWeightDialog()}
-          {renderWorkstationScanDialog()}
+          {renderPhaseScanDialog()}
 
         </div>
       </AppShell>
