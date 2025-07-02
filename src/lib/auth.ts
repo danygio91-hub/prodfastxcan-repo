@@ -2,7 +2,7 @@
 import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
 
 const AUTH_KEY = 'prodtime_tracker_auth';
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
@@ -23,7 +23,7 @@ export const storeOperator = (operator: Operator | null) => {
  * Attempts to sign in a user with Firebase Auth, verifies their operator profile,
  * and updates their status in Firestore. Throws an error if any step fails.
  */
-export async function login(username: string, password_used: string): Promise<Operator> {
+export async function login(username: string, password_used: string): Promise<{ loggedInUser: User, operatorProfile: Operator }> {
     const lowerCaseUsername = username.toLowerCase();
     const emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
 
@@ -55,8 +55,8 @@ export async function login(username: string, password_used: string): Promise<Op
     }, { merge: true });
 
     const finalProfile: Operator = { ...operatorProfile, uid: firebaseUser.uid, stato: 'attivo' };
-    storeOperator(finalProfile);
-    return finalProfile;
+
+    return { loggedInUser: firebaseUser, operatorProfile: finalProfile };
 }
 
 

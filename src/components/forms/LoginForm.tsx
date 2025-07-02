@@ -48,7 +48,7 @@ export default function LoginForm() {
     const streamRef = useRef<MediaStream | null>(null);
     const router = useRouter();
     const { toast } = useToast();
-    const { user, operator, loading } = useAuth();
+    const { user, operator, loading, setAuthData } = useAuth();
 
     useEffect(() => {
         if (loading) return;
@@ -65,10 +65,9 @@ export default function LoginForm() {
         setIsLoading(true);
         setStep('logging_in');
         try {
-            await login(username, password_used);
-            // On success, the AuthProvider's onAuthStateChanged will trigger,
-            // which will update the context, and the useEffect in this component
-            // will handle the redirection.
+            const { loggedInUser, operatorProfile } = await login(username, password_used);
+            setAuthData(loggedInUser, operatorProfile);
+            // The useEffect hook will now see the updated state and handle redirection.
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
@@ -79,7 +78,7 @@ export default function LoginForm() {
             setIsLoading(false); // Un-stick the UI
             setStep('manual_login');
         }
-    }, [toast]);
+    }, [toast, setAuthData]);
 
     useEffect(() => {
         if (step !== 'camera') {

@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, query, where } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -15,6 +15,7 @@ interface AuthContextType {
   operator: Operator | null;
   loading: boolean;
   logout: () => Promise<void>;
+  setAuthData: (user: User, operator: Operator) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType>({
   operator: null,
   loading: true,
   logout: async () => {},
+  setAuthData: () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -30,31 +32,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  const setAuthData = useCallback((user: User, operator: Operator) => {
+    setUser(user);
+    setOperator(operator);
+    storeOperator(operator);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        try {
-          const operatorsSnapshot = await getDocs(collection(db, "operators"));
-          const operatorList = operatorsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Operator));
-          
-          let operatorProfile = operatorList.find(op => op.uid === firebaseUser.uid);
-          
-          // Fallback for race condition on first login
-          if (!operatorProfile && firebaseUser.email) {
-            const username = firebaseUser.email.split('@')[0];
-            operatorProfile = operatorList.find(op => op.nome_normalized === username);
-          }
+        // This path is for session restoration (e.g., page refresh)
+        // If we already have the operator from the login flow, don't re-fetch
+        if (operator && operator.uid === firebaseUser.uid) {
+            setLoading(false);
+            return;
+        }
 
-          if (operatorProfile) {
+        try {
+          const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+          const querySnapshot = await getDocs(q);
+
+          if (!querySnapshot.empty) {
+            const operatorDoc = querySnapshot.docs[0];
+            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+            
             setUser(firebaseUser);
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
           } else {
-            console.error("Authenticated user profile not found in Firestore. Logging out.");
+            console.error("Authenticated user profile not found in Firestore during session restore. Logging out.");
             await firebaseLogout();
           }
         } catch (error) {
-          console.error("Error fetching operator profile:", error);
+          console.error("Error restoring session:", error);
           await firebaseLogout();
         }
       } else {
@@ -66,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = useCallback(async () => {
@@ -82,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [operator, router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout, setAuthData }}>
       {children}
     </AuthContext.Provider>
   );
