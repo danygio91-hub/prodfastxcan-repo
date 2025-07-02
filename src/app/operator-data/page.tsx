@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +25,7 @@ export default function OperatorDataPage() {
   const [isSigned, setIsSigned] = useState(false); 
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
+  const router = useRouter();
   
   // Use a state to hold a mutable copy of operator data for UI updates
   const [currentOperator, setCurrentOperator] = useState<Operator | null>(null);
@@ -60,10 +62,16 @@ export default function OperatorDataPage() {
         setIsSigned(true);
         toast({
             title: "Firma Salvata",
-            description: "Grazie per aver accettato l'informativa sulla privacy.",
+            description: "Grazie per aver accettato. Verrai reindirizzato alla dashboard.",
         });
         // Update local state to reflect change immediately
         setCurrentOperator({ ...currentOperator, privacySigned: true });
+
+        // Redirect to the main dashboard after signing.
+        setTimeout(() => {
+          router.push('/dashboard');
+        }, 1500); // Delay for toast visibility
+
     } else {
          toast({
             variant: "destructive",
@@ -87,7 +95,7 @@ export default function OperatorDataPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <OperatorNavMenu />
+          {isSigned && <OperatorNavMenu />}
 
           <Card className="shadow-lg">
             <CardHeader>
@@ -132,7 +140,12 @@ export default function OperatorDataPage() {
                 <FileLock className="h-8 w-8 text-primary" />
                 <div>
                   <CardTitle className="text-xl font-headline mb-1">Informativa sulla Privacy e Riservatezza</CardTitle>
-                  <CardDescription>Presa visione obbligatoria per l'utilizzo dell'applicazione.</CardDescription>
+                  <CardDescription>
+                    {isSigned 
+                      ? "Hai già accettato l'informativa." 
+                      : "Presa visione obbligatoria per l'utilizzo dell'applicazione."
+                    }
+                  </CardDescription>
                 </div>
               </div>
             </CardHeader>
@@ -165,7 +178,7 @@ export default function OperatorDataPage() {
                     onClick={handleSaveSignature}
                     disabled={!privacyAccepted}
                 >
-                    Salva Firma
+                    Salva Firma e Accetta
                 </Button>
                )}
             </CardFooter>

@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -11,16 +11,30 @@ interface AuthGuardProps {
 }
 
 export default function AuthGuard({ children }: AuthGuardProps) {
-  const { user, loading } = useAuth();
+  const { user, operator, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.replace('/');
-    }
-  }, [user, loading, router]);
+    if (loading) return; // Don't do anything while loading
 
-  if (loading) {
+    // If not logged in, redirect to login page
+    if (!user) {
+      router.replace('/');
+      return;
+    }
+
+    // If operator data is loaded, check for privacy signature
+    // and redirect if they are not signed and not on the signing page.
+    if (operator && !operator.privacySigned && pathname !== '/operator-data') {
+      router.replace('/operator-data');
+      return;
+    }
+
+  }, [user, operator, loading, router, pathname]);
+
+  // Show a skeleton loader while auth state is loading or if a redirect is imminent.
+  if (loading || !user || (operator && !operator.privacySigned && pathname !== '/operator-data')) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <Skeleton className="h-12 w-1/2 mb-4" />
@@ -30,9 +44,11 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
+  // If all checks pass, render the protected content
   if (user) {
     return <>{children}</>;
   }
 
+  // Fallback to null if no user, though useEffect should have redirected.
   return null;
 }

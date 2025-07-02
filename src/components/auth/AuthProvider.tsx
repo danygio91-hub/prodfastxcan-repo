@@ -6,7 +6,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { collection, doc, getDoc, getDocs, setDoc, writeBatch, query, where } from 'firebase/firestore';
 import { logout as firebaseLogout, getOperator } from '@/lib/auth';
 
@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [operator, setOperator] = useState<Operator | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -82,6 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(firebaseUser);
         setOperator(operatorProfile);
         storeOperator(operatorProfile);
+        
+        // ** NEW LOGIC: Enforce privacy policy signature **
+        if (operatorProfile && !operatorProfile.privacySigned && pathname !== '/operator-data') {
+            router.replace('/operator-data');
+        }
 
       } else {
         // User is logged out
@@ -93,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [router, pathname]);
   
   const handleLogout = useCallback(async () => {
     // If the logged-out user is an operator, set their status to 'inattivo'
