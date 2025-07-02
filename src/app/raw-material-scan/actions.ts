@@ -75,6 +75,7 @@ const consumptionLogSchema = z.object({
   kgChiusura: z.coerce.number().optional(),
   notaLordoNetto: z.string().optional(),
   numPz: z.coerce.number().optional(),
+  lottoBobina: z.string().optional(),
 }).refine(data => {
     // If kgApertura is provided, kgChiusura must also be provided
     if (data.kgApertura !== undefined && data.kgChiusura === undefined) return false;
@@ -95,7 +96,7 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
       return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
 
-    const { materialId, kgApertura, kgChiusura, numPz } = validatedFields.data;
+    const { materialId, kgApertura, kgChiusura, numPz, lottoBobina } = validatedFields.data;
     
     if (kgApertura === undefined && numPz === undefined) {
          return { success: false, message: 'Nessun dato di consumo inserito (Pezzi o Pesi).' };
@@ -143,5 +144,10 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
 
     revalidatePath('/raw-material-scan');
     
-    return { success: true, message: `Consumo per ${material.code} registrato: ${messageParts.join(' e ')}.` };
+    let successMessage = `Consumo per ${material.code} registrato: ${messageParts.join(' e ')}.`;
+    if (lottoBobina) {
+      successMessage += ` Lotto: ${lottoBobina}.`;
+    }
+
+    return { success: true, message: successMessage };
 }

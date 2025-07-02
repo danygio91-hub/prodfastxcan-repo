@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -15,11 +16,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, logMaterialConsumption, searchRawMaterials } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Search, Keyboard, Info, Weight, Package, User, FileText, Fingerprint } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Search, Keyboard, Info, Weight, Package, User, FileText, Fingerprint, Barcode } from 'lucide-react';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 
 // BarcodeDetector types for compilation
@@ -39,6 +41,7 @@ const consumptionLogSchema = z.object({
   cliente: z.string().optional(),
   commessa: z.string().optional(),
   codice: z.string().optional(),
+  lottoBobina: z.string().optional(),
 }).refine(data => {
     if (data.kgApertura && !data.kgChiusura) return false;
     if (!data.kgApertura && data.kgChiusura) return false;
@@ -67,7 +70,9 @@ export default function RawMaterialScanPage() {
     const [manualCode, setManualCode] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+    const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
+    const lottoVideoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
     useEffect(() => {
@@ -97,7 +102,7 @@ export default function RawMaterialScanPage() {
 
     const form = useForm<ConsumptionLogFormValues>({
         resolver: zodResolver(consumptionLogSchema),
-        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', cliente: '', commessa: '', codice: ''},
+        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', cliente: '', commessa: '', codice: '', lottoBobina: '' },
     });
 
     useEffect(() => {
@@ -139,7 +144,7 @@ export default function RawMaterialScanPage() {
             setScannedMaterial(result);
             form.reset({
                 materialId: result.id,
-                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '',
+                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', lottoBobina: '',
                 cliente: activeJob?.cliente || '',
                 commessa: activeJob?.ordinePF || '',
                 codice: activeJob?.details || '',
@@ -190,6 +195,54 @@ export default function RawMaterialScanPage() {
         startCameraAndScan();
         return () => { clearInterval(detectionInterval); stopCamera(); };
     }, [step, stopCamera, handleCodeSubmit, toast]);
+    
+    useEffect(() => {
+        if (!isLottoScanDialogOpen) {
+            stopCamera();
+            return;
+        }
+
+        let detectionInterval: ReturnType<typeof setInterval>;
+
+        const startLottoCameraAndScan = async () => {
+            try {
+                if (!('BarcodeDetector' in window)) {
+                    toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
+                    setIsLottoScanDialogOpen(false);
+                    return;
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                streamRef.current = stream;
+                const video = lottoVideoRef.current;
+                if (video) {
+                    video.srcObject = stream;
+                    await video.play();
+                }
+
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+                
+                detectionInterval = setInterval(async () => {
+                    if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) return;
+                    const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
+                    if (barcodes.length > 0) {
+                        clearInterval(detectionInterval);
+                        const scannedValue = barcodes[0].rawValue;
+                        form.setValue('lottoBobina', scannedValue);
+                        toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
+                        setIsLottoScanDialogOpen(false);
+                    }
+                }, 500);
+            } catch (err) {
+                toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+                stopCamera();
+                setIsLottoScanDialogOpen(false);
+            }
+        };
+
+        startLottoCameraAndScan();
+        return () => { clearInterval(detectionInterval); stopCamera(); };
+    }, [isLottoScanDialogOpen, stopCamera, form, toast]);
+
 
     async function onLogSubmit(values: ConsumptionLogFormValues) {
         const formData = new FormData();
@@ -380,6 +433,33 @@ export default function RawMaterialScanPage() {
                                              <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              <FormField control={form.control} name="numPz" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° Pezzi Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              
+                                              {scannedMaterial.type === 'BOB' && (
+                                                <div className="space-y-2 pt-4 border-t">
+                                                    <h3 className="text-sm font-medium text-muted-foreground">Dati Lotto Bobina (Opzionale)</h3>
+                                                    <FormField
+                                                        control={form.control}
+                                                        name="lottoBobina"
+                                                        render={({ field }) => (
+                                                            <FormItem>
+                                                                <FormLabel className="flex items-center">
+                                                                    <Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina
+                                                                </FormLabel>
+                                                                <div className="flex gap-2">
+                                                                    <FormControl>
+                                                                        <Input placeholder="Scansiona o inserisci lotto" {...field} />
+                                                                    </FormControl>
+                                                                    <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}>
+                                                                        <QrCode className="h-4 w-4" />
+                                                                        <span className="sr-only">Scansiona lotto</span>
+                                                                    </Button>
+                                                                </div>
+                                                                <FormMessage />
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                </div>
+                                              )}
+
                                              <div className="space-y-2 pt-4 border-t">
                                                 <h3 className="text-sm font-medium text-muted-foreground">Dati Commessa Collegata</h3>
                                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -403,8 +483,24 @@ export default function RawMaterialScanPage() {
                         </div>
                     )}
                 </div>
+
+                <Dialog open={isLottoScanDialogOpen} onOpenChange={setIsLottoScanDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Inquadra il QR/Barcode del Lotto</DialogTitle>
+                        </DialogHeader>
+                        <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                            <video ref={lottoVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                            <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+                                <div className="w-2/3 h-1/3 border-2 border-dashed border-primary/70 rounded-lg" />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </AppShell>
         </AuthGuard>
     );
 }
-    
