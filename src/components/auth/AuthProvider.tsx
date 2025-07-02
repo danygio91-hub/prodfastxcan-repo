@@ -8,17 +8,21 @@ import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
 import { collection, doc, getDocs, setDoc, query, where, limit } from 'firebase/firestore';
-import { logout as firebaseLogout, getOperator } from '@/lib/auth';
-
+import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
   user: User | null;
   operator: Operator | null;
   loading: boolean;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, operator: null, loading: true, logout: () => {} });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  operator: null,
+  loading: true,
+  logout: async () => {},
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -26,87 +30,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const handleLogout = useCallback(async () => {
-    const currentOperator = getOperator();
-    if(currentOperator && currentOperator.role !== 'admin') {
-      const operatorRef = doc(db, "operators", currentOperator.id);
-      await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
-    }
-    
-    await firebaseLogout();
-    // The onAuthStateChanged listener will handle clearing state
-  }, []);
-
-  const fetchOperatorProfile = useCallback(async (firebaseUser: User): Promise<Operator | null> => {
-      let q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
-      let operatorSnapshot = await getDocs(q);
-
-      // Fallback for the first-login race condition.
-      if (operatorSnapshot.empty && firebaseUser.email) {
-          const username = firebaseUser.email.split('@')[0];
-          if (username) {
-            q = query(collection(db, "operators"), where("nome_normalized", "==", username), limit(1));
-            operatorSnapshot = await getDocs(q);
-          }
-      }
-
-      if (!operatorSnapshot.empty) {
-          const operatorDoc = operatorSnapshot.docs[0];
-          const operatorProfile = operatorDoc.data() as Operator;
-          operatorProfile.id = operatorDoc.id;
-          return operatorProfile;
-      }
-      
-      return null;
-  }, []);
-
-
   useEffect(() => {
-    // The onAuthStateChanged callback SHOULD NOT be async.
-    // We delegate async work to a separate function.
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-        if (firebaseUser) {
-            setLoading(true);
-            fetchOperatorProfile(firebaseUser)
-                .then(operatorProfile => {
-                    if (operatorProfile) {
-                        setUser(firebaseUser);
-                        setOperator(operatorProfile);
-                        storeOperator(operatorProfile);
-                    } else {
-                        console.error("Authenticated user profile not found. Logging out.");
-                        handleLogout();
-                    }
-                })
-                .catch(error => {
-                    console.error("Error fetching operator profile:", error);
-                    handleLogout();
-                })
-                .finally(() => {
-                    setLoading(false);
-                });
-        } else {
-            setUser(null);
-            setOperator(null);
-            storeOperator(null);
-            setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
+      if (firebaseUser) {
+        try {
+          let q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
+          let operatorSnapshot = await getDocs(q);
+
+          // Fallback for the race condition on first login
+          if (operatorSnapshot.empty && firebaseUser.email) {
+            const username = firebaseUser.email.split('@')[0];
+            if (username) {
+              q = query(collection(db, "operators"), where("nome_normalized", "==", username), limit(1));
+              operatorSnapshot = await getDocs(q);
+            }
+          }
+
+          if (!operatorSnapshot.empty) {
+            const operatorDoc = operatorSnapshot.docs[0];
+            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+
+            setUser(firebaseUser);
+            setOperator(operatorProfile);
+            storeOperator(operatorProfile);
+          } else {
+            console.error("Authenticated user profile not found in Firestore. Logging out.");
+            await firebaseLogout();
+          }
+        } catch (error) {
+          console.error("Error fetching operator profile:", error);
+          await firebaseLogout();
+        } finally {
+          setLoading(false);
         }
+      } else {
+        setUser(null);
+        setOperator(null);
+        storeOperator(null);
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
-  }, [fetchOperatorProfile, handleLogout]);
-  
-  const doLogout = useCallback(async () => {
-      await handleLogout();
-      router.push('/');
-  }, [handleLogout, router]);
+  }, []); // Empty dependency array ensures this runs only ONCE.
 
+  const logout = useCallback(async () => {
+    if (operator && operator.role !== 'admin') {
+      try {
+        const operatorRef = doc(db, "operators", operator.id);
+        await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
+      } catch (e) {
+        console.error("Could not set operator status to inactive on logout", e);
+      }
+    }
+    await firebaseLogout();
+    router.push('/');
+  }, [operator, router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout: doLogout }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+};
