@@ -9,7 +9,16 @@ import { revalidatePath } from 'next/cache';
 
 export async function getRawMaterialByCode(code: string): Promise<RawMaterial | { error: string; title?: string }> {
   const materialsRef = collection(db, "rawMaterials");
-  const q = query(materialsRef, where("code", "==", code));
+  const normalizedCode = code.trim().toLowerCase();
+  
+  if (!normalizedCode) {
+     return {
+      error: `Il codice inserito è vuoto.`,
+      title: 'Codice Vuoto',
+    };
+  }
+  
+  const q = query(materialsRef, where("code_normalized", "==", normalizedCode));
   const querySnapshot = await getDocs(q);
 
   if (querySnapshot.empty) {
