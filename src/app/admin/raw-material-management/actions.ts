@@ -67,17 +67,18 @@ export async function saveRawMaterial(formData: FormData) {
   };
 
   if (data.id) {
-    // Update existing material (only descriptive fields)
+    // Update existing material
     const materialRef = doc(db, "rawMaterials", data.id);
     await setDoc(materialRef, materialData, { merge: true });
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima aggiornata con successo.' };
   } else {
-    // Add new material - check for unique code first
-    const q = query(collection(db, "rawMaterials"), where("code", "==", trimmedCode));
+    // Add new material - check for unique normalized code first
+    const normalizedCode = trimmedCode.toLowerCase();
+    const q = query(collection(db, "rawMaterials"), where("code_normalized", "==", normalizedCode));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
-      return { success: false, message: `Una materia prima con codice "${trimmedCode}" esiste già.` };
+      return { success: false, message: `Una materia prima con codice "${trimmedCode}" (o una sua variante maiuscole/minuscole) esiste già.` };
     }
 
     const newDocRef = doc(collection(db, "rawMaterials"));
@@ -165,7 +166,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
     const materialsRef = collection(db, "rawMaterials");
     const existingCodesSnap = await getDocs(query(materialsRef));
-    const existingCodes = new Set(existingCodesSnap.docs.map(doc => doc.data().code));
+    const existingCodes = new Set(existingCodesSnap.docs.map(doc => doc.data().code_normalized));
     
     const batch = writeBatch(db);
     let addedCount = 0;
@@ -181,8 +182,9 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const { data: validData } = validated;
         const trimmedCode = validData.code.trim();
+        const normalizedCode = trimmedCode.toLowerCase();
 
-        if (!trimmedCode || existingCodes.has(trimmedCode)) {
+        if (!trimmedCode || existingCodes.has(normalizedCode)) {
             skippedCount++;
             continue;
         }
@@ -199,7 +201,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
             code: trimmedCode,
-            code_normalized: trimmedCode.toLowerCase(),
+            code_normalized: normalizedCode,
             type: validData.type,
             description: validData.description || "N/D",
             details: {
@@ -214,7 +216,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;
-        existingCodes.add(trimmedCode); // Add to set to prevent duplicates within the same file
+        existingCodes.add(normalizedCode); // Add to set to prevent duplicates within the same file
     }
 
     if (addedCount > 0) {
