@@ -90,7 +90,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [handleLogout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
 
   return (
