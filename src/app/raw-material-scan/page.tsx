@@ -229,7 +229,7 @@ export default function RawMaterialScanPage() {
                         <Card>
                             <CardHeader>
                                 <CardTitle>Inserimento Manuale</CardTitle>
-                                <CardDescription>Digita una parte del codice per cercare la materia prima.</CardDescription>
+                                <CardDescription>Digita l'inizio del codice per cercare la materia prima. La ricerca non è sensibile alle maiuscole.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="relative">
@@ -271,7 +271,8 @@ export default function RawMaterialScanPage() {
                                     <p className="text-center text-sm text-muted-foreground p-4">Nessun risultato trovato per "{manualCode}".</p>
                                 )}
                             </CardContent>
-                            <CardFooter>
+                            <CardFooter className="flex-col gap-4">
+                                <Button onClick={() => handleCodeSubmit(manualCode)} disabled={!manualCode}>Cerca Materiale</Button>
                                 <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
                             </CardFooter>
                         </Card>

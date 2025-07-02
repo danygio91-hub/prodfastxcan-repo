@@ -51,9 +51,11 @@ export async function saveRawMaterial(formData: FormData) {
   }
 
   const data = validatedFields.data;
+  const trimmedCode = data.code.trim();
+
   const materialData = {
-    code: data.code,
-    code_normalized: data.code.toLowerCase(),
+    code: trimmedCode,
+    code_normalized: trimmedCode.toLowerCase(),
     type: data.type,
     description: data.description,
     details: {
@@ -72,10 +74,10 @@ export async function saveRawMaterial(formData: FormData) {
     return { success: true, message: 'Materia prima aggiornata con successo.' };
   } else {
     // Add new material - check for unique code first
-    const q = query(collection(db, "rawMaterials"), where("code", "==", data.code));
+    const q = query(collection(db, "rawMaterials"), where("code", "==", trimmedCode));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
-      return { success: false, message: `Una materia prima con codice "${data.code}" esiste già.` };
+      return { success: false, message: `Una materia prima con codice "${trimmedCode}" esiste già.` };
     }
 
     const newDocRef = doc(collection(db, "rawMaterials"));
@@ -170,15 +172,21 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     let skippedCount = 0;
 
     for (const row of data) {
-        const codeToCheck = row && row.code ? String(row.code) : null;
         const validated = importSchema.safeParse(row);
         
-        if (!validated.success || !codeToCheck || existingCodes.has(codeToCheck)) {
+        if (!validated.success) {
             skippedCount++;
             continue;
         }
 
         const { data: validData } = validated;
+        const trimmedCode = validData.code.trim();
+
+        if (!trimmedCode || existingCodes.has(trimmedCode)) {
+            skippedCount++;
+            continue;
+        }
+
         const newDocRef = doc(materialsRef);
         
         const initialBatch: RawMaterialBatch = {
@@ -190,8 +198,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         };
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
-            code: validData.code,
-            code_normalized: validData.code.toLowerCase(),
+            code: trimmedCode,
+            code_normalized: trimmedCode.toLowerCase(),
             type: validData.type,
             description: validData.description || "N/D",
             details: {
@@ -206,6 +214,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;
+        existingCodes.add(trimmedCode); // Add to set to prevent duplicates within the same file
     }
 
     if (addedCount > 0) {
