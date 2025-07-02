@@ -6,6 +6,7 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
+import * as XLSX from 'xlsx';
 
 import { type Workstation, type Reparto, reparti } from '@/lib/mock-data';
 import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartmentMap } from './actions';
@@ -21,7 +22,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Computer, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { Computer, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
 
 const workstationSchema = z.object({
   id: z.string().optional(),
@@ -97,6 +98,18 @@ export default function AdminWorkstationManagementPage() {
     });
     if (result.success) await fetchWorkstations();
   };
+  
+  const handleExport = () => {
+    const dataToExport = workstations.map(ws => ({
+        'ID': ws.id,
+        'Nome Postazione': ws.name,
+        'Reparto': departmentMap[ws.departmentCode] || ws.departmentCode,
+    }));
+    const ws_data = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws_data, "Postazioni");
+    XLSX.writeFile(wb, "postazioni_lavoro.xlsx");
+  };
 
   return (
     <AdminAuthGuard>
@@ -113,10 +126,16 @@ export default function AdminWorkstationManagementPage() {
                 Configura i banchi di lavoro, le macchine e le altre postazioni produttive.
                 </p>
             </header>
-            <Button onClick={() => handleOpenDialog()}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Aggiungi Postazione
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button onClick={handleExport} variant="outline" disabled={workstations.length === 0}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Esporta Postazioni
+                </Button>
+                <Button onClick={() => handleOpenDialog()}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Aggiungi Postazione
+                </Button>
+            </div>
           </div>
 
           <Card>

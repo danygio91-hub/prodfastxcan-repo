@@ -228,6 +228,24 @@ export default function AdminRawMaterialManagementPage() {
     };
     reader.readAsArrayBuffer(file);
   };
+  
+  const handleExport = () => {
+    const dataToExport = materials.map(m => ({
+        'Codice': m.code,
+        'Tipo': m.type,
+        'Descrizione': m.description,
+        'Stock (Pz)': m.currentStockPcs,
+        'Peso (Kg)': m.currentWeightKg,
+        'Sezione': m.details.sezione,
+        'Filo El.': m.details.filo_el,
+        'Larghezza': m.details.larghezza,
+        'Tipologia': m.details.tipologia,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Materie Prime");
+    XLSX.writeFile(wb, "anagrafica_materie_prime.xlsx");
+  };
 
 
   return (
@@ -247,6 +265,10 @@ export default function AdminRawMaterialManagementPage() {
             </header>
             <div className="flex items-center gap-2">
                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+               <Button onClick={handleExport} variant="outline" disabled={materials.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                Esporta Elenco
+              </Button>
                <Button asChild variant="outline">
                 <a href="/template_import_materie_prime.xlsx" download>
                   <Download className="mr-2 h-4 w-4" />
@@ -365,7 +387,7 @@ export default function AdminRawMaterialManagementPage() {
                 <FormField control={form.control} name="type" render={({ field }) => ( 
                   <FormItem>
                     <FormLabel>Tipo *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Seleziona un tipo" />

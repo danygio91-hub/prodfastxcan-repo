@@ -101,6 +101,39 @@ export default function AdminDataManagementCommessePage() {
       department: "",
     },
   });
+
+  const handleExportPlanned = () => {
+    const dataToExport = plannedJobOrders.map(job => ({
+        'Cliente': job.cliente,
+        'Ordine PF': job.ordinePF,
+        'Ordine Nr Est': job.numeroODL,
+        'Codice': job.details,
+        'Qta': job.qta,
+        'Data Consegna': job.dataConsegnaFinale,
+        'Reparto': job.department,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Commesse Pianificate");
+    XLSX.writeFile(wb, "commesse_pianificate.xlsx");
+  };
+
+  const handleExportProduction = () => {
+    const dataToExport = productionJobOrders.map(job => ({
+        'Cliente': job.cliente,
+        'Ordine PF': job.ordinePF,
+        'Ordine Nr Est': job.numeroODL,
+        'Codice': job.details,
+        'Qta': job.qta,
+        'Data Consegna': job.dataConsegnaFinale,
+        'Reparto': job.department,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Commesse in Produzione");
+    XLSX.writeFile(wb, "commesse_in_produzione.xlsx");
+  };
+
   
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
@@ -439,7 +472,11 @@ export default function AdminDataManagementCommessePage() {
                         <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Esporta
+                      </Button>
                       {selectedRows.length > 0 && (
                         <>
                           <AlertDialog>
@@ -583,6 +620,11 @@ export default function AdminDataManagementCommessePage() {
                           <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
                           </div>
                       </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Esporta
+                        </Button>
                        {selectedProductionRows.length > 0 && (
                           <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -605,6 +647,7 @@ export default function AdminDataManagementCommessePage() {
                               </AlertDialogContent>
                             </AlertDialog>
                        )}
+                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>

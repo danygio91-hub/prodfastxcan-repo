@@ -6,6 +6,7 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
+import * as XLSX from 'xlsx';
 
 import { type Operator, type Reparto, type OperatorRole, reparti, operatorReparti, roles } from '@/lib/mock-data';
 import { getOperators, saveOperator, deleteOperator } from './actions';
@@ -19,13 +20,13 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
@@ -138,13 +139,33 @@ export default function AdminOperatorManagementPage() {
     }
   };
 
+  const handleExport = () => {
+    const dataToExport = operators.map(op => ({
+        'ID': op.id,
+        'Nome': op.nome,
+        'Cognome': op.cognome,
+        'Reparto': op.reparto,
+        'Ruolo': op.role,
+        'Stato': op.stato,
+        'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Operatori");
+    XLSX.writeFile(wb, "elenco_operatori.xlsx");
+  };
+
   return (
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
           <AdminNavMenu />
 
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button onClick={handleExport} variant="outline" disabled={operators.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                Esporta Operatori
+            </Button>
             <Button onClick={() => handleOpenDialog()}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Aggiungi Operatore

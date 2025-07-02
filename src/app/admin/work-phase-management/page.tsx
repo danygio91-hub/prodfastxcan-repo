@@ -6,6 +6,7 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
+import * as XLSX from 'xlsx';
 
 import { type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap } from './actions';
@@ -22,7 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Workflow, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { Workflow, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
 
 const workPhaseSchema = z.object({
   id: z.string().optional(),
@@ -100,6 +101,19 @@ export default function AdminWorkPhaseManagementPage() {
     if (result.success) await fetchPhases();
   };
 
+  const handleExport = () => {
+    const dataToExport = phases.map(phase => ({
+        'ID': phase.id,
+        'Nome Fase': phase.name,
+        'Descrizione': phase.description,
+        'Reparto': departmentMap[phase.departmentCode] || phase.departmentCode,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Fasi Lavorazione");
+    XLSX.writeFile(wb, "fasi_lavorazione.xlsx");
+  };
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -115,10 +129,16 @@ export default function AdminWorkPhaseManagementPage() {
                 Definisci le fasi "modello" che possono essere incluse nei cicli di lavorazione delle commesse.
                 </p>
             </header>
-            <Button onClick={() => handleOpenDialog()}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Aggiungi Fase
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button onClick={handleExport} variant="outline" disabled={phases.length === 0}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Esporta Fasi
+                </Button>
+                <Button onClick={() => handleOpenDialog()}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Aggiungi Fase
+                </Button>
+            </div>
           </div>
 
           <Card>

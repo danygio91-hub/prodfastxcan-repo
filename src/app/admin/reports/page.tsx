@@ -1,5 +1,9 @@
 
+"use client";
+
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
@@ -8,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, Users, Briefcase, ChevronRight } from 'lucide-react';
+import { BarChart3, Users, Briefcase, ChevronRight, Download } from 'lucide-react';
 import { getJobsReport, getOperatorsReport } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
@@ -29,11 +33,45 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   );
 }
 
-export const dynamic = 'force-dynamic';
+export default function AdminReportsPage() {
+  const [jobsReport, setJobsReport] = useState<Awaited<ReturnType<typeof getJobsReport>>>([]);
+  const [operatorsReport, setOperatorsReport] = useState<Awaited<ReturnType<typeof getOperatorsReport>>>([]);
 
-export default async function AdminReportsPage() {
-  const jobsReport = await getJobsReport();
-  const operatorsReport = await getOperatorsReport();
+  useEffect(() => {
+    getJobsReport().then(setJobsReport);
+    getOperatorsReport().then(setOperatorsReport);
+  }, []);
+
+  const handleExportJobs = () => {
+    const dataToExport = jobsReport.map(job => ({
+      'Commessa (PF)': job.id,
+      'Articolo': job.details,
+      'Cliente': job.cliente,
+      'Stato': job.status,
+      'Tempo Trascorso': job.timeElapsed,
+      'Operatori': job.operators,
+      'Data Consegna': job.deliveryDate,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report Commesse");
+    XLSX.writeFile(wb, "report_commesse.xlsx");
+  };
+
+  const handleExportOperators = () => {
+     const dataToExport = operatorsReport.map(op => ({
+      'Operatore': op.name,
+      'Reparto': op.department,
+      'Stato': op.status,
+      'Ore Oggi': op.timeToday,
+      'Ore Settimana': op.timeWeek,
+      'Ore Mese': op.timeMonth,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report Operatori");
+    XLSX.writeFile(wb, "report_operatori.xlsx");
+  };
 
   return (
     <AdminAuthGuard>
@@ -66,8 +104,16 @@ export default async function AdminReportsPage() {
             <TabsContent value="commesse">
               <Card>
                 <CardHeader>
-                  <CardTitle>Riepilogo Lavorazioni per Commessa</CardTitle>
-                  <CardDescription>Elenco delle commesse in lavorazione o completate.</CardDescription>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <CardTitle>Riepilogo Lavorazioni per Commessa</CardTitle>
+                            <CardDescription>Elenco delle commesse in lavorazione o completate.</CardDescription>
+                        </div>
+                        <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Esporta Excel
+                        </Button>
+                    </div>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -114,8 +160,16 @@ export default async function AdminReportsPage() {
             <TabsContent value="operatori">
               <Card>
                 <CardHeader>
-                  <CardTitle>Riepilogo Ore per Operatore</CardTitle>
-                  <CardDescription>Sommario delle ore di lavoro registrate dagli operatori.</CardDescription>
+                  <div className="flex justify-between items-center">
+                    <div>
+                        <CardTitle>Riepilogo Ore per Operatore</CardTitle>
+                        <CardDescription>Sommario delle ore di lavoro registrate dagli operatori.</CardDescription>
+                    </div>
+                     <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Esporta Excel
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                     <div className="overflow-x-auto">
