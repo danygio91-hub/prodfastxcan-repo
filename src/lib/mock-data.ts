@@ -7,6 +7,14 @@ export interface WorkPeriod {
   operatorId: string;
 }
 
+export interface MaterialConsumption {
+  materialId: string;
+  materialCode: string;
+  openingWeight?: number;
+  closingWeight?: number;
+  pcs?: number;
+}
+
 export interface JobPhase {
   id: string;
   name: string;
@@ -16,6 +24,8 @@ export interface JobPhase {
   sequence: number;
   workstationScannedAndVerified?: boolean;
   type?: 'preparation' | 'production';
+  requiresMaterialScan?: boolean;
+  materialConsumption?: MaterialConsumption | null;
 }
 
 export interface JobOrder {

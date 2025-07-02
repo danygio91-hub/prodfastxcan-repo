@@ -2,10 +2,14 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,15 +22,17 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2 } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, RawMaterial } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob } from './actions';
+import { getRawMaterialByCode, searchRawMaterials } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -40,7 +46,12 @@ declare class BarcodeDetector {
   detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
 }
 
-type ToastInfo = { variant?: "destructive"; title: string; description: string; action?: React.ReactNode };
+const openingWeightSchema = z.object({
+  openingWeight: z.coerce.number().positive("Il peso di apertura deve essere un numero positivo."),
+});
+type OpeningWeightFormValues = z.infer<typeof openingWeightSchema>;
+type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
+
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let totalMilliseconds = 0;
@@ -84,7 +95,37 @@ export default function ScanJobPage() {
   const [scannedWorkstationIdForPhase, setScannedWorkstationIdForPhase] = useState<string | null>(null);
   const [isPhaseWorkstationAlertOpen, setIsPhaseWorkstationAlertOpen] = useState(false);
   const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
+
+  const [isMaterialScanDialogOpen, setIsMaterialScanDialogOpen] = useState(false);
+  const [phaseForMaterialScan, setPhaseForMaterialScan] = useState<JobPhase | null>(null);
+  const [materialScanStep, setMaterialScanStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
+  const [scannedMaterialForPhase, setScannedMaterialForPhase] = useState<RawMaterial | null>(null);
+  const [manualMaterialCode, setManualMaterialCode] = useState('');
+  const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
+  const [materialSearchResults, setMaterialSearchResults] = useState<SearchResult[]>([]);
+
+
+  // Debounce search for materials
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+        if (manualMaterialCode.length > 1) {
+            setIsSearchingMaterial(true);
+            const results = await searchRawMaterials(manualMaterialCode);
+            setMaterialSearchResults(results);
+            setIsSearchingMaterial(false);
+        } else {
+            setMaterialSearchResults([]);
+        }
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [manualMaterialCode]);
   
+  const openingWeightForm = useForm<OpeningWeightFormValues>({
+    resolver: zodResolver(openingWeightSchema),
+    defaultValues: { openingWeight: 0 },
+  });
+
+
   useEffect(() => {
     if (!isJobLoading) {
       if (activeJobOrder) {
@@ -467,7 +508,55 @@ export default function ScanJobPage() {
     setScannedWorkstationIdForPhase(null);
     setStep('initial');
   }
-  
+
+  const handleOpenMaterialScanDialog = (phase: JobPhase) => {
+    setPhaseForMaterialScan(phase);
+    setScannedMaterialForPhase(null);
+    setManualMaterialCode('');
+    setMaterialSearchResults([]);
+    openingWeightForm.reset();
+    setMaterialScanStep('initial');
+    setIsMaterialScanDialogOpen(true);
+  };
+
+  const handleMaterialCodeSubmit = useCallback(async (code: string) => {
+    stopCamera();
+    setMaterialScanStep('initial');
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      toast({ variant: 'destructive', title: "Codice Vuoto" });
+      setMaterialScanStep('manual_input');
+      return;
+    }
+    toast({ title: "Ricerca materia prima..." });
+    const result = await getRawMaterialByCode(trimmedCode);
+    if ('error' in result) {
+      toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+      setScannedMaterialForPhase(null);
+    } else {
+      setScannedMaterialForPhase(result);
+      setMaterialScanStep('form');
+    }
+  }, [stopCamera, toast]);
+
+  const onOpeningWeightSubmit = (values: OpeningWeightFormValues) => {
+    if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase) return;
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
+
+    if (phaseToUpdate) {
+        phaseToUpdate.materialConsumption = {
+            materialId: scannedMaterialForPhase.id,
+            materialCode: scannedMaterialForPhase.code,
+            openingWeight: values.openingWeight,
+        };
+        handleUpdateAndPersistJob(jobToUpdate);
+        toast({ title: "Peso di Apertura Registrato", description: `Materiale ${scannedMaterialForPhase.code} associato alla fase.` });
+    }
+    setIsMaterialScanDialogOpen(false);
+  };
+
   if (step === 'loading') {
     return (
       <AppShell>
@@ -597,8 +686,9 @@ export default function ScanJobPage() {
     const renderPhaseCard = (phase: JobPhase) => {
           const phaseType = phase.type || 'production';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
-          const materialCheckPassed = phase.materialReady;
-
+          
+          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && !!phase.materialConsumption);
+          
           let canStartPhase = false;
           if (phaseType === 'preparation') {
             canStartPhase = noOtherPhaseActiveOrPaused;
@@ -611,10 +701,12 @@ export default function ScanJobPage() {
             }
           }
 
-          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialCheckPassed && phase.status === 'pending' && canStartPhase && !phase.workstationScannedAndVerified;
+          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase && !phase.workstationScannedAndVerified;
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
+          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption;
+
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -644,6 +736,9 @@ export default function ScanJobPage() {
                <p className="text-xs text-muted-foreground mt-1">Postazione Prevista: {activeJobOrder?.postazioneLavoro}</p>
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {phase.materialConsumption && (
+                    <p className="font-semibold text-primary">Materiale: {phase.materialConsumption.materialCode} (Aperto: {phase.materialConsumption.openingWeight} kg)</p>
+                )}
                 {lastWorkPeriod?.start && (
                   <p>Ultimo avvio: {format(new Date(lastWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
@@ -680,6 +775,11 @@ export default function ScanJobPage() {
               )}
 
               <div className="mt-3 flex flex-wrap gap-2">
+                {canScanMaterial && (
+                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem}>
+                        <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
+                    </Button>
+                )}
                 {canTriggerWorkstationScan && phase.status === 'pending' && (
                      <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
@@ -778,6 +878,83 @@ export default function ScanJobPage() {
     </Card>
   );
 
+  const renderMaterialScanDialog = () => (
+    <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+                <DialogTitle>Scansiona Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
+            </DialogHeader>
+
+            {materialScanStep === 'initial' && (
+                <div className="py-4 space-y-4">
+                    <Button onClick={() => setMaterialScanStep('scanning')} className="w-full"><QrCode className="mr-2 h-4 w-4" /> Scansiona QR Code</Button>
+                    <Button onClick={() => setMaterialScanStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2 h-4 w-4" /> Inserisci Manualmente</Button>
+                </div>
+            )}
+
+            {materialScanStep === 'scanning' && (
+                <div>...</div>
+            )}
+
+            {materialScanStep === 'manual_input' && (
+                <div className="space-y-4 py-4">
+                    <Label htmlFor="manualMaterialCode">Codice Materia Prima</Label>
+                    <div className="relative">
+                        <Input id="manualMaterialCode" value={manualMaterialCode} onChange={(e) => setManualMaterialCode(e.target.value)} placeholder="Es. BOB-123" autoFocus autoComplete="off" />
+                        {isSearchingMaterial && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin" />}
+                    </div>
+                    {materialSearchResults.length > 0 && (
+                        <div className="border rounded-md max-h-32 overflow-y-auto">
+                            {materialSearchResults.map(material => (
+                                <button key={material.id} type="button" className="w-full text-left p-2 hover:bg-accent" onClick={() => handleMaterialCodeSubmit(material.code)}>
+                                    <p className="font-semibold">{material.code}</p>
+                                    <p className="text-sm text-muted-foreground">{material.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    <Button onClick={() => handleMaterialCodeSubmit(manualMaterialCode)} className="w-full" disabled={!manualMaterialCode}>Cerca</Button>
+                    <Button variant="ghost" onClick={() => setMaterialScanStep('initial')}>Indietro</Button>
+                </div>
+            )}
+
+            {materialScanStep === 'form' && scannedMaterialForPhase && (
+                 <Form {...openingWeightForm}>
+                    <form onSubmit={openingWeightForm.handleSubmit(onOpeningWeightSubmit)} className="space-y-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle>
+                                <CardDescription>{scannedMaterialForPhase.description}</CardDescription>
+                            </CardHeader>
+                        </Card>
+                        <FormField
+                            control={openingWeightForm.control}
+                            name="openingWeight"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>KG di Apertura</FormLabel>
+                                    <FormControl>
+                                        <Input type="number" step="0.01" placeholder="Es. 10.5" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                         <DialogFooter>
+                            <Button type="submit">
+                                <Send className="mr-2 h-4 w-4" />
+                                Registra Peso e Associa
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                 </Form>
+            )}
+            
+        </DialogContent>
+    </Dialog>
+  )
+
+
   return (
     <AuthGuard>
       <AppShell>
@@ -807,6 +984,8 @@ export default function ScanJobPage() {
               <ProblemReportForm onSuccess={handleJobProblemReported} showTitle={false} initialSeverity="medium" />
             </AlertDialogContent>
           </AlertDialog>
+          
+          {renderMaterialScanDialog()}
 
           <AlertDialog open={isPhaseWorkstationAlertOpen} onOpenChange={setIsPhaseWorkstationAlertOpen}>
             <AlertDialogContent>
