@@ -1,7 +1,7 @@
 
 'use server';
 
-import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -25,6 +25,40 @@ export async function getRawMaterialByCode(code: string): Promise<RawMaterial | 
 
   return JSON.parse(JSON.stringify(material)); // Serialize to avoid non-serializable data issues
 }
+
+export async function searchRawMaterials(searchTerm: string): Promise<Pick<RawMaterial, 'id' | 'code' | 'description'>[]> {
+  if (!searchTerm || searchTerm.trim().length < 2) { // Only search if term is long enough
+    return [];
+  }
+  const lowerCaseSearchTerm = searchTerm.toLowerCase();
+  const materialsRef = collection(db, "rawMaterials");
+  
+  // Query for codes starting with the search term (case-insensitive)
+  const q = query(
+    materialsRef,
+    where("code_normalized", ">=", lowerCaseSearchTerm),
+    where("code_normalized", "<=", lowerCaseSearchTerm + '\uf8ff'),
+    limit(10)
+  );
+
+  const querySnapshot = await getDocs(q);
+
+  if (querySnapshot.empty) {
+    return [];
+  }
+
+  const materials = querySnapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      code: data.code,
+      description: data.description,
+    };
+  }) as Pick<RawMaterial, 'id' | 'code' | 'description'>[];
+
+  return JSON.parse(JSON.stringify(materials));
+}
+
 
 const stockUpdateSchema = z.object({
   materialId: z.string(),

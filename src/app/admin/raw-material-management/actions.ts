@@ -53,6 +53,7 @@ export async function saveRawMaterial(formData: FormData) {
   const data = validatedFields.data;
   const materialData = {
     code: data.code,
+    code_normalized: data.code.toLowerCase(),
     type: data.type,
     description: data.description,
     details: {
@@ -190,6 +191,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
             code: validData.code,
+            code_normalized: validData.code.toLowerCase(),
             type: validData.type,
             description: validData.description || "N/D",
             details: {

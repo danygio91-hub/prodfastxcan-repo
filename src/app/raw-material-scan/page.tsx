@@ -18,7 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode, updateRawMaterialStock } from './actions';
+import { getRawMaterialByCode, updateRawMaterialStock, searchRawMaterials } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
 import { QrCode, AlertTriangle, Boxes, Weight, ArrowRight, ArrowLeft, Send, Loader2, Search, Keyboard } from 'lucide-react';
 
@@ -41,6 +41,7 @@ const stockUpdateSchema = z.object({
 });
 
 type StockUpdateFormValues = z.infer<typeof stockUpdateSchema>;
+type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
 
 export default function RawMaterialScanPage() {
     const { operator, loading: authLoading } = useAuth();
@@ -51,6 +52,8 @@ export default function RawMaterialScanPage() {
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [manualCode, setManualCode] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
@@ -60,6 +63,24 @@ export default function RawMaterialScanPage() {
             router.replace('/dashboard');
         }
     }, [operator, authLoading, router, toast]);
+
+    // Debounce search
+    useEffect(() => {
+        const handler = setTimeout(async () => {
+            if (manualCode.length > 1) {
+                setIsSearching(true);
+                const results = await searchRawMaterials(manualCode);
+                setSearchResults(results);
+                setIsSearching(false);
+            } else {
+                setSearchResults([]);
+            }
+        }, 300); // 300ms debounce
+
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [manualCode]);
 
     const form = useForm<StockUpdateFormValues>({
         resolver: zodResolver(stockUpdateSchema),
@@ -163,6 +184,7 @@ export default function RawMaterialScanPage() {
     const resetFlow = () => {
         setScannedMaterial(null);
         setManualCode('');
+        setSearchResults([]);
         form.reset();
         setStep('initial');
     };
@@ -205,30 +227,53 @@ export default function RawMaterialScanPage() {
 
                      {step === 'manual_input' && (
                         <Card>
-                            <form onSubmit={(e) => { e.preventDefault(); handleCodeSubmit(manualCode); }}>
-                                <CardHeader>
-                                    <CardTitle>Inserimento Manuale</CardTitle>
-                                    <CardDescription>Inserisci il codice della materia prima per cercarla.</CardDescription>
-                                </CardHeader>
-                                <CardContent>
+                            <CardHeader>
+                                <CardTitle>Inserimento Manuale</CardTitle>
+                                <CardDescription>Digita una parte del codice per cercare la materia prima.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="relative">
                                     <Label htmlFor="manualCode">Codice Materia Prima</Label>
-                                    <Input
-                                        id="manualCode"
-                                        value={manualCode}
-                                        onChange={(e) => setManualCode(e.target.value)}
-                                        placeholder="Es. BOB-123 o TUBI-456"
-                                        autoFocus
-                                        className="mt-1"
-                                    />
-                                </CardContent>
-                                <CardFooter className="flex-col sm:flex-row gap-2">
-                                    <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full sm:w-auto">Annulla</Button>
-                                    <Button type="submit" className="w-full sm:w-auto">
-                                        <Search className="mr-2 h-4 w-4" />
-                                        Cerca Materiale
-                                    </Button>
-                                </CardFooter>
-                            </form>
+                                    <div className="relative">
+                                        <Input
+                                            id="manualCode"
+                                            value={manualCode}
+                                            onChange={(e) => setManualCode(e.target.value)}
+                                            placeholder="Es. BOB-123 o TUBI..."
+                                            autoFocus
+                                            autoComplete="off"
+                                            className="mt-1"
+                                        />
+                                        {isSearching && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
+                                    </div>
+                                </div>
+                                
+                                {searchResults.length > 0 && (
+                                    <div className="border rounded-md max-h-48 overflow-y-auto">
+                                        <p className="p-2 text-xs font-medium text-muted-foreground">Risultati suggeriti:</p>
+                                        <ul className="divide-y divide-border">
+                                            {searchResults.map(material => (
+                                                <li key={material.id}>
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left p-2 hover:bg-accent transition-colors"
+                                                        onClick={() => handleCodeSubmit(material.code)}
+                                                    >
+                                                        <p className="font-semibold">{material.code}</p>
+                                                        <p className="text-sm text-muted-foreground">{material.description}</p>
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {manualCode.length > 1 && !isSearching && searchResults.length === 0 && (
+                                    <p className="text-center text-sm text-muted-foreground p-4">Nessun risultato trovato per "{manualCode}".</p>
+                                )}
+                            </CardContent>
+                            <CardFooter>
+                                <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
+                            </CardFooter>
                         </Card>
                     )}
 
