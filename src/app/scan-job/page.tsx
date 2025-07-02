@@ -22,12 +22,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Switch } from "@/components/ui/switch";
+import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial } from '@/lib/mock-data';
@@ -46,10 +46,11 @@ declare class BarcodeDetector {
   detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
 }
 
-const openingWeightSchema = z.object({
+const phaseMaterialSchema = z.object({
   openingWeight: z.coerce.number().positive("Il peso di apertura deve essere un numero positivo."),
+  lottoBobina: z.string().optional(),
 });
-type OpeningWeightFormValues = z.infer<typeof openingWeightSchema>;
+type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
 type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
 
 
@@ -85,6 +86,7 @@ export default function ScanJobPage() {
   const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const lottoVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
@@ -97,6 +99,7 @@ export default function ScanJobPage() {
   const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
 
   const [isMaterialScanDialogOpen, setIsMaterialScanDialogOpen] = useState(false);
+  const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
   const [phaseForMaterialScan, setPhaseForMaterialScan] = useState<JobPhase | null>(null);
   const [materialScanStep, setMaterialScanStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
   const [scannedMaterialForPhase, setScannedMaterialForPhase] = useState<RawMaterial | null>(null);
@@ -120,9 +123,9 @@ export default function ScanJobPage() {
     return () => clearTimeout(handler);
   }, [manualMaterialCode]);
   
-  const openingWeightForm = useForm<OpeningWeightFormValues>({
-    resolver: zodResolver(openingWeightSchema),
-    defaultValues: { openingWeight: 0 },
+  const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
+    resolver: zodResolver(phaseMaterialSchema),
+    defaultValues: { openingWeight: 0, lottoBobina: '' },
   });
 
 
@@ -518,7 +521,7 @@ export default function ScanJobPage() {
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
     setMaterialSearchResults([]);
-    openingWeightForm.reset();
+    phaseMaterialForm.reset();
     setMaterialScanStep('initial');
     setIsMaterialScanDialogOpen(true);
   };
@@ -543,7 +546,7 @@ export default function ScanJobPage() {
     }
   }, [stopCamera, toast]);
 
-  const onOpeningWeightSubmit = (values: OpeningWeightFormValues) => {
+  const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
     if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
@@ -554,6 +557,7 @@ export default function ScanJobPage() {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
             openingWeight: values.openingWeight,
+            lottoBobina: values.lottoBobina,
         };
         handleUpdateAndPersistJob(jobToUpdate);
         toast({ title: "Peso di Apertura Registrato", description: `Materiale ${scannedMaterialForPhase.code} associato alla fase.` });
@@ -597,6 +601,54 @@ export default function ScanJobPage() {
     
     updateAndClear();
   };
+
+  useEffect(() => {
+    if (!isLottoScanDialogOpen) {
+      stopCamera();
+      return;
+    }
+
+    let detectionInterval: ReturnType<typeof setInterval>;
+
+    const startLottoCameraAndScan = async () => {
+      try {
+        if (!('BarcodeDetector' in window)) {
+          toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
+          setIsLottoScanDialogOpen(false);
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        streamRef.current = stream;
+        const video = lottoVideoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play();
+        }
+
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+
+        detectionInterval = setInterval(async () => {
+          if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) return;
+          const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
+          if (barcodes.length > 0) {
+            clearInterval(detectionInterval);
+            const scannedValue = barcodes[0].rawValue;
+            phaseMaterialForm.setValue('lottoBobina', scannedValue);
+            toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
+            setIsLottoScanDialogOpen(false);
+          }
+        }, 500);
+      } catch (err) {
+        toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+        stopCamera();
+        setIsLottoScanDialogOpen(false);
+      }
+    };
+
+    startLottoCameraAndScan();
+    return () => { clearInterval(detectionInterval); stopCamera(); };
+  }, [isLottoScanDialogOpen, stopCamera, phaseMaterialForm, toast]);
+
 
   if (step === 'loading') {
     return (
@@ -802,7 +854,7 @@ export default function ScanJobPage() {
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {phase.materialConsumption && (
-                    <p className="font-semibold text-primary">Materiale: {phase.materialConsumption.materialCode} (Aperto: {phase.materialConsumption.openingWeight} kg)</p>
+                    <p className="font-semibold text-primary">Materiale: {phase.materialConsumption.materialCode} (Aperto: {phase.materialConsumption.openingWeight} kg) {phase.materialConsumption.lottoBobina && ` - Lotto: ${phase.materialConsumption.lottoBobina}`}</p>
                 )}
                 {lastWorkPeriod?.start && (
                   <p>Ultimo avvio: {format(new Date(lastWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
@@ -984,8 +1036,8 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'form' && scannedMaterialForPhase && (
-                 <Form {...openingWeightForm}>
-                    <form onSubmit={openingWeightForm.handleSubmit(onOpeningWeightSubmit)} className="space-y-4">
+                 <Form {...phaseMaterialForm}>
+                    <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
                         <Card>
                             <CardHeader>
                                 <CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle>
@@ -993,7 +1045,7 @@ export default function ScanJobPage() {
                             </CardHeader>
                         </Card>
                         <FormField
-                            control={openingWeightForm.control}
+                            control={phaseMaterialForm.control}
                             name="openingWeight"
                             render={({ field }) => (
                                 <FormItem>
@@ -1005,10 +1057,33 @@ export default function ScanJobPage() {
                                 </FormItem>
                             )}
                         />
+                         {scannedMaterialForPhase.type === 'BOB' && (
+                            <FormField
+                                control={phaseMaterialForm.control}
+                                name="lottoBobina"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center">
+                                            <Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)
+                                        </FormLabel>
+                                        <div className="flex gap-2">
+                                            <FormControl>
+                                                <Input placeholder="Scansiona o inserisci lotto" {...field} />
+                                            </FormControl>
+                                            <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}>
+                                                <QrCode className="h-4 w-4" />
+                                                <span className="sr-only">Scansiona lotto</span>
+                                            </Button>
+                                        </div>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
                          <DialogFooter>
                             <Button type="submit">
                                 <Send className="mr-2 h-4 w-4" />
-                                Registra Peso e Associa
+                                Registra e Associa
                             </Button>
                         </DialogFooter>
                     </form>
@@ -1018,6 +1093,25 @@ export default function ScanJobPage() {
         </DialogContent>
     </Dialog>
   )
+  
+  const renderLottoScanDialog = () => (
+    <Dialog open={isLottoScanDialogOpen} onOpenChange={setIsLottoScanDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Inquadra il QR/Barcode del Lotto</DialogTitle>
+            </DialogHeader>
+            <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                <video ref={lottoVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+                    <div className="w-2/3 h-1/3 border-2 border-dashed border-primary/70 rounded-lg" />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+  );
 
 
   return (
@@ -1051,6 +1145,7 @@ export default function ScanJobPage() {
           </AlertDialog>
           
           {renderMaterialScanDialog()}
+          {renderLottoScanDialog()}
 
           <AlertDialog open={isPhaseWorkstationAlertOpen} onOpenChange={setIsPhaseWorkstationAlertOpen}>
             <AlertDialogContent>

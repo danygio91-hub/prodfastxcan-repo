@@ -13,6 +13,7 @@ export interface MaterialConsumption {
   openingWeight?: number;
   closingWeight?: number;
   pcs?: number;
+  lottoBobina?: string;
 }
 
 export interface JobPhase {
