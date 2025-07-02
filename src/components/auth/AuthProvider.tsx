@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, setDoc, query, where, limit } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -32,25 +32,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
       if (firebaseUser) {
         try {
-          let q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
-          let operatorSnapshot = await getDocs(q);
-
-          // Fallback for the race condition on first login
-          if (operatorSnapshot.empty && firebaseUser.email) {
+          const operatorsSnapshot = await getDocs(collection(db, "operators"));
+          const operatorList = operatorsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Operator));
+          
+          let operatorProfile = operatorList.find(op => op.uid === firebaseUser.uid);
+          
+          // Fallback for race condition on first login
+          if (!operatorProfile && firebaseUser.email) {
             const username = firebaseUser.email.split('@')[0];
-            if (username) {
-              q = query(collection(db, "operators"), where("nome_normalized", "==", username), limit(1));
-              operatorSnapshot = await getDocs(q);
-            }
+            operatorProfile = operatorList.find(op => op.nome_normalized === username);
           }
 
-          if (!operatorSnapshot.empty) {
-            const operatorDoc = operatorSnapshot.docs[0];
-            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-
+          if (operatorProfile) {
             setUser(firebaseUser);
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
@@ -61,19 +56,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           console.error("Error fetching operator profile:", error);
           await firebaseLogout();
-        } finally {
-          setLoading(false);
         }
       } else {
         setUser(null);
         setOperator(null);
         storeOperator(null);
-        setLoading(false);
       }
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []); // Empty dependency array ensures this runs only ONCE.
+  }, []);
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {

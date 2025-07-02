@@ -1,11 +1,11 @@
-import { collection, getDocs, doc, setDoc, getDoc, query, where } from 'firebase/firestore';
+
+import { collection, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const AUTH_KEY = 'prodtime_tracker_auth';
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
-const ADMIN_EMAIL = `daniel@${AUTH_EMAIL_DOMAIN}`;
 
 // Helper to store operator data in local storage
 export const storeOperator = (operator: Operator | null) => {
@@ -24,48 +24,30 @@ export const storeOperator = (operator: Operator | null) => {
  * and updates their status in Firestore. Throws an error if any step fails.
  */
 export async function login(username: string, password_used: string): Promise<Operator> {
-    let emailForAuth: string;
     const lowerCaseUsername = username.toLowerCase();
-
-    if (lowerCaseUsername === 'daniel') {
-        emailForAuth = ADMIN_EMAIL;
-    } else {
-        emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
-    }
+    const emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
 
     const userCredential = await signInWithEmailAndPassword(auth, emailForAuth, password_used);
     const firebaseUser = userCredential.user;
 
-    let operatorProfile: Operator | null = null;
-    let operatorDocRef;
+    const operatorsSnapshot = await getDocs(collection(db, "operators"));
+    const operatorList = operatorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Operator);
 
-    if (lowerCaseUsername === 'daniel') {
-        operatorDocRef = doc(db, "operators", "op-1");
-        const adminSnap = await getDoc(operatorDocRef);
-        if (adminSnap.exists()) {
-             operatorProfile = adminSnap.data() as Operator;
-             operatorProfile.id = adminSnap.id;
-        } else {
-            await signOut(auth);
-            throw new Error("Profilo amministratore non trovato nel database. Contattare il supporto.");
-        }
-    } else {
-        const operatorsRef = collection(db, 'operators');
-        const q = query(operatorsRef, where("nome_normalized", "==", lowerCaseUsername));
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-            const operatorDoc = querySnapshot.docs[0];
-            operatorDocRef = operatorDoc.ref;
-            operatorProfile = operatorDoc.data() as Operator;
-            operatorProfile.id = operatorDoc.id;
-        }
-    }
-    
-    if (!operatorProfile || !operatorDocRef) {
+    const operatorProfile = operatorList.find(op => op.nome_normalized === lowerCaseUsername);
+
+    if (!operatorProfile) {
         await signOut(auth);
         throw new Error(`Profilo operatore per "${username}" non trovato nel database.`);
     }
+    
+    // Simple password check against mock data - in a real app, this would be more secure
+    // but here it's just a fallback. Firebase Auth is the primary check.
+    if (operatorProfile.password && operatorProfile.password !== password_used) {
+        await signOut(auth);
+        throw new Error("Credenziali non valide.");
+    }
+
+    const operatorDocRef = doc(db, "operators", operatorProfile.id);
 
     await setDoc(operatorDocRef, { 
         uid: firebaseUser.uid,
