@@ -45,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 stato: 'attivo',
                 role: 'admin',
                 privacySigned: true,
+                uid: firebaseUser.uid,
             };
             // Ensure admin profile exists and is correct in Firestore
             const adminRef = doc(db, "operators", ADMIN_ID);
@@ -61,6 +62,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (foundOperator) {
                 operatorProfile = { ...foundOperator, stato: 'attivo' };
+                // Link Firebase Auth UID to Operator profile on first login
+                if (!foundOperator.uid) {
+                    const operatorRef = doc(db, "operators", foundOperator.id);
+                    await setDoc(operatorRef, { uid: firebaseUser.uid }, { merge: true });
+                    operatorProfile.uid = firebaseUser.uid;
+                }
                 // Update status in Firestore if necessary
                 if (foundOperator.stato !== 'attivo') {
                     const operatorRef = doc(db, "operators", foundOperator.id);

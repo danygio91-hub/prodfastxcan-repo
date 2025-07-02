@@ -27,9 +27,11 @@ import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
 import { resetAllJobOrders, resetAllRawMaterials } from './actions';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 
 export default function AdminAppSettingsPage() {
+  const { user } = useAuth();
   const [isPending, startTransition] = useTransition();
   const [isResettingJobs, startResetJobsTransition] = useTransition();
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
@@ -96,8 +98,9 @@ export default function AdminAppSettingsPage() {
   }
 
   const handleResetJobOrders = () => {
+    if (!user) return;
     startResetJobsTransition(async () => {
-        const result = await resetAllJobOrders();
+        const result = await resetAllJobOrders(user.uid);
         toast({
             title: result.success ? "Operazione Completata" : "Operazione Fallita",
             description: result.message,
@@ -107,8 +110,9 @@ export default function AdminAppSettingsPage() {
   };
 
   const handleResetRawMaterials = () => {
+    if (!user) return;
     startResetMaterialsTransition(async () => {
-        const result = await resetAllRawMaterials();
+        const result = await resetAllRawMaterials(user.uid);
         toast({
             title: result.success ? "Operazione Completata" : "Operazione Fallita",
             description: result.message,

@@ -4,15 +4,17 @@
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { ensureAdmin } from '@/lib/server-auth';
 
 // The seedDatabase function was moved to the client component
 // at /src/app/admin/app-settings/page.tsx to resolve permission errors
 // by ensuring the database operation is authenticated with the user's session.
 
-export async function resetAllJobOrders(): Promise<{ success: boolean; message: string }> {
-  const jobOrdersRef = collection(db, "jobOrders");
-  
+export async function resetAllJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
   try {
+    await ensureAdmin(uid);
+    const jobOrdersRef = collection(db, "jobOrders");
+    
     const querySnapshot = await getDocs(jobOrdersRef);
     if (querySnapshot.empty) {
       return { success: true, message: 'Nessuna commessa trovata. Il database è già pulito.' };
@@ -36,14 +38,15 @@ export async function resetAllJobOrders(): Promise<{ success: boolean; message: 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Errore nel reset delle commesse:", error);
-    return { success: false, message: `Si è verificato un errore durante il reset delle commesse: ${errorMessage}` };
+    return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
   }
 }
 
-export async function resetAllRawMaterials(): Promise<{ success: boolean; message: string }> {
-  const rawMaterialsRef = collection(db, "rawMaterials");
-  
+export async function resetAllRawMaterials(uid: string): Promise<{ success: boolean; message: string }> {
   try {
+    await ensureAdmin(uid);
+    const rawMaterialsRef = collection(db, "rawMaterials");
+    
     const querySnapshot = await getDocs(rawMaterialsRef);
     if (querySnapshot.empty) {
       return { success: true, message: 'Nessuna materia prima trovata. Il database è già pulito.' };
@@ -66,6 +69,6 @@ export async function resetAllRawMaterials(): Promise<{ success: boolean; messag
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Errore nel reset delle materie prime:", error);
-    return { success: false, message: `Si è verificato un errore durante il reset delle materie prime: ${errorMessage}` };
+    return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
   }
 }
