@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -344,11 +343,11 @@ export default function RawMaterialScanPage() {
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 pt-4">
                                         <div className="p-3 rounded-lg border bg-background">
-                                            <Label>Pezzi Attuali (QTA PZ)</Label>
+                                            <Label>Qta Stock</Label>
                                             <p className="text-2xl font-bold">{scannedMaterial.currentStockPcs ?? 0}</p>
                                         </div>
                                          <div className="p-3 rounded-lg border bg-background">
-                                            <Label>Peso Attuale (KG)</Label>
+                                            <Label>Kg Stock</Label>
                                             <p className="text-2xl font-bold">{scannedMaterial.currentWeightKg ?? 0}</p>
                                         </div>
                                     </div>
@@ -408,3 +407,4 @@ export default function RawMaterialScanPage() {
         </AuthGuard>
     );
 }
+    
