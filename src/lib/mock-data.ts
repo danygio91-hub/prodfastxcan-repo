@@ -19,7 +19,7 @@ export interface JobPhase {
 }
 
 export interface JobOrder {
-  id: string;
+  id:string;
   cliente: string;
   qta: number;
   department: string;
@@ -67,6 +67,14 @@ export interface Workstation {
   departmentCode: Reparto;
 }
 
+export interface RawMaterialBatch {
+  id: string; // unique id for the batch
+  date: string; // ISO string date
+  ddt: string; // Documento di Trasporto
+  quantityPcs: number;
+  weightKg: number;
+}
+
 export interface RawMaterial {
   id: string; //firestore doc id
   type: 'BOB' | 'TUBI';
@@ -78,9 +86,10 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
-  // Stock properties
-  currentWeightKg?: number;
-  currentStockPcs?: number;
+  // Stock properties are now calculated from batches
+  currentWeightKg: number;
+  currentStockPcs: number;
+  batches: RawMaterialBatch[]; // Array of received batches
 }
 
 

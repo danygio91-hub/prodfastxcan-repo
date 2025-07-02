@@ -1,15 +1,17 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
+import { format, parseISO } from 'date-fns';
+import { it } from 'date-fns/locale';
 
-import { type RawMaterial } from '@/lib/mock-data';
-import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials } from './actions';
+import { type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
+import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial } from './actions';
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -17,13 +19,15 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2 } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus } from 'lucide-react';
 
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
@@ -34,36 +38,53 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
-  currentStockPcs: z.coerce.number().min(0, 'Lo stock non può essere negativo.').default(0),
-  currentWeightKg: z.coerce.number().min(0, 'Il peso non può essere negativo.').default(0),
 });
 
 type RawMaterialFormValues = z.infer<typeof rawMaterialFormSchema>;
 
+const batchFormSchema = z.object({
+  materialId: z.string().min(1, "ID Materiale mancante."),
+  date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
+  ddt: z.string().min(1, "Il DDT è obbligatorio."),
+  quantityPcs: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
+});
+
+type BatchFormValues = z.infer<typeof batchFormSchema>;
+
 export default function AdminRawMaterialManagementPage() {
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingMaterial, setEditingMaterial] = useState<RawMaterial | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isAddBatchDialogOpen, setIsAddBatchDialogOpen] = useState(false);
+  const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", currentStockPcs: 0, currentWeightKg: 0 },
+    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "" },
   });
 
-  const fetchMaterials = async () => {
+  const batchForm = useForm<BatchFormValues>({
+    resolver: zodResolver(batchFormSchema),
+    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityPcs: 0, weightKg: 0 },
+  });
+
+  const fetchMaterials = useCallback(async () => {
     const data = await getRawMaterials();
     setMaterials(data);
-  };
+  }, []);
 
   useEffect(() => {
     fetchMaterials();
-  }, []);
+  }, [fetchMaterials]);
 
-  const handleOpenDialog = (material: RawMaterial | null = null) => {
-    setEditingMaterial(material);
+  // --- Dialog Handlers ---
+
+  const handleOpenEditDialog = (material: RawMaterial | null = null) => {
+    setSelectedMaterial(material);
     if (material) {
       form.reset({
         id: material.id,
@@ -74,22 +95,28 @@ export default function AdminRawMaterialManagementPage() {
         filo_el: material.details.filo_el,
         larghezza: material.details.larghezza,
         tipologia: material.details.tipologia,
-        currentStockPcs: material.currentStockPcs,
-        currentWeightKg: material.currentWeightKg,
       });
     } else {
-      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", currentStockPcs: 0, currentWeightKg: 0 });
+      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "" });
     }
-    setIsDialogOpen(true);
+    setIsEditDialogOpen(true);
   };
 
-  const handleCloseDialog = () => {
-    setIsDialogOpen(false);
-    setEditingMaterial(null);
-    form.reset();
-  }
+  const handleOpenAddBatchDialog = (material: RawMaterial) => {
+    setSelectedMaterial(material);
+    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityPcs: 0, weightKg: 0 });
+    setIsAddBatchDialogOpen(true);
+  };
 
-  const onSubmit = async (values: RawMaterialFormValues) => {
+  const handleOpenHistoryDialog = (material: RawMaterial) => {
+    setSelectedMaterial(material);
+    setIsHistoryDialogOpen(true);
+  };
+
+
+  // --- Form Submissions ---
+
+  const onEditSubmit = async (values: RawMaterialFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined && value !== null) formData.append(key, String(value));
@@ -103,8 +130,25 @@ export default function AdminRawMaterialManagementPage() {
     });
 
     if (result.success) {
-      await fetchMaterials();
-      handleCloseDialog();
+      fetchMaterials();
+      setIsEditDialogOpen(false);
+    }
+  };
+
+  const onAddBatchSubmit = async (values: BatchFormValues) => {
+    const formData = new FormData();
+    Object.entries(values).forEach(([key, value]) => {
+        formData.append(key, String(value));
+    });
+    const result = await addBatchToRawMaterial(formData);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+     if (result.success) {
+      fetchMaterials();
+      setIsAddBatchDialogOpen(false);
     }
   };
 
@@ -115,7 +159,7 @@ export default function AdminRawMaterialManagementPage() {
       description: result.message,
       variant: result.success ? "default" : "destructive",
     });
-    if (result.success) await fetchMaterials();
+    if (result.success) fetchMaterials();
   };
 
   const handleImportClick = () => {
@@ -148,15 +192,9 @@ export default function AdminRawMaterialManagementPage() {
         }
 
         const headerMapping: { [key: string]: string } = {
-          'code': 'code',
-          'type': 'type',
-          'description': 'description',
-          'sezione': 'sezione',
-          'filo_el': 'filo_el',
-          'larghezza': 'larghezza',
-          'tipologia': 'tipologia',
-          'stock_pcs': 'currentStockPcs',
-          'weight_kg': 'currentWeightKg',
+          'code': 'code', 'type': 'type', 'description': 'description',
+          'sezione': 'sezione', 'filo_el': 'filo_el', 'larghezza': 'larghezza', 'tipologia': 'tipologia',
+          'stock_pcs': 'stock_pcs', 'weight_kg': 'weight_kg',
         };
         
         const mappedJson = filteredData.map((row: any) => {
@@ -181,7 +219,6 @@ export default function AdminRawMaterialManagementPage() {
         if(result.success) {
             fetchMaterials();
         }
-
       } catch (error) {
          toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
       } finally {
@@ -220,9 +257,9 @@ export default function AdminRawMaterialManagementPage() {
                 {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                 Importa da Excel
               </Button>
-              <Button onClick={() => handleOpenDialog()}>
+              <Button onClick={() => handleOpenEditDialog()}>
                 <PlusCircle className="mr-2 h-4 w-4" />
-                Aggiungi Manualmente
+                Aggiungi Materiale
               </Button>
             </div>
           </div>
@@ -230,7 +267,7 @@ export default function AdminRawMaterialManagementPage() {
           <Card>
             <CardHeader>
               <CardTitle>Elenco Materie Prime</CardTitle>
-              <CardDescription>Queste sono le materie prime disponibili a magazzino.</CardDescription>
+              <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -253,30 +290,51 @@ export default function AdminRawMaterialManagementPage() {
                           <TableCell>{material.type}</TableCell>
                           <TableCell>{material.description}</TableCell>
                           <TableCell>{material.currentStockPcs}</TableCell>
-                          <TableCell>{material.currentWeightKg}</TableCell>
-                          <TableCell className="text-right space-x-2">
-                            <Button variant="outline" size="icon" onClick={() => handleOpenDialog(material)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="icon">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Questa azione non può essere annullata. La materia prima verrà eliminata.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDelete(material.id)}>Continua</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                          <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                             <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">Apri menu</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span>Modifica Dettagli</span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handleOpenAddBatchDialog(material)}>
+                                    <PackagePlus className="mr-2 h-4 w-4" />
+                                    <span>Aggiungi Lotto</span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
+                                    <History className="mr-2 h-4 w-4" />
+                                    <span>Vedi Storico</span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          <span>Elimina</span>
+                                      </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                     <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Questa azione non può essere annullata. La materia prima e tutto il suo storico verranno eliminati.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleDelete(material.id)}>Continua</AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       ))
@@ -292,18 +350,18 @@ export default function AdminRawMaterialManagementPage() {
           </Card>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        {/* Edit/Add Material Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
             <DialogHeader>
-              <DialogTitle>{editingMaterial ? "Modifica Materia Prima" : "Aggiungi Nuova Materia Prima"}</DialogTitle>
+              <DialogTitle>{selectedMaterial ? "Modifica Materia Prima" : "Aggiungi Nuova Materia Prima"}</DialogTitle>
               <DialogDescription>
-                Compila i campi per {editingMaterial ? "modificare la materia prima." : "aggiungere una nuova materia prima."}
+                {selectedMaterial ? "Modifica i dettagli descrittivi della materia prima." : "Aggiungi una nuova materia prima. Lo stock andrà aggiunto registrando un lotto."}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
+              <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
                 <FormField control={form.control} name="code" render={({ field }) => ( <FormItem> <FormLabel>Codice *</FormLabel> <FormControl><Input placeholder="Es. BOB-12345" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                
                 <FormField control={form.control} name="type" render={({ field }) => ( 
                   <FormItem>
                     <FormLabel>Tipo *</FormLabel>
@@ -321,9 +379,7 @@ export default function AdminRawMaterialManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
-
                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Descrizione *</FormLabel> <FormControl><Textarea placeholder="Descrizione dettagliata del materiale" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                
                 <h4 className="text-sm font-medium pt-2">Dettagli (opzionale)</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="sezione" render={({ field }) => ( <FormItem> <FormLabel>Sezione</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -331,24 +387,87 @@ export default function AdminRawMaterialManagementPage() {
                   <FormField control={form.control} name="larghezza" render={({ field }) => ( <FormItem> <FormLabel>Larghezza</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                   <FormField control={form.control} name="tipologia" render={({ field }) => ( <FormItem> <FormLabel>Tipologia</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                 </div>
-                
-                <h4 className="text-sm font-medium pt-2">Giacenza</h4>
-                 <div className="grid grid-cols-2 gap-4">
-                   <FormField control={form.control} name="currentStockPcs" render={({ field }) => ( <FormItem> <FormLabel>Stock Iniziale (Pz)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                   <FormField control={form.control} name="currentWeightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso Iniziale (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                 </div>
-
                 <DialogFooter className="pt-4 sticky bottom-0 bg-background/95">
-                  <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
-                  <Button type="submit">{editingMaterial ? "Salva Modifiche" : "Aggiungi Materia Prima"}</Button>
+                  <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button>
+                  <Button type="submit">{selectedMaterial ? "Salva Modifiche" : "Aggiungi Materia Prima"}</Button>
                 </DialogFooter>
               </form>
             </Form>
           </DialogContent>
         </Dialog>
+
+        {/* Add Batch Dialog */}
+        <Dialog open={isAddBatchDialogOpen} onOpenChange={setIsAddBatchDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Aggiungi Lotto per: {selectedMaterial?.code}</DialogTitle>
+                    <DialogDescription>
+                        Registra un nuovo lotto di merce in entrata per questa materia prima.
+                    </DialogDescription>
+                </DialogHeader>
+                <Form {...batchForm}>
+                    <form onSubmit={batchForm.handleSubmit(onAddBatchSubmit)} className="space-y-4 py-4">
+                        <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <div className="grid grid-cols-2 gap-4">
+                            <FormField control={batchForm.control} name="quantityPcs" render={({ field }) => ( <FormItem> <FormLabel>Quantità (Pz)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                            <FormField control={batchForm.control} name="weightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setIsAddBatchDialogOpen(false)}>Annulla</Button>
+                            <Button type="submit">Aggiungi Lotto</Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+
+         {/* View History Dialog */}
+        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+            <DialogContent className="sm:max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Storico Lotti per: {selectedMaterial?.code}</DialogTitle>
+                    <DialogDescription>
+                        Elenco di tutti i lotti di merce ricevuti per questa materia prima.
+                    </DialogDescription>
+                </DialogHeader>
+                 <ScrollArea className="max-h-[60vh]">
+                     <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data</TableHead>
+                          <TableHead>DDT</TableHead>
+                          <TableHead>Quantità (Pz)</TableHead>
+                          <TableHead>Peso (Kg)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedMaterial?.batches && selectedMaterial.batches.length > 0 ? (
+                           selectedMaterial.batches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(batch => (
+                            <TableRow key={batch.id}>
+                                <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy', { locale: it })}</TableCell>
+                                <TableCell>{batch.ddt}</TableCell>
+                                <TableCell>{batch.quantityPcs}</TableCell>
+                                <TableCell>{batch.weightKg.toFixed(2)}</TableCell>
+                            </TableRow>
+                           ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                </ScrollArea>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button type="button" variant="outline">Chiudi</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
       </AppShell>
     </AdminAuthGuard>
   );
 }
-
-    

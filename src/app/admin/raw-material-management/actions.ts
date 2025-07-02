@@ -3,9 +3,10 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import { format } from 'date-fns';
 
 // --- Schemas ---
 const rawMaterialFormSchema = z.object({
@@ -17,9 +18,16 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
-  currentStockPcs: z.coerce.number().min(0, 'Lo stock non può essere negativo.').default(0),
-  currentWeightKg: z.coerce.number().min(0, 'Il peso non può essere negativo.').default(0),
 });
+
+const batchFormSchema = z.object({
+  materialId: z.string().min(1, "ID Materiale mancante."),
+  date: z.string().min(1, "La data è obbligatoria."),
+  ddt: z.string().min(1, "Il DDT è obbligatorio."),
+  quantityPcs: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
+});
+
 
 // --- Actions ---
 
@@ -43,7 +51,7 @@ export async function saveRawMaterial(formData: FormData) {
   }
 
   const data = validatedFields.data;
-  const materialData: Omit<RawMaterial, 'id'> = {
+  const materialData = {
     code: data.code,
     type: data.type,
     description: data.description,
@@ -53,12 +61,10 @@ export async function saveRawMaterial(formData: FormData) {
       larghezza: data.larghezza || '',
       tipologia: data.tipologia || '',
     },
-    currentStockPcs: data.currentStockPcs,
-    currentWeightKg: data.currentWeightKg,
   };
 
   if (data.id) {
-    // Update existing material
+    // Update existing material (only descriptive fields)
     const materialRef = doc(db, "rawMaterials", data.id);
     await setDoc(materialRef, materialData, { merge: true });
     revalidatePath('/admin/raw-material-management');
@@ -72,11 +78,64 @@ export async function saveRawMaterial(formData: FormData) {
     }
 
     const newDocRef = doc(collection(db, "rawMaterials"));
-    await setDoc(newDocRef, materialData);
+    // Initialize with empty stock, which will be updated by adding batches
+    const fullMaterialData = {
+        ...materialData,
+        currentStockPcs: 0,
+        currentWeightKg: 0,
+        batches: [],
+    }
+    await setDoc(newDocRef, fullMaterialData);
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiunta con successo.' };
+    return { success: true, message: 'Materia prima aggiunta con successo. Aggiungi un lotto per aggiornare lo stock.' };
   }
 }
+
+
+export async function addBatchToRawMaterial(formData: FormData) {
+  const rawData = Object.fromEntries(formData.entries());
+  const validatedFields = batchFormSchema.safeParse(rawData);
+
+  if (!validatedFields.success) {
+    return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
+  }
+  
+  const { materialId, date, ddt, quantityPcs, weightKg } = validatedFields.data;
+  
+  const materialRef = doc(db, "rawMaterials", materialId);
+  const docSnap = await getDoc(materialRef);
+
+  if (!docSnap.exists()) {
+    return { success: false, message: 'Materia prima non trovata.' };
+  }
+
+  const material = docSnap.data() as RawMaterial;
+  const existingBatches = material.batches || [];
+  
+  const newBatch: RawMaterialBatch = {
+    id: `batch-${Date.now()}`,
+    date: new Date(date).toISOString(),
+    ddt,
+    quantityPcs,
+    weightKg,
+  };
+
+  const updatedBatches = [...existingBatches, newBatch];
+  
+  // Recalculate totals based on all batches
+  const newTotalPcs = updatedBatches.reduce((sum, batch) => sum + batch.quantityPcs, 0);
+  const newTotalKg = updatedBatches.reduce((sum, batch) => sum + (batch.weightKg || 0), 0);
+
+  await setDoc(materialRef, {
+    batches: updatedBatches,
+    currentStockPcs: newTotalPcs,
+    currentWeightKg: newTotalKg,
+  }, { merge: true });
+
+  revalidatePath('/admin/raw-material-management');
+  return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
+}
+
 
 export async function deleteRawMaterial(id: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -97,12 +156,11 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      currentStockPcs: z.coerce.number().min(0).optional().default(0),
-      currentWeightKg: z.coerce.number().min(0).optional().default(0),
+      stock_pcs: z.coerce.number().min(0).optional().default(0),
+      weight_kg: z.coerce.number().min(0).optional().default(0),
     });
 
     const materialsRef = collection(db, "rawMaterials");
-    // Fetch all existing codes once to avoid 'in' query limitations
     const existingCodesSnap = await getDocs(query(materialsRef));
     const existingCodes = new Set(existingCodesSnap.docs.map(doc => doc.data().code));
     
@@ -111,7 +169,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     let skippedCount = 0;
 
     for (const row of data) {
-        // Ensure row.code is a string before validation for has() check
         const codeToCheck = row && row.code ? String(row.code) : null;
         const validated = importSchema.safeParse(row);
         
@@ -122,6 +179,15 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const { data: validData } = validated;
         const newDocRef = doc(materialsRef);
+        
+        const initialBatch: RawMaterialBatch = {
+            id: `batch-import-${Date.now()}`,
+            date: new Date().toISOString(),
+            ddt: 'Importazione Iniziale',
+            quantityPcs: validData.stock_pcs,
+            weightKg: validData.weight_kg,
+        };
+
         const newMaterial: Omit<RawMaterial, 'id'> = {
             code: validData.code,
             type: validData.type,
@@ -132,8 +198,9 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 larghezza: validData.larghezza || '',
                 tipologia: validData.tipologia || '',
             },
-            currentStockPcs: validData.currentStockPcs,
-            currentWeightKg: validData.currentWeightKg,
+            currentStockPcs: initialBatch.quantityPcs,
+            currentWeightKg: initialBatch.weightKg,
+            batches: [initialBatch],
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;
