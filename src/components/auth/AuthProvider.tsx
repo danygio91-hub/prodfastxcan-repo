@@ -34,64 +34,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     await firebaseLogout();
+    storeOperator(null);
     router.push('/');
   }, [router]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      (async () => {
-        setLoading(true);
-        try {
-          if (firebaseUser) {
-            let operatorProfile: Operator | null = null;
-            
-            // First, try to find by UID. This is the primary, most secure method.
-            const qByUid = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
-            const uidSnapshot = await getDocs(qByUid);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
+      if (firebaseUser) {
+        // Now, we can reliably query by UID because the login function guarantees it's set.
+        const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
+        const operatorSnapshot = await getDocs(q);
 
-            if (!uidSnapshot.empty) {
-                const operatorDoc = uidSnapshot.docs[0];
-                operatorProfile = operatorDoc.data() as Operator;
-                operatorProfile.id = operatorDoc.id;
-            } else if (firebaseUser.email) {
-                // FALLBACK: If not found by UID (can happen during first-login race condition),
-                // try to find by the username derived from the email.
-                const username = firebaseUser.email.split('@')[0];
-                const qByUsername = query(collection(db, "operators"), where("nome_normalized", "==", username), limit(1));
-                const usernameSnapshot = await getDocs(qByUsername);
-                
-                if (!usernameSnapshot.empty) {
-                    const operatorDoc = usernameSnapshot.docs[0];
-                    operatorProfile = operatorDoc.data() as Operator;
-                    operatorProfile.id = operatorDoc.id;
-                }
-            }
-            
-            if (operatorProfile) {
-                setUser(firebaseUser);
-                setOperator(operatorProfile);
-                storeOperator(operatorProfile);
-            } else {
-                console.error(`Inconsistent state: Auth user ${firebaseUser.uid} exists but has no operator profile. Logging out.`);
-                await handleLogout();
-            }
-          } else {
-            setUser(null);
-            setOperator(null);
-            storeOperator(null);
-          }
-        } catch (error) {
-           console.error("Error during authentication state change:", error);
-           await handleLogout();
-        } finally {
-          setLoading(false);
+        if (!operatorSnapshot.empty) {
+            const operatorDoc = operatorSnapshot.docs[0];
+            const operatorProfile = operatorDoc.data() as Operator;
+            operatorProfile.id = operatorDoc.id;
+
+            setUser(firebaseUser);
+            setOperator(operatorProfile);
+            storeOperator(operatorProfile);
+        } else {
+            // This case should be rare, but it's good to handle it.
+            // It might happen if the operator doc is deleted from Firestore while the user is logged in.
+            console.error("User is authenticated but operator profile not found. Logging out.");
+            await handleLogout();
         }
-      })();
+      } else {
+        // User is logged out
+        setUser(null);
+        setOperator(null);
+        storeOperator(null);
+      }
+      setLoading(false);
     });
 
+    // Cleanup subscription on unmount
     return () => unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleLogout]);
   
 
   return (
