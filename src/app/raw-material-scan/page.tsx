@@ -18,9 +18,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode, updateRawMaterialStock, searchRawMaterials } from './actions';
+import { getRawMaterialByCode, logMaterialConsumption, searchRawMaterials } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Weight, ArrowRight, ArrowLeft, Send, Loader2, Search, Keyboard } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Search, Keyboard, Info, Weight, Package, User, FileText, Fingerprint } from 'lucide-react';
+import { useActiveJob } from '@/contexts/ActiveJobProvider';
 
 // BarcodeDetector types for compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -30,23 +31,36 @@ declare class BarcodeDetector {
   detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
 }
 
-const stockUpdateSchema = z.object({
+const consumptionLogSchema = z.object({
   materialId: z.string(),
-  peso: z.string().optional(),
-  ingresso: z.string().optional(),
-  uscita: z.string().optional(),
-}).refine(data => data.peso || data.ingresso || data.uscita, {
-  message: "Devi compilare almeno un campo tra Peso, Ingresso o Uscita.",
-  path: ["peso"], // You can associate the error with a specific field if needed
+  kgApertura: z.string().optional(),
+  kgChiusura: z.string().optional(),
+  notaLordoNetto: z.string().optional(),
+  numPz: z.string().optional(),
+  cliente: z.string().optional(),
+  commessa: z.string().optional(),
+  codice: z.string().optional(),
+}).refine(data => {
+    if (data.kgApertura && !data.kgChiusura) return false;
+    if (!data.kgApertura && data.kgChiusura) return false;
+    return true;
+}, {
+    message: "KG Apertura e Chiusura sono entrambi richiesti se uno dei due è compilato.",
+    path: ["kgChiusura"],
+}).refine(data => data.kgApertura || data.numPz, {
+    message: "Devi compilare il consumo in Pezzi o entrambi i campi KG.",
+    path: ["numPz"],
 });
 
-type StockUpdateFormValues = z.infer<typeof stockUpdateSchema>;
+
+type ConsumptionLogFormValues = z.infer<typeof consumptionLogSchema>;
 type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
 
 export default function RawMaterialScanPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
+    const { activeJob } = useActiveJob();
 
     const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
@@ -82,10 +96,21 @@ export default function RawMaterialScanPage() {
         };
     }, [manualCode]);
 
-    const form = useForm<StockUpdateFormValues>({
-        resolver: zodResolver(stockUpdateSchema),
-        defaultValues: { materialId: '', peso: '', ingresso: '', uscita: '' },
+    const form = useForm<ConsumptionLogFormValues>({
+        resolver: zodResolver(consumptionLogSchema),
+        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', cliente: '', commessa: '', codice: ''},
     });
+
+    useEffect(() => {
+        if (activeJob) {
+            form.setValue('cliente', activeJob.cliente);
+            form.setValue('commessa', activeJob.ordinePF);
+            form.setValue('codice', activeJob.details);
+        }
+        if (scannedMaterial) {
+            form.setValue('materialId', scannedMaterial.id);
+        }
+    }, [activeJob, scannedMaterial, form]);
 
     const stopCamera = useCallback(() => {
         if (streamRef.current) {
@@ -113,10 +138,16 @@ export default function RawMaterialScanPage() {
             setStep('initial');
         } else {
             setScannedMaterial(result);
-            form.reset({ materialId: result.id, peso: '', ingresso: '', uscita: '' });
+            form.reset({
+                materialId: result.id,
+                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '',
+                cliente: activeJob?.cliente || '',
+                commessa: activeJob?.ordinePF || '',
+                codice: activeJob?.details || '',
+            });
             setStep('form');
         }
-    }, [stopCamera, toast, form]);
+    }, [stopCamera, toast, form, activeJob]);
 
     useEffect(() => {
         if (step !== 'scanning') {
@@ -161,13 +192,13 @@ export default function RawMaterialScanPage() {
         return () => { clearInterval(detectionInterval); stopCamera(); };
     }, [step, stopCamera, handleCodeSubmit, toast]);
 
-    async function onSubmit(values: StockUpdateFormValues) {
+    async function onLogSubmit(values: ConsumptionLogFormValues) {
         const formData = new FormData();
         Object.entries(values).forEach(([key, value]) => {
           if (value) formData.append(key, String(value));
         });
 
-        const result = await updateRawMaterialStock(formData);
+        const result = await logMaterialConsumption(formData);
         toast({
             title: result.success ? "Operazione Riuscita" : "Errore",
             description: result.message,
@@ -325,24 +356,46 @@ export default function RawMaterialScanPage() {
                             </Card>
 
                             <Form {...form}>
-                                <form onSubmit={form.handleSubmit(onSubmit)}>
+                                <form onSubmit={form.handleSubmit(onLogSubmit)}>
                                     <Card>
                                         <CardHeader>
-                                            <CardTitle>Aggiorna Giacenza</CardTitle>
-                                            <CardDescription>Inserisci i valori per aggiornare lo stock. Lascia vuoti i campi che non vuoi modificare.</CardDescription>
+                                            <CardTitle>Registra Consumo per Commessa</CardTitle>
+                                            <CardDescription>
+                                                {activeJob ? `Collegato alla commessa: ${activeJob.ordinePF}` : 'Nessuna commessa attiva. Selezionane una per procedere.'}
+                                            </CardDescription>
+                                            {!activeJob && (
+                                                <Alert variant="destructive" className="mt-2">
+                                                    <Info className="h-4 w-4" />
+                                                    <AlertTitle>Commessa non attiva</AlertTitle>
+                                                    <AlertDescription>
+                                                        Per registrare un consumo, devi prima scansionare una commessa e avviarla dalla pagina "Scansione Commessa".
+                                                    </AlertDescription>
+                                                </Alert>
+                                            )}
                                         </CardHeader>
                                         <CardContent className="space-y-6">
-                                             <FormField control={form.control} name="peso" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> Nuovo Peso Totale (KG)</FormLabel> <FormControl><Input type="number" placeholder="Es. 55.5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              <div className="grid grid-cols-2 gap-4">
-                                                <FormField control={form.control} name="ingresso" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><ArrowRight className="mr-2 h-4 w-4 text-green-500" />Ingresso (PZ)</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                                <FormField control={form.control} name="uscita" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><ArrowLeft className="mr-2 h-4 w-4 text-red-500"/>Uscita (PZ)</FormLabel> <FormControl><Input type="number" placeholder="Es. 5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                <FormField control={form.control} name="kgApertura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Apertura</FormLabel> <FormControl><Input type="number" placeholder="Es. 55.5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                <FormField control={form.control} name="kgChiusura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Chiusura</FormLabel> <FormControl><Input type="number" placeholder="Es. 50.2" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              </div>
+                                             <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             <FormField control={form.control} name="numPz" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° Pezzi Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             
+                                             <div className="space-y-2 pt-4 border-t">
+                                                <h3 className="text-sm font-medium text-muted-foreground">Dati Commessa Collegata</h3>
+                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                    <FormField control={form.control} name="cliente" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><User className="mr-2 h-4 w-4" /> Cliente</FormLabel> <FormControl><Input {...field} readOnly className="bg-muted" /></FormControl> </FormItem> )} />
+                                                    <FormField control={form.control} name="commessa" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><FileText className="mr-2 h-4 w-4" /> Commessa</FormLabel> <FormControl><Input {...field} readOnly className="bg-muted" /></FormControl> </FormItem> )} />
+                                                 </div>
+                                                 <FormField control={form.control} name="codice" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Fingerprint className="mr-2 h-4 w-4" /> Codice Articolo</FormLabel> <FormControl><Input {...field} readOnly className="bg-muted" /></FormControl> </FormItem> )} />
+                                             </div>
+
                                         </CardContent>
                                         <CardFooter className="flex-col sm:flex-row gap-2">
                                             <Button type="button" variant="outline" onClick={resetFlow} className="w-full sm:w-auto">Annulla / Nuova Operazione</Button>
-                                            <Button type="submit" className="w-full sm:w-auto" disabled={form.formState.isSubmitting}>
+                                            <Button type="submit" className="w-full sm:w-auto" disabled={form.formState.isSubmitting || !activeJob}>
                                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
-                                                Salva Aggiornamento
+                                                Registra Consumo
                                             </Button>
                                         </CardFooter>
                                     </Card>

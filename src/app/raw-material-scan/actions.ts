@@ -69,62 +69,79 @@ export async function searchRawMaterials(searchTerm: string): Promise<Pick<RawMa
 }
 
 
-const stockUpdateSchema = z.object({
+const consumptionLogSchema = z.object({
   materialId: z.string(),
-  peso: z.coerce.number().optional(),
-  ingresso: z.coerce.number().optional(),
-  uscita: z.coerce.number().optional(),
+  kgApertura: z.coerce.number().optional(),
+  kgChiusura: z.coerce.number().optional(),
+  notaLordoNetto: z.string().optional(),
+  numPz: z.coerce.number().optional(),
+}).refine(data => {
+    // If kgApertura is provided, kgChiusura must also be provided
+    if (data.kgApertura !== undefined && data.kgChiusura === undefined) return false;
+    // If kgChiusura is provided, kgApertura must also be provided
+    if (data.kgChiusura !== undefined && data.kgApertura === undefined) return false;
+    return true;
+}, {
+    message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori.",
+    path: ["kgChiusura"],
 });
 
 
-export async function updateRawMaterialStock(formData: FormData): Promise<{ success: boolean; message: string; }> {
+export async function logMaterialConsumption(formData: FormData): Promise<{ success: boolean; message: string; }> {
     const rawData = Object.fromEntries(formData.entries());
-    const validatedFields = stockUpdateSchema.safeParse(rawData);
+    const validatedFields = consumptionLogSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
-      return { success: false, message: 'Dati del modulo non validi.' };
+      return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
     }
 
-    const { materialId, peso, ingresso, uscita } = validatedFields.data;
+    const { materialId, kgApertura, kgChiusura, numPz } = validatedFields.data;
+    
+    if (kgApertura === undefined && numPz === undefined) {
+         return { success: false, message: 'Nessun dato di consumo inserito (Pezzi o Pesi).' };
+    }
     
     const materialRef = doc(db, "rawMaterials", materialId);
     const docSnap = await getDoc(materialRef);
 
     if (!docSnap.exists()) {
-      return { success: false, message: 'Materia prima non trovata. Impossibile aggiornare.' };
+      return { success: false, message: 'Materia prima non trovata.' };
     }
 
     const material = docSnap.data() as RawMaterial;
-    let newStock = material.currentStockPcs || 0;
-    let newWeight = material.currentWeightKg; // Keep existing weight unless specified
-    
+    let newStockPcs = material.currentStockPcs;
+    let newWeightKg = material.currentWeightKg;
     let messageParts: string[] = [];
 
-    if (ingresso !== undefined && ingresso > 0) {
-        newStock += ingresso;
-        messageParts.push(`${ingresso} pz in ingresso`);
+    // Handle pieces consumption
+    if (numPz !== undefined && numPz > 0) {
+        if (newStockPcs < numPz) {
+             return { success: false, message: `Stock pezzi insufficiente. Disponibili: ${newStockPcs}, richiesti: ${numPz}.` };
+        }
+        newStockPcs -= numPz;
+        messageParts.push(`${numPz} pz consumati`);
     }
 
-    if (uscita !== undefined && uscita > 0) {
-        if (newStock < uscita) {
-            return { success: false, message: `Stock insufficiente. Disponibili: ${newStock}, richiesti in uscita: ${uscita}.` };
+    // Handle weight consumption
+    if (kgApertura !== undefined && kgChiusura !== undefined) {
+        const weightConsumed = kgApertura - kgChiusura;
+        if (weightConsumed < 0) {
+             return { success: false, message: 'Il peso di chiusura non può essere maggiore di quello di apertura.' };
         }
-        newStock -= uscita;
-        messageParts.push(`${uscita} pz in uscita`);
+        if (newWeightKg < weightConsumed) {
+             return { success: false, message: `Stock peso insufficiente. Peso disponibile stimato: ${newWeightKg} kg, consumo richiesto: ${weightConsumed.toFixed(2)} kg.` };
+        }
+        newWeightKg -= weightConsumed;
+        messageParts.push(`${weightConsumed.toFixed(2)} kg consumati`);
     }
-    
-    if (peso !== undefined) {
-        newWeight = peso;
-        messageParts.push(`peso aggiornato a ${peso} kg`);
-    }
-    
+
     if (messageParts.length === 0) {
-        return { success: false, message: 'Nessuna operazione da eseguire. Compilare almeno un campo.' };
+        return { success: false, message: 'Nessun consumo valido da registrare. Controllare i campi.' };
     }
-    
-    await setDoc(materialRef, { currentStockPcs: newStock, currentWeightKg: newWeight }, { merge: true });
+
+    await setDoc(materialRef, { currentStockPcs: newStockPcs, currentWeightKg: newWeightKg }, { merge: true });
 
     revalidatePath('/raw-material-scan');
     
-    return { success: true, message: `Aggiornamento per ${material.code} completato: ${messageParts.join(', ')}.` };
+    return { success: true, message: `Consumo per ${material.code} registrato: ${messageParts.join(' e ')}.` };
 }
