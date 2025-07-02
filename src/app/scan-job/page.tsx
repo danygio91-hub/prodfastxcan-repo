@@ -93,16 +93,15 @@ export default function ScanJobPage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const lottoVideoRef = useRef<HTMLVideoElement>(null);
+  const materialVideoRef = useRef<HTMLVideoElement>(null);
+  const workstationVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
   
-  const [phaseRequiringWorkstationScan, setPhaseRequiringWorkstationScan] = useState<string | null>(null);
-  const [isScanningWorkstationForPhase, setIsScanningWorkstationForPhase] = useState(false);
-  const [scannedWorkstationIdForPhase, setScannedWorkstationIdForPhase] = useState<string | null>(null);
-  const [isPhaseWorkstationAlertOpen, setIsPhaseWorkstationAlertOpen] = useState(false);
-  const [phaseWorkstationAlertInfo, setPhaseWorkstationAlertInfo] = useState({ title: "", description: "" });
+  const [isWorkstationScanDialogOpen, setIsWorkstationScanDialogOpen] = useState(false);
+  const [phaseForWorkstationScan, setPhaseForWorkstationScan] = useState<JobPhase | null>(null);
 
   const [isMaterialScanDialogOpen, setIsMaterialScanDialogOpen] = useState(false);
   const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
@@ -295,37 +294,33 @@ export default function ScanJobPage() {
     }
   }, [step, stopCamera, toast, handleScannedData]);
 
-  const handleTriggerWorkstationScanForPhase = (phaseId: string) => {
-    setPhaseRequiringWorkstationScan(phaseId);
-    setScannedWorkstationIdForPhase(null);
+  const handleOpenWorkstationScanDialog = (phase: JobPhase) => {
     if (activeJobOrder) {
-        const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-        const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-        if (phaseToUpdate) {
-            phaseToUpdate.workstationScannedAndVerified = false;
-        }
-        setActiveJobOrder(jobToUpdate);
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+      const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phase.id);
+      if (phaseToUpdate) {
+          phaseToUpdate.workstationScannedAndVerified = false;
+      }
+      setActiveJobOrder(jobToUpdate);
     }
+    setPhaseForWorkstationScan(phase);
+    setIsWorkstationScanDialogOpen(true);
   };
 
-  const handleSimulateWorkstationScanForPhase = (phaseId: string) => {
-    if (!activeJobOrder || !operator) return;
+  const handleWorkstationScanResult = (scannedId: string) => {
+      setIsWorkstationScanDialogOpen(false);
+      if (!activeJobOrder || !operator || !phaseForWorkstationScan) return;
 
-    setIsScanningWorkstationForPhase(true);
-    const simulatedScannedId = activeJobOrder.postazioneLavoro;
-    setScannedWorkstationIdForPhase(simulatedScannedId);
-
-    setTimeout(() => {
-      setIsScanningWorkstationForPhase(false);
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForWorkstationScan.id);
 
-      if (simulatedScannedId !== jobToUpdate.postazioneLavoro || !phaseToStart) {
-        setPhaseWorkstationAlertInfo({
-          title: "Errore Postazione",
-          description: `Postazione ${simulatedScannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+      if (scannedId !== jobToUpdate.postazioneLavoro || !phaseToStart) {
+        toast({
+            variant: "destructive",
+            title: "Errore Postazione",
+            description: `Postazione ${scannedId} non corretta per commessa ${jobToUpdate.id} (Attesa: ${jobToUpdate.postazioneLavoro}). Verificare o recarsi presso Ufficio Produzione.`,
+            duration: 9000,
         });
-        setIsPhaseWorkstationAlertOpen(true);
         return;
       }
       
@@ -344,7 +339,7 @@ export default function ScanJobPage() {
       if (phaseType === 'production') {
         if (phaseToStart.sequence === 1) {
           const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-          if (!allPrepPhases.every(p => p.status === 'completed')) {
+          if (!allPrepPhases.every((p: JobPhase) => p.status === 'completed')) {
             toast({ variant: "destructive", title: "Errore di Sequenza", description: "È necessario completare tutte le fasi di preparazione prima di iniziare la produzione." });
             return;
           }
@@ -357,7 +352,7 @@ export default function ScanJobPage() {
         }
       }
 
-      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
+      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return;
       }
@@ -367,14 +362,12 @@ export default function ScanJobPage() {
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
       handleUpdateAndPersistJob(jobToUpdate);
-      setPhaseRequiringWorkstationScan(null);
       
       toast({
         title: "Fase Avviata!",
         description: `Postazione verificata e fase "${phaseToStart.name}" avviata.`,
         action: <CheckCircle className="text-green-500" />,
       });
-    }, 1000);
   };
 
   const handlePausePhase = (phaseId: string) => {
@@ -523,9 +516,7 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobOrder(null);
-    setPhaseRequiringWorkstationScan(null);
-    setIsScanningWorkstationForPhase(false);
-    setScannedWorkstationIdForPhase(null);
+    setPhaseForWorkstationScan(null);
     setStep('initial');
   }
 
@@ -654,7 +645,7 @@ export default function ScanJobPage() {
 
     let detectionInterval: ReturnType<typeof setInterval>;
 
-    const startLottoCameraAndScan = async () => {
+    const startCameraAndScan = async () => {
       try {
         if (!('BarcodeDetector' in window)) {
           toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
@@ -689,9 +680,94 @@ export default function ScanJobPage() {
       }
     };
 
-    startLottoCameraAndScan();
+    startCameraAndScan();
     return () => { clearInterval(detectionInterval); stopCamera(); };
   }, [isLottoScanDialogOpen, stopCamera, phaseMaterialForm, toast]);
+
+
+  useEffect(() => {
+    if (!isWorkstationScanDialogOpen) {
+      stopCamera();
+      return;
+    }
+
+    let detectionInterval: ReturnType<typeof setInterval>;
+
+    const startCameraAndScan = async () => {
+        try {
+            if (!('BarcodeDetector' in window)) {
+                toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
+                setIsWorkstationScanDialogOpen(false); return;
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            streamRef.current = stream;
+            const video = workstationVideoRef.current;
+            if (video) {
+                video.srcObject = stream;
+                await video.play();
+            }
+
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            
+            detectionInterval = setInterval(async () => {
+                if (!workstationVideoRef.current || workstationVideoRef.current.paused || workstationVideoRef.current.readyState < 2) return;
+                const barcodes = await barcodeDetector.detect(workstationVideoRef.current);
+                if (barcodes.length > 0) {
+                    clearInterval(detectionInterval);
+                    handleWorkstationScanResult(barcodes[0].rawValue);
+                }
+            }, 500);
+        } catch (err) {
+            toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+            stopCamera();
+            setIsWorkstationScanDialogOpen(false);
+        }
+    };
+    startCameraAndScan();
+    return () => { clearInterval(detectionInterval); stopCamera(); };
+  }, [isWorkstationScanDialogOpen, stopCamera, handleWorkstationScanResult, toast]);
+
+
+  useEffect(() => {
+    if (!isMaterialScanDialogOpen || materialScanStep !== 'scanning') {
+      stopCamera();
+      return;
+    }
+
+    let detectionInterval: ReturnType<typeof setInterval>;
+    const startCameraAndScan = async () => {
+        try {
+            if (!('BarcodeDetector' in window)) {
+                toast({ variant: 'destructive', title: 'Funzionalità non Supportata'});
+                setMaterialScanStep('initial'); return;
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            streamRef.current = stream;
+            const video = materialVideoRef.current;
+            if (video) {
+                video.srcObject = stream;
+                await video.play();
+            }
+
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            
+            detectionInterval = setInterval(async () => {
+                if (!materialVideoRef.current || materialVideoRef.current.paused || materialVideoRef.current.readyState < 2) return;
+                const barcodes = await barcodeDetector.detect(materialVideoRef.current);
+                if (barcodes.length > 0) {
+                    clearInterval(detectionInterval);
+                    handleMaterialCodeSubmit(barcodes[0].rawValue);
+                }
+            }, 500);
+        } catch (err) {
+            toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+            stopCamera();
+            setMaterialScanStep('initial');
+        }
+    };
+    startCameraAndScan();
+    return () => { clearInterval(detectionInterval); stopCamera(); };
+  }, [isMaterialScanDialogOpen, materialScanStep, stopCamera, handleMaterialCodeSubmit, toast]);
 
 
   if (step === 'loading') {
@@ -862,7 +938,7 @@ export default function ScanJobPage() {
             }
           }
 
-          const canTriggerWorkstationScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase && !phase.workstationScannedAndVerified;
+          const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
@@ -913,42 +989,16 @@ export default function ScanJobPage() {
                 )}
                  <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>
               </div>
-
-              {phaseRequiringWorkstationScan === phase.id && !phase.workstationScannedAndVerified && !isJobBlockedByProblem && (
-                <div className="mt-3 p-3 border border-dashed border-primary rounded-md space-y-3">
-                    <Label className="font-semibold text-primary">Verifica Postazione per Fase: {phase.name}</Label>
-                    <p className="text-sm text-muted-foreground">Scansiona il QR code della postazione: <strong>{activeJobOrder?.postazioneLavoro}</strong></p>
-                     <div
-                        className={`w-full h-24 border-2 rounded-lg flex items-center justify-center transition-all duration-300
-                        ${isScanningWorkstationForPhase ? 'border-primary animate-pulse' : 'border-border'}
-                        ${scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified ? 'border-destructive bg-destructive/10' : ''}
-                        ${phase.workstationScannedAndVerified && !isScanningWorkstationForPhase ? 'border-green-500 bg-green-500/10' : ''}
-                        `} >
-                        {isScanningWorkstationForPhase && <p className="text-primary font-semibold">Scansione Postazione...</p>}
-                        {!isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <p className="text-muted-foreground">Allinea QR code postazione</p>}
-                        {!isScanningWorkstationForPhase && phase.workstationScannedAndVerified && <CheckCircle className="h-10 w-10 text-green-500" />}
-                         {scannedWorkstationIdForPhase && !isScanningWorkstationForPhase && !phase.workstationScannedAndVerified && <AlertTriangle className="h-10 w-10 text-destructive" />}
-                    </div>
-                    <Button
-                        onClick={() => handleSimulateWorkstationScanForPhase(phase.id)}
-                        disabled={isScanningWorkstationForPhase || isJobBlockedByProblem}
-                        className="w-full"
-                        variant="outline" >
-                        <QrCode className="mr-2 h-5 w-5" />
-                        {isScanningWorkstationForPhase ? "Scansione..." : "Simula Scansione Postazione per Fase"}
-                    </Button>
-                </div>
-              )}
-
+              
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
                     <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem}>
                         <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
                     </Button>
                 )}
-                {canTriggerWorkstationScan && phase.status === 'pending' && (
-                     <Button size="sm" onClick={() => handleTriggerWorkstationScanForPhase(phase.id)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
-                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Postazione per Fase
+                 {canStartWithScan && (
+                     <Button size="sm" onClick={() => handleOpenWorkstationScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
+                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Postazione per Avviare
                     </Button>
                 )}
                 {canPausePhase && (
@@ -1064,7 +1114,15 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'scanning' && (
-                <div>...</div>
+              <div className="py-4">
+                <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                  <video ref={materialVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                  <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+                      <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
+                  </div>
+                </div>
+                  <Button variant="outline" className="w-full mt-4" onClick={() => setMaterialScanStep('initial')}>Annulla Scansione</Button>
+              </div>
             )}
 
             {materialScanStep === 'manual_input' && (
@@ -1206,6 +1264,26 @@ export default function ScanJobPage() {
     </Dialog>
   );
 
+  const renderWorkstationScanDialog = () => (
+    <Dialog open={isWorkstationScanDialogOpen} onOpenChange={setIsWorkstationScanDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Scansiona Postazione di Lavoro</DialogTitle>
+                <DialogDescription>Inquadra il QR Code della postazione "{activeJobOrder?.postazioneLavoro}" per avviare la fase "{phaseForWorkstationScan?.name}".</DialogDescription>
+            </DialogHeader>
+            <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                <video ref={workstationVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
+                    <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsWorkstationScanDialogOpen(false)}>Annulla</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+  );
+
 
   return (
     <AuthGuard>
@@ -1240,25 +1318,7 @@ export default function ScanJobPage() {
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
           {renderClosingWeightDialog()}
-
-          <AlertDialog open={isPhaseWorkstationAlertOpen} onOpenChange={setIsPhaseWorkstationAlertOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center">
-                  <AlertTriangle className="mr-2 h-6 w-6 text-destructive" />
-                  {phaseWorkstationAlertInfo.title}
-                </AlertDialogTitle>
-                <AlertDialogDescription>
-                  {phaseWorkstationAlertInfo.description}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction onClick={() => setIsPhaseWorkstationAlertOpen(false)}>
-                  OK
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          {renderWorkstationScanDialog()}
 
         </div>
       </AppShell>
