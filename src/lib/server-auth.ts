@@ -51,7 +51,7 @@ export async function ensureAdmin(uid: string | undefined | null) {
  * @returns The UID string.
  * @throws An error if the UID is missing.
  */
-export function extractUidFromFormData(formData: FormData): string {
+export async function extractUidFromFormData(formData: FormData): Promise<string> {
     const uid = formData.get('uid') as string;
     if (!uid) {
         throw new Error('UID utente mancante. Impossibile procedere.');
