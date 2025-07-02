@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,7 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob } from './actions';
+import { verifyAndGetJobOrder, updateJob, registerClosingWeightAndUpdateStock } from './actions';
 import { getRawMaterialByCode, searchRawMaterials } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -51,6 +51,12 @@ const phaseMaterialSchema = z.object({
   lottoBobina: z.string().optional(),
 });
 type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
+
+const closingWeightSchema = z.object({
+  closingWeight: z.coerce.number().min(0, "Il peso di chiusura non può essere negativo."),
+});
+type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
+
 type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
 
 
@@ -107,6 +113,8 @@ export default function ScanJobPage() {
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
   const [materialSearchResults, setMaterialSearchResults] = useState<SearchResult[]>([]);
 
+  const [isClosingWeightDialogOpen, setIsClosingWeightDialogOpen] = useState(false);
+  const [phaseForClosingWeight, setPhaseForClosingWeight] = useState<JobPhase | null>(null);
 
   // Debounce search for materials
   useEffect(() => {
@@ -126,6 +134,11 @@ export default function ScanJobPage() {
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
     defaultValues: { openingWeight: 0, lottoBobina: '' },
+  });
+
+  const closingWeightForm = useForm<ClosingWeightFormValues>({
+    resolver: zodResolver(closingWeightSchema),
+    defaultValues: { closingWeight: 0 },
   });
 
 
@@ -565,6 +578,37 @@ export default function ScanJobPage() {
     setIsMaterialScanDialogOpen(false);
   };
 
+  const onClosingWeightSubmit = async (values: ClosingWeightFormValues) => {
+    if (!activeJobOrder || !phaseForClosingWeight || !operator) {
+      toast({ variant: 'destructive', title: "Errore", description: "Dati mancanti per registrare la chiusura." });
+      return;
+    }
+
+    const result = await registerClosingWeightAndUpdateStock(
+      activeJobOrder.id,
+      phaseForClosingWeight.id,
+      values.closingWeight,
+      operator.id
+    );
+
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+
+    if (result.success) {
+      // Refresh job data from server to reflect the update
+      const updatedJobFromServer = await verifyAndGetJobOrder({ ordinePF: activeJobOrder.ordinePF, codice: activeJobOrder.details, qta: activeJobOrder.qta.toString() });
+      if (!('error' in updatedJobFromServer)) {
+        setActiveJobOrder(updatedJobFromServer);
+      }
+      setIsClosingWeightDialogOpen(false);
+      setPhaseForClosingWeight(null);
+    }
+  };
+
+
   const handleAbandonJob = () => {
     if (!activeJobOrder) return;
     
@@ -823,7 +867,7 @@ export default function ScanJobPage() {
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
           const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption;
-
+          const canRegisterClosingWeight = phase.type === 'preparation' && phase.status === 'completed' && phase.materialConsumption?.openingWeight !== undefined && phase.materialConsumption?.closingWeight === undefined;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -854,7 +898,12 @@ export default function ScanJobPage() {
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {phase.materialConsumption && (
-                    <p className="font-semibold text-primary">Materiale: {phase.materialConsumption.materialCode} (Aperto: {phase.materialConsumption.openingWeight} kg) {phase.materialConsumption.lottoBobina && ` - Lotto: ${phase.materialConsumption.lottoBobina}`}</p>
+                    <p className="font-semibold text-primary">
+                        Materiale: {phase.materialConsumption.materialCode} 
+                        (Aperto: {phase.materialConsumption.openingWeight} kg) 
+                        {phase.materialConsumption.closingWeight !== undefined ? ` (Chiuso: ${phase.materialConsumption.closingWeight} kg)`: ''}
+                        {phase.materialConsumption.lottoBobina && ` - Lotto: ${phase.materialConsumption.lottoBobina}`}
+                    </p>
                 )}
                 {lastWorkPeriod?.start && (
                   <p>Ultimo avvio: {format(new Date(lastWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
@@ -916,6 +965,11 @@ export default function ScanJobPage() {
                   <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={isJobBlockedByProblem && phase.status !== 'completed'}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
+                )}
+                {canRegisterClosingWeight && (
+                    <Button size="sm" onClick={() => { setPhaseForClosingWeight(phase); setIsClosingWeightDialogOpen(true); closingWeightForm.reset(); }} variant="secondary" className="bg-blue-600 hover:bg-blue-700 text-white">
+                        <Weight className="mr-2 h-4 w-4" /> Registra Chiusura KG
+                    </Button>
                 )}
               </div>
             </Card>
@@ -1113,6 +1167,45 @@ export default function ScanJobPage() {
     </Dialog>
   );
 
+  const renderClosingWeightDialog = () => (
+    <Dialog open={isClosingWeightDialogOpen} onOpenChange={setIsClosingWeightDialogOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Registra Peso di Chiusura</DialogTitle>
+          <DialogDescription>
+            Fase: {phaseForClosingWeight?.name}<br />
+            Materiale: {phaseForClosingWeight?.materialConsumption?.materialCode}<br />
+            Peso Apertura: {phaseForClosingWeight?.materialConsumption?.openingWeight} kg
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...closingWeightForm}>
+          <form onSubmit={closingWeightForm.handleSubmit(onClosingWeightSubmit)} className="space-y-4">
+            <FormField
+              control={closingWeightForm.control}
+              name="closingWeight"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>KG di Chiusura</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" autoFocus {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsClosingWeightDialogOpen(false)}>Annulla</Button>
+              <Button type="submit" disabled={closingWeightForm.formState.isSubmitting}>
+                {closingWeightForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                Conferma e Scarica da Magazzino
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+
 
   return (
     <AuthGuard>
@@ -1146,6 +1239,7 @@ export default function ScanJobPage() {
           
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
+          {renderClosingWeightDialog()}
 
           <AlertDialog open={isPhaseWorkstationAlertOpen} onOpenChange={setIsPhaseWorkstationAlertOpen}>
             <AlertDialogContent>

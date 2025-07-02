@@ -1,9 +1,9 @@
 
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import type { OverallStatus } from '@/lib/types';
 
@@ -273,4 +273,31 @@ export async function getOperatorDetailReport(operatorId: string) {
         timeMonth: formatDuration(timeMonthMs),
         jobsWorkedOn
     };
+}
+
+export async function getMaterialWithdrawals(dateRange?: { from: Date; to: Date }): Promise<MaterialWithdrawal[]> {
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    let q = query(withdrawalsRef);
+
+    if (dateRange && dateRange.from) {
+        q = query(q, where("withdrawalDate", ">=", Timestamp.fromDate(dateRange.from)));
+    }
+    if (dateRange && dateRange.to) {
+        q = query(q, where("withdrawalDate", "<=", Timestamp.fromDate(dateRange.to)));
+    }
+
+    const snapshot = await getDocs(q);
+    const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
+
+    // Fetch operators to enrich the report
+    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
+    if (operatorIds.length > 0) {
+        const operatorsSnapshot = await getDocs(collection(db, "operators"));
+        const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.id, doc.data() as Operator]));
+        withdrawals.forEach(w => {
+            w.operatorName = operatorsMap.get(w.operatorId)?.nome || 'Sconosciuto';
+        });
+    }
+
+    return withdrawals;
 }

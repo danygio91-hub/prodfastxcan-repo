@@ -1,9 +1,13 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
+import { DateRange } from "react-day-picker"
+import { format, subDays } from "date-fns"
+import { it } from 'date-fns/locale';
+
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
@@ -12,10 +16,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, Users, Briefcase, ChevronRight, Download } from 'lucide-react';
-import { getJobsReport, getOperatorsReport } from './actions';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes } from 'lucide-react';
+import { getJobsReport, getOperatorsReport, getMaterialWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
+import type { MaterialWithdrawal } from '@/lib/mock-data';
 
 
 function StatusBadge({ status }: { status: OverallStatus }) {
@@ -37,11 +44,24 @@ function StatusBadge({ status }: { status: OverallStatus }) {
 export default function AdminReportsPage() {
   const [jobsReport, setJobsReport] = useState<Awaited<ReturnType<typeof getJobsReport>>>([]);
   const [operatorsReport, setOperatorsReport] = useState<Awaited<ReturnType<typeof getOperatorsReport>>>([]);
+  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>([]);
+  const [isPendingWithdrawals, startTransitionWithdrawals] = useTransition();
+
+  const [date, setDate] = React.useState<DateRange | undefined>({
+    from: subDays(new Date(), 29),
+    to: new Date(),
+  });
 
   useEffect(() => {
     getJobsReport().then(setJobsReport);
     getOperatorsReport().then(setOperatorsReport);
   }, []);
+
+  useEffect(() => {
+    startTransitionWithdrawals(() => {
+        getMaterialWithdrawals({ from: date?.from, to: date?.to }).then(setWithdrawalsReport);
+    })
+  }, [date]);
 
   const handleExportJobs = () => {
     const dataToExport = jobsReport.map(job => ({
@@ -74,6 +94,20 @@ export default function AdminReportsPage() {
     XLSX.writeFile(wb, "report_operatori.xlsx");
   };
 
+  const handleExportWithdrawals = () => {
+    const dataToExport = withdrawalsReport.map(w => ({
+      'Commessa': w.jobOrderPF,
+      'Materiale': w.materialCode,
+      'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
+      'Data Prelievo': format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it }),
+      'Operatore': w.operatorName,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report Prelievi");
+    XLSX.writeFile(wb, "report_prelievi_magazzino.xlsx");
+  };
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -86,12 +120,12 @@ export default function AdminReportsPage() {
                 Reportistica Avanzata
             </h1>
             <p className="text-muted-foreground">
-              Analizza le performance di produzione per commesse e operatori.
+              Analizza le performance di produzione per commesse, operatori e prelievi di materiale.
             </p>
           </header>
 
           <Tabs defaultValue="commesse">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="commesse">
                 <Briefcase className="mr-2 h-4 w-4"/>
                 Report Commesse
@@ -99,6 +133,10 @@ export default function AdminReportsPage() {
               <TabsTrigger value="operatori">
                 <Users className="mr-2 h-4 w-4"/>
                 Report Operatori
+              </TabsTrigger>
+               <TabsTrigger value="prelievi">
+                <Boxes className="mr-2 h-4 w-4"/>
+                Prelievi da Magazzino
               </TabsTrigger>
             </TabsList>
 
@@ -217,6 +255,97 @@ export default function AdminReportsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+            
+            <TabsContent value="prelievi">
+                 <Card>
+                    <CardHeader>
+                        <div className="flex justify-between items-center flex-wrap gap-4">
+                            <div>
+                                <CardTitle>Report Prelievi da Magazzino</CardTitle>
+                                <CardDescription>Elenco degli scarichi di materiale per commessa.</CardDescription>
+                            </div>
+                             <div className="flex items-center gap-2">
+                                 <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                        id="date"
+                                        variant={"outline"}
+                                        className={cn(
+                                            "w-[260px] justify-start text-left font-normal",
+                                            !date && "text-muted-foreground"
+                                        )}
+                                        >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {date?.from ? (
+                                            date.to ? (
+                                            <>
+                                                {format(date.from, "LLL dd, y")} -{" "}
+                                                {format(date.to, "LLL dd, y")}
+                                            </>
+                                            ) : (
+                                            format(date.from, "LLL dd, y")
+                                            )
+                                        ) : (
+                                            <span>Scegli un range</span>
+                                        )}
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0" align="end">
+                                        <Calendar
+                                        initialFocus
+                                        mode="range"
+                                        defaultMonth={date?.from}
+                                        selected={date}
+                                        onSelect={setDate}
+                                        numberOfMonths={2}
+                                        locale={it}
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                                <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={withdrawalsReport.length === 0}>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Scarica Prelievi
+                                </Button>
+                             </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                       <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Commessa</TableHead>
+                                        <TableHead>Materiale</TableHead>
+                                        <TableHead>Peso Consumato (Kg)</TableHead>
+                                        <TableHead>Data Prelievo</TableHead>
+                                        <TableHead>Operatore</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isPendingWithdrawals ? (
+                                        <TableRow><TableCell colSpan={5} className="h-24 text-center">Caricamento...</TableCell></TableRow>
+                                    ) : withdrawalsReport.length > 0 ? (
+                                        withdrawalsReport.map((w) => (
+                                            <TableRow key={w.id}>
+                                                <TableCell className="font-medium">{w.jobOrderPF}</TableCell>
+                                                <TableCell>{w.materialCode}</TableCell>
+                                                <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
+                                                <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                                <TableCell>{w.operatorName}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-24 text-center">Nessun prelievo trovato nel periodo selezionato.</TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                       </div>
+                    </CardContent>
+                 </Card>
+            </TabsContent>
+
           </Tabs>
         </div>
       </AppShell>

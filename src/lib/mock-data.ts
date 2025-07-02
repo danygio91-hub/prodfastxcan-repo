@@ -106,6 +106,18 @@ export interface RawMaterial {
   batches: RawMaterialBatch[]; // Array of received batches
 }
 
+export interface MaterialWithdrawal {
+  id: string; // doc id
+  jobId: string;
+  jobOrderPF: string;
+  materialId: string;
+  materialCode: string;
+  consumedWeight: number;
+  operatorId: string;
+  operatorName?: string;
+  withdrawalDate: Date;
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
