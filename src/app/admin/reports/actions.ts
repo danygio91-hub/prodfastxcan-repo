@@ -5,6 +5,7 @@ import { collection, getDocs, doc, getDoc, query, where } from 'firebase/firesto
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import type { OverallStatus } from '@/lib/types';
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -46,7 +47,7 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 
 export async function getJobsReport() {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "completed"]));
+    const q = query(jobsRef, where("status", "in", ["production", "completed", "suspended"]));
     const jobsSnapshot = await getDocs(q);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
@@ -65,12 +66,19 @@ export async function getJobsReport() {
             })
             .join(', ');
 
-        let overallStatus: 'In Lavorazione' | 'Completata' | 'Problema' = 'In Lavorazione';
-        if (job.isProblemReported) {
+        let overallStatus: OverallStatus;
+        if (job.status === 'suspended') {
+            overallStatus = 'Sospesa';
+        } else if (job.isProblemReported) {
             overallStatus = 'Problema';
         } else if (job.status === 'completed') {
             overallStatus = 'Completata';
+        } else if (job.status === 'production') {
+             overallStatus = 'In Lavorazione';
+        } else {
+            overallStatus = 'Da Iniziare';
         }
+
 
         return {
             id: job.id,

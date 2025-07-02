@@ -42,7 +42,7 @@ export interface JobOrder {
   overallStartTime?: Date | null;
   overallEndTime?: Date | null;
   isProblemReported?: boolean;
-  status: 'planned' | 'production' | 'completed';
+  status: 'planned' | 'production' | 'completed' | 'suspended';
 }
 
 export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina';

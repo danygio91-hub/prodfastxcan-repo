@@ -1,2 +1,2 @@
 
-export type OverallStatus = 'Da Iniziare' | 'In Lavorazione' | 'Completata' | 'Problema';
+export type OverallStatus = 'Da Iniziare' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa';

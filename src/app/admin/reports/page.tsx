@@ -25,7 +25,8 @@ function StatusBadge({ status }: { status: OverallStatus }) {
         "text-xs font-semibold",
         status === "In Lavorazione" && "bg-accent text-accent-foreground",
         status === "Completata" && "bg-primary text-primary-foreground",
-        status === "Problema" && "bg-destructive text-destructive-foreground"
+        status === "Problema" && "bg-destructive text-destructive-foreground",
+        status === "Sospesa" && "bg-yellow-500 text-yellow-50"
       )}
     >
       {status}

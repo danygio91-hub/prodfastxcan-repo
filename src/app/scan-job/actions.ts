@@ -53,10 +53,10 @@ export async function verifyAndGetJobOrder(scannedData: {
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
 
-  if (job.status !== 'production') {
+  if (job.status !== 'production' && job.status !== 'suspended') {
      return {
-      error: `La commessa "${scannedData.ordinePF}" non è in produzione. Stato attuale: ${job.status}.`,
-      title: 'Commessa non in Produzione',
+      error: `La commessa "${scannedData.ordinePF}" non è in produzione o sospesa. Stato attuale: ${job.status}.`,
+      title: 'Commessa non Lavorabile',
     };
   }
 
@@ -84,7 +84,7 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
 
     try {
         const allPhasesCompleted = (jobData.phases || []).every(p => p.status === 'completed');
-        if (allPhasesCompleted && jobData.overallEndTime) {
+        if (allPhasesCompleted && jobData.overallEndTime && jobData.status !== 'suspended') {
             jobData.status = 'completed';
         }
 

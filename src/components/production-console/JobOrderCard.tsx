@@ -8,6 +8,7 @@ import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert
 
 // Helper functions
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
+  if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.isProblemReported) return 'Problema';
   const totalPhases = jobOrder.phases.length;
   if (totalPhases === 0) return 'Da Iniziare';

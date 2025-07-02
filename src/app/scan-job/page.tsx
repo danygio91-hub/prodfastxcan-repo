@@ -22,7 +22,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -175,8 +175,12 @@ export default function ScanJobPage() {
       setStep('initial');
       return;
     }
+    
+    const isResuming = jobToStart.status === 'suspended';
+
     const jobWithStartTime = {
         ...jobToStart,
+        status: 'production',
         overallStartTime: jobToStart.overallStartTime || new Date(),
         phases: jobToStart.phases.map(p => ({
             ...p,
@@ -188,8 +192,8 @@ export default function ScanJobPage() {
     handleUpdateAndPersistJob(jobWithStartTime);
     setStep('processing');
     toast({
-      title: "Lavorazione Avviata",
-      description: `Lavoro iniziato per commessa ${jobToStart.id}.`,
+      title: isResuming ? "Lavorazione Ripresa" : "Lavorazione Avviata",
+      description: `Lavoro ${isResuming ? 'ripreso' : 'iniziato'} per commessa ${jobToStart.id}.`,
       action: <PlayCircle className="text-primary" />,
     });
   }, [handleUpdateAndPersistJob, toast]);
@@ -557,6 +561,43 @@ export default function ScanJobPage() {
     setIsMaterialScanDialogOpen(false);
   };
 
+  const handleAbandonJob = () => {
+    if (!activeJobOrder) return;
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    
+    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+    if (activePhase) {
+      const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
+      if (lastWorkPeriod && !lastWorkPeriod.end) {
+        lastWorkPeriod.end = new Date();
+      }
+      activePhase.status = 'paused';
+    }
+    
+    jobToUpdate.status = 'suspended';
+
+    const updateAndClear = async () => {
+      const result = await updateJob(jobToUpdate);
+      if (result.success) {
+        toast({
+          title: "Commessa Abbandonata",
+          description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
+        });
+        setActiveJobOrder(null);
+        resetForNewScan();
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Errore",
+          description: "Impossibile abbandonare la commessa. Riprova.",
+        });
+      }
+    };
+    
+    updateAndClear();
+  };
+
   if (step === 'loading') {
     return (
       <AppShell>
@@ -671,6 +712,30 @@ export default function ScanJobPage() {
             <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
           </div>
         </CardContent>
+        <CardFooter className="pt-4">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+                <Button variant="destructive" className="w-full">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Abbandona Commessa
+                </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sei sicuro di voler abbandonare?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        La commessa verrà messa in stato "sospesa" e dovrai scansionarla di nuovo per riprenderla. Qualsiasi fase attiva verrà messa in pausa.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleAbandonJob} className="bg-destructive hover:bg-destructive/90">
+                        Sì, abbandona
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardFooter>
       </Card>
     );
   }
