@@ -39,42 +39,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
-      if (firebaseUser) {
-        // User is authenticated, find their profile by UID.
-        // UID is the single source of truth linking Auth and Firestore.
-        const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
-        const querySnapshot = await getDocs(q);
-        
-        let operatorProfile: Operator | null = null;
-        if (!querySnapshot.empty) {
-            const operatorDoc = querySnapshot.docs[0];
-            operatorProfile = operatorDoc.data() as Operator;
-            operatorProfile.id = operatorDoc.id; // Ensure ID from doc is included
-        }
-        
-        if (operatorProfile) {
-            setUser(firebaseUser);
-            setOperator(operatorProfile);
-            storeOperator(operatorProfile);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      // Use a self-invoking async function to avoid making the listener itself async, which is an anti-pattern.
+      (async () => {
+        setLoading(true);
+        try {
+          if (firebaseUser) {
+            // User is authenticated, find their profile by UID.
+            const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid), limit(1));
+            const querySnapshot = await getDocs(q);
             
-            if (!operatorProfile.privacySigned && pathname !== '/operator-data') {
-                router.replace('/operator-data');
+            let operatorProfile: Operator | null = null;
+            if (!querySnapshot.empty) {
+                const operatorDoc = querySnapshot.docs[0];
+                operatorProfile = operatorDoc.data() as Operator;
+                operatorProfile.id = operatorDoc.id; // Ensure ID from doc is included
             }
-        } else {
-            // This case handles when a Firebase session exists but the user profile was deleted
-            // from Firestore, or if the initial login somehow failed to link the UID.
-            // It safely logs out the user.
-            await handleLogout();
+            
+            if (operatorProfile) {
+                setUser(firebaseUser);
+                setOperator(operatorProfile);
+                storeOperator(operatorProfile);
+                
+                if (!operatorProfile.privacySigned && pathname !== '/operator-data') {
+                    router.replace('/operator-data');
+                }
+            } else {
+                // This case handles when a Firebase session exists but the user profile was deleted
+                // from Firestore, or if the initial login somehow failed to link the UID.
+                // It safely logs out the user.
+                await handleLogout();
+            }
+          } else {
+            // User is logged out
+            setUser(null);
+            setOperator(null);
+            storeOperator(null);
+          }
+        } catch (error) {
+           console.error("Error during authentication state change:", error);
+           // On any error, force a logout to clear inconsistent state
+           await handleLogout();
+        } finally {
+          // This block guarantees that loading is always set to false, preventing the app from getting stuck.
+          setLoading(false);
         }
-      } else {
-        // User is logged out
-        setUser(null);
-        setOperator(null);
-        storeOperator(null);
-      }
-      setLoading(false);
+      })();
     });
 
     return () => unsubscribe();
