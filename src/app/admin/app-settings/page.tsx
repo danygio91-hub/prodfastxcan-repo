@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2 } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,10 +26,13 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
+import { resetAllJobOrders, resetAllRawMaterials } from './actions';
 
 
 export default function AdminAppSettingsPage() {
   const [isPending, startTransition] = useTransition();
+  const [isResettingJobs, startResetJobsTransition] = useTransition();
+  const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
   const { toast } = useToast();
 
   const handleSeedDatabase = () => {
@@ -91,6 +94,28 @@ export default function AdminAppSettingsPage() {
         });
     });
   }
+
+  const handleResetJobOrders = () => {
+    startResetJobsTransition(async () => {
+        const result = await resetAllJobOrders();
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
+
+  const handleResetRawMaterials = () => {
+    startResetMaterialsTransition(async () => {
+        const result = await resetAllRawMaterials();
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
 
   return (
     <AdminAuthGuard>
@@ -201,6 +226,84 @@ export default function AdminAppSettingsPage() {
                       </AlertDialogContent>
                     </AlertDialog>
                   </CardFooter>
+              </Card>
+            </div>
+            
+            <div className="mt-8">
+              <Card className="border-destructive">
+                  <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-destructive">
+                          <AlertTriangle className="h-6 w-6" />
+                          Zona Pericolosa
+                      </CardTitle>
+                      <CardDescription>
+                          Queste operazioni sono irreversibili e cancelleranno permanentemente i dati. Procedere con la massima cautela.
+                      </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                      <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Tutte le Commesse</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Elimina tutte le commesse (pianificate, in produzione, completate).
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingJobs}>
+                                      {isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                                      Resetta Commesse
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione è irreversibile. Verranno eliminate TUTTE le commesse dal sistema.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetJobOrders} disabled={isResettingJobs}>
+                                          {isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, elimina tutto
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                      <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Materie Prime</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Elimina tutta l'anagrafica delle materie prime e i relativi lotti.
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingMaterials}>
+                                      {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                                      Resetta Materie Prime
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione è irreversibile. Verranno eliminate TUTTE le materie prime dal sistema.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials}>
+                                          {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, elimina tutto
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                  </CardContent>
               </Card>
             </div>
         </div>
