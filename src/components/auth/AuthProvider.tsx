@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, setDoc, query, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -15,16 +15,9 @@ interface AuthContextType {
   operator: Operator | null;
   loading: boolean;
   logout: () => Promise<void>;
-  setAuthData: (user: User, operator: Operator) => void;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  operator: null,
-  loading: true,
-  logout: async () => {},
-  setAuthData: () => {},
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -32,26 +25,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const setAuthData = useCallback((user: User, operator: Operator) => {
-    setUser(user);
-    setOperator(operator);
-    storeOperator(operator);
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
       if (firebaseUser) {
-        // This path is for session restoration (e.g., page refresh)
-        // If we already have the operator from the login flow, don't re-fetch
-        if (operator && operator.uid === firebaseUser.uid) {
-            setLoading(false);
-            return;
-        }
-
         try {
           const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
-          const querySnapshot = await getDocs(q);
+          let querySnapshot = await getDocs(q);
+
+          // This retry logic handles the race condition where onAuthStateChanged
+          // fires before the login function's Firestore write is propagated.
+          if (querySnapshot.empty) {
+            console.warn("Operator profile not found on first attempt, retrying in 1.5s...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            querySnapshot = await getDocs(q);
+          }
 
           if (!querySnapshot.empty) {
             const operatorDoc = querySnapshot.docs[0];
@@ -61,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
           } else {
-            console.error("Authenticated user profile not found in Firestore during session restore. Logging out.");
+            console.error("Authenticated user profile not found in Firestore. Logging out.");
             await firebaseLogout();
           }
         } catch (error) {
@@ -77,14 +65,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // Empty dependency array ensures this effect runs only once on mount.
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {
       try {
         const operatorRef = doc(db, "operators", operator.id);
-        await setDoc(operatorRef, { stato: 'inattivo' }, { merge: true });
+        // Use updateDoc for safety, to only change specific fields.
+        await updateDoc(operatorRef, { stato: 'inattivo' });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
       }
@@ -94,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [operator, router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout, setAuthData }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );
