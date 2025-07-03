@@ -51,6 +51,7 @@ export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
 export type OperatorRole = 'admin' | 'superadvisor' | 'operator';
 
 export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'];
+// Deprecated: This was too restrictive. Use `reparti` and filter as needed.
 export const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG'];
 export const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 

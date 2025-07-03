@@ -8,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Operator, type Reparto, type OperatorRole, reparti, operatorReparti, roles } from '@/lib/mock-data';
+import { type Operator, type Reparto, type OperatorRole, reparti } from '@/lib/mock-data';
 import { getOperators, saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 import type { StatoOperatore } from '@/lib/mock-data';
@@ -72,12 +72,13 @@ export default function AdminOperatorManagementPage() {
   });
 
   const watchedRole = form.watch('role');
+  const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
+  const operationalReparti = reparti.filter(r => r !== 'N/D');
+
 
   useEffect(() => {
     if (watchedRole === 'admin') {
       form.setValue('reparto', 'N/D');
-    } else if (watchedRole === 'superadvisor') {
-      form.setValue('reparto', 'Officina');
     }
   }, [watchedRole, form]);
 
@@ -307,14 +308,14 @@ export default function AdminOperatorManagementPage() {
                   <FormField control={form.control} name="reparto" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Reparto</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value} disabled={watchedRole === 'superadvisor'}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Seleziona un reparto" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {(watchedRole === 'operator' ? operatorReparti : reparti).map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                          {operationalReparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                         </SelectContent>
                       </Select>
                       <FormMessage />

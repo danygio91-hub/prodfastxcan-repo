@@ -43,8 +43,6 @@ export async function saveOperator(formData: FormData) {
   
   if (validatedFields.data.role === 'admin') {
     validatedFields.data.reparto = 'N/D';
-  } else if (validatedFields.data.role === 'superadvisor') {
-    validatedFields.data.reparto = 'Officina';
   }
 
   const { id, nome, reparto, role } = validatedFields.data;
