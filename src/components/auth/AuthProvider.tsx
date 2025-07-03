@@ -30,49 +30,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       try {
         if (firebaseUser) {
-          // A user is authenticated with Firebase. Now, find their operator profile.
-          // We use the email to reliably find the user, avoiding race conditions with UID writing.
-          const emailUsername = firebaseUser.email?.split('@')[0];
-          if (!emailUsername) {
-            console.error("Firebase user has no valid email. Logging out.");
-            await firebaseLogout();
-            return;
-          }
+          // A user is authenticated. Find their operator profile.
+          // Step 1: Try to find by UID. This is the most reliable method for subsequent logins.
+          let q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+          let querySnapshot = await getDocs(q);
+          let operatorDoc;
 
-          const q = query(collection(db, "operators"), where("nome_normalized", "==", emailUsername));
-          const querySnapshot = await getDocs(q);
-
-          if (!querySnapshot.empty) {
-            const operatorDoc = querySnapshot.docs[0];
-            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-            
-            // This is the crucial step to fix the race condition.
-            // If the UID is not on the profile, it's a first-time login. We write it now.
-            if (!operatorProfile.uid) {
-              console.log(`First login for ${emailUsername}, linking UID.`);
-              operatorProfile.uid = firebaseUser.uid;
-              const operatorDocRef = doc(db, "operators", operatorDoc.id);
-              await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
-            }
-
-            // Also ensure the user is marked as active in the database upon login.
-             if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
-                const operatorDocRef = doc(db, "operators", operatorDoc.id);
-                await updateDoc(operatorDocRef, { stato: 'attivo' });
-                operatorProfile.stato = 'attivo';
+          if (querySnapshot.empty) {
+            // Step 2: If not found by UID, it might be a first-time login.
+            // Fallback to finding by the username from the email.
+            const emailUsername = firebaseUser.email?.split('@')[0];
+            if (!emailUsername) {
+              console.error("Firebase user has no valid email. Logging out.");
+              await firebaseLogout();
+              return;
             }
             
-            // Now set the application state.
-            setUser(firebaseUser);
-            setOperator(operatorProfile);
-            storeOperator(operatorProfile);
+            console.log(`Operator not found by UID for ${firebaseUser.email}, attempting to link account by username: ${emailUsername}`);
+            q = query(collection(db, "operators"), where("nome_normalized", "==", emailUsername));
+            querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+              // Still not found. This is a true consistency error.
+              console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no operator profile (checked by UID and username). Forcing logout.`);
+              await firebaseLogout();
+              return;
+            }
+            
+            // Step 3: Found by username. Now, permanently link the UID to the profile.
+            operatorDoc = querySnapshot.docs[0];
+            console.log(`First login for ${emailUsername}, linking UID to operator profile ${operatorDoc.id}.`);
+            const operatorDocRef = doc(db, "operators", operatorDoc.id);
+            await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
 
           } else {
-            // A user exists in Firebase Auth, but not in our 'operators' collection.
-            // This is an invalid state, likely an admin deleted the profile but not the auth user.
-            console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no operator profile. Forcing logout.`);
-            await firebaseLogout();
+            // Found by UID. This is the normal case for a returning user.
+            operatorDoc = querySnapshot.docs[0];
           }
+          
+          // We have the operator doc, proceed to set the application state.
+          const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+          operatorProfile.uid = firebaseUser.uid; // Ensure uid is set on the profile object for the session
+
+          // Also ensure the user is marked as active in the database upon login.
+          if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
+              const operatorDocRef = doc(db, "operators", operatorDoc.id);
+              await updateDoc(operatorDocRef, { stato: 'attivo' });
+              operatorProfile.stato = 'attivo';
+          }
+          
+          setUser(firebaseUser);
+          setOperator(operatorProfile);
+          storeOperator(operatorProfile);
+
         } else {
           // User is signed out. Clear all state.
           setUser(null);
