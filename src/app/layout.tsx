@@ -35,7 +35,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="PFXcan" />
-        <link rel="apple-touch-icon" href="/icon/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
