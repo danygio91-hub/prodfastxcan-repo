@@ -370,6 +370,54 @@ export default function ScanJobPage() {
       });
   };
 
+  const handleForceStartPhase = (phaseId: string) => {
+    if (!activeJobOrder || !operator || operator.role !== 'superadvisor') {
+        toast({ variant: 'destructive', title: 'Permesso Negato', description: "Solo un supervisore può forzare l'avvio di una fase." });
+        return;
+    }
+
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+
+    if (!phaseToStart) {
+        toast({ variant: 'destructive', title: 'Errore', description: 'Fase non trovata.' });
+        return;
+    }
+
+    if (jobToUpdate.isProblemReported) {
+        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato. Impossibile forzare l'avvio." });
+        return;
+    }
+    
+    if (phaseToStart.status !== 'pending') {
+        toast({ variant: 'destructive', title: 'Stato non valido', description: 'Si può forzare solo l\'avvio di fasi in attesa.' });
+        return;
+    }
+    
+    if (!phaseToStart.materialReady) {
+        toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
+        return;
+    }
+
+    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di forzarne una nuova." });
+        return;
+    }
+
+    phaseToStart.status = 'in-progress';
+    phaseToStart.workstationScannedAndVerified = true; // Forced start implies verification
+    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+
+    handleUpdateAndPersistJob(jobToUpdate);
+    
+    toast({
+        title: "Fase Avviata con Forza!",
+        description: `Fase "${phaseToStart.name}" avviata correttamente.`,
+        action: <CheckCircle className="text-green-500" />,
+    });
+  };
+
+
   const handlePausePhase = (phaseId: string) => {
     if (!activeJobOrder) return;
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
@@ -914,33 +962,30 @@ export default function ScanJobPage() {
     
     const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
     const productionPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
-    const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
           const phaseType = phase.type || 'production';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
-          
-          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && !!phase.materialConsumption);
+          const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
           
           let canStartPhase = false;
-          if (isSuperadvisor) {
-            // Superadvisor bypasses sequence checks but not the "one active phase" rule
+          if (phaseType === 'preparation') {
             canStartPhase = noOtherPhaseActiveOrPaused;
-          } else {
-            if (phaseType === 'preparation') {
-              canStartPhase = noOtherPhaseActiveOrPaused;
-            } else { // production
-              if (phase.sequence === 1) {
-                canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
-              } else {
-                const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
-                canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
-              }
+          } else { // production
+            if (phase.sequence === 1) {
+              canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
+            } else {
+              const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
+              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
             }
           }
 
+          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && !!phase.materialConsumption);
+          
           const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
+          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherPhaseActiveOrPaused;
+
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
@@ -1001,6 +1046,29 @@ export default function ScanJobPage() {
                      <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
+                )}
+                {canForceStart && (
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem}>
+                                <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Sei sicuro di forzare l'avvio?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Questa azione avvierà la fase "{phase.name}" senza rispettare la sequenza prevista. Usare con cautela.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleForceStartPhase(phase.id)}>
+                                    Sì, forza avvio
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 )}
                 {canPausePhase && (
                   <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem}>
