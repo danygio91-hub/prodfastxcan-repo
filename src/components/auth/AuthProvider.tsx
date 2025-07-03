@@ -30,40 +30,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       try {
         if (firebaseUser) {
-          // A user is authenticated. Find their operator profile.
           const operatorsSnapshot = await getDocs(collection(db, "operators"));
           const operators = operatorsSnapshot.docs.map(op => ({ ...op.data(), id: op.id } as Operator));
 
-          // 1. Find by UID (most reliable)
-          let operatorProfile = operators.find(op => op.uid === firebaseUser.uid);
+          let operatorProfile: Operator | undefined;
+          let profileNeedsUpdate = false;
 
-          // 2. If not found by UID (first login), find by username and link account
+          // Strategy 1: Find by UID (most efficient and secure)
+          operatorProfile = operators.find(op => op.uid === firebaseUser.uid);
+
+          // Strategy 2: Find by Email (for first login or if UID is missing)
           if (!operatorProfile) {
-            const emailUsername = firebaseUser.email?.split('@')[0].toLowerCase();
-            const operatorByUsername = operators.find(op => op.nome_normalized === emailUsername);
-            
-            if (operatorByUsername) {
-                console.log(`First login for ${emailUsername}, linking UID to operator profile ${operatorByUsername.id}.`);
-                const operatorDocRef = doc(db, "operators", operatorByUsername.id);
-                await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
-                // Found our profile after linking
-                operatorProfile = { ...operatorByUsername, uid: firebaseUser.uid };
+            operatorProfile = operators.find(op => op.email === firebaseUser.email);
+            if (operatorProfile) {
+              profileNeedsUpdate = true; // Found by email, so we should add the UID
             }
           }
 
+          // Strategy 3: Fallback to old username match (for backward compatibility)
+          if (!operatorProfile) {
+            const emailUsername = firebaseUser.email?.split('@')[0].toLowerCase();
+            operatorProfile = operators.find(op => op.nome_normalized === emailUsername);
+            if (operatorProfile) {
+               profileNeedsUpdate = true; // Found by name, should add UID and Email
+            }
+          }
+          
           if (operatorProfile) {
-             // We have the operator doc, proceed to set the application state.
+            // If we found a profile that needs UID/Email added, update it now.
+            // This self-heals profiles created with older app versions.
+            if (profileNeedsUpdate) {
+                const operatorDocRef = doc(db, "operators", operatorProfile.id);
+                const updates: Partial<Operator> = { uid: firebaseUser.uid };
+                if (!operatorProfile.email) {
+                    updates.email = firebaseUser.email!;
+                }
+                await setDoc(operatorDocRef, updates, { merge: true });
+                // Update the local profile object with the new data
+                operatorProfile = { ...operatorProfile, ...updates };
+            }
+
+            // Set operator status to active
             if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
                 const operatorDocRef = doc(db, "operators", operatorProfile.id);
                 await updateDoc(operatorDocRef, { stato: 'attivo' });
                 operatorProfile.stato = 'attivo';
             }
+            
             setUser(firebaseUser);
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
+
           } else {
-             // A user exists in Firebase Auth, but not in our 'operators' collection.
-             // This is an invalid state.
+             // If after all checks we still haven't found a profile, it's a true error.
              console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
              await firebaseLogout();
           }
@@ -86,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []); // <-- This empty dependency array is the fix.
+  }, []);
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {

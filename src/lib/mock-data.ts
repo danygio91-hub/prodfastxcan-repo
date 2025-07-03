@@ -66,6 +66,7 @@ export interface Operator {
   role: OperatorRole;
   privacySigned?: boolean;
   nome_normalized?: string;
+  email?: string;
 }
 
 export interface WorkPhaseTemplate {

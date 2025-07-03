@@ -7,6 +7,8 @@ import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase';
 import type { Operator } from '@/lib/mock-data';
 
+const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
+
 // --- Schemas ---
 const operatorFormSchema = z.object({
   id: z.string().optional(),
@@ -46,16 +48,26 @@ export async function saveOperator(formData: FormData) {
   }
 
   const { id } = validatedFields.data;
-  const nome = validatedFields.data.nome.trim(); // Trim whitespace
+  const nome = validatedFields.data.nome.trim();
   const cognome = (validatedFields.data.cognome || '').trim();
   const reparto = validatedFields.data.reparto;
   const role = validatedFields.data.role;
-  const nome_normalized = nome.toLowerCase(); // Use trimmed name
+  const nome_normalized = nome.toLowerCase();
+  const email = `${nome_normalized}@${AUTH_EMAIL_DOMAIN}`;
   
+  const dataToSave: Partial<Operator> = {
+      nome,
+      cognome,
+      reparto,
+      role,
+      nome_normalized,
+      email
+  };
+
   if (id) {
     // Update existing operator
     const operatorRef = doc(db, "operators", id);
-    await setDoc(operatorRef, { nome, cognome, reparto, role, nome_normalized }, { merge: true });
+    await setDoc(operatorRef, dataToSave, { merge: true });
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
@@ -64,15 +76,11 @@ export async function saveOperator(formData: FormData) {
     const operatorRef = doc(db, "operators", newId);
     const newOperator: Operator = {
       id: newId,
-      nome,
-      cognome,
-      reparto,
-      role,
+      ...dataToSave,
       stato: 'inattivo', // Default state for new operators
       password: '1234', // Default password for new operators
       privacySigned: false, // Default privacy status
-      nome_normalized,
-    };
+    } as Operator;
     await setDoc(operatorRef, newOperator);
     revalidatePath('/admin/operator-management');
     return { success: true, message: 'Operatore aggiunto con successo.' };
