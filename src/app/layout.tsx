@@ -31,11 +31,11 @@ export default function RootLayout({
     <html lang="it" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#171a1c" />
+        <meta name="theme-color" content="#3F51B5" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="PFXcan" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.svg" />
       </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>

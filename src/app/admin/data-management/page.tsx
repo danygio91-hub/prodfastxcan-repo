@@ -407,12 +407,6 @@ export default function AdminDataManagementCommessePage() {
                 accept=".xlsx, .xls"
                 className="hidden"
               />
-              <Button asChild variant="outline">
-                <a href="/template_import_commesse.xlsx" download>
-                  <Download className="mr-2 h-4 w-4" />
-                  Scarica Template
-                </a>
-              </Button>
               <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
                 {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                 Importa da Excel

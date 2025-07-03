@@ -1,24 +1,10 @@
 <svg width="150" height="100" viewBox="0 0 150 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <text
-    x="75"
-    y="40"
-    dominant-baseline="middle"
-    text-anchor="middle"
-    font-family="'PT Sans', sans-serif"
-    font-size="50"
-    font-weight="bold"
-    fill="hsl(200 90% 55%)">
-    PF
-  </text>
-  <text
-    x="75"
-    y="80"
-    dominant-baseline="middle"
-    text-anchor="middle"
-    font-family="'PT Sans', sans-serif"
-    font-size="45"
-    font-weight="normal"
-    fill="hsl(210 20% 95%)">
-    Xcan
-  </text>
+<style>
+    .p { fill: #3F51B5; font-family: 'PT Sans', sans-serif; font-size: 60px; font-weight: bold; }
+    .f { fill: #FF9800; font-family: 'PT Sans', sans-serif; font-size: 60px; font-weight: bold; }
+    .x { fill: #3F51B5; font-family: 'PT Sans', sans-serif; font-size: 60px; font-weight: bold; }
+</style>
+<text x="10" y="70" class="p">P</text>
+<text x="45" y="70" class="f">F</text>
+<text x="80" y="70" class="x">X</text>
 </svg>
