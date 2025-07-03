@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -30,49 +30,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       try {
         if (firebaseUser) {
-          const operatorsSnapshot = await getDocs(collection(db, "operators"));
-          const operators = operatorsSnapshot.docs.map(op => ({ ...op.data(), id: op.id } as Operator));
-
-          let operatorProfile: Operator | undefined;
+          let operatorProfile: Operator | null = null;
+          let operatorId: string | null = null;
           let profileNeedsUpdate = false;
 
           // Strategy 1: Find by UID (most efficient and secure)
-          operatorProfile = operators.find(op => op.uid === firebaseUser.uid);
+          const q_uid = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+          const uidSnapshot = await getDocs(q_uid);
 
-          // Strategy 2: Find by Email (for first login or if UID is missing)
-          if (!operatorProfile) {
-            operatorProfile = operators.find(op => op.email === firebaseUser.email);
-            if (operatorProfile) {
-              profileNeedsUpdate = true; // Found by email, so we should add the UID
+          if (!uidSnapshot.empty) {
+            const operatorDoc = uidSnapshot.docs[0];
+            operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+            operatorId = operatorDoc.id;
+          } else {
+            // Strategy 2: Find by Email (for first login or if UID is missing)
+            if (firebaseUser.email) {
+              const q_email = query(collection(db, "operators"), where("email", "==", firebaseUser.email));
+              const emailSnapshot = await getDocs(q_email);
+              if (!emailSnapshot.empty) {
+                const operatorDoc = emailSnapshot.docs[0];
+                operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+                operatorId = operatorDoc.id;
+                profileNeedsUpdate = true; // Found by email, so we should add the UID
+              }
             }
           }
 
-          // Strategy 3: Fallback to old username match (for backward compatibility)
-          if (!operatorProfile) {
-            const emailUsername = firebaseUser.email?.split('@')[0].toLowerCase();
-            operatorProfile = operators.find(op => op.nome_normalized === emailUsername);
-            if (operatorProfile) {
-               profileNeedsUpdate = true; // Found by name, should add UID and Email
-            }
-          }
-          
-          if (operatorProfile) {
+          if (operatorProfile && operatorId) {
             // If we found a profile that needs UID/Email added, update it now.
-            // This self-heals profiles created with older app versions.
             if (profileNeedsUpdate) {
-                const operatorDocRef = doc(db, "operators", operatorProfile.id);
-                const updates: Partial<Operator> = { uid: firebaseUser.uid };
-                if (!operatorProfile.email) {
-                    updates.email = firebaseUser.email!;
-                }
-                await setDoc(operatorDocRef, updates, { merge: true });
-                // Update the local profile object with the new data
-                operatorProfile = { ...operatorProfile, ...updates };
+                const operatorDocRef = doc(db, "operators", operatorId);
+                await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
+                operatorProfile.uid = firebaseUser.uid; // Update the local profile object
             }
 
             // Set operator status to active
             if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
-                const operatorDocRef = doc(db, "operators", operatorProfile.id);
+                const operatorDocRef = doc(db, "operators", operatorId);
                 await updateDoc(operatorDocRef, { stato: 'attivo' });
                 operatorProfile.stato = 'attivo';
             }
@@ -82,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             storeOperator(operatorProfile);
 
           } else {
-             // If after all checks we still haven't found a profile, it's a true error.
+             // A user exists in Firebase Auth, but not in our 'operators' collection.
              console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
              await firebaseLogout();
           }
