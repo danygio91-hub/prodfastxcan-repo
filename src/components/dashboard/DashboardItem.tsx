@@ -35,12 +35,12 @@ const DashboardItem: React.FC<DashboardItemProps> = ({
     <>
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <Icon className="h-10 w-10 text-accent" />
+          <Icon className="h-10 w-10 text-primary" />
           {(href || onItemClick || isDialogTrigger || triggerOnClick) && (
              <Button 
                 variant="ghost" 
                 size="icon" 
-                className="text-accent hover:bg-accent/10" 
+                className="text-primary hover:bg-primary/10" 
                 onClick={(!isDialogTrigger && onItemClick) ? (e) => { e.stopPropagation(); onItemClick(); } : undefined}
                 aria-hidden={isDialogTrigger || triggerOnClick ? true : undefined}
                 tabIndex={isDialogTrigger || triggerOnClick ? -1 : undefined}
