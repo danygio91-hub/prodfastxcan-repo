@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, query, where, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, query, where, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -25,26 +25,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // This central listener is the single source of truth for the user's auth state.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setLoading(true);
       try {
         if (firebaseUser) {
-          // User is signed in. Find their operator profile using their unique UID.
-          const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+          // A user is authenticated with Firebase. Now, find their operator profile.
+          // We use the email to reliably find the user, avoiding race conditions with UID writing.
+          const emailUsername = firebaseUser.email?.split('@')[0];
+          if (!emailUsername) {
+            console.error("Firebase user has no valid email. Logging out.");
+            await firebaseLogout();
+            return;
+          }
+
+          const q = query(collection(db, "operators"), where("nome_normalized", "==", emailUsername));
           const querySnapshot = await getDocs(q);
 
           if (!querySnapshot.empty) {
             const operatorDoc = querySnapshot.docs[0];
             const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
             
-            // Set the application state
+            // This is the crucial step to fix the race condition.
+            // If the UID is not on the profile, it's a first-time login. We write it now.
+            if (!operatorProfile.uid) {
+              console.log(`First login for ${emailUsername}, linking UID.`);
+              operatorProfile.uid = firebaseUser.uid;
+              const operatorDocRef = doc(db, "operators", operatorDoc.id);
+              await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
+            }
+
+            // Also ensure the user is marked as active in the database upon login.
+             if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
+                const operatorDocRef = doc(db, "operators", operatorDoc.id);
+                await updateDoc(operatorDocRef, { stato: 'attivo' });
+                operatorProfile.stato = 'attivo';
+            }
+            
+            // Now set the application state.
             setUser(firebaseUser);
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
+
           } else {
-            // This is an invalid state, log them out.
-            console.error(`Auth consistency error: Firebase user ${firebaseUser.uid} exists but has no operator profile. Forcing logout.`);
+            // A user exists in Firebase Auth, but not in our 'operators' collection.
+            // This is an invalid state, likely an admin deleted the profile but not the auth user.
+            console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no operator profile. Forcing logout.`);
             await firebaseLogout();
           }
         } else {
@@ -55,22 +81,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error("Error in onAuthStateChanged handler:", error);
-        // Ensure state is cleared on error
         setUser(null);
         setOperator(null);
         storeOperator(null);
+        await firebaseLogout();
       } finally {
-        // We are finished with the initial auth check.
         setLoading(false);
       }
     });
 
-    // Cleanup subscription on unmount
     return () => unsubscribe();
-  }, []); // The empty dependency array is critical: this effect runs only once.
+  }, []);
 
   const logout = useCallback(async () => {
-    // If there's an operator logged in, and they are not an admin, set their status to 'inattivo'.
     if (operator && operator.role !== 'admin') {
       try {
         const operatorRef = doc(db, "operators", operator.id);
@@ -81,7 +104,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     await firebaseLogout();
-    // The onAuthStateChanged listener will automatically clear the user and operator state.
     router.push('/');
   }, [operator, router]);
 
