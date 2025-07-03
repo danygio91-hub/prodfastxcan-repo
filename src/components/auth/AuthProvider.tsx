@@ -15,6 +15,7 @@ interface AuthContextType {
   operator: Operator | null;
   loading: boolean;
   logout: () => Promise<void>;
+  refetchOperator: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,6 +49,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     return null; // No profile found
   }, []);
+  
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  const refetchOperator = useCallback(async () => {
+    const currentUser = userRef.current;
+    if (currentUser) {
+        const operatorProfile = await fetchOperatorProfile(currentUser);
+        if (operatorProfile) {
+          setOperator(operatorProfile);
+          storeOperator(operatorProfile);
+        }
+    }
+  }, [fetchOperatorProfile]);
+
 
   // Effect to handle fetching auth state from Firebase
   useEffect(() => {
@@ -124,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout, refetchOperator }}>
       {children}
     </AuthContext.Provider>
   );

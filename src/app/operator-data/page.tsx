@@ -20,22 +20,18 @@ import { getDepartmentMap } from '@/app/admin/settings/actions';
 
 
 export default function OperatorDataPage() {
-  const { user, operator: operatorData, loading } = useAuth();
+  const { user, operator: operatorData, loading, refetchOperator } = useAuth();
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
-  const [isSigned, setIsSigned] = useState(false); 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
   const router = useRouter();
   
-  // Use a state to hold a mutable copy of operator data for UI updates
-  const [currentOperator, setCurrentOperator] = useState<Operator | null>(null);
+  const isSigned = !!operatorData?.privacySigned;
 
   useEffect(() => {
     if (operatorData) {
-      setCurrentOperator(operatorData);
-      const signed = !!operatorData.privacySigned;
-      setIsSigned(signed);
-      setPrivacyAccepted(signed);
+      setPrivacyAccepted(!!operatorData.privacySigned);
     }
     getDepartmentMap().then(setDepartmentMap);
   }, [operatorData]);
@@ -47,7 +43,7 @@ export default function OperatorDataPage() {
   const email = user?.email || '...';
   
   const handleSaveSignature = async () => {
-    if (!currentOperator) {
+    if (!operatorData) {
         toast({
             variant: "destructive",
             title: "Errore",
@@ -56,21 +52,18 @@ export default function OperatorDataPage() {
         return;
     }
 
-    const result = await signPrivacyPolicy(currentOperator.id);
+    setIsSubmitting(true);
+    const result = await signPrivacyPolicy(operatorData.id);
 
     if (result.success) {
-        setIsSigned(true);
         toast({
             title: "Firma Salvata",
             description: "Grazie per aver accettato. Verrai reindirizzato alla dashboard.",
         });
-        // Update local state to reflect change immediately
-        setCurrentOperator({ ...currentOperator, privacySigned: true });
-
-        // Redirect to the main dashboard after signing.
-        setTimeout(() => {
-          router.push('/dashboard');
-        }, 1500); // Delay for toast visibility
+        
+        await refetchOperator();
+        
+        router.push('/dashboard');
 
     } else {
          toast({
@@ -79,6 +72,7 @@ export default function OperatorDataPage() {
             description: result.message,
         });
     }
+    setIsSubmitting(false);
   };
 
   if (loading) {
@@ -114,7 +108,7 @@ export default function OperatorDataPage() {
                     <User className="mr-2 h-5 w-5 text-primary" />
                     Nome
                   </Label>
-                  <Input id="firstName" value={currentOperator?.nome || '...'} readOnly className="bg-input text-foreground" />
+                  <Input id="firstName" value={operatorData?.nome || '...'} readOnly className="bg-input text-foreground" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email" className="flex items-center text-foreground/80">
@@ -128,7 +122,7 @@ export default function OperatorDataPage() {
                     <Factory className="mr-2 h-5 w-5 text-primary" />
                     Reparto di Produzione
                   </Label>
-                  <Input id="department" value={currentOperator ? getFullDepartmentName(currentOperator.reparto) : '...'} readOnly className="bg-input text-foreground" />
+                  <Input id="department" value={operatorData ? getFullDepartmentName(operatorData.reparto) : '...'} readOnly className="bg-input text-foreground" />
                 </div>
               </div>
             </CardContent>
@@ -176,8 +170,9 @@ export default function OperatorDataPage() {
                 <Button 
                     className="w-full"
                     onClick={handleSaveSignature}
-                    disabled={!privacyAccepted}
+                    disabled={!privacyAccepted || isSubmitting}
                 >
+                    {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                     Salva Firma e Accetta
                 </Button>
                )}
