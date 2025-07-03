@@ -14,7 +14,6 @@ interface AuthContextType {
   user: User | null;
   operator: Operator | null;
   loading: boolean;
-  setAuthDataAfterLogin: (user: User, operator: Operator) => void;
   logout: () => Promise<void>;
 }
 
@@ -23,57 +22,44 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Start as true
   const router = useRouter();
 
-  const setAuthDataAfterLogin = useCallback((loggedInUser: User, operatorProfile: Operator) => {
-    setLoading(false);
-    setUser(loggedInUser);
-    setOperator(operatorProfile);
-    storeOperator(operatorProfile);
-  }, []);
-
+  // This useEffect will run only once on mount, setting up the central auth listener.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // If the user state is already populated (e.g., by a fresh login),
-      // we don't need the listener to do anything, preventing race conditions.
-      if (user) {
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
       if (firebaseUser) {
-        try {
-          const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
-          const querySnapshot = await getDocs(q);
+        // User is signed in to Firebase. Let's find their operator profile.
+        const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const operatorDoc = querySnapshot.docs[0];
+          const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
           
-          if (!querySnapshot.empty) {
-            const operatorDoc = querySnapshot.docs[0];
-            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-            setUser(firebaseUser);
-            setOperator(operatorProfile);
-            storeOperator(operatorProfile);
-          } else {
-            // On a page refresh, if the user exists in Firebase but has no profile,
-            // something is wrong. Log them out for safety.
-            await firebaseLogout();
-          }
-        } catch (error) {
-          console.error("Error during session restoration:", error);
+          // Set application state
+          setUser(firebaseUser);
+          setOperator(operatorProfile);
+          storeOperator(operatorProfile);
+        } else {
+          // Firebase user exists, but no operator profile. This is an invalid state.
+          console.error("Auth state error: Firebase user exists but no operator profile found. Logging out.");
           await firebaseLogout();
+          // State will be cleared by the next `onAuthStateChanged` event
         }
       } else {
-        // No user is signed into Firebase.
+        // User is signed out. Clear all state.
         setUser(null);
         setOperator(null);
         storeOperator(null);
       }
+      // We are done loading, regardless of the outcome.
       setLoading(false);
     });
 
+    // Cleanup subscription on unmount
     return () => unsubscribe();
-  }, [user]); // The dependency on `user` is crucial.
+  }, []); // Empty dependency array is crucial here.
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {
@@ -85,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     await firebaseLogout();
-    // Manually reset state to ensure UI updates immediately.
+    // onAuthStateChanged will handle clearing the state, but we can do it manually for faster UI response.
     setUser(null);
     setOperator(null);
     storeOperator(null);
@@ -93,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [operator, router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, setAuthDataAfterLogin, logout }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout }}>
       {children}
     </AuthContext.Provider>
   );

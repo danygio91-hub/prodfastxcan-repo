@@ -10,7 +10,6 @@ import * as z from 'zod';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { login } from '@/lib/auth';
-import type { Operator } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { useToast } from '@/hooks/use-toast';
@@ -48,10 +47,12 @@ export default function LoginForm() {
     const streamRef = useRef<MediaStream | null>(null);
     const router = useRouter();
     const { toast } = useToast();
-    const { user, operator, loading, setAuthDataAfterLogin } = useAuth();
+    const { user, operator, loading: authLoading } = useAuth();
 
+    // This useEffect handles redirection AFTER auth state is confirmed by AuthProvider
     useEffect(() => {
-        if (loading) return;
+        if (authLoading) return; // Wait until the auth state is fully resolved
+        
         if (user && operator) {
             toast({
                 title: `Buongiorno, ${operator.nome}!`,
@@ -59,20 +60,17 @@ export default function LoginForm() {
             });
             router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
         }
-    }, [user, operator, loading, router, toast]);
+    }, [user, operator, authLoading, router, toast]);
 
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
         try {
-            const { loggedInUser, operatorProfile } = await login(username, password_used);
-            
-            // Explicitly set the application's authentication state.
-            // This is the key to preventing the race condition.
-            setAuthDataAfterLogin(loggedInUser, operatorProfile);
-            
-            // The useEffect above will now fire with the correct data and redirect reliably.
-
+            // This just tells Firebase to log in.
+            // AuthProvider's onAuthStateChanged will handle the rest.
+            await login(username, password_used);
+            // After this, the onAuthStateChanged listener in AuthProvider will fire,
+            // update the context state, and the useEffect above will trigger the redirect.
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
@@ -83,7 +81,7 @@ export default function LoginForm() {
             setIsLoading(false); // Un-stick the UI
             setStep('manual_login');
         }
-    }, [toast, setAuthDataAfterLogin]);
+    }, [toast]);
 
     useEffect(() => {
         if (step !== 'camera') {
@@ -230,9 +228,9 @@ export default function LoginForm() {
                                     <FormField control={manualForm.control} name="password" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Lock className="mr-2 h-5 w-5" />Password</FormLabel> <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">
-                                    <Button type="submit" className="w-full" disabled={isLoading || loading}>
-                                        {isLoading || loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                                        {isLoading || loading ? "Verifica..." : "Accedi"}
+                                    <Button type="submit" className="w-full" disabled={isLoading || authLoading}>
+                                        {isLoading || authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                                        {isLoading || authLoading ? "Verifica..." : "Accedi"}
                                     </Button>
                                     <Button variant="link" size="sm" onClick={() => setStep('initial')}>Torna all'accesso rapido</Button>
                                 </CardFooter>
