@@ -6,6 +6,7 @@ const withPWA = require('next-pwa')({
   register: true,
   skipWaiting: true,
   disable: false,
+  cacheOnFrontEndNav: true,
 });
 
 const nextConfig: NextConfig = {
