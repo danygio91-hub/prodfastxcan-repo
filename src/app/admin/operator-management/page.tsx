@@ -26,7 +26,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
@@ -34,6 +34,7 @@ const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
   cognome: z.string().optional(),
+  email: z.string().email("Formato email non valido."),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina']),
   role: z.enum(['admin', 'superadvisor', 'operator']),
 });
@@ -66,6 +67,7 @@ export default function AdminOperatorManagementPage() {
       id: undefined,
       nome: "",
       cognome: "",
+      email: "",
       reparto: 'CP',
       role: 'operator',
     },
@@ -94,9 +96,16 @@ export default function AdminOperatorManagementPage() {
   const handleOpenDialog = (operator: Operator | null = null) => {
     setEditingOperator(operator);
     if (operator) {
-      form.reset(operator);
+      form.reset({
+        id: operator.id,
+        nome: operator.nome,
+        cognome: operator.cognome || '',
+        email: operator.email || '',
+        reparto: operator.reparto,
+        role: operator.role,
+      });
     } else {
-      form.reset({ id: undefined, nome: "", cognome: "", reparto: 'CP', role: 'operator' });
+      form.reset({ id: undefined, nome: "", cognome: "", email: "", reparto: 'CP', role: 'operator' });
     }
     setIsDialogOpen(true);
   };
@@ -145,6 +154,7 @@ export default function AdminOperatorManagementPage() {
         'ID': op.id,
         'Nome': op.nome,
         'Cognome': op.cognome,
+        'Email': op.email,
         'Reparto': op.reparto,
         'Ruolo': op.role,
         'Stato': op.stato,
@@ -189,7 +199,7 @@ export default function AdminOperatorManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Nome</TableHead>
-                      <TableHead>Cognome</TableHead>
+                      <TableHead>Email</TableHead>
                       <TableHead>Reparto</TableHead>
                       <TableHead>Ruolo</TableHead>
                       <TableHead>Stato</TableHead>
@@ -201,8 +211,8 @@ export default function AdminOperatorManagementPage() {
                     {operators.length > 0 ? (
                       operators.map((op) => (
                         <TableRow key={op.id}>
-                          <TableCell className="font-medium">{op.nome}</TableCell>
-                          <TableCell>{op.cognome}</TableCell>
+                          <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
+                          <TableCell>{op.email}</TableCell>
                           <TableCell>{op.reparto}</TableCell>
                           <TableCell className="capitalize">{op.role}</TableCell>
                           <TableCell><StatusBadge status={op.stato} /></TableCell>
@@ -265,26 +275,35 @@ export default function AdminOperatorManagementPage() {
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => { e.preventDefault(); handleCloseDialog(); }} onEscapeKeyDown={(e) => { e.preventDefault(); handleCloseDialog(); }}>
+          <DialogContent className="sm:max-w-md" onInteractOutside={(e) => { e.preventDefault(); handleCloseDialog(); }} onEscapeKeyDown={(e) => { e.preventDefault(); handleCloseDialog(); }}>
             <DialogHeader>
               <DialogTitle>{editingOperator ? "Modifica Operatore" : "Aggiungi Nuovo Operatore"}</DialogTitle>
               <DialogDescription>
-                {editingOperator ? "Modifica i dettagli dell'operatore." : "Compila i campi per aggiungere un nuovo operatore."}
+                {editingOperator ? "Modifica i dettagli dell'operatore." : "Compila i campi per aggiungere un nuovo operatore. L'email deve corrispondere a quella dell'utente creato in Firebase Authentication."}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                <FormField control={form.control} name="nome" render={({ field }) => (
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="nome" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Nome</FormLabel>
+                        <FormControl><Input placeholder="Es. Mario" {...field} /></FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cognome" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Cognome</FormLabel>
+                        <FormControl><Input placeholder="Es. Rossi" {...field} /></FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )} />
+                </div>
+                <FormField control={form.control} name="email" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nome</FormLabel>
-                    <FormControl><Input placeholder="Es. Mario" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="cognome" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Cognome (Opzionale)</FormLabel>
-                    <FormControl><Input placeholder="Es. Rossi" {...field} /></FormControl>
+                    <FormLabel className="flex items-center"><Mail className="mr-2 h-4 w-4"/>Email (per il login)</FormLabel>
+                    <FormControl><Input type="email" placeholder="es. m.rossi@prodfastxcan.app" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -322,7 +341,7 @@ export default function AdminOperatorManagementPage() {
                     </FormItem>
                   )} />
                 )}
-                <DialogFooter>
+                <DialogFooter className="pt-4">
                   <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
                   <Button type="submit">{editingOperator ? "Salva Modifiche" : "Aggiungi Operatore"}</Button>
                 </DialogFooter>

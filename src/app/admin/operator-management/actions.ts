@@ -14,6 +14,7 @@ const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
   cognome: z.string().optional(),
+  email: z.string().email("L'email è obbligatoria e deve essere valida."),
   reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'], {
     errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
   }),
@@ -47,13 +48,12 @@ export async function saveOperator(formData: FormData) {
     validatedFields.data.reparto = 'N/D';
   }
 
-  const { id } = validatedFields.data;
+  const { id, email } = validatedFields.data;
   const nome = validatedFields.data.nome.trim();
   const cognome = (validatedFields.data.cognome || '').trim();
   const reparto = validatedFields.data.reparto;
   const role = validatedFields.data.role;
   const nome_normalized = nome.toLowerCase();
-  const email = `${nome_normalized}@${AUTH_EMAIL_DOMAIN}`;
   
   const dataToSave: Partial<Operator> = {
       nome,
@@ -61,7 +61,7 @@ export async function saveOperator(formData: FormData) {
       reparto,
       role,
       nome_normalized,
-      email
+      email: email.trim().toLowerCase(), // Use the provided email
   };
 
   if (id) {
