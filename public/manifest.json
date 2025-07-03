@@ -1,8 +1,11 @@
-
 {
   "name": "ProdFast Xcan",
   "short_name": "PFXcan",
   "description": "Applicazione per il Tracciamento dei Tempi di Produzione",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#171a1c",
+  "theme_color": "#26a7de",
   "icons": [
     {
       "src": "/icon-192x192.png",
@@ -14,9 +17,5 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ],
-  "theme_color": "#3F51B5",
-  "background_color": "#F0F0F0",
-  "display": "standalone",
-  "start_url": "/"
+  ]
 }
