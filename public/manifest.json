@@ -1,27 +1,28 @@
+
 {
-  "name": "ProdFast Xcan",
-  "short_name": "PFXcan",
-  "description": "Applicazione per il Tracciamento dei Tempi di Produzione",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0a101f",
-  "theme_color": "#26a7de",
-  "icons": [
-    {
-      "src": "/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
-  ]
+    "name": "ProdFast Xcan",
+    "short_name": "PFXcan",
+    "description": "Applicazione per il Tracciamento dei Tempi di Produzione",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#0f172a",
+    "theme_color": "#26a7de",
+    "icons": [
+        {
+            "src": "/icon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "/icon-maskable.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
 }
