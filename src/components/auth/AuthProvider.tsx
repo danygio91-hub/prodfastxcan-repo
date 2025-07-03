@@ -7,7 +7,7 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, doc, getDocs, query, where, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 interface AuthContextType {
@@ -34,21 +34,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const operatorsSnapshot = await getDocs(collection(db, "operators"));
           const operators = operatorsSnapshot.docs.map(op => ({ ...op.data(), id: op.id } as Operator));
 
+          // 1. Find by UID (most reliable)
           let operatorProfile = operators.find(op => op.uid === firebaseUser.uid);
 
+          // 2. If not found by UID (first login), find by username and link account
           if (!operatorProfile) {
-            // Not found by UID, try by normalized name (first login scenario)
-            const emailUsername = firebaseUser.email?.split('@')[0];
-            if (emailUsername) {
-              const operatorByUsername = operators.find(op => op.nome_normalized === emailUsername);
-              if (operatorByUsername) {
+            const emailUsername = firebaseUser.email?.split('@')[0].toLowerCase();
+            const operatorByUsername = operators.find(op => op.nome_normalized === emailUsername);
+            
+            if (operatorByUsername) {
                 console.log(`First login for ${emailUsername}, linking UID to operator profile ${operatorByUsername.id}.`);
-                // Link the account by updating the doc in Firestore
                 const operatorDocRef = doc(db, "operators", operatorByUsername.id);
                 await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
-                // Found our profile
+                // Found our profile after linking
                 operatorProfile = { ...operatorByUsername, uid: firebaseUser.uid };
-              }
             }
           }
 
@@ -87,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, []); // <-- This empty dependency array is the fix.
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {
