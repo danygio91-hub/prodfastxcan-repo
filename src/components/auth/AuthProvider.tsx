@@ -22,46 +22,55 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [operator, setOperator] = useState<Operator | null>(null);
-  const [loading, setLoading] = useState(true); // Start as true
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // This useEffect will run only once on mount, setting up the central auth listener.
+  // This central listener is the single source of truth for the user's auth state.
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // User is signed in to Firebase. Let's find their operator profile.
-        const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
-        const querySnapshot = await getDocs(q);
+      try {
+        if (firebaseUser) {
+          // User is signed in. Find their operator profile using their unique UID.
+          const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+          const querySnapshot = await getDocs(q);
 
-        if (!querySnapshot.empty) {
-          const operatorDoc = querySnapshot.docs[0];
-          const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-          
-          // Set application state
-          setUser(firebaseUser);
-          setOperator(operatorProfile);
-          storeOperator(operatorProfile);
+          if (!querySnapshot.empty) {
+            const operatorDoc = querySnapshot.docs[0];
+            const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+            
+            // Set the application state
+            setUser(firebaseUser);
+            setOperator(operatorProfile);
+            storeOperator(operatorProfile);
+          } else {
+            // This is an invalid state, log them out.
+            console.error(`Auth consistency error: Firebase user ${firebaseUser.uid} exists but has no operator profile. Forcing logout.`);
+            await firebaseLogout();
+          }
         } else {
-          // Firebase user exists, but no operator profile. This is an invalid state.
-          console.error("Auth state error: Firebase user exists but no operator profile found. Logging out.");
-          await firebaseLogout();
-          // State will be cleared by the next `onAuthStateChanged` event
+          // User is signed out. Clear all state.
+          setUser(null);
+          setOperator(null);
+          storeOperator(null);
         }
-      } else {
-        // User is signed out. Clear all state.
+      } catch (error) {
+        console.error("Error in onAuthStateChanged handler:", error);
+        // Ensure state is cleared on error
         setUser(null);
         setOperator(null);
         storeOperator(null);
+      } finally {
+        // We are finished with the initial auth check.
+        setLoading(false);
       }
-      // We are done loading, regardless of the outcome.
-      setLoading(false);
     });
 
     // Cleanup subscription on unmount
     return () => unsubscribe();
-  }, []); // Empty dependency array is crucial here.
+  }, []); // The empty dependency array is critical: this effect runs only once.
 
   const logout = useCallback(async () => {
+    // If there's an operator logged in, and they are not an admin, set their status to 'inattivo'.
     if (operator && operator.role !== 'admin') {
       try {
         const operatorRef = doc(db, "operators", operator.id);
@@ -70,11 +79,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Could not set operator status to inactive on logout", e);
       }
     }
+    
     await firebaseLogout();
-    // onAuthStateChanged will handle clearing the state, but we can do it manually for faster UI response.
-    setUser(null);
-    setOperator(null);
-    storeOperator(null);
+    // The onAuthStateChanged listener will automatically clear the user and operator state.
     router.push('/');
   }, [operator, router]);
 

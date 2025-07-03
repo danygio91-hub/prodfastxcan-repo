@@ -66,11 +66,11 @@ export default function LoginForm() {
         setIsLoading(true);
         setStep('logging_in');
         try {
-            // This just tells Firebase to log in.
+            // This just tells Firebase to log in and updates the DB.
             // AuthProvider's onAuthStateChanged will handle the rest.
             await login(username, password_used);
-            // After this, the onAuthStateChanged listener in AuthProvider will fire,
-            // update the context state, and the useEffect above will trigger the redirect.
+            // On success, we don't need to do anything. The useEffect above will catch the
+            // state change from AuthProvider and trigger the redirect.
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({

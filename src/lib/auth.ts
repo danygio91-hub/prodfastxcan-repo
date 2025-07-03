@@ -13,6 +13,7 @@ export const storeOperator = (operator: Operator | null) => {
         if (operator === null) {
             localStorage.removeItem(AUTH_KEY);
         } else {
+            // Do not store password in local storage
             const { password, ...operatorToStore } = operator;
             localStorage.setItem(AUTH_KEY, JSON.stringify(operatorToStore));
         }
@@ -20,55 +21,54 @@ export const storeOperator = (operator: Operator | null) => {
 };
 
 /**
- * Attempts to sign in a user with Firebase Auth, verifies their operator profile,
- * and updates their status in Firestore. Throws an error if any step fails.
- * This function only handles the login process; the onAuthStateChanged listener
- * is responsible for updating the application state.
+ * Attempts to sign in a user with Firebase Auth, then updates their corresponding
+ * profile in Firestore with their UID and active status.
+ * Throws an error if any step fails.
  */
 export async function login(username: string, password_used: string): Promise<void> {
     const lowerCaseUsername = username.toLowerCase();
     const emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
 
-    // 1. Sign in with Firebase Auth
+    // 1. Sign in with Firebase Auth. This is the primary gatekeeper.
     const userCredential = await signInWithEmailAndPassword(auth, emailForAuth, password_used);
     const firebaseUser = userCredential.user;
 
-    // 2. Find the corresponding operator profile in Firestore
+    // 2. Find the corresponding operator profile in Firestore using their normalized name.
     const operatorsRef = collection(db, "operators");
     const q = query(operatorsRef, where("nome_normalized", "==", lowerCaseUsername));
     const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
-        // If profile doesn't exist, something is wrong. Log out the user to be safe.
-        await signOut(auth); 
+        // This is a critical error state: user exists in Auth but not in our DB.
+        // Sign out to prevent inconsistent state.
+        await signOut(auth);
         throw new Error(`Profilo operatore per "${username}" non trovato.`);
     }
 
     const operatorDoc = querySnapshot.docs[0];
-    const operatorProfile = { id: operatorDoc.id, ...operatorDoc.data() } as Operator;
 
-    // Optional: Secondary password check if needed (Firebase Auth is primary)
-    if (operatorProfile.password && operatorProfile.password !== password_used) {
-        await signOut(auth);
-        throw new Error("Credenziali non valide.");
-    }
-    
-    // 3. Update the operator document with the Firebase UID and set status to 'attivo'
-    const operatorDocRef = doc(db, "operators", operatorProfile.id);
-    await setDoc(operatorDocRef, { 
+    // Note: No secondary password check is needed here because Firebase Auth already verified it.
+
+    // 3. Update the operator document with the Firebase UID and set status to 'attivo'.
+    // This links the Firebase Auth user to our Firestore operator profile.
+    const operatorDocRef = doc(db, "operators", operatorDoc.id);
+    await setDoc(operatorDocRef, {
         uid: firebaseUser.uid,
         stato: 'attivo'
     }, { merge: true });
 
-    // Login is successful. The onAuthStateChanged listener will now handle updating the app state.
+    // The onAuthStateChanged listener in AuthProvider will now handle setting the app state.
 }
 
-
+/**
+ * Signs the user out of Firebase.
+ */
 export async function logout(): Promise<void> {
   try {
     await signOut(auth);
   } catch (error) {
     console.error("Error signing out from Firebase:", error);
+    throw error;
   }
 }
 
