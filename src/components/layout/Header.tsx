@@ -46,7 +46,7 @@ export default function Header() {
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
-          <Image src="/logo.png" alt="PFXcan Logo" width={75} height={50} className="mr-3" />
+          <Image src="/logo.png" alt="PFXcan Logo" width={75} height={50} className="mr-3" unoptimized={true} />
         </Link>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
