@@ -125,7 +125,7 @@ export interface MaterialWithdrawal {
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
     { id: 'op-1', nome: 'Daniel', cognome: 'Giorlando', reparto: 'N/D', stato: 'inattivo', password: 'Filapara.9!', role: 'admin', privacySigned: false, nome_normalized: 'daniel' },
-    { id: 'op-2', nome: 'Ruben', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: true, nome_normalized: 'ruben' },
+    { id: 'op-2', nome: 'Ruben', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'superadvisor', privacySigned: false, nome_normalized: 'ruben' },
     { id: 'op-3', nome: 'Giovanna', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false, nome_normalized: 'giovanna' },
     { id: 'op-4', nome: 'Paola', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false, nome_normalized: 'paola' },
 ];

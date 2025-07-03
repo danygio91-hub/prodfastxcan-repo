@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -35,6 +35,7 @@ export default function AdminAppSettingsPage() {
   const [isPending, startTransition] = useTransition();
   const [isResettingJobs, startResetJobsTransition] = useTransition();
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
+  const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
   const { toast } = useToast();
 
   const handleSeedDatabase = () => {
@@ -113,6 +114,18 @@ export default function AdminAppSettingsPage() {
     if (!user) return;
     startResetMaterialsTransition(async () => {
         const result = await resetAllRawMaterials(user.uid);
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
+
+  const handleResetPrivacy = () => {
+    if (!user) return;
+    startResetPrivacyTransition(async () => {
+        const result = await resetAllPrivacySignatures(user.uid);
         toast({
             title: result.success ? "Operazione Completata" : "Operazione Fallita",
             description: result.message,
@@ -302,6 +315,37 @@ export default function AdminAppSettingsPage() {
                                       <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials}>
                                           {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, elimina tutto
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                      <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Firme Privacy</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Annulla l'accettazione dell'informativa privacy per tutti gli operatori.
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingPrivacy}>
+                                      {isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldOff className="mr-2 h-4 w-4" />}
+                                      Resetta Firme
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione forzerà tutti gli operatori a ri-accettare l'informativa al loro prossimo accesso.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetPrivacy} disabled={isResettingPrivacy}>
+                                          {isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, resetta tutto
                                       </AlertDialogAction>
                                   </AlertDialogFooter>
                               </AlertDialogContent>
