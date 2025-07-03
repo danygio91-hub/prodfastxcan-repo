@@ -13,8 +13,9 @@ export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> 
   if (docSnap.exists()) {
     return docSnap.data() as { [key in Reparto]: string };
   } else {
-    // If it doesn't exist, create it with initial data
-    await setDoc(docRef, initialDepartmentMap);
+    // If it doesn't exist, return the initial data without writing to DB.
+    // The seeding of this data is handled by the "Popola Database Iniziale"
+    // button in the App Settings page, which is the correct pattern.
     return initialDepartmentMap;
   }
 }
