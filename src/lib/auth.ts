@@ -25,7 +25,7 @@ export const storeOperator = (operator: Operator | null) => {
  * in AuthProvider is responsible for handling the result of this action.
  */
 export async function login(username: string, password_used: string): Promise<void> {
-    const lowerCaseUsername = username.toLowerCase();
+    const lowerCaseUsername = username.trim().toLowerCase();
     const emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
 
     // The onAuthStateChanged listener will handle finding the profile and linking the UID.

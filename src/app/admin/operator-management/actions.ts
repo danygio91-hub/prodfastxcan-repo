@@ -45,9 +45,12 @@ export async function saveOperator(formData: FormData) {
     validatedFields.data.reparto = 'N/D';
   }
 
-  const { id, nome, reparto, role } = validatedFields.data;
-  const cognome = validatedFields.data.cognome || '';
-  const nome_normalized = nome.toLowerCase();
+  const { id } = validatedFields.data;
+  const nome = validatedFields.data.nome.trim(); // Trim whitespace
+  const cognome = (validatedFields.data.cognome || '').trim();
+  const reparto = validatedFields.data.reparto;
+  const role = validatedFields.data.role;
+  const nome_normalized = nome.toLowerCase(); // Use trimmed name
   
   if (id) {
     // Update existing operator
