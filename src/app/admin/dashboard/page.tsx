@@ -35,7 +35,7 @@ export default function AdminDashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {navItems.map((item) => (
               <Link href={item.href} key={item.href} passHref className="block h-full">
-                <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 flex flex-col h-full group">
+                <Card className="hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 flex flex-col h-full group">
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <item.icon className="h-10 w-10 text-primary" />

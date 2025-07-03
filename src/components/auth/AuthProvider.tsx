@@ -1,12 +1,12 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
@@ -24,6 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [operator, setOperator] = useState<Operator | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
 
   const fetchOperatorProfile = useCallback(async (firebaseUser: User) => {
     // Strategy 1: Find by UID (most efficient and secure)
@@ -48,46 +49,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return null; // No profile found
   }, []);
 
+  // Effect to handle fetching auth state from Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
       if (firebaseUser) {
-        try {
-          const operatorProfile = await fetchOperatorProfile(firebaseUser);
-          
-          if (operatorProfile) {
-            // Set operator status to active
-            if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
-                const operatorDocRef = doc(db, "operators", operatorProfile.id);
-                await updateDoc(operatorDocRef, { stato: 'attivo' });
-                operatorProfile.stato = 'attivo';
-            }
-            
-            setUser(firebaseUser);
-            setOperator(operatorProfile);
-            storeOperator(operatorProfile);
-
-            // Handle redirection after user state is fully set
-            const redirectPath = localStorage.getItem('login_redirect_path');
-            localStorage.removeItem('login_redirect_path'); // Clean up immediately
-
-            if (redirectPath) {
-                router.push(redirectPath);
-            } else {
-                const isAdmin = operatorProfile.role === 'admin';
-                router.push(isAdmin ? '/admin/dashboard' : '/dashboard');
-            }
-            
-          } else {
-             console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
-             await firebaseLogout();
+        const operatorProfile = await fetchOperatorProfile(firebaseUser);
+        if (operatorProfile) {
+          if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin' && operatorProfile.role !== 'superadvisor') {
+            const operatorDocRef = doc(db, "operators", operatorProfile.id);
+            await updateDoc(operatorDocRef, { stato: 'attivo' });
+            operatorProfile.stato = 'attivo';
           }
-        } catch (error) {
-          console.error("Error during authentication process:", error);
+          setUser(firebaseUser);
+          setOperator(operatorProfile);
+          storeOperator(operatorProfile);
+        } else {
+          console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
           await firebaseLogout();
+          setUser(null);
+          setOperator(null);
+          storeOperator(null);
         }
       } else {
-        // User is signed out. Clear all state.
         setUser(null);
         setOperator(null);
         storeOperator(null);
@@ -96,18 +79,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchOperatorProfile, router]);
+  }, [fetchOperatorProfile]);
 
+  // Effect to handle routing based on auth state
+  useEffect(() => {
+    if (loading) return;
+
+    if (user && operator && pathname === '/') {
+      const redirectPath = localStorage.getItem('login_redirect_path');
+      localStorage.removeItem('login_redirect_path');
+
+      if (redirectPath) {
+        router.replace(redirectPath);
+      } else {
+        const isOperator = operator.role === 'operator' || operator.role === 'superadvisor';
+        router.replace(isOperator ? '/dashboard' : '/admin/dashboard');
+      }
+    }
+  }, [user, operator, loading, pathname, router]);
+
+
+  const operatorRef = useRef(operator);
+  operatorRef.current = operator;
 
   const logout = useCallback(async () => {
-    const currentOperator = operator;
+    const currentOperator = operatorRef.current;
     
     // Clear local state before async operations
     setUser(null);
     setOperator(null);
     storeOperator(null);
 
-    if (currentOperator && currentOperator.role !== 'admin') {
+    if (currentOperator && currentOperator.role !== 'admin' && currentOperator.role !== 'superadvisor') {
       try {
         const operatorRef = doc(db, "operators", currentOperator.id);
         await updateDoc(operatorRef, { stato: 'inattivo' });
@@ -118,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     router.push('/');
-  }, [operator, router]);
+  }, [router]);
 
   return (
     <AuthContext.Provider value={{ user, operator, loading, logout }}>
