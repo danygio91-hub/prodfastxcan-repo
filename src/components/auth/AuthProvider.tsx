@@ -25,48 +25,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  const fetchOperatorProfile = useCallback(async (firebaseUser: User) => {
+    // Strategy 1: Find by UID (most efficient and secure)
+    const q_uid = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
+    const uidSnapshot = await getDocs(q_uid);
+    if (!uidSnapshot.empty) {
+      return { ...uidSnapshot.docs[0].data(), id: uidSnapshot.docs[0].id } as Operator;
+    }
+
+    // Strategy 2: Find by Email (for first login or if UID is missing)
+    if (firebaseUser.email) {
+      const q_email = query(collection(db, "operators"), where("email", "==", firebaseUser.email));
+      const emailSnapshot = await getDocs(q_email);
+      if (!emailSnapshot.empty) {
+        const operatorDoc = emailSnapshot.docs[0];
+        // Link the UID to the profile for future logins
+        await setDoc(operatorDoc.ref, { uid: firebaseUser.uid }, { merge: true });
+        return { ...operatorDoc.data(), uid: firebaseUser.uid, id: operatorDoc.id } as Operator;
+      }
+    }
+    
+    return null; // No profile found
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
-      try {
-        if (firebaseUser) {
-          let operatorProfile: Operator | null = null;
-          let operatorId: string | null = null;
-          let profileNeedsUpdate = false;
-
-          // Strategy 1: Find by UID (most efficient and secure)
-          const q_uid = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
-          const uidSnapshot = await getDocs(q_uid);
-
-          if (!uidSnapshot.empty) {
-            const operatorDoc = uidSnapshot.docs[0];
-            operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-            operatorId = operatorDoc.id;
-          } else {
-            // Strategy 2: Find by Email (for first login or if UID is missing)
-            if (firebaseUser.email) {
-              const q_email = query(collection(db, "operators"), where("email", "==", firebaseUser.email));
-              const emailSnapshot = await getDocs(q_email);
-              if (!emailSnapshot.empty) {
-                const operatorDoc = emailSnapshot.docs[0];
-                operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-                operatorId = operatorDoc.id;
-                profileNeedsUpdate = true; // Found by email, so we should add the UID
-              }
-            }
-          }
-
-          if (operatorProfile && operatorId) {
-            // If we found a profile that needs UID/Email added, update it now.
-            if (profileNeedsUpdate) {
-                const operatorDocRef = doc(db, "operators", operatorId);
-                await setDoc(operatorDocRef, { uid: firebaseUser.uid }, { merge: true });
-                operatorProfile.uid = firebaseUser.uid; // Update the local profile object
-            }
-
+      if (firebaseUser) {
+        try {
+          const operatorProfile = await fetchOperatorProfile(firebaseUser);
+          
+          if (operatorProfile) {
             // Set operator status to active
             if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin') {
-                const operatorDocRef = doc(db, "operators", operatorId);
+                const operatorDocRef = doc(db, "operators", operatorProfile.id);
                 await updateDoc(operatorDocRef, { stato: 'attivo' });
                 operatorProfile.stato = 'attivo';
             }
@@ -75,36 +67,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
 
+            // Handle redirection after user state is fully set
+            const redirectPath = localStorage.getItem('login_redirect_path');
+            localStorage.removeItem('login_redirect_path'); // Clean up immediately
+
+            if (redirectPath) {
+                router.push(redirectPath);
+            } else {
+                router.push(operatorProfile.role === 'admin' ? '/admin/dashboard' : '/dashboard');
+            }
+            
           } else {
-             // A user exists in Firebase Auth, but not in our 'operators' collection.
              console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
              await firebaseLogout();
           }
-
-        } else {
-          // User is signed out. Clear all state.
-          setUser(null);
-          setOperator(null);
-          storeOperator(null);
+        } catch (error) {
+          console.error("Error during authentication process:", error);
+          await firebaseLogout();
         }
-      } catch (error) {
-        console.error("Error in onAuthStateChanged handler:", error);
+      } else {
+        // User is signed out. Clear all state.
         setUser(null);
         setOperator(null);
         storeOperator(null);
-        await firebaseLogout();
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [fetchOperatorProfile, router]);
+
 
   const logout = useCallback(async () => {
-    if (operator && operator.role !== 'admin') {
+    const currentOperator = operator;
+    
+    // Clear local state before async operations
+    setUser(null);
+    setOperator(null);
+    storeOperator(null);
+
+    if (currentOperator && currentOperator.role !== 'admin') {
       try {
-        const operatorRef = doc(db, "operators", operator.id);
+        const operatorRef = doc(db, "operators", currentOperator.id);
         await updateDoc(operatorRef, { stato: 'inattivo' });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);

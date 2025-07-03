@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -49,39 +49,42 @@ export default function LoginForm() {
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
 
-    // This useEffect handles redirection AFTER auth state is confirmed by AuthProvider
     useEffect(() => {
-        if (authLoading) return; // Wait until the auth state is fully resolved
+        if (authLoading) return; 
         
         if (user && operator) {
+            // The redirect logic is now handled in AuthProvider,
+            // so we don't need to push the router here.
+            // We just show a toast.
             toast({
                 title: `Buongiorno, ${operator.nome}!`,
                 description: `Reindirizzamento in corso...`,
             });
-            router.push(operator.role === 'admin' ? "/admin/dashboard" : "/dashboard");
         }
-    }, [user, operator, authLoading, router, toast]);
+    }, [user, operator, authLoading, toast]);
 
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
         try {
-            // This just tells Firebase to log in and updates the DB.
-            // AuthProvider's onAuthStateChanged will handle the rest.
             await login(username, password_used);
-            // On success, we don't need to do anything. The useEffect above will catch the
-            // state change from AuthProvider and trigger the redirect.
         } catch (error) {
+            localStorage.removeItem('login_redirect_path');
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
                 title: "Accesso Fallito",
                 description: errorMessage,
                 variant: "destructive",
             });
-            setIsLoading(false); // Un-stick the UI
+            setIsLoading(false); 
             setStep('manual_login');
         }
     }, [toast]);
+    
+    const handleQrLoginClick = (targetPath: string) => {
+      localStorage.setItem('login_redirect_path', targetPath);
+      setStep('camera');
+    };
 
     useEffect(() => {
         if (step !== 'camera') {
@@ -163,6 +166,7 @@ export default function LoginForm() {
     });
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
+        localStorage.setItem('login_redirect_path', '/dashboard');
         performLogin(values.username, values.password);
     };
 
@@ -177,10 +181,28 @@ export default function LoginForm() {
                              <CardDescription className="text-muted-foreground">Seleziona una modalità di accesso.</CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-4">
-                            <Button onClick={() => setStep('camera')} size="lg" className="h-16 text-lg" disabled={isLoading}>
-                               <QrCode className="mr-3 h-8 w-8" />
-                                Accedi con QR Code
+                            <Button onClick={() => handleQrLoginClick('/dashboard')} size="lg" className="h-14 text-lg">
+                               <QrCode className="mr-3 h-6 w-6" />
+                                Accesso Standard (QR)
                             </Button>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <Button onClick={() => handleQrLoginClick('/clock-in-out')} variant="secondary" className="h-20 flex-col gap-1">
+                                    <Clock className="h-6 w-6" />
+                                    Timbratura Rapida
+                                </Button>
+                                <Button onClick={() => handleQrLoginClick('/scan-job')} variant="secondary" className="h-20 flex-col gap-1">
+                                    <ScanLine className="h-6 w-6" />
+                                    Scansione Commessa
+                                </Button>
+                            </div>
+                            
+                            <div className="relative flex py-2 items-center">
+                                <div className="flex-grow border-t border-muted-foreground/20"></div>
+                                <span className="flex-shrink mx-4 text-xs text-muted-foreground">OPPURE</span>
+                                <div className="flex-grow border-t border-muted-foreground/20"></div>
+                            </div>
+
                             <Button onClick={() => setStep('manual_login')} variant="outline">
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
