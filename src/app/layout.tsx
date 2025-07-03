@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from '@/components/layout/ThemeProvider';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { ActiveJobProvider } from '@/contexts/ActiveJobProvider';
+import { ActiveMaterialSessionProvider } from '@/contexts/ActiveMaterialSessionProvider';
 import { PT_Sans } from 'next/font/google';
 import { cn } from '@/lib/utils';
 
@@ -40,15 +41,17 @@ export default function RootLayout({
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
           <ActiveJobProvider>
-            <ThemeProvider
-              attribute="class"
-              defaultTheme="dark"
-              enableSystem={false}
-              disableTransitionOnChange
-            >
-              {children}
-              <Toaster />
-            </ThemeProvider>
+            <ActiveMaterialSessionProvider>
+              <ThemeProvider
+                attribute="class"
+                defaultTheme="dark"
+                enableSystem={false}
+                disableTransitionOnChange
+              >
+                {children}
+                <Toaster />
+              </ThemeProvider>
+            </ActiveMaterialSessionProvider>
           </ActiveJobProvider>
         </AuthProvider>
       </body>

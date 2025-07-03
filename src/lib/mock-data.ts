@@ -110,8 +110,8 @@ export interface RawMaterial {
 
 export interface MaterialWithdrawal {
   id: string; // doc id
-  jobId: string;
-  jobOrderPF: string;
+  jobIds: string[];
+  jobOrderPFs: string[];
   materialId: string;
   materialCode: string;
   consumedWeight: number;

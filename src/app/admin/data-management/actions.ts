@@ -39,7 +39,7 @@ const createDefaultPhases = (department: string): JobPhase[] => {
   const preparationPhases: JobPhase[] = [
     { id: 'prep-1', name: 'TAGLIO TRECCIA/CORDA', status: 'pending', materialReady: true, workPeriods: [], sequence: -3, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
     { id: 'prep-2', name: 'PREPARAZIONE TUBI', status: 'pending', materialReady: true, workPeriods: [], sequence: -2, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
-    { id: 'prep-3', name: 'TAGLIO GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation', requiresMaterialScan: false, materialConsumption: null },
+    { id: 'prep-3', name: 'TAGLIO GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
   ];
   
   let productionPhases: JobPhase[];

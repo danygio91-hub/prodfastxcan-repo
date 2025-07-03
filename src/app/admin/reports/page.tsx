@@ -96,7 +96,7 @@ export default function AdminReportsPage() {
 
   const handleExportWithdrawals = () => {
     const dataToExport = withdrawalsReport.map(w => ({
-      'Commessa': w.jobOrderPF,
+      'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
       'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
       'Data Prelievo': format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it }),
@@ -314,7 +314,7 @@ export default function AdminReportsPage() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Commessa</TableHead>
+                                        <TableHead>Commessa/e</TableHead>
                                         <TableHead>Materiale</TableHead>
                                         <TableHead>Peso Consumato (Kg)</TableHead>
                                         <TableHead>Data Prelievo</TableHead>
@@ -327,7 +327,7 @@ export default function AdminReportsPage() {
                                     ) : withdrawalsReport.length > 0 ? (
                                         withdrawalsReport.map((w) => (
                                             <TableRow key={w.id}>
-                                                <TableCell className="font-medium">{w.jobOrderPF}</TableCell>
+                                                <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                                 <TableCell>{w.materialCode}</TableCell>
                                                 <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
                                                 <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>

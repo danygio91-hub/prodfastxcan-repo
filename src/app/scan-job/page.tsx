@@ -31,11 +31,12 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, registerClosingWeightAndUpdateStock } from './actions';
+import { verifyAndGetJobOrder, updateJob } from './actions';
 import { getRawMaterialByCode, searchRawMaterials } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
+import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
@@ -89,6 +90,7 @@ export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
   const { activeJob: activeJobOrder, setActiveJob: setActiveJobOrder, isLoading: isJobLoading } = useActiveJob();
+  const { activeSession, startSession, addJobToSession, clearSession } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -111,9 +113,6 @@ export default function ScanJobPage() {
   const [manualMaterialCode, setManualMaterialCode] = useState('');
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
   const [materialSearchResults, setMaterialSearchResults] = useState<SearchResult[]>([]);
-
-  const [isClosingWeightDialogOpen, setIsClosingWeightDialogOpen] = useState(false);
-  const [phaseForClosingWeight, setPhaseForClosingWeight] = useState<JobPhase | null>(null);
 
   // Debounce search for materials
   useEffect(() => {
@@ -147,6 +146,9 @@ export default function ScanJobPage() {
         if (activeJobOrder.status === 'completed') {
           setStep('finished');
         } else {
+          if (activeSession && !activeSession.associatedJobs.some(j => j.jobId === activeJobOrder.id)) {
+            addJobToSession({ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF });
+          }
           setStep('processing');
         }
       } else {
@@ -155,7 +157,7 @@ export default function ScanJobPage() {
     } else {
       setStep('loading');
     }
-  }, [isJobLoading, activeJobOrder]);
+  }, [isJobLoading, activeJobOrder, activeSession, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder | null) => {
     setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
@@ -331,6 +333,14 @@ export default function ScanJobPage() {
       
       const phaseType = phaseToStart.type || 'production';
 
+      if (phaseType === 'preparation' && activeSession) {
+          phaseToStart.materialConsumption = {
+              materialId: activeSession.materialId,
+              materialCode: activeSession.materialCode,
+              openingWeight: activeSession.openingWeight,
+          };
+      }
+
       if (phaseType === 'production' && !phaseToStart.materialReady) {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
@@ -487,18 +497,31 @@ export default function ScanJobPage() {
 
     const completedPhaseType = phaseToComplete.type || 'production';
 
-    if (completedPhaseType === 'preparation') {
-      const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-      const allPrepCompleted = allPrepPhases.every((p: JobPhase) => p.status === 'completed');
-
-      if (allPrepCompleted) {
-        const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
-        if (firstProductionPhase && !firstProductionPhase.materialReady) {
-            firstProductionPhase.materialReady = true;
-            toast({ title: "Preparazione Completata", description: `Materiale ora disponibile per la fase: "${firstProductionPhase.name}".`});
+    if (completedPhaseType === 'preparation' && operator?.reparto === 'MAG') {
+        const dialog = {
+            title: "Lavorazione per questa commessa completata.",
+            description: "Vuoi continuare a lavorare con questo materiale su un'altra commessa o registrare la chiusura finale?",
+            continueLabel: "Lavora su altra Commessa",
+            closeLabel: "Registra Chiusura Materiale"
+        };
+        // This is a placeholder for a confirmation dialog component
+        const userConfirmation = window.confirm(`${dialog.title}\n${dialog.description}\n\nOK per 'Lavora su altra Commessa', Annulla per 'Registra Chiusura Materiale'`);
+        
+        if (userConfirmation) {
+            // "Lavora su altra Commessa"
+            handleUpdateAndPersistJob(jobToUpdate);
+            setActiveJobOrder(null); // Clear current job to scan a new one
+            toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${activeSession?.materialCode} rimane attiva.` });
+        } else {
+            // "Registra Chiusura Materiale"
+            // The logic for this is now in the ActiveMaterialSessionBar, so we just complete the phase here.
+            handleUpdateAndPersistJob(jobToUpdate);
+            toast({ title: "Fase Completata", description: `Ora puoi chiudere la sessione del materiale dalla barra in basso.`});
         }
-      }
-    } else {
+        return; // Exit after handling MAG flow
+    }
+
+    if (completedPhaseType === 'production') {
       const completedPhaseSequence = phaseToComplete.sequence;
       const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === completedPhaseSequence + 1);
       if (nextPhase && nextPhase.status === 'pending') { 
@@ -564,6 +587,7 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobOrder(null);
+    clearSession();
     setPhaseForPhaseScan(null);
     setStep('initial');
   }
@@ -605,48 +629,26 @@ export default function ScanJobPage() {
     const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
 
     if (phaseToUpdate) {
-        phaseToUpdate.materialConsumption = {
+        const materialConsumptionData = {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
             openingWeight: values.openingWeight,
             lottoBobina: values.lottoBobina,
         };
+        phaseToUpdate.materialConsumption = materialConsumptionData;
+
+        // Start a new material session
+        startSession({
+            ...materialConsumptionData,
+            originatorJobId: activeJobOrder.id,
+            associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
+        });
+
         handleUpdateAndPersistJob(jobToUpdate);
-        toast({ title: "Peso di Apertura Registrato", description: `Materiale ${scannedMaterialForPhase.code} associato alla fase.` });
+        toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
     }
     setIsMaterialScanDialogOpen(false);
   };
-
-  const onClosingWeightSubmit = async (values: ClosingWeightFormValues) => {
-    if (!activeJobOrder || !phaseForClosingWeight || !operator) {
-      toast({ variant: 'destructive', title: "Errore", description: "Dati mancanti per registrare la chiusura." });
-      return;
-    }
-
-    const result = await registerClosingWeightAndUpdateStock(
-      activeJobOrder.id,
-      phaseForClosingWeight.id,
-      values.closingWeight,
-      operator.id
-    );
-
-    toast({
-      title: result.success ? "Operazione Riuscita" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-
-    if (result.success) {
-      // Refresh job data from server to reflect the update
-      const updatedJobFromServer = await verifyAndGetJobOrder({ ordinePF: activeJobOrder.ordinePF, codice: activeJobOrder.details, qta: activeJobOrder.qta.toString() });
-      if (!('error' in updatedJobFromServer)) {
-        setActiveJobOrder(updatedJobFromServer);
-      }
-      setIsClosingWeightDialogOpen(false);
-      setPhaseForClosingWeight(null);
-    }
-  };
-
 
   const handleAbandonJob = () => {
     if (!activeJobOrder) return;
@@ -672,7 +674,7 @@ export default function ScanJobPage() {
           description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
         });
         setActiveJobOrder(null);
-        resetForNewScan();
+        // Do NOT clear material session here
       } else {
         toast({
           variant: "destructive",
@@ -981,7 +983,7 @@ export default function ScanJobPage() {
             }
           }
 
-          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && !!phase.materialConsumption);
+          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && (!!phase.materialConsumption || !!activeSession));
           
           const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
           const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherPhaseActiveOrPaused;
@@ -989,8 +991,7 @@ export default function ScanJobPage() {
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
-          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption;
-          const canRegisterClosingWeight = phase.type === 'preparation' && phase.status === 'completed' && phase.materialConsumption?.openingWeight !== undefined && phase.materialConsumption?.closingWeight === undefined;
+          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption && !activeSession;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1084,11 +1085,6 @@ export default function ScanJobPage() {
                   <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={isJobBlockedByProblem && phase.status !== 'completed'}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
-                )}
-                {canRegisterClosingWeight && (
-                    <Button size="sm" onClick={() => { setPhaseForClosingWeight(phase); setIsClosingWeightDialogOpen(true); closingWeightForm.reset(); }} variant="secondary" className="bg-blue-600 hover:bg-blue-700 text-white">
-                        <Weight className="mr-2 h-4 w-4" /> Registra Chiusura KG
-                    </Button>
                 )}
               </div>
             </Card>
@@ -1264,7 +1260,7 @@ export default function ScanJobPage() {
                          <DialogFooter>
                             <Button type="submit">
                                 <Send className="mr-2 h-4 w-4" />
-                                Registra e Associa
+                                Avvia Sessione Materiale
                             </Button>
                         </DialogFooter>
                     </form>
@@ -1291,45 +1287,6 @@ export default function ScanJobPage() {
                 <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
-    </Dialog>
-  );
-
-  const renderClosingWeightDialog = () => (
-    <Dialog open={isClosingWeightDialogOpen} onOpenChange={setIsClosingWeightDialogOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Registra Peso di Chiusura</DialogTitle>
-          <DialogDescription>
-            Fase: {phaseForClosingWeight?.name}<br />
-            Materiale: {phaseForClosingWeight?.materialConsumption?.materialCode}<br />
-            Peso Apertura: {phaseForClosingWeight?.materialConsumption?.openingWeight} kg
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...closingWeightForm}>
-          <form onSubmit={closingWeightForm.handleSubmit(onClosingWeightSubmit)} className="space-y-4">
-            <FormField
-              control={closingWeightForm.control}
-              name="closingWeight"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>KG di Chiusura</FormLabel>
-                  <FormControl>
-                    <Input type="number" step="0.01" autoFocus {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsClosingWeightDialogOpen(false)}>Annulla</Button>
-              <Button type="submit" disabled={closingWeightForm.formState.isSubmitting}>
-                {closingWeightForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
-                Conferma e Scarica da Magazzino
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
     </Dialog>
   );
 
@@ -1386,7 +1343,6 @@ export default function ScanJobPage() {
           
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
-          {renderClosingWeightDialog()}
           {renderPhaseScanDialog()}
 
         </div>

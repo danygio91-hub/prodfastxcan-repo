@@ -2,9 +2,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, RawMaterial } from '@/lib/mock-data';
+import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -105,47 +106,23 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     }
 }
 
-export async function registerClosingWeightAndUpdateStock(
-  jobId: string,
-  phaseId: string,
+export async function closeMaterialSessionAndUpdateStock(
+  sessionData: ActiveMaterialSessionData,
   closingWeight: number,
   operatorId: string,
 ): Promise<{ success: boolean; message: string }> {
-  const jobRef = doc(db, "jobOrders", jobId);
+  const materialRef = doc(db, "rawMaterials", sessionData.materialId);
   
   try {
     await runTransaction(db, async (transaction) => {
-        const jobDoc = await transaction.get(jobRef);
-        if (!jobDoc.exists()) {
-            throw new Error("Commessa non trovata.");
-        }
-
-        const jobData = jobDoc.data() as JobOrder;
-        const phaseIndex = jobData.phases.findIndex(p => p.id === phaseId);
-
-        if (phaseIndex === -1) {
-            throw new Error("Fase non trovata all'interno della commessa.");
-        }
-
-        const phase = jobData.phases[phaseIndex];
-        const materialConsumption = phase.materialConsumption;
-
-        if (!materialConsumption || materialConsumption.openingWeight === undefined) {
-            throw new Error("Peso di apertura non registrato per questa fase.");
-        }
-        if (closingWeight > materialConsumption.openingWeight) {
-            throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
-        }
-        if (materialConsumption.closingWeight !== undefined) {
-            throw new Error("Il peso di chiusura è già stato registrato per questa fase.");
-        }
-
-        const consumedWeight = materialConsumption.openingWeight - closingWeight;
-        const materialRef = doc(db, "rawMaterials", materialConsumption.materialId);
         const materialDoc = await transaction.get(materialRef);
-
         if (!materialDoc.exists()) {
-            throw new Error("Materia prima associata non trovata.");
+            throw new Error("Materia prima associata alla sessione non trovata.");
+        }
+        
+        const consumedWeight = sessionData.openingWeight - closingWeight;
+        if (consumedWeight < 0) {
+            throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
         }
         
         const materialData = materialDoc.data() as RawMaterial;
@@ -155,35 +132,54 @@ export async function registerClosingWeightAndUpdateStock(
            throw new Error(`Stock insufficiente. Peso disponibile: ${materialData.currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
 
-        // Update phase in job data
-        jobData.phases[phaseIndex].materialConsumption!.closingWeight = closingWeight;
-        transaction.update(jobRef, { phases: jobData.phases });
-
-        // Update material stock
+        // 1. Update material stock
         transaction.update(materialRef, { currentWeightKg: newWeightKg });
 
-        // Create withdrawal log entry
+        // 2. Create a single withdrawal log for the entire session
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
-            jobId: jobData.id,
-            jobOrderPF: jobData.ordinePF,
-            materialId: materialConsumption.materialId,
-            materialCode: materialConsumption.materialCode,
+            jobIds: sessionData.associatedJobs.map(j => j.jobId),
+            jobOrderPFs: sessionData.associatedJobs.map(j => j.jobOrderPF),
+            materialId: sessionData.materialId,
+            materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
             operatorId: operatorId,
             withdrawalDate: Timestamp.now(),
         });
+
+        // 3. Update all associated job orders to record the closing weight
+        const jobRefs = sessionData.associatedJobs.map(j => doc(db, "jobOrders", j.jobId));
+        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+
+        for (const jobDoc of jobDocs) {
+            if (jobDoc.exists()) {
+                const jobData = jobDoc.data() as JobOrder;
+                const updatedPhases = jobData.phases.map(p => {
+                    if (p.materialConsumption?.materialId === sessionData.materialId && p.materialConsumption.openingWeight === sessionData.openingWeight) {
+                        return {
+                            ...p,
+                            materialConsumption: {
+                                ...p.materialConsumption,
+                                closingWeight: closingWeight,
+                            }
+                        };
+                    }
+                    return p;
+                });
+                transaction.update(jobDoc.ref, { phases: updatedPhases });
+            }
+        }
     });
 
     revalidatePath('/scan-job');
     revalidatePath('/admin/reports');
     revalidatePath('/admin/raw-material-management');
 
-    return { success: true, message: 'Peso di chiusura registrato e stock aggiornato.' };
+    return { success: true, message: 'Sessione chiusa, peso registrato e stock aggiornato.' };
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione.";
-    console.error("Failed to register closing weight:", error);
+    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la chiusura della sessione.";
+    console.error("Failed to close material session:", error);
     return { success: false, message: errorMessage };
   }
 }

@@ -5,6 +5,7 @@ import React from 'react';
 import Header from './Header';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import ActiveJobStatusBar from '@/components/operator/ActiveJobStatusBar';
+import ActiveMaterialSessionBar from '@/components/operator/ActiveMaterialSessionBar';
 import { useAuth } from '../auth/AuthProvider';
 
 interface AppShellProps {
@@ -25,6 +26,7 @@ export default function AppShell({ children }: AppShellProps) {
       </footer>
       <ThemeToggler />
       {operator && operator.role !== 'admin' && <ActiveJobStatusBar />} 
+      {operator && operator.role !== 'admin' && <ActiveMaterialSessionBar />}
     </div>
   );
 }
