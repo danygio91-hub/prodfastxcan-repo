@@ -14,6 +14,7 @@ interface AuthContextType {
   user: User | null;
   operator: Operator | null;
   loading: boolean;
+  setAuthDataAfterLogin: (user: User, operator: Operator) => void;
   logout: () => Promise<void>;
 }
 
@@ -25,38 +26,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  const setAuthDataAfterLogin = useCallback((loggedInUser: User, operatorProfile: Operator) => {
+    setLoading(false);
+    setUser(loggedInUser);
+    setOperator(operatorProfile);
+    storeOperator(operatorProfile);
+  }, []);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // If the user state is already populated (e.g., by a fresh login),
+      // we don't need the listener to do anything, preventing race conditions.
+      if (user) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       if (firebaseUser) {
         try {
           const q = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
-          let querySnapshot = await getDocs(q);
-
-          // This retry logic handles the race condition where onAuthStateChanged
-          // fires before the login function's Firestore write is propagated.
-          if (querySnapshot.empty) {
-            console.warn("Operator profile not found on first attempt, retrying in 1.5s...");
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            querySnapshot = await getDocs(q);
-          }
-
+          const querySnapshot = await getDocs(q);
+          
           if (!querySnapshot.empty) {
             const operatorDoc = querySnapshot.docs[0];
             const operatorProfile = { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-            
             setUser(firebaseUser);
             setOperator(operatorProfile);
             storeOperator(operatorProfile);
           } else {
-            console.error("Authenticated user profile not found in Firestore. Logging out.");
+            // On a page refresh, if the user exists in Firebase but has no profile,
+            // something is wrong. Log them out for safety.
             await firebaseLogout();
           }
         } catch (error) {
-          console.error("Error restoring session:", error);
+          console.error("Error during session restoration:", error);
           await firebaseLogout();
         }
       } else {
+        // No user is signed into Firebase.
         setUser(null);
         setOperator(null);
         storeOperator(null);
@@ -65,24 +73,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []); // Empty dependency array ensures this effect runs only once on mount.
+  }, [user]); // The dependency on `user` is crucial.
 
   const logout = useCallback(async () => {
     if (operator && operator.role !== 'admin') {
       try {
         const operatorRef = doc(db, "operators", operator.id);
-        // Use updateDoc for safety, to only change specific fields.
         await updateDoc(operatorRef, { stato: 'inattivo' });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
       }
     }
     await firebaseLogout();
+    // Manually reset state to ensure UI updates immediately.
+    setUser(null);
+    setOperator(null);
+    storeOperator(null);
     router.push('/');
   }, [operator, router]);
 
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout }}>
+    <AuthContext.Provider value={{ user, operator, loading, setAuthDataAfterLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -48,7 +48,7 @@ export default function LoginForm() {
     const streamRef = useRef<MediaStream | null>(null);
     const router = useRouter();
     const { toast } = useToast();
-    const { user, operator, loading } = useAuth();
+    const { user, operator, loading, setAuthDataAfterLogin } = useAuth();
 
     useEffect(() => {
         if (loading) return;
@@ -65,10 +65,14 @@ export default function LoginForm() {
         setIsLoading(true);
         setStep('logging_in');
         try {
-            await login(username, password_used);
-            // After successful login, the onAuthStateChanged listener in AuthProvider
-            // will handle setting the user/operator state, and the useEffect above
-            // will handle the redirection.
+            const { loggedInUser, operatorProfile } = await login(username, password_used);
+            
+            // Explicitly set the application's authentication state.
+            // This is the key to preventing the race condition.
+            setAuthDataAfterLogin(loggedInUser, operatorProfile);
+            
+            // The useEffect above will now fire with the correct data and redirect reliably.
+
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
@@ -79,7 +83,7 @@ export default function LoginForm() {
             setIsLoading(false); // Un-stick the UI
             setStep('manual_login');
         }
-    }, [toast]);
+    }, [toast, setAuthDataAfterLogin]);
 
     useEffect(() => {
         if (step !== 'camera') {
