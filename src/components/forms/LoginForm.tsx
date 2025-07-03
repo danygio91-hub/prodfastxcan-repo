@@ -176,7 +176,7 @@ export default function LoginForm() {
                 return (
                     <motion.div key="initial" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                         <CardHeader className="items-center text-center">
-                            <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} className="mb-4" />
+                            <Image src="/icons/logo.png" alt="PFXcan Logo" width={150} height={100} className="mb-4" />
                             <CardTitle className="text-2xl font-headline">Benvenuto in PFXcan</CardTitle>
                              <CardDescription className="text-muted-foreground">Seleziona una modalità di accesso.</CardDescription>
                         </CardHeader>
@@ -241,7 +241,7 @@ export default function LoginForm() {
                         <Form {...manualForm}>
                             <form onSubmit={manualForm.handleSubmit(onManualSubmit)}>
                                  <CardHeader className="items-center text-center">
-                                    <Image src="/logo.png" alt="PFXcan Logo" width={120} height={80} className="mb-4" />
+                                    <Image src="/icons/logo.png" alt="PFXcan Logo" width={120} height={80} className="mb-4" />
                                     <CardTitle>Accesso Manuale</CardTitle>
                                     <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
                                  </CardHeader>
