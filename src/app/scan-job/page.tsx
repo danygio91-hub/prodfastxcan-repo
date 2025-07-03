@@ -114,6 +114,9 @@ export default function ScanJobPage() {
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
   const [materialSearchResults, setMaterialSearchResults] = useState<SearchResult[]>([]);
 
+  const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
+  const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
+
   // Debounce search for materials
   useEffect(() => {
     const handler = setTimeout(async () => {
@@ -497,28 +500,10 @@ export default function ScanJobPage() {
 
     const completedPhaseType = phaseToComplete.type || 'production';
 
-    if (completedPhaseType === 'preparation' && operator?.reparto === 'MAG') {
-        const dialog = {
-            title: "Lavorazione per questa commessa completata.",
-            description: "Vuoi continuare a lavorare con questo materiale su un'altra commessa o registrare la chiusura finale?",
-            continueLabel: "Lavora su altra Commessa",
-            closeLabel: "Registra Chiusura Materiale"
-        };
-        // This is a placeholder for a confirmation dialog component
-        const userConfirmation = window.confirm(`${dialog.title}\n${dialog.description}\n\nOK per 'Lavora su altra Commessa', Annulla per 'Registra Chiusura Materiale'`);
-        
-        if (userConfirmation) {
-            // "Lavora su altra Commessa"
-            handleUpdateAndPersistJob(jobToUpdate);
-            setActiveJobOrder(null); // Clear current job to scan a new one
-            toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${activeSession?.materialCode} rimane attiva.` });
-        } else {
-            // "Registra Chiusura Materiale"
-            // The logic for this is now in the ActiveMaterialSessionBar, so we just complete the phase here.
-            handleUpdateAndPersistJob(jobToUpdate);
-            toast({ title: "Fase Completata", description: `Ora puoi chiudere la sessione del materiale dalla barra in basso.`});
-        }
-        return; // Exit after handling MAG flow
+    if (completedPhaseType === 'preparation' && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
+        setJobToFinalize(jobToUpdate);
+        setIsContinueOrCloseDialogOpen(true);
+        return; // Exit, let the dialog handle the rest
     }
 
     if (completedPhaseType === 'production') {
@@ -532,6 +517,23 @@ export default function ScanJobPage() {
     
     handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
+  };
+
+  const handleContinueWithMaterial = () => {
+    if (!jobToFinalize || !activeSession) return;
+    handleUpdateAndPersistJob(jobToFinalize);
+    setActiveJobOrder(null); // Clear current job to scan a new one
+    toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${activeSession.materialCode} rimane attiva.` });
+    setJobToFinalize(null);
+    setIsContinueOrCloseDialogOpen(false);
+  };
+
+  const handleRequestMaterialClosure = () => {
+    if (!jobToFinalize) return;
+    handleUpdateAndPersistJob(jobToFinalize);
+    toast({ title: "Fase Completata", description: `Ora puoi chiudere la sessione del materiale dalla barra in basso.`});
+    setJobToFinalize(null);
+    setIsContinueOrCloseDialogOpen(false);
   };
 
   const handleConcludeOverallJob = () => {
@@ -1310,6 +1312,28 @@ export default function ScanJobPage() {
     </Dialog>
   );
 
+  const renderContinueOrCloseDialog = () => (
+    <AlertDialog open={isContinueOrCloseDialogOpen} onOpenChange={setIsContinueOrCloseDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Lavorazione per questa commessa completata</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vuoi continuare a lavorare con il materiale <span className="font-bold">{activeSession?.materialCode}</span> su un'altra commessa, oppure hai terminato e vuoi registrare la chiusura finale del materiale?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+          <AlertDialogAction onClick={handleContinueWithMaterial}>
+            Lavora su altra Commessa
+          </AlertDialogAction>
+          <AlertDialogAction onClick={handleRequestMaterialClosure} className="bg-destructive hover:bg-destructive/90">
+            Registra Chiusura Materiale
+          </AlertDialogAction>
+          <AlertDialogCancel>Annulla</AlertDialogCancel>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
 
   return (
     <AuthGuard>
@@ -1344,6 +1368,7 @@ export default function ScanJobPage() {
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
           {renderPhaseScanDialog()}
+          {renderContinueOrCloseDialog()}
 
         </div>
       </AppShell>
