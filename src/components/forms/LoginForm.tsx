@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -48,14 +48,26 @@ export default function LoginForm() {
     const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
+    const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+
+    // Effect to handle PWA install prompt
+    useEffect(() => {
+        const handleBeforeInstallPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstallPrompt(e);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        };
+    }, []);
 
     useEffect(() => {
         if (authLoading) return; 
         
         if (user && operator) {
-            // The redirect logic is now handled in AuthProvider,
-            // so we don't need to push the router here.
-            // We just show a toast.
             toast({
                 title: `Buongiorno, ${operator.nome}!`,
                 description: `Reindirizzamento in corso...`,
@@ -173,6 +185,18 @@ export default function LoginForm() {
         localStorage.removeItem('login_redirect_path');
         performLogin(values.username, values.password);
     };
+    
+    const handleInstallClick = async () => {
+        if (!installPrompt) {
+            return;
+        }
+        (installPrompt as any).prompt();
+        const { outcome } = await (installPrompt as any).userChoice;
+        if (outcome === 'accepted') {
+            toast({ title: "Installazione Avviata", description: "L'app verrà aggiunta alla tua schermata principale." });
+        }
+        setInstallPrompt(null);
+    };
 
     const renderStep = () => {
         switch (step) {
@@ -180,7 +204,7 @@ export default function LoginForm() {
                 return (
                     <motion.div key="initial" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                         <CardHeader className="items-center text-center">
-                            <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} unoptimized={true} priority />
+                            <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} unoptimized={true} priority={true} />
                             <CardTitle className="text-2xl font-headline">Benvenuto in PFXcan</CardTitle>
                              <CardDescription className="text-muted-foreground">Seleziona una modalità di accesso.</CardDescription>
                         </CardHeader>
@@ -212,6 +236,14 @@ export default function LoginForm() {
                                 Accedi con Password
                             </Button>
                         </CardContent>
+                        {installPrompt && (
+                            <CardFooter>
+                                <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground">
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Installa App sul dispositivo
+                                </Button>
+                            </CardFooter>
+                        )}
                     </motion.div>
                 );
             case 'camera':
