@@ -81,8 +81,12 @@ export default function LoginForm() {
         }
     }, [toast]);
     
-    const handleQrLoginClick = (targetPath: string) => {
-      localStorage.setItem('login_redirect_path', targetPath);
+    const handleQrLoginClick = (targetPath: string | null) => {
+      if (targetPath) {
+        localStorage.setItem('login_redirect_path', targetPath);
+      } else {
+        localStorage.removeItem('login_redirect_path');
+      }
       setStep('camera');
     };
 
@@ -166,7 +170,7 @@ export default function LoginForm() {
     });
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
-        localStorage.setItem('login_redirect_path', '/dashboard');
+        localStorage.removeItem('login_redirect_path');
         performLogin(values.username, values.password);
     };
 
@@ -176,12 +180,12 @@ export default function LoginForm() {
                 return (
                     <motion.div key="initial" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                         <CardHeader className="items-center text-center">
-                            <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} className="mb-4" priority unoptimized={true} />
+                            <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} unoptimized={true} priority />
                             <CardTitle className="text-2xl font-headline">Benvenuto in PFXcan</CardTitle>
                              <CardDescription className="text-muted-foreground">Seleziona una modalità di accesso.</CardDescription>
                         </CardHeader>
                         <CardContent className="flex flex-col gap-4">
-                            <Button onClick={() => handleQrLoginClick('/dashboard')} size="lg" className="h-14 text-lg">
+                            <Button onClick={() => handleQrLoginClick(null)} size="lg" className="h-14 text-lg">
                                <QrCode className="mr-3 h-6 w-6" />
                                 Accesso Standard (QR)
                             </Button>
@@ -241,7 +245,7 @@ export default function LoginForm() {
                         <Form {...manualForm}>
                             <form onSubmit={manualForm.handleSubmit(onManualSubmit)}>
                                  <CardHeader className="items-center text-center">
-                                    <Image src="/logo.png" alt="PFXcan Logo" width={120} height={80} className="mb-4" priority unoptimized={true} />
+                                    <Image src="/logo.png" alt="PFXcan Logo" width={120} height={80} unoptimized={true} />
                                     <CardTitle>Accesso Manuale</CardTitle>
                                     <CardDescription className="text-muted-foreground">Inserisci le tue credenziali.</CardDescription>
                                  </CardHeader>

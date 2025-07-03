@@ -22,12 +22,12 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps) {
       return;
     }
     
-    if (operator?.role !== 'admin') {
+    if (operator?.role !== 'admin' && operator?.role !== 'superadvisor') {
       router.replace('/dashboard');
     }
   }, [user, operator, loading, router]);
   
-  if (loading || !user || operator?.role !== 'admin') {
+  if (loading || !user || (operator?.role !== 'admin' && operator?.role !== 'superadvisor')) {
      return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <Skeleton className="h-12 w-1/2 mb-4" />
