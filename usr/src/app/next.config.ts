@@ -3,9 +3,7 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   /* config options here */
-  devServer: {
-    allowedDevOrigins: ["https://*.cloudworkstations.dev"],
-  },
+  allowedDevOrigins: ["https://*.cloudworkstations.dev"],
   images: {
     remotePatterns: [
       {
