@@ -19,7 +19,7 @@ const navItems = [
   { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
 ];
 
-export default function AdminNavMenu() {
+function AdminNavMenu() {
   const pathname = usePathname();
 
   return (
@@ -56,3 +56,5 @@ export default function AdminNavMenu() {
     </Card>
   );
 }
+
+export default React.memo(AdminNavMenu);

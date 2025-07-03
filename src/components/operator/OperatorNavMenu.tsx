@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -23,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/components/auth/AuthProvider';
 
-export default function OperatorNavMenu() {
+function OperatorNavMenu() {
   const pathname = usePathname();
   const { toast } = useToast();
   const { operator } = useAuth();
@@ -94,7 +93,7 @@ export default function OperatorNavMenu() {
               </Tooltip>
               
               {/* Scansione Materie Prime (Conditional) */}
-              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
+              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina' || operator.role === 'superadvisor') && (
                  <Tooltip>
                     <TooltipTrigger asChild>
                     <Link href="/raw-material-scan" passHref>
@@ -198,3 +197,5 @@ export default function OperatorNavMenu() {
     </Card>
   );
 }
+
+export default React.memo(OperatorNavMenu);
