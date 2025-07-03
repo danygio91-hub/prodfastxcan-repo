@@ -74,8 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (redirectPath) {
                 router.push(redirectPath);
             } else {
-                const isAdminOrSuper = operatorProfile.role === 'admin' || operatorProfile.role === 'superadvisor';
-                router.push(isAdminOrSuper ? '/admin/dashboard' : '/dashboard');
+                const isAdmin = operatorProfile.role === 'admin';
+                router.push(isAdmin ? '/admin/dashboard' : '/dashboard');
             }
             
           } else {

@@ -76,7 +76,7 @@ export default function RawMaterialScanPage() {
     const streamRef = useRef<MediaStream | null>(null);
 
     useEffect(() => {
-        if (!authLoading && operator && operator.reparto !== 'MAG' && operator.reparto !== 'Officina') {
+        if (!authLoading && operator && operator.role !== 'superadvisor' && operator.reparto !== 'MAG' && operator.reparto !== 'Officina') {
             toast({ variant: 'destructive', title: 'Accesso Negato', description: 'Non hai i permessi per accedere a questa pagina.' });
             router.replace('/dashboard');
         }

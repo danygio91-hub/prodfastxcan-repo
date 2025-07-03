@@ -917,20 +917,26 @@ export default function ScanJobPage() {
     const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
 
     const renderPhaseCard = (phase: JobPhase) => {
+          const isSuperadvisor = operator?.role === 'superadvisor';
           const phaseType = phase.type || 'production';
           const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
           
           const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && !!phase.materialConsumption);
           
           let canStartPhase = false;
-          if (phaseType === 'preparation') {
+          if (isSuperadvisor) {
+            // Superadvisor bypasses sequence checks but not the "one active phase" rule
             canStartPhase = noOtherPhaseActiveOrPaused;
-          } else { // production
-            if (phase.sequence === 1) {
-              canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
-            } else {
-              const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
-              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
+          } else {
+            if (phaseType === 'preparation') {
+              canStartPhase = noOtherPhaseActiveOrPaused;
+            } else { // production
+              if (phase.sequence === 1) {
+                canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
+              } else {
+                const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
+                canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
+              }
             }
           }
 
