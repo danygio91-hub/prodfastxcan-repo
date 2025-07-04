@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -9,21 +9,22 @@ import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
 import { type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
-import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap } from './actions';
+import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Workflow, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
+import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered } from 'lucide-react';
 
 const workPhaseSchema = z.object({
   id: z.string().optional(),
@@ -39,16 +40,20 @@ export default function AdminWorkPhaseManagementPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [isOrderChanged, setIsOrderChanged] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
     defaultValues: { id: undefined, name: "", description: "", departmentCode: 'CP' },
   });
-
+  
   const fetchPhases = async () => {
     const data = await getWorkPhaseTemplates();
     setPhases(data);
+    setIsOrderChanged(false); // Reset change tracker
   };
 
   useEffect(() => {
@@ -75,7 +80,7 @@ export default function AdminWorkPhaseManagementPage() {
   const onSubmit = async (values: WorkPhaseFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
-      if (value) formData.append(key, value);
+      if (value) formData.append(key, String(value));
     });
 
     const result = await saveWorkPhaseTemplate(formData);
@@ -92,18 +97,70 @@ export default function AdminWorkPhaseManagementPage() {
   };
 
   const handleDelete = async (id: string) => {
-    const result = await deleteWorkPhaseTemplate(id);
-    toast({
-      title: result.success ? "Successo" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
+    startTransition(async () => {
+        const result = await deleteWorkPhaseTemplate(id);
+        toast({
+            title: result.success ? "Successo" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+        if (result.success) await fetchPhases();
     });
-    if (result.success) await fetchPhases();
+  };
+
+  const handleDeleteSelected = async () => {
+    startTransition(async () => {
+        const result = await deleteSelectedWorkPhaseTemplates(selectedRows);
+        toast({
+            title: result.success ? "Successo" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+        if (result.success) {
+            await fetchPhases();
+            setSelectedRows([]);
+        }
+    });
+  };
+
+  const handleSequenceChange = (id: string, newSequence: string) => {
+    const sequenceValue = parseInt(newSequence, 10);
+    if (!isNaN(sequenceValue)) {
+        setPhases(currentPhases =>
+            currentPhases.map(phase =>
+                phase.id === id ? { ...phase, sequence: sequenceValue } : phase
+            )
+        );
+        setIsOrderChanged(true);
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    startTransition(async () => {
+        const phasesToUpdate = phases.map(({ id, sequence }) => ({ id, sequence }));
+        const result = await updatePhasesOrder(phasesToUpdate);
+        toast({
+            title: result.success ? "Successo" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+        if (result.success) {
+            await fetchPhases();
+        }
+    });
+  };
+  
+  const handleSelectAll = (checked: boolean | 'indeterminate') => {
+    setSelectedRows(checked === true ? phases.map(p => p.id) : []);
+  };
+  
+  const handleSelectRow = (id: string) => {
+    setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
   };
 
   const handleExport = () => {
     const dataToExport = phases.map(phase => ({
-        'ID': phase.id,
+        'Sequenza': phase.sequence,
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
         'Reparto': departmentMap[phase.departmentCode] || phase.departmentCode,
@@ -126,41 +183,99 @@ export default function AdminWorkPhaseManagementPage() {
                 Gestione Fasi di Lavorazione
                 </h1>
                 <p className="text-muted-foreground mt-2">
-                Definisci le fasi "modello" che possono essere incluse nei cicli di lavorazione delle commesse.
+                Definisci le fasi "modello" e la loro sequenza per i cicli di lavorazione delle commesse.
                 </p>
             </header>
             <div className="flex items-center gap-2">
                 <Button onClick={handleExport} variant="outline" disabled={phases.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
-                    Esporta Fasi
+                    Esporta
                 </Button>
                 <Button onClick={() => handleOpenDialog()}>
                 <PlusCircle className="mr-2 h-4 w-4" />
-                Aggiungi Fase
+                Aggiungi
                 </Button>
             </div>
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Elenco Fasi Standard</CardTitle>
-              <CardDescription>Queste sono le fasi disponibili per la configurazione dei cicli di lavoro.</CardDescription>
+              <div className="flex justify-between items-center gap-4 flex-wrap">
+                <div>
+                  <CardTitle>Elenco Fasi Standard</CardTitle>
+                  <CardDescription>Queste sono le fasi disponibili per la configurazione dei cicli di lavoro.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isOrderChanged && (
+                    <Button onClick={handleSaveOrder} disabled={isPending}>
+                       {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ListOrdered className="mr-2 h-4 w-4" />}
+                       Salva Ordine
+                    </Button>
+                  )}
+                  {selectedRows.length > 0 && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                           <Button variant="destructive" disabled={isPending}>
+                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                              Elimina ({selectedRows.length})
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} fasi.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDeleteSelected}>Continua</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                  )}
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead padding="checkbox">
+                         <Checkbox
+                            checked={selectedRows.length > 0 && selectedRows.length === phases.length}
+                            onCheckedChange={handleSelectAll}
+                            indeterminate={selectedRows.length > 0 && selectedRows.length < phases.length}
+                            aria-label="Seleziona tutte"
+                          />
+                      </TableHead>
+                      <TableHead className="w-[100px]">Sequenza</TableHead>
                       <TableHead>Nome Fase</TableHead>
                       <TableHead>Descrizione</TableHead>
-                      <TableHead>Reparto di Competenza</TableHead>
+                      <TableHead>Reparto</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {phases.length > 0 ? (
                       phases.map((phase) => (
-                        <TableRow key={phase.id}>
+                        <TableRow key={phase.id} data-state={selectedRows.includes(phase.id) && "selected"}>
+                          <TableCell padding="checkbox">
+                             <Checkbox
+                                checked={selectedRows.includes(phase.id)}
+                                onCheckedChange={() => handleSelectRow(phase.id)}
+                                aria-label={`Seleziona la fase ${phase.name}`}
+                              />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                                type="number"
+                                value={phase.sequence}
+                                onChange={(e) => handleSequenceChange(phase.id, e.target.value)}
+                                className="w-16 h-8 text-center"
+                             />
+                          </TableCell>
                           <TableCell className="font-medium">{phase.name}</TableCell>
                           <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
                           <TableCell>{departmentMap[phase.departmentCode] || phase.departmentCode}</TableCell>
@@ -192,7 +307,7 @@ export default function AdminWorkPhaseManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center h-24">Nessuna fase definita.</TableCell>
+                        <TableCell colSpan={6} className="text-center h-24">Nessuna fase definita.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -203,11 +318,11 @@ export default function AdminWorkPhaseManagementPage() {
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[525px]" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogContent className="sm:max-w-[525px]" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
             <DialogHeader>
               <DialogTitle>{editingPhase ? "Modifica Fase" : "Aggiungi Nuova Fase"}</DialogTitle>
               <DialogDescription>
-                {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard."}
+                {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard. La sequenza verrà assegnata automaticamente."}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
