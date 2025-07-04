@@ -13,69 +13,60 @@ export interface DashboardItemProps {
   description: string;
   icon: React.ElementType;
   href?: string;
-  onItemClick?: () => void;
-  isDialogTrigger?: boolean;
   className?: string;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
-  [key: string]: any;
 }
 
-const DashboardItem: React.FC<DashboardItemProps> = ({ 
-  title, 
-  description, 
-  icon: Icon, 
-  href, 
-  onItemClick, 
-  isDialogTrigger, 
-  className: propClassName,
-  onClick: triggerOnClick,
-  ...rest 
-}) => {
-  const content = (
-    <>
-      <CardHeader className="pb-4">
-        <div className="flex items-center justify-between">
-          <Icon className="h-10 w-10 text-primary" />
-          {(href || onItemClick || isDialogTrigger || triggerOnClick) && (
-             <Button 
-                variant="ghost" 
-                size="icon" 
-                className="text-primary hover:bg-primary/10" 
-                onClick={(!isDialogTrigger && onItemClick) ? (e) => { e.stopPropagation(); onItemClick(); } : undefined}
-                aria-hidden={isDialogTrigger || triggerOnClick ? true : undefined}
-                tabIndex={isDialogTrigger || triggerOnClick ? -1 : undefined}
-             >
-              <ArrowRight className="h-5 w-5" />
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardContent>
-    </>
-  );
+const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & React.HTMLAttributes<HTMLDivElement>>(
+  ({ title, description, icon: Icon, href, className: propClassName, onClick, ...rest }, ref) => {
+    
+    const content = (
+      <>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <Icon className="h-10 w-10 text-primary" />
+            {(href || onClick) && (
+              <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-primary hover:bg-primary/10" 
+                  tabIndex={-1} 
+                  aria-hidden
+              >
+                <ArrowRight className="h-5 w-5" />
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </CardContent>
+      </>
+    );
 
-  const cardBaseClasses = "hover:shadow-lg transition-shadow duration-300 h-full";
-  const isClickable = href || onItemClick || triggerOnClick || isDialogTrigger;
-  const finalCardClassName = cn(cardBaseClasses, { 'cursor-pointer': isClickable }, propClassName);
+    const cardBaseClasses = "hover:shadow-lg transition-shadow duration-300 h-full";
+    const isClickable = href || onClick;
+    const finalCardClassName = cn(cardBaseClasses, { 'cursor-pointer': isClickable }, propClassName);
 
-  if (href && !isDialogTrigger) {
+    if (href) {
+      return (
+        <Link href={href} passHref legacyBehavior>
+            <Card ref={ref} className={finalCardClassName} {...rest}>
+                {content}
+            </Card>
+        </Link>
+      );
+    }
+    
     return (
-      <Link href={href} passHref className={cn("block", propClassName)} {...rest}>
-        <Card className={finalCardClassName}>
-          {content}
-        </Card>
-      </Link>
+      <Card ref={ref} className={finalCardClassName} onClick={onClick} {...rest}>
+        {content}
+      </Card>
     );
   }
+);
 
-  return (
-    <Card className={finalCardClassName} onClick={triggerOnClick || onItemClick} {...rest}>
-      {content}
-    </Card>
-  );
-};
+DashboardItem.displayName = 'DashboardItem';
 
-export default React.memo(DashboardItem);
+export default DashboardItem;

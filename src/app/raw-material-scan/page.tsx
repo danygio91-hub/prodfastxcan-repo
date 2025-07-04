@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -158,8 +159,7 @@ export default function RawMaterialScanPage() {
             return;
         }
 
-        let detectionInterval: ReturnType<typeof setInterval>;
-
+        let animationFrameId: number;
         const startCameraAndScan = async () => {
             setCameraError(null);
             try {
@@ -177,14 +177,20 @@ export default function RawMaterialScanPage() {
 
                 const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
                 
-                detectionInterval = setInterval(async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
+                const detect = async () => {
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+                        animationFrameId = requestAnimationFrame(detect);
+                        return;
+                    };
                     const barcodes = await barcodeDetector.detect(videoRef.current);
                     if (barcodes.length > 0) {
-                        clearInterval(detectionInterval);
                         handleCodeSubmit(barcodes[0].rawValue);
+                    } else {
+                        animationFrameId = requestAnimationFrame(detect);
                     }
-                }, 500);
+                };
+                detect();
+
             } catch (err) {
                 setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi.");
                 stopCamera(); setStep('initial');
@@ -192,7 +198,10 @@ export default function RawMaterialScanPage() {
         };
 
         startCameraAndScan();
-        return () => { clearInterval(detectionInterval); stopCamera(); };
+        return () => { 
+            cancelAnimationFrame(animationFrameId);
+            stopCamera(); 
+        };
     }, [step, stopCamera, handleCodeSubmit, toast]);
     
     useEffect(() => {
@@ -201,8 +210,7 @@ export default function RawMaterialScanPage() {
             return;
         }
 
-        let detectionInterval: ReturnType<typeof setInterval>;
-
+        let animationFrameId: number;
         const startLottoCameraAndScan = async () => {
             try {
                 if (!('BarcodeDetector' in window)) {
@@ -220,17 +228,23 @@ export default function RawMaterialScanPage() {
 
                 const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
                 
-                detectionInterval = setInterval(async () => {
-                    if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) return;
+                const detect = async () => {
+                     if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) {
+                        animationFrameId = requestAnimationFrame(detect);
+                        return;
+                    };
                     const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
                     if (barcodes.length > 0) {
-                        clearInterval(detectionInterval);
                         const scannedValue = barcodes[0].rawValue;
                         form.setValue('lottoBobina', scannedValue);
                         toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
                         setIsLottoScanDialogOpen(false);
+                    } else {
+                        animationFrameId = requestAnimationFrame(detect);
                     }
-                }, 500);
+                };
+                detect();
+
             } catch (err) {
                 toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
                 stopCamera();
@@ -239,7 +253,10 @@ export default function RawMaterialScanPage() {
         };
 
         startLottoCameraAndScan();
-        return () => { clearInterval(detectionInterval); stopCamera(); };
+        return () => {
+             cancelAnimationFrame(animationFrameId);
+             stopCamera(); 
+        };
     }, [isLottoScanDialogOpen, stopCamera, form, toast]);
 
 

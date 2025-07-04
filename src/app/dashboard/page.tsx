@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -79,7 +80,6 @@ export default function DashboardPage() {
                   title="Timbratrice"
                   description="Registra l'orario di ingresso o di uscita dal turno di lavoro."
                   icon={Clock}
-                  isDialogTrigger
                 />
               </AlertDialogTrigger>
               <AlertDialogContent>

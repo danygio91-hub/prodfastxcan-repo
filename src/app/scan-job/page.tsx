@@ -251,8 +251,7 @@ export default function ScanJobPage() {
         return;
     }
 
-    let detectionInterval: ReturnType<typeof setInterval>;
-
+    let animationFrameId: number;
     const startCameraAndScan = async () => {
         setCameraError(null);
         try {
@@ -271,17 +270,21 @@ export default function ScanJobPage() {
 
             const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
             
-            detectionInterval = setInterval(async () => {
-                if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
-
+            const detect = async () => {
+                if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+                    animationFrameId = requestAnimationFrame(detect);
+                    return;
+                }
                 const barcodes = await barcodeDetector.detect(videoRef.current);
                 if (barcodes.length > 0) {
-                    clearInterval(detectionInterval);
                     stopCamera();
                     const scannedData = barcodes[0].rawValue;
                     handleScannedData(scannedData);
+                } else {
+                    animationFrameId = requestAnimationFrame(detect);
                 }
-            }, 500);
+            };
+            detect();
 
         } catch (err) {
             console.error("Camera access error:", err);
@@ -294,7 +297,7 @@ export default function ScanJobPage() {
     startCameraAndScan();
     
     return () => {
-        clearInterval(detectionInterval);
+        cancelAnimationFrame(animationFrameId);
         stopCamera();
     }
   }, [step, stopCamera, toast, handleScannedData]);
@@ -695,8 +698,7 @@ export default function ScanJobPage() {
       return;
     }
 
-    let detectionInterval: ReturnType<typeof setInterval>;
-
+    let animationFrameId: number;
     const startCameraAndScan = async () => {
       try {
         if (!('BarcodeDetector' in window)) {
@@ -714,17 +716,22 @@ export default function ScanJobPage() {
 
         const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
 
-        detectionInterval = setInterval(async () => {
-          if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) return;
-          const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
-          if (barcodes.length > 0) {
-            clearInterval(detectionInterval);
-            const scannedValue = barcodes[0].rawValue;
-            phaseMaterialForm.setValue('lottoBobina', scannedValue);
-            toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
-            setIsLottoScanDialogOpen(false);
-          }
-        }, 500);
+        const detect = async () => {
+            if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) {
+                animationFrameId = requestAnimationFrame(detect);
+                return;
+            }
+            const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
+            if (barcodes.length > 0) {
+                const scannedValue = barcodes[0].rawValue;
+                phaseMaterialForm.setValue('lottoBobina', scannedValue);
+                toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
+                setIsLottoScanDialogOpen(false);
+            } else {
+                animationFrameId = requestAnimationFrame(detect);
+            }
+        };
+        detect();
       } catch (err) {
         toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
         stopCamera();
@@ -733,7 +740,7 @@ export default function ScanJobPage() {
     };
 
     startCameraAndScan();
-    return () => { clearInterval(detectionInterval); stopCamera(); };
+    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
   }, [isLottoScanDialogOpen, stopCamera, phaseMaterialForm, toast]);
 
 
@@ -743,8 +750,7 @@ export default function ScanJobPage() {
       return;
     }
 
-    let detectionInterval: ReturnType<typeof setInterval>;
-
+    let animationFrameId: number;
     const startCameraAndScan = async () => {
         try {
             if (!('BarcodeDetector' in window)) {
@@ -761,14 +767,19 @@ export default function ScanJobPage() {
 
             const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
             
-            detectionInterval = setInterval(async () => {
-                if (!phaseScanVideoRef.current || phaseScanVideoRef.current.paused || phaseScanVideoRef.current.readyState < 2) return;
+            const detect = async () => {
+                if (!phaseScanVideoRef.current || phaseScanVideoRef.current.paused || phaseScanVideoRef.current.readyState < 2) {
+                    animationFrameId = requestAnimationFrame(detect);
+                    return;
+                }
                 const barcodes = await barcodeDetector.detect(phaseScanVideoRef.current);
                 if (barcodes.length > 0) {
-                    clearInterval(detectionInterval);
                     handlePhaseScanResult(barcodes[0].rawValue);
+                } else {
+                    animationFrameId = requestAnimationFrame(detect);
                 }
-            }, 500);
+            };
+            detect();
         } catch (err) {
             toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
             stopCamera();
@@ -776,7 +787,7 @@ export default function ScanJobPage() {
         }
     };
     startCameraAndScan();
-    return () => { clearInterval(detectionInterval); stopCamera(); };
+    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
   }, [isPhaseScanDialogOpen, stopCamera, handlePhaseScanResult, toast]);
 
 
@@ -786,7 +797,7 @@ export default function ScanJobPage() {
       return;
     }
 
-    let detectionInterval: ReturnType<typeof setInterval>;
+    let animationFrameId: number;
     const startCameraAndScan = async () => {
         try {
             if (!('BarcodeDetector' in window)) {
@@ -803,14 +814,19 @@ export default function ScanJobPage() {
 
             const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
             
-            detectionInterval = setInterval(async () => {
-                if (!materialVideoRef.current || materialVideoRef.current.paused || materialVideoRef.current.readyState < 2) return;
+            const detect = async () => {
+                 if (!materialVideoRef.current || materialVideoRef.current.paused || materialVideoRef.current.readyState < 2) {
+                    animationFrameId = requestAnimationFrame(detect);
+                    return;
+                }
                 const barcodes = await barcodeDetector.detect(materialVideoRef.current);
                 if (barcodes.length > 0) {
-                    clearInterval(detectionInterval);
                     handleMaterialCodeSubmit(barcodes[0].rawValue);
+                } else {
+                    animationFrameId = requestAnimationFrame(detect);
                 }
-            }, 500);
+            };
+            detect();
         } catch (err) {
             toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
             stopCamera();
@@ -818,7 +834,7 @@ export default function ScanJobPage() {
         }
     };
     startCameraAndScan();
-    return () => { clearInterval(detectionInterval); stopCamera(); };
+    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
   }, [isMaterialScanDialogOpen, materialScanStep, stopCamera, handleMaterialCodeSubmit, toast]);
 
 

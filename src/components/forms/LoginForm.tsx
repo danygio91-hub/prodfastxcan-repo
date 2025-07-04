@@ -111,7 +111,7 @@ export default function LoginForm() {
             return;
         }
 
-        let detectionInterval: ReturnType<typeof setInterval>;
+        let animationFrameId: number;
         let localStream: MediaStream | null = null;
 
         const startCameraAndScan = async () => {
@@ -135,26 +135,32 @@ export default function LoginForm() {
                 }
 
                 const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-
-                detectionInterval = setInterval(async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) return;
-
+                
+                const detect = async () => {
+                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+                       animationFrameId = requestAnimationFrame(detect);
+                       return;
+                    }
                     const barcodes = await barcodeDetector.detect(videoRef.current);
                     if (barcodes.length > 0) {
                         const scannedData = barcodes[0].rawValue;
                         const [username, password] = scannedData.split('@');
                         
                         if (username && password) {
-                            clearInterval(detectionInterval);
                             if (streamRef.current) {
                                 streamRef.current.getTracks().forEach(track => track.stop());
                                 streamRef.current = null;
                             }
                             toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
                             performLogin(username, password);
+                        } else {
+                           animationFrameId = requestAnimationFrame(detect);
                         }
+                    } else {
+                        animationFrameId = requestAnimationFrame(detect);
                     }
-                }, 500);
+                };
+                detect();
 
             } catch (err) {
                 console.error("Camera access error:", err);
@@ -169,7 +175,7 @@ export default function LoginForm() {
         startCameraAndScan();
 
         return () => {
-            clearInterval(detectionInterval);
+            cancelAnimationFrame(animationFrameId);
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
             }
