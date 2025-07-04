@@ -363,7 +363,7 @@ export default function AdminWorkPhaseManagementPage() {
                       <FormLabel>Reparti di Competenza</FormLabel>
                       <CardDescription>Seleziona uno o più reparti per questa fase.</CardDescription>
                       <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                        {reparti.filter(r => r !== 'N/D').map((repartoCode) => (
+                        {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
                           <FormField
                             key={repartoCode}
                             control={form.control}

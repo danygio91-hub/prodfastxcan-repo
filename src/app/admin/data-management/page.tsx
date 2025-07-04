@@ -43,8 +43,10 @@ import { Label } from "@/components/ui/label";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
-import { type JobOrder } from '@/lib/mock-data';
+import { type JobOrder, type Reparto, reparti } from '@/lib/mock-data';
+import { getDepartmentMap } from '@/app/admin/settings/actions';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
@@ -60,7 +62,9 @@ const jobOrderFormSchema = z.object({
   details: z.string().min(1, "Codice è obbligatorio."),
   qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
   dataConsegnaFinale: z.string().optional(),
-  department: z.string().min(1, "Reparto è obbligatorio."),
+  department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
+    required_error: "Reparto è obbligatorio.",
+  }),
 });
 
 type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
@@ -73,6 +77,7 @@ export default function AdminDataManagementCommessePage() {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
+  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -87,6 +92,7 @@ export default function AdminDataManagementCommessePage() {
   useEffect(() => {
     fetchPlannedJobOrders();
     fetchProductionJobOrders();
+    getDepartmentMap().then(setDepartmentMap);
   }, [fetchPlannedJobOrders, fetchProductionJobOrders]);
 
   const form = useForm<JobOrderFormValues>({
@@ -98,7 +104,6 @@ export default function AdminDataManagementCommessePage() {
       details: "",
       qta: "",
       dataConsegnaFinale: "",
-      department: "",
     },
   });
 
@@ -433,7 +438,32 @@ export default function AdminDataManagementCommessePage() {
                        <FormField control={form.control} name="details" render={({ field }) => ( <FormItem> <FormLabel>Codice</FormLabel> <FormControl> <Input placeholder="Es. ART-00123" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="qta" render={({ field }) => ( <FormItem> <FormLabel>Quantità</FormLabel> <FormControl> <Input type="number" placeholder="Es. 100" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                        <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Data Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                       <FormField control={form.control} name="department" render={({ field }) => ( <FormItem> <FormLabel>Reparto</FormLabel> <FormControl> <Input placeholder="Es. Assemblaggio" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
+                       <FormField
+                          control={form.control}
+                          name="department"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Reparto</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {reparti
+                                    .filter(r => r !== 'N/D' && r !== 'Officina')
+                                    .map(r => (
+                                      <SelectItem key={r} value={r}>
+                                        {departmentMap[r] || r}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                         <Button type="submit">Aggiungi Commessa</Button>

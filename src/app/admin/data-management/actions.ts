@@ -88,7 +88,9 @@ const jobOrderFormSchema = z.object({
   details: z.string().min(1, 'Codice è obbligatorio.'),
   qta: z.coerce.number().positive('La quantità deve essere un numero positivo.'),
   dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).').optional().or(z.literal('')),
-  department: z.string().min(1, 'Reparto è obbligatorio.'),
+  department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
+    errorMap: () => ({ message: "Selezionare un reparto di produzione valido." })
+  }),
 });
 
 export async function addJobOrder(formData: FormData) {
