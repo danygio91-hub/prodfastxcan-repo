@@ -112,10 +112,15 @@ export async function closeMaterialSessionAndUpdateStock(
   operatorId: string,
 ): Promise<{ success: boolean; message: string }> {
   const materialRef = doc(db, "rawMaterials", sessionData.materialId);
+  const jobRefs = sessionData.associatedJobs.map(j => doc(db, "jobOrders", j.jobId));
   
   try {
     await runTransaction(db, async (transaction) => {
+        // --- 1. ALL READS FIRST ---
         const materialDoc = await transaction.get(materialRef);
+        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+
+        // --- 2. VALIDATION AND PREPARATION ---
         if (!materialDoc.exists()) {
             throw new Error("Materia prima associata alla sessione non trovata.");
         }
@@ -131,11 +136,13 @@ export async function closeMaterialSessionAndUpdateStock(
         if (newWeightKg < 0) {
            throw new Error(`Stock insufficiente. Peso disponibile: ${materialData.currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
+        
+        // --- 3. ALL WRITES LAST ---
 
-        // 1. Update material stock
+        // 3a. Update material stock
         transaction.update(materialRef, { currentWeightKg: newWeightKg });
 
-        // 2. Create a single withdrawal log for the entire session
+        // 3b. Create a single withdrawal log for the entire session
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
             jobIds: sessionData.associatedJobs.map(j => j.jobId),
@@ -147,15 +154,13 @@ export async function closeMaterialSessionAndUpdateStock(
             withdrawalDate: Timestamp.now(),
         });
 
-        // 3. Update all associated job orders to record the closing weight
-        const jobRefs = sessionData.associatedJobs.map(j => doc(db, "jobOrders", j.jobId));
-        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
-
+        // 3c. Update all associated job orders to record the closing weight
         for (const jobDoc of jobDocs) {
             if (jobDoc.exists()) {
                 const jobData = jobDoc.data() as JobOrder;
                 const updatedPhases = jobData.phases.map(p => {
-                    if (p.materialConsumption?.materialId === sessionData.materialId && p.materialConsumption.openingWeight === sessionData.openingWeight) {
+                    // Match the specific material consumption instance that hasn't been closed yet
+                    if (p.materialConsumption?.materialId === sessionData.materialId && p.materialConsumption.openingWeight === sessionData.openingWeight && p.materialConsumption.closingWeight === undefined) {
                         return {
                             ...p,
                             materialConsumption: {
