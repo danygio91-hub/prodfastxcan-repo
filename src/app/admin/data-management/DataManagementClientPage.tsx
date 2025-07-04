@@ -353,14 +353,11 @@ export default function DataManagementClientPage({
         }
 
         const result = await processAndValidateImport(mappedJson as any[]);
-        toast({ title: "Analisi File", description: result.message });
-
+        
         if (result.success) {
-            // If there are jobs to update (duplicates), show the confirmation dialog.
             if (result.jobsToUpdate.length > 0) {
                 setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
             } 
-            // Otherwise, if there are only new jobs, import them directly.
             else if (result.newJobs.length > 0) {
                 const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
                 toast({
@@ -368,7 +365,11 @@ export default function DataManagementClientPage({
                     description: commitResult.message,
                 });
                 fetchPlannedJobOrders();
+            } else {
+                 toast({ title: "Analisi File Completata", description: result.message });
             }
+        } else {
+             toast({ variant: "destructive", title: "Errore Analisi File", description: result.message });
         }
       } catch (error) {
          toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
@@ -460,51 +461,51 @@ export default function DataManagementClientPage({
                         control={form.control}
                         name="department"
                         render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Reparto</FormLabel>
-                            <FormControl>
+                            <FormItem>
+                                <FormLabel>Reparto</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        {reparti
+                                            .filter(r => r !== 'N/D' && r !== 'Officina')
+                                            .map(r => (
+                                                <SelectItem key={r} value={r}>
+                                                    {departmentMap[r] || r}
+                                                </SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                        />
+                      <FormField
+                          control={form.control}
+                          name="workCycleId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
                               <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Seleziona un reparto di produzione" />
-                                </SelectTrigger>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
+                                  </SelectTrigger>
+                                </FormControl>
                                 <SelectContent>
-                                  {reparti
-                                    .filter(r => r !== 'N/D' && r !== 'Officina')
-                                    .map(r => (
-                                      <SelectItem key={r} value={r}>
-                                        {departmentMap[r] || r}
-                                      </SelectItem>
-                                    ))}
+                                  <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
+                                  {workCycles.map(cycle => (
+                                    <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="workCycleId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
-                            <FormControl>
-                              <Select onValueChange={field.onChange} value={field.value}>
-                                  <SelectTrigger>
-                                      <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                      <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
-                                      {workCycles.map(cycle => (
-                                          <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
-                                      ))}
-                                  </SelectContent>
-                              </Select>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                     <DialogFooter>
                       <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                       <Button type="submit">Aggiungi Commessa</Button>
