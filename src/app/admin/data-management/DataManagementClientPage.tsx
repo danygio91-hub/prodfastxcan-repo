@@ -464,7 +464,7 @@ export default function DataManagementClientPage({
                             <FormLabel>Reparto</FormLabel>
                             <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
-                                <SelectTrigger ref={field.ref}>
+                                <SelectTrigger>
                                   <SelectValue placeholder="Seleziona un reparto di produzione" />
                                 </SelectTrigger>
                               </FormControl>
