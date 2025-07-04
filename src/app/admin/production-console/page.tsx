@@ -92,7 +92,7 @@ export default function ProductionConsolePage() {
                 </h1>
                 <p className="text-muted-foreground">
                     Panoramica in tempo reale delle commesse inviate in produzione.
-                p>
+                </p>
             </div>
           </div>
           
