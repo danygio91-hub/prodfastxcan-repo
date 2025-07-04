@@ -444,20 +444,22 @@ export default function AdminDataManagementCommessePage() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Reparto</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <SelectTrigger ref={field.ref}>
-                                  <SelectValue placeholder="Seleziona un reparto di produzione" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {reparti
-                                    .filter(r => r !== 'N/D' && r !== 'Officina')
-                                    .map(r => (
-                                      <SelectItem key={r} value={r}>
-                                        {departmentMap[r] || r}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {reparti
+                                      .filter(r => r !== 'N/D' && r !== 'Officina')
+                                      .map(r => (
+                                        <SelectItem key={r} value={r}>
+                                          {departmentMap[r] || r}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -490,7 +492,7 @@ export default function AdminDataManagementCommessePage() {
                     <div className="flex items-center space-x-3">
                         <ListChecks className="h-8 w-8 text-primary" />
                         <div>
-                        <CardTitle className="text-2xl font-headline mb-1">Commesse Pianificate</CardTitle>
+                        <CardTitle className="text-2xl font-headline mb-1">Gestione Dati Commesse</CardTitle>
                         <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
                         </div>
                     </div>
