@@ -445,22 +445,20 @@ export default function AdminDataManagementCommessePage() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Reparto</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Seleziona un reparto di produzione" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    {reparti
-                                      .filter(r => r !== 'N/D' && r !== 'Officina')
-                                      .map(r => (
-                                        <SelectItem key={r} value={r}>
-                                          {departmentMap[r] || r}
-                                        </SelectItem>
-                                      ))}
-                                  </SelectContent>
-                                </Select>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <SelectTrigger ref={field.ref}>
+                                  <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {reparti
+                                    .filter(r => r !== 'N/D' && r !== 'Officina')
+                                    .map(r => (
+                                      <SelectItem key={r} value={r}>
+                                        {departmentMap[r] || r}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}
