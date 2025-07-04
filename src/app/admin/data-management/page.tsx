@@ -445,11 +445,9 @@ export default function AdminDataManagementCommessePage() {
                             <FormItem>
                               <FormLabel>Reparto</FormLabel>
                               <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Seleziona un reparto di produzione" />
-                                  </SelectTrigger>
-                                </FormControl>
+                                <SelectTrigger ref={field.ref}>
+                                  <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                </SelectTrigger>
                                 <SelectContent>
                                   {reparti
                                     .filter(r => r !== 'N/D' && r !== 'Officina')
