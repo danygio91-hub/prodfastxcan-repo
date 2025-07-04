@@ -5,8 +5,8 @@
     "description": "Applicazione per il Tracciamento dei Tempi di Produzione",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#0f172a",
-    "theme_color": "#26a7de",
+    "background_color": "#1f2937",
+    "theme_color": "#1f2937",
     "icons": [
         {
             "src": "/icon-192x192.png",
@@ -20,7 +20,7 @@
         },
         {
             "src": "/icon-maskable.png",
-            "sizes": "192x192",
+            "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
         }

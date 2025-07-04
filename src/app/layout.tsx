@@ -33,7 +33,8 @@ export default function RootLayout({
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#26a7de" />
+        <meta name="theme-color" content="#220_10%_10%" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#25_25%_95%" media="(prefers-color-scheme: light)" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="PFXcan" />

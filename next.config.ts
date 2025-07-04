@@ -3,7 +3,7 @@ import type {NextConfig} from 'next';
 
 const withPWA = require('next-pwa')({
   dest: 'public',
-  disable: process.env.NODE_ENV === 'development',
+  disable: false, // Re-enabled for development to allow install prompt testing
   register: true,
   skipWaiting: true,
   cacheOnFrontEndNav: true,
