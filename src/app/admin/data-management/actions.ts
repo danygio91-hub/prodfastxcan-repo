@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPhaseTemplate, WorkCycle } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // Helper function to sanitize Firestore document IDs
@@ -34,36 +34,49 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
+    if (!cycleId) return [];
+    
+    const cycleRef = doc(db, "workCycles", cycleId);
+    const cycleSnap = await getDoc(cycleRef);
+    if (!cycleSnap.exists()) {
+        console.warn(`Work cycle with id ${cycleId} not found.`);
+        return [];
+    }
+    const cycle = cycleSnap.data() as WorkCycle;
+    const phaseTemplateIds = cycle.phaseTemplateIds;
 
-const createDefaultPhases = (department: string): JobPhase[] => {
-  const preparationPhases: JobPhase[] = [
-    { id: 'prep-1', name: 'TAGLIO TRECCIA/CORDA', status: 'pending', materialReady: true, workPeriods: [], sequence: -3, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
-    { id: 'prep-2', name: 'PREPARAZIONE TUBI', status: 'pending', materialReady: true, workPeriods: [], sequence: -2, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
-    { id: 'prep-3', name: 'TAGLIO GUAINA', status: 'pending', materialReady: true, workPeriods: [], sequence: -1, type: 'preparation', requiresMaterialScan: true, materialConsumption: null },
-  ];
-  
-  let productionPhases: JobPhase[];
+    if (!phaseTemplateIds || phaseTemplateIds.length === 0) {
+        return [];
+    }
 
-  if (department === 'Assemblaggio Componenti Elettronici') {
-    productionPhases = [
-      { id: 'phase-1', name: 'Preparazione Componenti', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
-      { id: 'phase-2', name: 'Assemblaggio Scheda', status: 'pending', materialReady: false, workPeriods: [], sequence: 2, type: 'production' },
-      { id: 'phase-3', name: 'Saldatura', status: 'pending', materialReady: false, workPeriods: [], sequence: 3, type: 'production' },
-    ];
-  }
-  else if (department === 'Controllo Qualità') {
-     productionPhases = [
-      { id: 'phase-1', name: 'Test Funzionale', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
-      { id: 'phase-2', name: 'Ispezione Visiva', status: 'pending', materialReady: false, workPeriods: [], sequence: 2, type: 'production' },
-    ];
-  } else {
-     productionPhases = [
-      { id: 'phase-1', name: 'Lavorazione Generica', status: 'pending', materialReady: false, workPeriods: [], sequence: 1, type: 'production' },
-    ];
-  }
-  
-  return [...preparationPhases, ...productionPhases];
-};
+    const templatesRef = collection(db, "workPhaseTemplates");
+    const q = query(templatesRef, where("id", "in", phaseTemplateIds));
+    const templatesSnap = await getDocs(q);
+    const templates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
+
+    const phases: JobPhase[] = templates.map(template => ({
+        id: template.id,
+        name: template.name,
+        status: 'pending',
+        materialReady: !(template.requiresMaterialScan),
+        workPeriods: [],
+        sequence: template.sequence,
+        type: template.type,
+        requiresMaterialScan: template.requiresMaterialScan,
+        materialConsumption: null,
+    }));
+
+    // Ensure the first production phase is marked as materialReady if there are no preparation phases
+    if (!phases.some(p => p.type === 'preparation')) {
+        const firstProductionPhase = phases.find(p => p.sequence === 1);
+        if (firstProductionPhase) {
+            firstProductionPhase.materialReady = true;
+        }
+    }
+
+    return phases.sort((a, b) => a.sequence - b.sequence);
+}
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
   const jobsRef = collection(db, "jobOrders");
@@ -91,6 +104,7 @@ const jobOrderFormSchema = z.object({
   department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
     errorMap: () => ({ message: "Selezionare un reparto di produzione valido." })
   }),
+  workCycleId: z.string().optional(),
 });
 
 export async function addJobOrder(formData: FormData) {
@@ -111,15 +125,18 @@ export async function addJobOrder(formData: FormData) {
       return { success: false, message: `La commessa con ID ${data.ordinePF} esiste già.` };
     }
 
+    const phases = data.workCycleId ? await createPhasesFromCycle(data.workCycleId) : [];
+
     const newJobOrder: JobOrder = {
       ...data,
       id: jobId,
       ordinePF: data.ordinePF, // Keep original user-facing ID
       status: 'planned',
       postazioneLavoro: "Da Assegnare",
-      phases: createDefaultPhases(data.department),
+      phases: phases,
       qta: Number(data.qta),
       dataConsegnaFinale: data.dataConsegnaFinale || '',
+      workCycleId: data.workCycleId || '',
     };
 
     await setDoc(jobRef, newJobOrder);
@@ -149,6 +166,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
       qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
       dataConsegnaFinale: z.string().optional(),
       department: z.coerce.string().optional(),
+      workCycleId: z.coerce.string().optional(),
     });
 
     for (const row of data) {
@@ -163,6 +181,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         
         const jobRef = doc(db, "jobOrders", sanitizedId);
         const docSnap = await getDoc(jobRef);
+        const phases = validData.workCycleId ? await createPhasesFromCycle(validData.workCycleId) : [];
 
         if (docSnap.exists()) {
             const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
@@ -177,6 +196,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 details: validData.details ?? existingJob.details,
                 department: validData.department ?? existingJob.department,
                 dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
+                workCycleId: validData.workCycleId ?? existingJob.workCycleId,
+                phases: phases.length > 0 ? phases : existingJob.phases,
             };
             jobsToUpdate.push(updatedJob);
         } else {
@@ -189,7 +210,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 id: sanitizedId,
                 status: 'planned',
                 postazioneLavoro: 'Da Assegnare',
-                phases: createDefaultPhases(department),
+                phases: phases,
                 cliente: validData.cliente || "N/D",
                 ordinePF: validData.ordinePF, // Keep original user-facing ID
                 numeroODL: validData.numeroODL || "N/D",
@@ -197,6 +218,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 qta: validData.qta,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
+                workCycleId: validData.workCycleId || '',
             };
             newJobs.push(newJob);
         }
@@ -290,8 +312,9 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
 
   const jobData = docSnap.data() as JobOrder;
   if (!jobData.phases || jobData.phases.length === 0) {
-      jobData.phases = createDefaultPhases(jobData.department);
+      return { success: false, message: `La commessa ${jobId} non ha un ciclo di lavorazione associato. Impossibile creare ODL.` };
   }
+  
   jobData.status = 'production';
 
   await setDoc(jobRef, jobData, { merge: true });
@@ -304,6 +327,7 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
   let createdCount = 0;
   let failedCount = 0;
+  let noCycleCount = 0;
 
   const batch = writeBatch(db);
 
@@ -313,11 +337,11 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
 
     if (docSnap.exists() && docSnap.data().status === 'planned') {
         const jobData = docSnap.data() as JobOrder;
-        let phases = jobData.phases;
-        if (!phases || phases.length === 0) {
-            phases = createDefaultPhases(jobData.department);
+        if (!jobData.phases || jobData.phases.length === 0) {
+            noCycleCount++;
+            continue;
         }
-        batch.update(jobRef, { status: 'production', phases: phases });
+        batch.update(jobRef, { status: 'production' });
         createdCount++;
     } else {
         failedCount++;
@@ -332,13 +356,17 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
 
   let message = '';
   if (createdCount > 0) {
-    message += `${createdCount} ODL creati con successo. Le commesse sono ora in produzione.`;
+    message += `${createdCount} ODL creati con successo. Le commesse sono ora in produzione. `;
   }
   if (failedCount > 0) {
-    message += ` ${failedCount} commesse non sono state processate perché non trovate o già in produzione.`;
+    message += `${failedCount} commesse non processate (non trovate o già in produzione). `;
   }
-  if (createdCount === 0 && failedCount > 0) {
-      return { success: false, message: `Nessun ODL creato. Le commesse selezionate non sono valide per questa operazione.` };
+  if (noCycleCount > 0) {
+    message += `${noCycleCount} commesse ignorate perché non hanno un ciclo di lavorazione.`;
+  }
+
+  if (createdCount === 0 && (failedCount > 0 || noCycleCount > 0)) {
+      return { success: false, message: `Nessun ODL creato. ${message}` };
   }
 
   return { success: true, message: message.trim() };
@@ -400,4 +428,11 @@ export async function cancelMultipleODLs(jobIds: string[]): Promise<{ success: b
   }
   
   return { success: true, message: message.trim() };
+}
+
+export async function getWorkCycles(): Promise<WorkCycle[]> {
+  const cyclesCol = collection(db, 'workCycles');
+  const snapshot = await getDocs(cyclesCol);
+  const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
+  return list;
 }

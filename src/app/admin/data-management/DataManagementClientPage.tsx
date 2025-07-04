@@ -43,14 +43,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
-import { type JobOrder, type Reparto, reparti } from '@/lib/mock-data';
+import { type JobOrder, type Reparto, reparti, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, getWorkCycles } from './actions';
 
 const jobOrderFormSchema = z.object({
   cliente: z.string().min(1, "Cliente è obbligatorio."),
@@ -62,6 +62,7 @@ const jobOrderFormSchema = z.object({
   department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
     required_error: "Reparto è obbligatorio.",
   }),
+  workCycleId: z.string().optional(),
 });
 
 type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
@@ -70,12 +71,14 @@ interface DataManagementClientPageProps {
   initialPlannedJobOrders: JobOrder[];
   initialProductionJobOrders: JobOrder[];
   departmentMap: { [key in Reparto]?: string };
+  workCycles: WorkCycle[];
 }
 
 export default function DataManagementClientPage({
   initialPlannedJobOrders,
   initialProductionJobOrders,
   departmentMap,
+  workCycles,
 }: DataManagementClientPageProps) {
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
@@ -105,6 +108,7 @@ export default function DataManagementClientPage({
       qta: "",
       dataConsegnaFinale: "",
       department: undefined,
+      workCycleId: "",
     },
   });
 
@@ -117,6 +121,7 @@ export default function DataManagementClientPage({
         'Qta': job.qta,
         'Data Consegna': job.dataConsegnaFinale,
         'Reparto': job.department,
+        'Ciclo': job.workCycleId,
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -133,6 +138,7 @@ export default function DataManagementClientPage({
         'Qta': job.qta,
         'Data Consegna': job.dataConsegnaFinale,
         'Reparto': job.department,
+        'Ciclo': job.workCycleId,
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -287,7 +293,8 @@ export default function DataManagementClientPage({
           'codice': 'details',
           'qta': 'qta',
           'data consegna prevista': 'dataConsegnaFinale',
-          'reparto': 'department'
+          'reparto': 'department',
+          'ciclo': 'workCycleId'
         };
 
         const mappedJson = filteredData.map((row: any) => {
@@ -434,7 +441,7 @@ export default function DataManagementClientPage({
                   Aggiungi Commessa
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[525px]">
+              <DialogContent className="sm:max-w-xl">
                 <DialogHeader>
                   <DialogTitle>Aggiungi Nuova Commessa Pianificata</DialogTitle>
                   <DialogDescription>
@@ -442,7 +449,7 @@ export default function DataManagementClientPage({
                   </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(handleAddNewJobOrder)} className="space-y-4 py-4">
+                  <form onSubmit={form.handleSubmit(handleAddNewJobOrder)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
                       <FormField control={form.control} name="cliente" render={({ field }) => ( <FormItem> <FormLabel>Cliente</FormLabel> <FormControl> <Input placeholder="Es. Rossi S.p.A." {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                       <FormField control={form.control} name="ordinePF" render={({ field }) => ( <FormItem> <FormLabel>Ordine PF (ID Commessa)</FormLabel> <FormControl> <Input placeholder="Es. PF-006" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
                       <FormField control={form.control} name="numeroODL" render={({ field }) => ( <FormItem> <FormLabel>Ordine Nr Est</FormLabel> <FormControl> <Input placeholder="Es. ORD-CLIENTE-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
@@ -456,9 +463,11 @@ export default function DataManagementClientPage({
                           <FormItem>
                             <FormLabel>Reparto</FormLabel>
                             <Select onValueChange={field.onChange} value={field.value}>
-                              <SelectTrigger ref={field.ref}>
-                                <SelectValue placeholder="Seleziona un reparto di produzione" />
-                              </SelectTrigger>
+                              <FormControl>
+                                <SelectTrigger ref={field.ref}>
+                                  <SelectValue placeholder="Seleziona un reparto di produzione" />
+                                </SelectTrigger>
+                              </FormControl>
                               <SelectContent>
                                 {reparti
                                   .filter(r => r !== 'N/D' && r !== 'Officina')
@@ -473,6 +482,29 @@ export default function DataManagementClientPage({
                           </FormItem>
                         )}
                       />
+                      <FormField
+                          control={form.control}
+                          name="workCycleId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
+                                        {workCycles.map(cycle => (
+                                            <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                     <DialogFooter>
                       <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                       <Button type="submit">Aggiungi Commessa</Button>

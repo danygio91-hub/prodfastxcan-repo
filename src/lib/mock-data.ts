@@ -44,6 +44,7 @@ export interface JobOrder {
   overallEndTime?: Date | null;
   isProblemReported?: boolean;
   status: 'planned' | 'production' | 'completed' | 'suspended';
+  workCycleId?: string;
 }
 
 export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina';
@@ -121,6 +122,13 @@ export interface MaterialWithdrawal {
   operatorId: string;
   operatorName?: string;
   withdrawalDate: Date;
+}
+
+export interface WorkCycle {
+    id: string;
+    name: string;
+    description: string;
+    phaseTemplateIds: string[];
 }
 
 
