@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 
 const navItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/data-management', label: 'Gestione Dati', icon: ListChecks },
+  { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },

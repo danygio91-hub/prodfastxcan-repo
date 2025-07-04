@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes } from 'lucide-react';
 
 const navItems = [
-  { href: '/admin/data-management', label: 'Gestione Dati', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
+  { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica delle materie prime.', icon: Boxes },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },

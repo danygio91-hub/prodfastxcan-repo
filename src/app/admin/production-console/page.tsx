@@ -45,7 +45,7 @@ export default async function ProductionConsolePage() {
                     Non ci sono commesse attive. Crea un ODL dalla sezione 'Gestione Dati' per visualizzarle qui.
                 </p>
                 <Link href="/admin/data-management" passHref>
-                    <Button className="mt-6">Vai a Gestione Dati</Button>
+                    <Button className="mt-6">Vai a Gestione Commesse</Button>
                 </Link>
             </div>
           )}
