@@ -17,9 +17,7 @@ const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCode: z.enum(reparti, {
-    errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
-  }),
+  departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
 });
 
 // --- Actions ---
@@ -45,7 +43,13 @@ export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> 
 }
 
 export async function saveWorkPhaseTemplate(formData: FormData) {
-  const rawData = Object.fromEntries(formData.entries());
+  const rawData = {
+    id: formData.get('id') || undefined,
+    name: formData.get('name'),
+    description: formData.get('description'),
+    departmentCodes: formData.getAll('departmentCodes'),
+  };
+
   const validatedFields = workPhaseSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
@@ -56,12 +60,12 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
     };
   }
 
-  const { id, name, description, departmentCode } = validatedFields.data;
+  const { id, name, description, departmentCodes } = validatedFields.data;
   
   if (id) {
     // Update existing phase
     const phaseRef = doc(db, "workPhaseTemplates", id);
-    await setDoc(phaseRef, { name, description, departmentCode }, { merge: true });
+    await setDoc(phaseRef, { name, description, departmentCodes }, { merge: true });
     revalidatePath('/admin/work-phase-management');
     return { success: true, message: 'Fase di lavorazione aggiornata con successo.' };
   } else {
@@ -77,7 +81,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         id: newId, 
         name, 
         description, 
-        departmentCode,
+        departmentCodes,
         sequence: maxSequence + 1,
     };
     await setDoc(phaseRef, newPhase);

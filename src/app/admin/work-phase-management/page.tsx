@@ -23,14 +23,14 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from '@/components/ui/badge';
 import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered } from 'lucide-react';
 
 const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCode: z.enum(reparti),
+  departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
 });
 
 type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
@@ -47,7 +47,7 @@ export default function AdminWorkPhaseManagementPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCode: 'CP' },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [] },
   });
   
   const fetchPhases = async () => {
@@ -64,9 +64,14 @@ export default function AdminWorkPhaseManagementPage() {
   const handleOpenDialog = (phase: WorkPhaseTemplate | null = null) => {
     setEditingPhase(phase);
     if (phase) {
-      form.reset(phase);
+      form.reset({
+        id: phase.id,
+        name: phase.name,
+        description: phase.description,
+        departmentCodes: phase.departmentCodes || [],
+      });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCode: 'CP' });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [] });
     }
     setIsDialogOpen(true);
   };
@@ -79,21 +84,24 @@ export default function AdminWorkPhaseManagementPage() {
 
   const onSubmit = async (values: WorkPhaseFormValues) => {
     const formData = new FormData();
-    Object.entries(values).forEach(([key, value]) => {
-      if (value) formData.append(key, String(value));
-    });
+    if (values.id) formData.append('id', values.id);
+    formData.append('name', values.name);
+    formData.append('description', values.description);
+    values.departmentCodes.forEach(code => formData.append('departmentCodes', code));
 
-    const result = await saveWorkPhaseTemplate(formData);
-    toast({
-      title: result.success ? "Successo" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
+    startTransition(async () => {
+      const result = await saveWorkPhaseTemplate(formData);
+      toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
 
-    if (result.success) {
-      await fetchPhases();
-      handleCloseDialog();
-    }
+      if (result.success) {
+        await fetchPhases();
+        handleCloseDialog();
+      }
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -163,7 +171,7 @@ export default function AdminWorkPhaseManagementPage() {
         'Sequenza': phase.sequence,
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
-        'Reparto': departmentMap[phase.departmentCode] || phase.departmentCode,
+        'Reparti': (phase.departmentCodes || []).map(code => departmentMap[code] || code).join(', '),
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -253,7 +261,7 @@ export default function AdminWorkPhaseManagementPage() {
                       <TableHead className="w-[100px]">Sequenza</TableHead>
                       <TableHead>Nome Fase</TableHead>
                       <TableHead>Descrizione</TableHead>
-                      <TableHead>Reparto</TableHead>
+                      <TableHead>Reparti</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -278,7 +286,13 @@ export default function AdminWorkPhaseManagementPage() {
                           </TableCell>
                           <TableCell className="font-medium">{phase.name}</TableCell>
                           <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
-                          <TableCell>{departmentMap[phase.departmentCode] || phase.departmentCode}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                                {(phase.departmentCodes || []).map(code => (
+                                    <Badge key={code} variant="secondary">{departmentMap[code] || code}</Badge>
+                                ))}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(phase)}>
                               <Edit className="h-4 w-4" />
@@ -318,7 +332,7 @@ export default function AdminWorkPhaseManagementPage() {
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[525px]" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
+          <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
             <DialogHeader>
               <DialogTitle>{editingPhase ? "Modifica Fase" : "Aggiungi Nuova Fase"}</DialogTitle>
               <DialogDescription>
@@ -341,25 +355,58 @@ export default function AdminWorkPhaseManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="departmentCode" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reparto di Competenza</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleziona un reparto" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                <FormField
+                  control={form.control}
+                  name="departmentCodes"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel>Reparti di Competenza</FormLabel>
+                      <CardDescription>Seleziona uno o più reparti per questa fase.</CardDescription>
+                      <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                        {reparti.filter(r => r !== 'N/D').map((repartoCode) => (
+                          <FormField
+                            key={repartoCode}
+                            control={form.control}
+                            name="departmentCodes"
+                            render={({ field }) => {
+                              return (
+                                <FormItem
+                                  key={repartoCode}
+                                  className="flex flex-row items-center space-x-3 space-y-0"
+                                >
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(repartoCode)}
+                                      onCheckedChange={(checked) => {
+                                        return checked
+                                          ? field.onChange([...(field.value || []), repartoCode])
+                                          : field.onChange(
+                                              (field.value || []).filter(
+                                                (value) => value !== repartoCode
+                                              )
+                                            )
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal text-sm">
+                                    {departmentMap[repartoCode] || repartoCode}
+                                  </FormLabel>
+                                </FormItem>
+                              )
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
-                  <Button type="submit">{editingPhase ? "Salva Modifiche" : "Aggiungi Fase"}</Button>
+                  <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
+                  <Button type="submit" disabled={isPending}>
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                    {editingPhase ? "Salva Modifiche" : "Aggiungi Fase"}
+                  </Button>
                 </DialogFooter>
               </form>
             </Form>

@@ -73,7 +73,7 @@ export interface WorkPhaseTemplate {
   id: string;
   name: string;
   description: string;
-  departmentCode: Reparto;
+  departmentCodes: Reparto[];
   sequence: number;
 }
 
@@ -139,11 +139,11 @@ export const initialDepartmentMap: { [key in Reparto]: string } = {
     Officina: 'Officina',
 };
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
-    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCode: 'CP', sequence: 1 },
-    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCode: 'CP', sequence: 2 },
-    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCode: 'CP', sequence: 3 },
-    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCode: 'CG', sequence: 4 },
-    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCode: 'CG', sequence: 5 },
+    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCodes: ['CP'], sequence: 1 },
+    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 2 },
+    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 3 },
+    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 4 },
+    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 5 },
 ];
 export const initialWorkstations: Workstation[] = [
     { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },
