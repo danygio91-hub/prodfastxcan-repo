@@ -6,18 +6,37 @@ import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle } from 'lucide-react';
 
-// Helper functions
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
+  // Priority 1: Terminal/Blocking states
   if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.isProblemReported) return 'Problema';
-  const totalPhases = jobOrder.phases.length;
-  if (totalPhases === 0) return 'Da Iniziare';
-  const completedPhases = jobOrder.phases.filter(p => p.status === 'completed').length;
-  if (completedPhases === totalPhases) return 'Completata';
-  const hasActivePhase = jobOrder.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (hasActivePhase) return 'In Lavorazione';
+  if (jobOrder.status === 'completed') return 'Completata';
+
+  // Check phases
+  const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
+  const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+
+  const isAnyPreparationActive = preparationPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  if (isAnyPreparationActive) {
+    return 'In Preparazione';
+  }
+
+  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  if (isAnyProductionActive) {
+    return 'In Lavorazione';
+  }
+
+  if (preparationPhases.length > 0) {
+      const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
+      if (allPreparationDone && (productionPhases.length === 0 || productionPhases.every(p => p.status === 'pending'))) {
+          return 'Pronto per Produzione';
+      }
+  }
+  
+  // Default state if no other condition is met
   return 'Da Iniziare';
 }
+
 
 function getCurrentPhase(phases: JobPhase[]): JobPhase | undefined {
   // Prioritize in-progress over paused for display
@@ -27,7 +46,7 @@ function getCurrentPhase(phases: JobPhase[]): JobPhase | undefined {
 function getPhaseIcon(status: JobPhase['status']) {
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
-    case 'in-progress': return <Hourglass className="h-4 w-4 text-accent animate-spin" />;
+    case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
     case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
     case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
@@ -59,7 +78,7 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
             {jobOrder.details}
           </p>
         </div>
-        {overallStatus === 'In Lavorazione' && currentPhase && (
+        { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
            <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>
             <p className={`text-sm font-semibold flex items-center gap-2 ${currentPhase.status === 'paused' ? 'text-orange-500' : 'text-accent-foreground'}`}>
               {currentPhase.status === 'paused'
