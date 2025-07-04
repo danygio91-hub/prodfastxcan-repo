@@ -93,7 +93,7 @@ function OperatorNavMenu() {
               </Tooltip>
               
               {/* Scansione Materie Prime (Conditional) */}
-              {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina' || operator.role === 'superadvisor') && (
+              {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
                  <Tooltip>
                     <TooltipTrigger asChild>
                     <Link href="/raw-material-scan" passHref>

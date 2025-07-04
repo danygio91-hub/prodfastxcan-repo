@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -60,7 +59,7 @@ export default function DashboardPage() {
               icon={ScanLine}
               href="/scan-job"
             />
-            {operator && (operator.reparto === 'MAG' || operator.reparto === 'Officina') && (
+            {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
               <DashboardItem
                 title="Scansione Materie Prime"
                 description="Registra l'ingresso, l'uscita o il peso dei materiali."
