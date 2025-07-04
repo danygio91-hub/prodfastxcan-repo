@@ -23,21 +23,19 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
 
-  const isAnyPreparationActive = preparationPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (isAnyPreparationActive) {
-    return 'In Preparazione';
-  }
-
   const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
   if (isAnyProductionActive) {
     return 'In Lavorazione';
   }
 
-  if (preparationPhases.length > 0) {
-      const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-      if (allPreparationDone && (productionPhases.length === 0 || productionPhases.every(p => p.status === 'pending'))) {
-          return 'Pronto per Produzione';
-      }
+  const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
+  if (preparationPhases.length > 0 && allPreparationDone) {
+      return 'Pronto per Produzione';
+  }
+
+  const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+  if (isAnyPreparationStarted) {
+    return 'In Preparazione';
   }
   
   // Default state if no other condition is met
