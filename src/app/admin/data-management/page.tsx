@@ -104,6 +104,7 @@ export default function AdminDataManagementCommessePage() {
       details: "",
       qta: "",
       dataConsegnaFinale: "",
+      department: undefined,
     },
   });
 
@@ -444,7 +445,7 @@ export default function AdminDataManagementCommessePage() {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Reparto</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <Select onValueChange={field.onChange} value={field.value}>
                                   <FormControl>
                                     <SelectTrigger>
                                       <SelectValue placeholder="Seleziona un reparto di produzione" />
