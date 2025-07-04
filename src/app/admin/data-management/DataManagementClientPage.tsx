@@ -462,49 +462,49 @@ export default function DataManagementClientPage({
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Reparto</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                              <FormControl>
+                            <FormControl>
+                              <Select onValueChange={field.onChange} value={field.value}>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Seleziona un reparto di produzione" />
                                 </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {reparti
-                                  .filter(r => r !== 'N/D' && r !== 'Officina')
-                                  .map(r => (
-                                    <SelectItem key={r} value={r}>
-                                      {departmentMap[r] || r}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
+                                <SelectContent>
+                                  {reparti
+                                    .filter(r => r !== 'N/D' && r !== 'Officina')
+                                    .map(r => (
+                                      <SelectItem key={r} value={r}>
+                                        {departmentMap[r] || r}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                       <FormField
-                          control={form.control}
-                          name="workCycleId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
-                                        {workCycles.map(cycle => (
-                                            <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        control={form.control}
+                        name="workCycleId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
+                            <FormControl>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                  <SelectTrigger>
+                                      <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                      <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
+                                      {workCycles.map(cycle => (
+                                          <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
+                                      ))}
+                                  </SelectContent>
+                              </Select>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     <DialogFooter>
                       <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
                       <Button type="submit">Aggiungi Commessa</Button>
