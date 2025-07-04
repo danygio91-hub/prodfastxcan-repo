@@ -348,8 +348,20 @@ export default function AdminDataManagementCommessePage() {
         const result = await processAndValidateImport(mappedJson as any[]);
         toast({ title: "Analisi File", description: result.message });
 
-        if (result.success && (result.newJobs.length > 0 || result.jobsToUpdate.length > 0)) {
-             setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+        if (result.success) {
+            // If there are jobs to update (duplicates), show the confirmation dialog.
+            if (result.jobsToUpdate.length > 0) {
+                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+            } 
+            // Otherwise, if there are only new jobs, import them directly.
+            else if (result.newJobs.length > 0) {
+                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
+                toast({
+                    title: "Importazione Completata",
+                    description: commitResult.message,
+                });
+                fetchPlannedJobOrders();
+            }
         }
       } catch (error) {
          toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
