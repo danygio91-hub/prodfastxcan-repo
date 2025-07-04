@@ -1,8 +1,9 @@
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { JobOrder } from '@/lib/mock-data';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const ACTIVE_JOB_STORAGE_KEY = 'prodtime_tracker_active_job';
 
@@ -19,23 +20,40 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const storedJob = localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
-      if (storedJob) {
-        // We need to parse dates correctly from JSON string
-        const parsedJob = JSON.parse(storedJob, (key, value) => {
-            if (key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime') {
-                return value ? new Date(value) : null;
+    const validateActiveJob = async () => {
+        try {
+            const storedJob = localStorage.getItem(ACTIVE_JOB_STORAGE_KEY);
+            if (storedJob) {
+                const parsedJob: JobOrder = JSON.parse(storedJob, (key, value) => {
+                    if (['start', 'end', 'overallStartTime', 'overallEndTime'].includes(key) && value) {
+                        return new Date(value);
+                    }
+                    return value;
+                });
+
+                // Verify the job still exists in Firestore
+                const jobRef = doc(db, "jobOrders", parsedJob.id);
+                const docSnap = await getDoc(jobRef);
+
+                if (docSnap.exists()) {
+                    // Job is valid, update state with the one from localStorage (it might have live progress)
+                    setActiveJobState(parsedJob);
+                } else {
+                    // Job has been deleted from the database, clear it from local state
+                    localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+                    setActiveJobState(null);
+                }
             }
-            return value;
-        });
-        setActiveJobState(parsedJob);
-      }
-    } catch (error) {
-      console.error("Failed to load active job from localStorage", error);
-      localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-    }
-    setIsLoading(false);
+        } catch (error) {
+            console.error("Failed to load or validate active job from localStorage", error);
+            localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+            setActiveJobState(null);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    validateActiveJob();
   }, []);
 
   const setActiveJob = useCallback((job: JobOrder | null) => {

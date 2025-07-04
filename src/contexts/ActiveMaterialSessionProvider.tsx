@@ -1,7 +1,8 @@
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_session';
 
@@ -28,16 +29,39 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const storedSession = localStorage.getItem(ACTIVE_MATERIAL_SESSION_KEY);
-      if (storedSession) {
-        setActiveSession(JSON.parse(storedSession));
-      }
-    } catch (error) {
-      console.error("Failed to load active material session from localStorage", error);
-      localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
-    }
-    setIsLoading(false);
+    const validateActiveSession = async () => {
+        try {
+            const storedSession = localStorage.getItem(ACTIVE_MATERIAL_SESSION_KEY);
+            if (storedSession) {
+                const parsedSession: ActiveMaterialSessionData = JSON.parse(storedSession);
+
+                // A session is only valid if its originating job still exists.
+                if (parsedSession.originatorJobId) {
+                    const jobRef = doc(db, "jobOrders", parsedSession.originatorJobId);
+                    const docSnap = await getDoc(jobRef);
+
+                    if (docSnap.exists()) {
+                        setActiveSession(parsedSession);
+                    } else {
+                        // Originating job was deleted, so the session is invalid.
+                        localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+                        setActiveSession(null);
+                    }
+                } else {
+                    // Data is malformed, clear it
+                    localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+                    setActiveSession(null);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to load or validate active material session from localStorage", error);
+            localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+            setActiveSession(null);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    validateActiveSession();
   }, []);
 
   const persistSession = (session: ActiveMaterialSessionData | null) => {
@@ -94,4 +118,3 @@ export const useActiveMaterialSession = (): ActiveMaterialSessionContextType => 
   }
   return context;
 };
-
