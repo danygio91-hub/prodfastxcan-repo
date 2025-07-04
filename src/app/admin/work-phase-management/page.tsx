@@ -20,17 +20,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered } from 'lucide-react';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from '@/components/ui/switch';
+import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X } from 'lucide-react';
 
 const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
+  type: z.enum(['preparation', 'production'], { required_error: 'Specificare il tipo di fase' }),
+  requiresMaterialScan: z.boolean().default(false).optional(),
 });
 
 type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
@@ -47,7 +51,7 @@ export default function AdminWorkPhaseManagementPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [] },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false },
   });
   
   const fetchPhases = async () => {
@@ -69,9 +73,11 @@ export default function AdminWorkPhaseManagementPage() {
         name: phase.name,
         description: phase.description,
         departmentCodes: phase.departmentCodes || [],
+        type: phase.type || 'production',
+        requiresMaterialScan: phase.requiresMaterialScan || false,
       });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCodes: [] });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false });
     }
     setIsDialogOpen(true);
   };
@@ -88,6 +94,10 @@ export default function AdminWorkPhaseManagementPage() {
     formData.append('name', values.name);
     formData.append('description', values.description);
     values.departmentCodes.forEach(code => formData.append('departmentCodes', code));
+    formData.append('type', values.type);
+    if (values.requiresMaterialScan) {
+      formData.append('requiresMaterialScan', 'on');
+    }
 
     startTransition(async () => {
       const result = await saveWorkPhaseTemplate(formData);
@@ -169,6 +179,8 @@ export default function AdminWorkPhaseManagementPage() {
   const handleExport = () => {
     const dataToExport = phases.map(phase => ({
         'Sequenza': phase.sequence,
+        'Tipo': phase.type === 'production' ? 'Produzione' : 'Preparazione',
+        'Richiede Scansione Materiale': phase.requiresMaterialScan ? 'Sì' : 'No',
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
         'Reparti': (phase.departmentCodes || []).map(code => departmentMap[code] || code).join(', '),
@@ -260,6 +272,8 @@ export default function AdminWorkPhaseManagementPage() {
                       </TableHead>
                       <TableHead className="w-[100px]">Sequenza</TableHead>
                       <TableHead>Nome Fase</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Scansione Mat.</TableHead>
                       <TableHead>Descrizione</TableHead>
                       <TableHead>Reparti</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
@@ -285,6 +299,14 @@ export default function AdminWorkPhaseManagementPage() {
                              />
                           </TableCell>
                           <TableCell className="font-medium">{phase.name}</TableCell>
+                           <TableCell>
+                            <Badge variant={phase.type === 'production' ? 'default' : 'secondary'}>
+                              {phase.type === 'production' ? 'Produzione' : 'Preparazione'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
+                          </TableCell>
                           <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
@@ -321,7 +343,7 @@ export default function AdminWorkPhaseManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center h-24">Nessuna fase definita.</TableCell>
+                        <TableCell colSpan={8} className="text-center h-24">Nessuna fase definita.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -336,7 +358,7 @@ export default function AdminWorkPhaseManagementPage() {
             <DialogHeader>
               <DialogTitle>{editingPhase ? "Modifica Fase" : "Aggiungi Nuova Fase"}</DialogTitle>
               <DialogDescription>
-                {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard. La sequenza verrà assegnata automaticamente."}
+                {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard."}
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -355,13 +377,69 @@ export default function AdminWorkPhaseManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
+                 <FormField
+                    control={form.control}
+                    name="type"
+                    render={({ field }) => (
+                    <FormItem className="space-y-3">
+                        <FormLabel>Tipo di Fase</FormLabel>
+                        <FormControl>
+                        <RadioGroup
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                            className="flex flex-col space-y-1"
+                        >
+                            <FormItem className="flex items-center space-x-3 space-y-0">
+                            <FormControl>
+                                <RadioGroupItem value="production" />
+                            </FormControl>
+                            <FormLabel className="font-normal">
+                                Produzione (sequenziale)
+                            </FormLabel>
+                            </FormItem>
+                            <FormItem className="flex items-center space-x-3 space-y-0">
+                            <FormControl>
+                                <RadioGroupItem value="preparation" />
+                            </FormControl>
+                            <FormLabel className="font-normal">
+                                Preparazione (indipendente)
+                            </FormLabel>
+                            </FormItem>
+                        </RadioGroup>
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="requiresMaterialScan"
+                    render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                        <FormLabel className="text-base">
+                            Richiede Scansione Materiale
+                        </FormLabel>
+                        <FormDescription>
+                            Se attiva, l'operatore dovrà scansionare un materiale per avviare questa fase.
+                        </FormDescription>
+                        </div>
+                        <FormControl>
+                        <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                        />
+                        </FormControl>
+                    </FormItem>
+                    )}
+                />
                 <FormField
                   control={form.control}
                   name="departmentCodes"
                   render={() => (
                     <FormItem>
                       <FormLabel>Reparti di Competenza</FormLabel>
-                      <CardDescription>Seleziona uno o più reparti per questa fase.</CardDescription>
+                      <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
                       <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
                         {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
                           <FormField

@@ -18,6 +18,8 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
+  type: z.enum(['preparation', 'production']),
+  requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()),
 });
 
 // --- Actions ---
@@ -43,52 +45,73 @@ export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> 
 }
 
 export async function saveWorkPhaseTemplate(formData: FormData) {
-  const rawData = {
-    id: formData.get('id') || undefined,
-    name: formData.get('name'),
-    description: formData.get('description'),
-    departmentCodes: formData.getAll('departmentCodes'),
-  };
-
-  const validatedFields = workPhaseSchema.safeParse(rawData);
-
-  if (!validatedFields.success) {
-    return {
-      success: false,
-      message: 'Dati del modulo non validi.',
-      errors: validatedFields.error.flatten().fieldErrors,
+    const rawData = {
+        id: formData.get('id') || undefined,
+        name: formData.get('name'),
+        description: formData.get('description'),
+        departmentCodes: formData.getAll('departmentCodes'),
+        type: formData.get('type'),
+        requiresMaterialScan: formData.get('requiresMaterialScan'),
     };
-  }
 
-  const { id, name, description, departmentCodes } = validatedFields.data;
-  
-  if (id) {
-    // Update existing phase
-    const phaseRef = doc(db, "workPhaseTemplates", id);
-    await setDoc(phaseRef, { name, description, departmentCodes }, { merge: true });
-    revalidatePath('/admin/work-phase-management');
-    return { success: true, message: 'Fase di lavorazione aggiornata con successo.' };
-  } else {
-    // Add new phase
-    const templatesCol = collection(db, 'workPhaseTemplates');
-    const snapshot = await getDocs(templatesCol);
-    const sequences = snapshot.docs.map(doc => doc.data().sequence || 0);
-    const maxSequence = sequences.length > 0 ? Math.max(...sequences) : 0;
-    
-    const newId = `phase-tpl-${Date.now()}`;
-    const phaseRef = doc(db, "workPhaseTemplates", newId);
-    const newPhase: WorkPhaseTemplate = { 
-        id: newId, 
-        name, 
-        description, 
+    const validatedFields = workPhaseSchema.safeParse(rawData);
+
+    if (!validatedFields.success) {
+        return {
+        success: false,
+        message: 'Dati del modulo non validi.',
+        errors: validatedFields.error.flatten().fieldErrors,
+        };
+    }
+
+    const { id, name, description, departmentCodes, type, requiresMaterialScan } = validatedFields.data;
+
+    const dataToSave: Partial<WorkPhaseTemplate> = {
+        name,
+        description,
         departmentCodes,
-        sequence: maxSequence + 1,
+        type,
+        requiresMaterialScan,
     };
-    await setDoc(phaseRef, newPhase);
-    revalidatePath('/admin/work-phase-management');
-    return { success: true, message: `Fase di lavorazione aggiunta con successo.` };
-  }
+
+    if (id) {
+        // Update existing phase
+        const phaseRef = doc(db, "workPhaseTemplates", id);
+        await setDoc(phaseRef, dataToSave, { merge: true });
+        revalidatePath('/admin/work-phase-management');
+        return { success: true, message: 'Fase di lavorazione aggiornata con successo.' };
+    } else {
+        // Add new phase
+        const templatesCol = collection(db, 'workPhaseTemplates');
+        const snapshot = await getDocs(templatesCol);
+        
+        let newSequence: number;
+
+        if (type === 'production') {
+            const sequences = snapshot.docs.map(doc => doc.data().sequence || 0).filter(s => s >= 0);
+            newSequence = sequences.length > 0 ? Math.max(...sequences) + 1 : 1;
+        } else { // preparation
+            const sequences = snapshot.docs.map(doc => doc.data().sequence || 0).filter(s => s < 0);
+            newSequence = sequences.length > 0 ? Math.min(...sequences) - 1 : -1;
+        }
+
+        const newId = `phase-tpl-${Date.now()}`;
+        const phaseRef = doc(db, "workPhaseTemplates", newId);
+        const newPhase: WorkPhaseTemplate = { 
+            id: newId, 
+            name, 
+            description, 
+            departmentCodes,
+            type,
+            requiresMaterialScan: requiresMaterialScan || false,
+            sequence: newSequence,
+        };
+        await setDoc(phaseRef, newPhase);
+        revalidatePath('/admin/work-phase-management');
+        return { success: true, message: `Fase di lavorazione aggiunta con successo.` };
+    }
 }
+
 
 export async function deleteWorkPhaseTemplate(id: string): Promise<{ success: boolean; message: string }> {
   try {
