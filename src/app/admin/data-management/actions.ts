@@ -75,7 +75,7 @@ export async function getPlannedJobOrders(): Promise<JobOrder[]> {
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "==", "production"));
+    const q = query(jobsRef, where("status", "in", ["production", "suspended"]));
     const querySnapshot = await getDocs(q);
     const jobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
     return jobs;
