@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -15,16 +14,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -38,51 +27,28 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ListChecks, Package, PlusCircle, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
-import { type JobOrder, type Reparto, reparti, type WorkCycle } from '@/lib/mock-data';
+import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
+import { type JobOrder, type Reparto } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, addJobOrder, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, getWorkCycles } from './actions';
-
-const jobOrderFormSchema = z.object({
-  cliente: z.string().min(1, "Cliente è obbligatorio."),
-  ordinePF: z.string().min(1, "Ordine PF (ID Commessa) è obbligatorio."),
-  numeroODL: z.string().min(1, "Ordine Nr Est è obbligatorio."),
-  details: z.string().min(1, "Codice è obbligatorio."),
-  qta: z.string().refine(val => !isNaN(Number(val)) && Number(val) > 0, { message: "Quantità deve essere un numero positivo." }),
-  dataConsegnaFinale: z.string().optional(),
-  department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
-    required_error: "Reparto è obbligatorio.",
-  }),
-  workCycleId: z.string().optional(),
-});
-
-type JobOrderFormValues = z.infer<typeof jobOrderFormSchema>;
+import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs } from './actions';
 
 interface DataManagementClientPageProps {
   initialPlannedJobOrders: JobOrder[];
   initialProductionJobOrders: JobOrder[];
   departmentMap: { [key in Reparto]?: string };
-  workCycles: WorkCycle[];
 }
 
 export default function DataManagementClientPage({
   initialPlannedJobOrders,
   initialProductionJobOrders,
   departmentMap,
-  workCycles,
 }: DataManagementClientPageProps) {
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
@@ -97,20 +63,6 @@ export default function DataManagementClientPage({
   const fetchProductionJobOrders = useCallback(async () => {
     setProductionJobOrders(await getProductionJobOrders());
   }, []);
-
-  const form = useForm<JobOrderFormValues>({
-    resolver: zodResolver(jobOrderFormSchema),
-    defaultValues: {
-      cliente: "",
-      ordinePF: "",
-      numeroODL: "",
-      details: "",
-      qta: "",
-      dataConsegnaFinale: "",
-      department: undefined,
-      workCycleId: "",
-    },
-  });
 
   const handleExportPlanned = () => {
     const dataToExport = plannedJobOrders.map(job => ({
@@ -228,31 +180,6 @@ export default function DataManagementClientPage({
         fetchPlannedJobOrders();
         fetchProductionJobOrders();
         setSelectedProductionRows([]);
-    }
-  };
-
-  const handleAddNewJobOrder = async (values: JobOrderFormValues) => {
-    const formData = new FormData();
-    Object.entries(values).forEach(([key, value]) => {
-      formData.append(key, value || '');
-    });
-
-    const result = await addJobOrder(formData);
-
-    if (result.success) {
-      toast({
-        title: "Operazione Riuscita",
-        description: result.message,
-      });
-      form.reset();
-      setIsAddDialogOpen(false);
-      fetchPlannedJobOrders();
-    } else {
-       toast({
-        variant: "destructive",
-        title: "Errore",
-        description: result.message || "Impossibile aggiungere la commessa.",
-      });
     }
   };
 
@@ -435,85 +362,6 @@ export default function DataManagementClientPage({
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa da Excel
             </Button>
-            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  Aggiungi Commessa
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-xl">
-                <DialogHeader>
-                  <DialogTitle>Aggiungi Nuova Commessa Pianificata</DialogTitle>
-                  <DialogDescription>
-                    Inserisci i dettagli per la nuova commessa. Apparirà in questo elenco.
-                  </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(handleAddNewJobOrder)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
-                      <FormField control={form.control} name="cliente" render={({ field }) => ( <FormItem> <FormLabel>Cliente</FormLabel> <FormControl> <Input placeholder="Es. Rossi S.p.A." {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField control={form.control} name="ordinePF" render={({ field }) => ( <FormItem> <FormLabel>Ordine PF (ID Commessa)</FormLabel> <FormControl> <Input placeholder="Es. PF-006" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField control={form.control} name="numeroODL" render={({ field }) => ( <FormItem> <FormLabel>Ordine Nr Est</FormLabel> <FormControl> <Input placeholder="Es. ORD-CLIENTE-01" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField control={form.control} name="details" render={({ field }) => ( <FormItem> <FormLabel>Codice</FormLabel> <FormControl> <Input placeholder="Es. ART-00123" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField control={form.control} name="qta" render={({ field }) => ( <FormItem> <FormLabel>Quantità</FormLabel> <FormControl> <Input type="number" placeholder="Es. 100" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField control={form.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem> <FormLabel>Data Consegna prevista</FormLabel> <FormControl> <Input type="date" {...field} /> </FormControl> <FormMessage /> </FormItem> )} />
-                      <FormField
-                        control={form.control}
-                        name="department"
-                        render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Reparto</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Seleziona un reparto di produzione" />
-                                        </SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        {reparti
-                                            .filter(r => r !== 'N/D' && r !== 'Officina')
-                                            .map(r => (
-                                                <SelectItem key={r} value={r}>
-                                                    {departmentMap[r] || r}
-                                                </SelectItem>
-                                            ))}
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                      <FormField
-                          control={form.control}
-                          name="workCycleId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Ciclo di Lavorazione (Opzionale)</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Seleziona un ciclo di lavorazione" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="">Nessun ciclo (solo dati anagrafici)</SelectItem>
-                                  {workCycles.map(cycle => (
-                                    <SelectItem key={cycle.id} value={cycle.id}>{cycle.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                    <DialogFooter>
-                      <DialogClose asChild><Button type="button" variant="outline">Annulla</Button></DialogClose>
-                      <Button type="submit">Aggiungi Commessa</Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
         </div>
 
         <Tabs defaultValue="planned" className="mt-6">
@@ -668,7 +516,7 @@ export default function DataManagementClientPage({
                     <Package className="h-16 w-16 text-muted-foreground mb-4" />
                     <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
                     <p className="text-sm text-muted-foreground">
-                      Aggiungi una commessa manualmente o importa da un file Excel per iniziare.
+                      Usa l'importazione da file Excel per iniziare.
                     </p>
                   </div>
                 )}

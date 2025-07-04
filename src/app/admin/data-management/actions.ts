@@ -94,59 +94,6 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
     return jobs;
 }
 
-const jobOrderFormSchema = z.object({
-  cliente: z.string().min(1, 'Cliente è obbligatorio.'),
-  ordinePF: z.string().min(1, 'Ordine PF (ID Commessa) è obbligatorio.'),
-  numeroODL: z.string().min(1, 'Ordine Nr Est è obbligatorio.'),
-  details: z.string().min(1, 'Codice è obbligatorio.'),
-  qta: z.coerce.number().positive('La quantità deve essere un numero positivo.'),
-  dataConsegnaFinale: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato data non valido (YYYY-MM-DD).').optional().or(z.literal('')),
-  department: z.enum(['CP', 'CG', 'BF', 'MAG'], {
-    errorMap: () => ({ message: "Selezionare un reparto di produzione valido." })
-  }),
-  workCycleId: z.string().optional(),
-});
-
-export async function addJobOrder(formData: FormData) {
-    const rawData = Object.fromEntries(formData.entries());
-    const validatedFields = jobOrderFormSchema.safeParse(rawData);
-    
-    if (!validatedFields.success) {
-      return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
-    }
-    
-    const data = validatedFields.data;
-    const jobId = sanitizeDocumentId(data.ordinePF);
-
-    const jobRef = doc(db, "jobOrders", jobId);
-    const docSnap = await getDoc(jobRef);
-
-    if (docSnap.exists()) {
-      return { success: false, message: `La commessa con ID ${data.ordinePF} esiste già.` };
-    }
-
-    const phases = data.workCycleId ? await createPhasesFromCycle(data.workCycleId) : [];
-
-    const newJobOrder: JobOrder = {
-      ...data,
-      id: jobId,
-      ordinePF: data.ordinePF, // Keep original user-facing ID
-      status: 'planned',
-      postazioneLavoro: "Da Assegnare",
-      phases: phases,
-      qta: Number(data.qta),
-      dataConsegnaFinale: data.dataConsegnaFinale || '',
-      workCycleId: data.workCycleId || '',
-    };
-
-    await setDoc(jobRef, newJobOrder);
-    revalidatePath('/admin/data-management');
-    return {
-      success: true,
-      message: `Commessa ${newJobOrder.ordinePF} aggiunta con successo.`,
-    };
-}
-
 export async function processAndValidateImport(data: any[]): Promise<{
     success: boolean;
     message: string;
