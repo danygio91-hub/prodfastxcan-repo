@@ -436,43 +436,37 @@ export default function AdminWorkPhaseManagementPage() {
                 <FormField
                   control={form.control}
                   name="departmentCodes"
-                  render={() => (
+                  render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Reparti di Competenza</FormLabel>
-                      <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
+                        <div className="mb-4">
+                            <FormLabel>Reparti di Competenza</FormLabel>
+                            <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
+                        </div>
                       <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
                         {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
-                          <FormField
+                           <FormItem
                             key={repartoCode}
-                            control={form.control}
-                            name="departmentCodes"
-                            render={({ field }) => {
-                              return (
-                                <FormItem
-                                  key={repartoCode}
-                                  className="flex flex-row items-center space-x-3 space-y-0"
-                                >
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(repartoCode)}
-                                      onCheckedChange={(checked) => {
-                                        return checked
-                                          ? field.onChange([...(field.value || []), repartoCode])
-                                          : field.onChange(
-                                              (field.value || []).filter(
-                                                (value) => value !== repartoCode
-                                              )
-                                            )
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal text-sm">
-                                    {departmentMap[repartoCode] || repartoCode}
-                                  </FormLabel>
-                                </FormItem>
-                              )
-                            }}
-                          />
+                            className="flex flex-row items-center space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(repartoCode)}
+                                onCheckedChange={(checked) => {
+                                  const value = field.value || [];
+                                  return checked
+                                    ? field.onChange([...value, repartoCode])
+                                    : field.onChange(
+                                        value.filter(
+                                          (code) => code !== repartoCode
+                                        )
+                                      );
+                                }}
+                              />
+                            </FormControl>
+                            <FormLabel className="font-normal text-sm">
+                              {departmentMap[repartoCode] || repartoCode}
+                            </FormLabel>
+                          </FormItem>
                         ))}
                       </div>
                       <FormMessage />

@@ -286,39 +286,36 @@ export default function AdminWorkCycleManagementPage() {
                 <FormField
                   control={form.control}
                   name="phaseTemplateIds"
-                  render={() => (
+                  render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
-                      <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
-                        {phaseTemplates.sort((a,b) => a.sequence - b.sequence).map((phase) => (
-                          <FormField
-                            key={phase.id}
-                            control={form.control}
-                            name="phaseTemplateIds"
-                            render={({ field }) => {
-                              return (
-                                <FormItem key={phase.id} className="flex flex-row items-center space-x-3 space-y-0">
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(phase.id)}
-                                      onCheckedChange={(checked) => {
-                                        return checked
-                                          ? field.onChange([...(field.value || []), phase.id])
-                                          : field.onChange((field.value || []).filter(value => value !== phase.id))
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal text-sm">
-                                    {phase.name} <span className='text-muted-foreground'>({phase.type === 'production' ? 'Prod' : 'Prep'})</span>
-                                  </FormLabel>
+                        <div className="mb-4">
+                            <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
+                            <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
+                            {phaseTemplates.sort((a,b) => a.sequence - b.sequence).map((item) => (
+                                <FormItem
+                                    key={item.id}
+                                    className="flex flex-row items-center space-x-3 space-y-0"
+                                >
+                                    <FormControl>
+                                        <Checkbox
+                                            checked={field.value?.includes(item.id)}
+                                            onCheckedChange={(checked) => {
+                                                const value = field.value || [];
+                                                return checked
+                                                ? field.onChange([...value, item.id])
+                                                : field.onChange(value.filter((id) => id !== item.id));
+                                            }}
+                                        />
+                                    </FormControl>
+                                    <FormLabel className="font-normal text-sm">
+                                        {item.name} <span className='text-muted-foreground'>({item.type === 'production' ? 'Prod' : 'Prep'})</span>
+                                    </FormLabel>
                                 </FormItem>
-                              )
-                            }}
-                          />
-                        ))}
-                      </div>
-                      <FormMessage />
+                            ))}
+                        </div>
+                        <FormMessage />
                     </FormItem>
                   )}
                 />
