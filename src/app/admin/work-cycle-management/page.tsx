@@ -288,34 +288,34 @@ export default function AdminWorkCycleManagementPage() {
                   name="phaseTemplateIds"
                   render={({ field }) => (
                     <FormItem>
-                        <div className="mb-4">
-                            <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
-                            <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
-                            {phaseTemplates.sort((a,b) => a.sequence - b.sequence).map((item) => (
-                                <FormItem
-                                    key={item.id}
-                                    className="flex flex-row items-center space-x-3 space-y-0"
-                                >
-                                    <FormControl>
-                                        <Checkbox
-                                            checked={field.value?.includes(item.id)}
-                                            onCheckedChange={(checked) => {
-                                                const value = field.value || [];
-                                                return checked
-                                                ? field.onChange([...value, item.id])
-                                                : field.onChange(value.filter((id) => id !== item.id));
-                                            }}
-                                        />
-                                    </FormControl>
-                                    <FormLabel className="font-normal text-sm">
-                                        {item.name} <span className='text-muted-foreground'>({item.type === 'production' ? 'Prod' : 'Prep'})</span>
-                                    </FormLabel>
-                                </FormItem>
-                            ))}
-                        </div>
-                        <FormMessage />
+                      <div className="mb-4">
+                        <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
+                        <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
+                        {phaseTemplates.map((item) => (
+                          <FormItem
+                            key={item.id}
+                            className="flex flex-row items-center space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(item.id)}
+                                onCheckedChange={(checked) => {
+                                  const value = field.value || [];
+                                  return checked
+                                    ? field.onChange([...value, item.id])
+                                    : field.onChange(value.filter((id) => id !== item.id));
+                                }}
+                              />
+                            </FormControl>
+                            <FormLabel className="font-normal text-sm">
+                              {item.name} <span className='text-muted-foreground'>({item.type === 'production' ? 'Prod' : 'Prep'})</span>
+                            </FormLabel>
+                          </FormItem>
+                        ))}
+                      </div>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />

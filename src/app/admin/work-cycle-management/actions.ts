@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, where, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, query, where, writeBatch, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
 
@@ -19,7 +19,8 @@ const workCycleSchema = z.object({
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
   const templatesCol = collection(db, 'workPhaseTemplates');
-  const snapshot = await getDocs(templatesCol);
+  const q = query(templatesCol, orderBy("sequence"));
+  const snapshot = await getDocs(q);
   const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
   return list;
 }
