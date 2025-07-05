@@ -1,13 +1,12 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Briefcase, Package2, Loader2 } from 'lucide-react';
-import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -22,20 +21,25 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Check phases
   const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+  
+  const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
+  const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
 
+  if (allPreparationDone && preparationPhases.length > 0) {
+      const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+      if (isAnyProductionActive) {
+          return 'In Lavorazione';
+      }
+      return 'Pronto per Produzione';
+  }
+  
+  if (isAnyPreparationActive) {
+    return 'In Preparazione';
+  }
+  
   const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
   if (isAnyProductionActive) {
     return 'In Lavorazione';
-  }
-
-  const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-  if (preparationPhases.length > 0 && allPreparationDone) {
-      return 'Pronto per Produzione';
-  }
-
-  const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
-  if (isAnyPreparationStarted) {
-    return 'In Preparazione';
   }
   
   // Default state if no other condition is met
@@ -48,16 +52,8 @@ interface ProductionConsoleClientPageProps {
 
 export default function ProductionConsoleClientPage({ initialJobOrders }: ProductionConsoleClientPageProps) {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>(initialJobOrders);
-  const [isLoading, setIsLoading] = useState(false); // No longer loading initially
+  const [isLoading, setIsLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
-
-  // If you need to refresh data after some action, you can create a function like this:
-  // const refreshJobs = async () => {
-  //   setIsLoading(true);
-  //   const jobs = await getProductionJobOrders();
-  //   setJobOrders(jobs);
-  //   setIsLoading(false);
-  // };
 
   const filteredJobs = useMemo(() => {
     if (activeFilter === 'all') {
