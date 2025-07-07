@@ -12,7 +12,7 @@ import { format } from 'date-fns';
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, 'Il codice deve avere almeno 3 caratteri.'),
-  type: z.enum(['BOB', 'TUBI', 'PF3V0'], { errorMap: () => ({ message: 'Selezionare un tipo valido.' }) }),
+  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA'], { errorMap: () => ({ message: 'Selezionare un tipo valido.' }) }),
   description: z.string().min(5, 'La descrizione è obbligatoria.'),
   sezione: z.string().optional(),
   filo_el: z.string().optional(),
@@ -158,7 +158,7 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
       code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio."),
-      type: z.enum(['BOB', 'TUBI', 'PF3V0']),
+      type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']),
       description: z.coerce.string().optional(),
       sezione: z.coerce.string().optional(),
       filo_el: z.coerce.string().optional(),

@@ -39,6 +39,8 @@ const consumptionLogSchema = z.object({
   kgChiusura: z.string().optional(),
   notaLordoNetto: z.string().optional(),
   numUnits: z.string().optional(),
+  numPezziGuaina: z.string().optional(),
+  lunghezzaPezzoGuaina: z.string().optional(),
   cliente: z.string().optional(),
   commessa: z.string().optional(),
   codice: z.string().optional(),
@@ -51,17 +53,26 @@ const consumptionLogSchema = z.object({
 }, {
     message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori.",
     path: ["kgChiusura"],
+}).refine(data => {
+    // Both or neither of the guaina piece fields must be present
+    const hasNumPezzi = !!data.numPezziGuaina && Number(data.numPezziGuaina) > 0;
+    const hasLunghezzaPezzo = !!data.lunghezzaPezzoGuaina && Number(data.lunghezzaPezzoGuaina) > 0;
+    return hasNumPezzi === hasLunghezzaPezzo;
+}, {
+    message: "Se si consuma a pezzi, sia il numero di pezzi che la lunghezza sono obbligatori.",
+    path: ["lunghezzaPezzoGuaina"],
 })
 .refine(data => {
-    // Only one consumption method can be used
     const weightProvided = !!data.kgApertura;
     const unitsProvided = !!data.numUnits && Number(data.numUnits) > 0;
-    if (weightProvided && unitsProvided) return false; // Cannot provide both
-    if (!weightProvided && !unitsProvided) return false; // Must provide one
-    return true;
+    const guainaPezziProvided = !!data.numPezziGuaina && Number(data.numPezziGuaina) > 0;
+    
+    const methodsUsed = [weightProvided, unitsProvided, guainaPezziProvided].filter(Boolean).length;
+    
+    return methodsUsed === 1;
 }, {
-    message: "Inserire il consumo o in KG o in Unità, non entrambi.",
-    path: ["numUnits"],
+    message: "Inserire il consumo usando un solo metodo: o KG, o Unità totali, o Pezzi x Lunghezza.",
+    path: ["numUnits"], // General error path
 });
 
 
@@ -112,7 +123,7 @@ export default function RawMaterialScanPage() {
 
     const form = useForm<ConsumptionLogFormValues>({
         resolver: zodResolver(consumptionLogSchema),
-        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', cliente: '', commessa: '', codice: '', lottoBobina: '' },
+        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', numPezziGuaina: '', lunghezzaPezzoGuaina: '', cliente: '', commessa: '', codice: '', lottoBobina: '' },
     });
 
     useEffect(() => {
@@ -154,7 +165,7 @@ export default function RawMaterialScanPage() {
             setScannedMaterial(result);
             form.reset({
                 materialId: result.id,
-                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', lottoBobina: '',
+                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', numPezziGuaina: '', lunghezzaPezzoGuaina: '', lottoBobina: '',
                 cliente: activeJob?.cliente || '',
                 commessa: activeJob?.ordinePF || '',
                 codice: activeJob?.details || '',
@@ -476,6 +487,24 @@ export default function RawMaterialScanPage() {
                                                     </Alert>
                                                 )}
                                             </div>
+                                            
+                                            {scannedMaterial.type === 'GUAINA' && (
+                                                <>
+                                                    <div className="relative flex py-2 items-center">
+                                                        <div className="flex-grow border-t border-border"></div>
+                                                        <span className="flex-shrink mx-4 text-xs text-muted-foreground">OPPURE</span>
+                                                        <div className="flex-grow border-t border-border"></div>
+                                                    </div>
+
+                                                    <div className="space-y-4 p-4 border rounded-md">
+                                                        <h3 className="text-sm font-medium">Consumo a Pezzi</h3>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <FormField control={form.control} name="numPezziGuaina" render={({ field }) => ( <FormItem> <FormLabel>N° Pezzi</FormLabel> <FormControl><Input type="number" placeholder="Es. 5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                            <FormField control={form.control} name="lunghezzaPezzoGuaina" render={({ field }) => ( <FormItem> <FormLabel>Lunghezza/Pezzo (mt)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
 
                                             <Separator className="my-4"/>
 

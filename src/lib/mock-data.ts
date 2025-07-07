@@ -96,7 +96,7 @@ export interface RawMaterialBatch {
 
 export interface RawMaterial {
   id: string; //firestore doc id
-  type: 'BOB' | 'TUBI' | 'PF3V0';
+  type: 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA';
   code: string; // a unique code, from QR
   code_normalized?: string; // for case-insensitive search
   description: string;
@@ -155,11 +155,12 @@ export const initialDepartmentMap: { [key in Reparto]: string } = {
     Officina: 'Officina',
 };
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
-    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCodes: ['CP'], sequence: 1, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 2, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 3, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 4, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 5, type: 'production', requiresMaterialScan: false },
+    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCodes: ['CP'], sequence: -1, type: 'preparation', requiresMaterialScan: true },
+    { id: 'phase-template-6', name: 'TAGLIO GUAINA', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['CP'], sequence: -2, type: 'preparation', requiresMaterialScan: true },
+    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', requiresMaterialScan: false },
+    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', requiresMaterialScan: false },
+    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'production', requiresMaterialScan: false },
+    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 4, type: 'production', requiresMaterialScan: false },
 ];
 export const initialWorkstations: Workstation[] = [
     { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },

@@ -75,6 +75,8 @@ const consumptionLogSchema = z.object({
   kgChiusura: z.coerce.number().optional(),
   notaLordoNetto: z.string().optional(),
   numUnits: z.coerce.number().optional(),
+  numPezziGuaina: z.coerce.number().optional(),
+  lunghezzaPezzoGuaina: z.coerce.number().optional(),
   lottoBobina: z.string().optional(),
 }).refine(data => {
     // Both or neither of the weight fields must be present
@@ -87,16 +89,25 @@ const consumptionLogSchema = z.object({
     message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori e positivi.",
     path: ["kgChiusura"],
 }).refine(data => {
+    // Both or neither of the guaina piece fields must be present
+    const hasNumPezzi = data.numPezziGuaina !== undefined && data.numPezziGuaina > 0;
+    const hasLunghezzaPezzo = data.lunghezzaPezzoGuaina !== undefined && data.lunghezzaPezzoGuaina > 0;
+    return hasNumPezzi === hasLunghezzaPezzo;
+}, {
+    message: "Se si consuma a pezzi, sia il numero di pezzi che la lunghezza sono obbligatori.",
+    path: ["lunghezzaPezzoGuaina"],
+}).refine(data => {
     const weightProvided = data.kgApertura !== undefined;
     const unitsProvided = data.numUnits !== undefined && data.numUnits > 0;
-    if (weightProvided && unitsProvided) return false; // Cannot provide both
-    if (!weightProvided && !unitsProvided) return false; // Must provide one
-    return true;
+    const guainaPezziProvided = data.numPezziGuaina !== undefined && data.numPezziGuaina > 0;
+    
+    const methodsUsed = [weightProvided, unitsProvided, guainaPezziProvided].filter(Boolean).length;
+    
+    return methodsUsed === 1;
 }, {
-    message: "Inserire il consumo o in KG o in Unità, non entrambi.",
+    message: "Inserire il consumo usando un solo metodo: o KG, o Unità totali, o Pezzi x Lunghezza.",
     path: ["numUnits"],
 });
-
 
 
 export async function logMaterialConsumption(formData: FormData): Promise<{ success: boolean; message: string; }> {
@@ -113,11 +124,11 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
 
     if (!validatedFields.success) {
       const issues = validatedFields.error.flatten().fieldErrors;
-      const errorMessage = issues.kgChiusura?.[0] || issues.numUnits?.[0] || 'Dati del modulo non validi.';
+      const errorMessage = issues.kgChiusura?.[0] || issues.numUnits?.[0] || issues.lunghezzaPezzoGuaina?.[0] || 'Dati del modulo non validi.';
       return { success: false, message: errorMessage };
     }
 
-    const { materialId, kgApertura, kgChiusura, numUnits, lottoBobina } = validatedFields.data;
+    const { materialId, kgApertura, kgChiusura, numUnits, numPezziGuaina, lunghezzaPezzoGuaina, lottoBobina } = validatedFields.data;
     
     const materialRef = doc(db, "rawMaterials", materialId);
     const docSnap = await getDoc(materialRef);
@@ -132,7 +143,7 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
     let messageParts: string[] = [];
     const conversionFactor = material.conversionFactor;
 
-    // Handle units consumption
+    // Handle units consumption (direct meters, pieces, etc.)
     if (numUnits !== undefined && numUnits > 0) {
         if (newStockUnits < numUnits) {
              return { success: false, message: `Stock unità insufficiente. Disponibili: ${newStockUnits}, richiesti: ${numUnits}.` };
@@ -140,11 +151,28 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
         newStockUnits -= numUnits;
         messageParts.push(`${numUnits} ${material.unitOfMeasure} consumati`);
 
-        // Also update weight if conversion factor is available
         if (conversionFactor && conversionFactor > 0) {
             const weightConsumedByUnits = numUnits * conversionFactor;
             if (newWeightKg < weightConsumedByUnits) {
                 return { success: false, message: `Stock peso insufficiente per il consumo di ${numUnits} unità. Peso disponibile stimato: ${newWeightKg.toFixed(2)}kg, consumo richiesto: ${weightConsumedByUnits.toFixed(2)}kg.` };
+            }
+            newWeightKg -= weightConsumedByUnits;
+            messageParts[messageParts.length - 1] += ` (~${weightConsumedByUnits.toFixed(2)} kg)`;
+        }
+    }
+    // Handle "Guaina" pieces consumption
+    else if (numPezziGuaina !== undefined && lunghezzaPezzoGuaina !== undefined && numPezziGuaina > 0) {
+        const totalMetersConsumed = numPezziGuaina * lunghezzaPezzoGuaina;
+        if (newStockUnits < totalMetersConsumed) {
+            return { success: false, message: `Stock unità insufficiente. Disponibili: ${newStockUnits}, richiesti: ${totalMetersConsumed}.` };
+        }
+        newStockUnits -= totalMetersConsumed;
+        messageParts.push(`${numPezziGuaina} pz x ${lunghezzaPezzoGuaina} ${material.unitOfMeasure} = ${totalMetersConsumed} ${material.unitOfMeasure} consumati`);
+
+        if (conversionFactor && conversionFactor > 0) {
+            const weightConsumedByUnits = totalMetersConsumed * conversionFactor;
+            if (newWeightKg < weightConsumedByUnits) {
+                 return { success: false, message: `Stock peso insufficiente per il consumo di ${totalMetersConsumed} unità. Peso disponibile stimato: ${newWeightKg.toFixed(2)}kg, consumo richiesto: ${weightConsumedByUnits.toFixed(2)}kg.` };
             }
             newWeightKg -= weightConsumedByUnits;
             messageParts[messageParts.length - 1] += ` (~${weightConsumedByUnits.toFixed(2)} kg)`;
@@ -162,7 +190,6 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
         newWeightKg -= weightConsumed;
         messageParts.push(`${weightConsumed.toFixed(2)} kg consumati`);
 
-        // Also update units if conversion factor is available and it's not a kg-only material
         if (conversionFactor && conversionFactor > 0 && material.unitOfMeasure !== 'kg') {
             const unitsConsumedByWeight = Math.round(weightConsumed / conversionFactor);
              if (newStockUnits < unitsConsumedByWeight) {
@@ -172,7 +199,6 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
             messageParts[messageParts.length-1] += ` (~${unitsConsumedByWeight} ${material.unitOfMeasure})`;
         }
 
-        // If the material is managed purely in kg, keep the unit stock in sync.
         if (material.unitOfMeasure === 'kg') {
             newStockUnits = newWeightKg;
         }
