@@ -120,11 +120,16 @@ export async function addBatchToRawMaterial(formData: FormData) {
   const material = docSnap.data() as RawMaterial;
   const existingBatches = material.batches || [];
   
+  let finalQuantityUnits = quantityUnits;
+  if (material.unitOfMeasure === 'kg') {
+    finalQuantityUnits = weightKg;
+  }
+  
   const newBatch: RawMaterialBatch = {
     id: `batch-${Date.now()}`,
     date: new Date(date).toISOString(),
     ddt,
-    quantityUnits,
+    quantityUnits: finalQuantityUnits,
     weightKg,
   };
 
@@ -141,6 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData) {
   }, { merge: true });
 
   revalidatePath('/admin/raw-material-management');
+  revalidatePath('/raw-material-scan');
   return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
 }
 
@@ -158,7 +164,7 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
       code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio."),
-      type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']),
+      type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']).optional(),
       description: z.coerce.string().optional(),
       sezione: z.coerce.string().optional(),
       filo_el: z.coerce.string().optional(),
@@ -220,7 +226,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         const newMaterial: Omit<RawMaterial, 'id'> = {
             code: trimmedCode,
             code_normalized: normalizedCode,
-            type: validData.type,
+            type: validData.type || 'BOB',
             description: validData.description || "N/D",
             details: {
                 sezione: validData.sezione || '',
@@ -245,7 +251,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     
     let message = `Importazione completata. ${addedCount} materie prime aggiunte.`;
     if (skippedCount > 0) {
-        message += ` ${skippedCount} righe ignorate (dati mancanti, non validi o codici duplicati).`;
+        message += ` ${skippedCount} righe ignorate (dati non validi o codici duplicati/mancanti).`;
     }
     
     revalidatePath('/admin/raw-material-management');
