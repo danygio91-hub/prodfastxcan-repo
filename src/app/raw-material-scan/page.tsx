@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, logMaterialConsumption, searchRawMaterials } from './actions';
@@ -43,14 +44,23 @@ const consumptionLogSchema = z.object({
   codice: z.string().optional(),
   lottoBobina: z.string().optional(),
 }).refine(data => {
-    if (data.kgApertura && !data.kgChiusura) return false;
-    if (!data.kgApertura && data.kgChiusura) return false;
+    // Both or neither of the weight fields must be present
+    const hasOpening = !!data.kgApertura;
+    const hasClosing = !!data.kgChiusura;
+    return hasOpening === hasClosing;
+}, {
+    message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori.",
+    path: ["kgChiusura"],
+})
+.refine(data => {
+    // Only one consumption method can be used
+    const weightProvided = !!data.kgApertura;
+    const unitsProvided = !!data.numUnits && Number(data.numUnits) > 0;
+    if (weightProvided && unitsProvided) return false; // Cannot provide both
+    if (!weightProvided && !unitsProvided) return false; // Must provide one
     return true;
 }, {
-    message: "KG Apertura e Chiusura sono entrambi richiesti se uno dei due è compilato.",
-    path: ["kgChiusura"],
-}).refine(data => data.kgApertura || data.numUnits, {
-    message: "Devi compilare il consumo in Unità o entrambi i campi KG.",
+    message: "Inserire il consumo o in KG o in Unità, non entrambi.",
     path: ["numUnits"],
 });
 
@@ -442,15 +452,35 @@ export default function RawMaterialScanPage() {
                                             )}
                                         </CardHeader>
                                         <CardContent className="space-y-6">
-                                             <div className="grid grid-cols-2 gap-4">
-                                                <FormField control={form.control} name="kgApertura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Apertura</FormLabel> <FormControl><Input type="number" placeholder="Es. 55.5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                                <FormField control={form.control} name="kgChiusura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Chiusura</FormLabel> <FormControl><Input type="number" placeholder="Es. 50.2" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             <div className="space-y-4">
+                                                <FormField control={form.control} name="kgApertura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Apertura</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 55.5" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                <FormField control={form.control} name="kgChiusura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Chiusura</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 50.2" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              </div>
-                                             <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                             {scannedMaterial.unitOfMeasure !== 'kg' && (
-                                                <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                             )}
+
+                                             <div className="relative flex py-2 items-center">
+                                                <div className="flex-grow border-t border-border"></div>
+                                                <span className="flex-shrink mx-4 text-xs text-muted-foreground">OPPURE</span>
+                                                <div className="flex-grow border-t border-border"></div>
+                                            </div>
                                              
+                                            <div className="space-y-4">
+                                                {scannedMaterial.unitOfMeasure !== 'kg' ? (
+                                                    <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                ) : (
+                                                    <Alert variant="default" className="text-center">
+                                                        <Info className="h-4 w-4" />
+                                                        <AlertTitle>Materiale a Peso</AlertTitle>
+                                                        <AlertDescription>
+                                                            Questo materiale è gestito solo a KG. Il consumo per unità non è applicabile.
+                                                        </AlertDescription>
+                                                    </Alert>
+                                                )}
+                                            </div>
+
+                                            <Separator className="my-4"/>
+
+                                            <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto (Opzionale)</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                            
                                               {scannedMaterial.type === 'BOB' && (
                                                 <div className="space-y-2 pt-4 border-t">
                                                     <h3 className="text-sm font-medium text-muted-foreground">Dati Lotto Bobina (Opzionale)</h3>

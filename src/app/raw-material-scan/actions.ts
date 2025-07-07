@@ -77,32 +77,47 @@ const consumptionLogSchema = z.object({
   numUnits: z.coerce.number().optional(),
   lottoBobina: z.string().optional(),
 }).refine(data => {
-    // If kgApertura is provided, kgChiusura must also be provided
-    if (data.kgApertura !== undefined && data.kgChiusura === undefined) return false;
-    // If kgChiusura is provided, kgApertura must also be provided
-    if (data.kgChiusura !== undefined && data.kgApertura === undefined) return false;
+    // Both or neither of the weight fields must be present
+    const hasOpening = data.kgApertura !== undefined;
+    const hasClosing = data.kgChiusura !== undefined;
+    if (hasOpening !== hasClosing) return false;
+    if (data.kgApertura !== undefined && (data.kgApertura < 0 || (data.kgChiusura ?? -1) < 0)) return false;
     return true;
 }, {
-    message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori.",
+    message: "Se si inserisce un peso, sia apertura che chiusura sono obbligatori e positivi.",
     path: ["kgChiusura"],
+}).refine(data => {
+    const weightProvided = data.kgApertura !== undefined;
+    const unitsProvided = data.numUnits !== undefined && data.numUnits > 0;
+    if (weightProvided && unitsProvided) return false; // Cannot provide both
+    if (!weightProvided && !unitsProvided) return false; // Must provide one
+    return true;
+}, {
+    message: "Inserire il consumo o in KG o in Unità, non entrambi.",
+    path: ["numUnits"],
 });
+
 
 
 export async function logMaterialConsumption(formData: FormData): Promise<{ success: boolean; message: string; }> {
     const rawData = Object.fromEntries(formData.entries());
+    
+    // Convert empty strings to undefined so zod's optional works correctly
+    Object.keys(rawData).forEach(key => {
+        if (rawData[key] === '') {
+            delete rawData[key];
+        }
+    });
+    
     const validatedFields = consumptionLogSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
       const issues = validatedFields.error.flatten().fieldErrors;
-      const errorMessage = issues.kgChiusura?.[0] || 'Dati del modulo non validi.';
+      const errorMessage = issues.kgChiusura?.[0] || issues.numUnits?.[0] || 'Dati del modulo non validi.';
       return { success: false, message: errorMessage };
     }
 
     const { materialId, kgApertura, kgChiusura, numUnits, lottoBobina } = validatedFields.data;
-    
-    if (kgApertura === undefined && numUnits === undefined) {
-         return { success: false, message: 'Nessun dato di consumo inserito (Unità o Pesi).' };
-    }
     
     const materialRef = doc(db, "rawMaterials", materialId);
     const docSnap = await getDoc(materialRef);
@@ -115,6 +130,7 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
     let newStockUnits = material.currentStockUnits;
     let newWeightKg = material.currentWeightKg;
     let messageParts: string[] = [];
+    const conversionFactor = material.conversionFactor;
 
     // Handle units consumption
     if (numUnits !== undefined && numUnits > 0) {
@@ -123,28 +139,43 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
         }
         newStockUnits -= numUnits;
         messageParts.push(`${numUnits} ${material.unitOfMeasure} consumati`);
-    }
 
+        // Also update weight if conversion factor is available
+        if (conversionFactor && conversionFactor > 0) {
+            const weightConsumedByUnits = numUnits * conversionFactor;
+            if (newWeightKg < weightConsumedByUnits) {
+                return { success: false, message: `Stock peso insufficiente per il consumo di ${numUnits} unità. Peso disponibile stimato: ${newWeightKg.toFixed(2)}kg, consumo richiesto: ${weightConsumedByUnits.toFixed(2)}kg.` };
+            }
+            newWeightKg -= weightConsumedByUnits;
+            messageParts[messageParts.length - 1] += ` (~${weightConsumedByUnits.toFixed(2)} kg)`;
+        }
+    }
     // Handle weight consumption
-    if (kgApertura !== undefined && kgChiusura !== undefined) {
+    else if (kgApertura !== undefined && kgChiusura !== undefined) {
         const weightConsumed = kgApertura - kgChiusura;
         if (weightConsumed < 0) {
              return { success: false, message: 'Il peso di chiusura non può essere maggiore di quello di apertura.' };
         }
         if (newWeightKg < weightConsumed) {
-             return { success: false, message: `Stock peso insufficiente. Peso disponibile stimato: ${newWeightKg} kg, consumo richiesto: ${weightConsumed.toFixed(2)} kg.` };
+             return { success: false, message: `Stock peso insufficiente. Peso disponibile stimato: ${newWeightKg.toFixed(2)} kg, consumo richiesto: ${weightConsumed.toFixed(2)} kg.` };
         }
         newWeightKg -= weightConsumed;
         messageParts.push(`${weightConsumed.toFixed(2)} kg consumati`);
+
+        // Also update units if conversion factor is available and it's not a kg-only material
+        if (conversionFactor && conversionFactor > 0 && material.unitOfMeasure !== 'kg') {
+            const unitsConsumedByWeight = Math.round(weightConsumed / conversionFactor);
+             if (newStockUnits < unitsConsumedByWeight) {
+                return { success: false, message: `Stock unità insufficiente per il consumo di ${weightConsumed.toFixed(2)} kg. Unità disponibili: ${newStockUnits}, unità richieste stimate: ${unitsConsumedByWeight}.` };
+            }
+            newStockUnits -= unitsConsumedByWeight;
+            messageParts[messageParts.length-1] += ` (~${unitsConsumedByWeight} ${material.unitOfMeasure})`;
+        }
 
         // If the material is managed purely in kg, keep the unit stock in sync.
         if (material.unitOfMeasure === 'kg') {
             newStockUnits = newWeightKg;
         }
-    }
-
-    if (messageParts.length === 0) {
-        return { success: false, message: 'Nessun consumo valido da registrare. Controllare i campi.' };
     }
 
     await setDoc(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg }, { merge: true });
