@@ -36,7 +36,7 @@ export interface JobOrder {
   department: string;
   details: string;
   ordinePF: string;
-  numeroODL: string;
+  numeroODL: string; // This is Ordine Nr Est from the import
   dataConsegnaFinale: string;
   postazioneLavoro: string;
   phases: JobPhase[];
@@ -45,6 +45,10 @@ export interface JobOrder {
   isProblemReported?: boolean;
   status: 'planned' | 'production' | 'completed' | 'suspended';
   workCycleId?: string;
+  // New fields for internal ODL number
+  numeroODLInterno?: string;
+  odlCounter?: number;
+  odlCreationDate?: Date;
 }
 
 export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina';
@@ -155,8 +159,8 @@ export const initialDepartmentMap: { [key in Reparto]: string } = {
     Officina: 'Officina',
 };
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
-    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCodes: ['CP'], sequence: -1, type: 'preparation', requiresMaterialScan: true },
-    { id: 'phase-template-6', name: 'TAGLIO GUAINA', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['CP'], sequence: -2, type: 'preparation', requiresMaterialScan: true },
+    { id: 'phase-template-1', name: 'Preparazione Componenti', description: 'Raccolta e preparazione dei componenti necessari per l\'assemblaggio.', departmentCodes: ['CP'], sequence: -2, type: 'preparation', requiresMaterialScan: true },
+    { id: 'phase-template-6', name: 'TAGLIO GUAINA', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['CP'], sequence: -1, type: 'preparation', requiresMaterialScan: true },
     { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', requiresMaterialScan: false },
     { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', requiresMaterialScan: false },
     { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'production', requiresMaterialScan: false },

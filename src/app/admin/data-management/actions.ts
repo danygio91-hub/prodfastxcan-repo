@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc, Timestamp, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, WorkCycle } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -273,13 +273,42 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
       return { success: false, message: `La commessa ${jobId} non ha un ciclo di lavorazione associato. Impossibile creare ODL.` };
   }
   
-  jobData.status = 'production';
+  // Generate new internal ODL number
+  const now = new Date();
+  const year = now.getFullYear();
+  const shortYear = year.toString().slice(-2);
+  const startOfYear = new Date(year, 0, 1);
+  
+  const odlQuery = query(
+    collection(db, "jobOrders"), 
+    where("odlCreationDate", ">=", startOfYear),
+    orderBy("odlCounter", "desc"),
+    limit(1)
+  );
+  const odlSnapshot = await getDocs(odlQuery);
+  
+  let nextCounter = 1;
+  if (!odlSnapshot.empty) {
+    const lastJob = odlSnapshot.docs[0].data();
+    if (lastJob.odlCounter) {
+        nextCounter = lastJob.odlCounter + 1;
+    }
+  }
 
-  await setDoc(jobRef, jobData, { merge: true });
+  const newOdlId = `${nextCounter}/${shortYear}`;
+
+  const dataToUpdate = {
+    status: 'production' as const,
+    odlCreationDate: Timestamp.fromDate(now),
+    numeroODLInterno: newOdlId,
+    odlCounter: nextCounter
+  };
+
+  await updateDoc(jobRef, dataToUpdate);
   
   revalidatePath('/admin/data-management');
   revalidatePath('/admin/production-console');
-  return { success: true, message: `ODL per la commessa ${jobId} creato. La commessa è ora in produzione.` };
+  return { success: true, message: `ODL #${newOdlId} creato per la commessa ${jobId}. La commessa è ora in produzione.` };
 }
 
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
@@ -288,6 +317,30 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   let noCycleCount = 0;
 
   const batch = writeBatch(db);
+
+  // Get the last ODL counter for the current year
+  const now = new Date();
+  const year = now.getFullYear();
+  const shortYear = year.toString().slice(-2);
+  const startOfYear = new Date(year, 0, 1);
+  
+  const odlQuery = query(
+    collection(db, "jobOrders"), 
+    where("odlCreationDate", ">=", startOfYear),
+    orderBy("odlCounter", "desc"),
+    limit(1)
+  );
+  const odlSnapshot = await getDocs(odlQuery);
+  
+  let nextCounter = 1;
+  if (!odlSnapshot.empty) {
+    const lastJob = odlSnapshot.docs[0].data();
+    if (lastJob.odlCounter) {
+        nextCounter = lastJob.odlCounter + 1;
+    }
+  }
+  
+  let currentCounter = nextCounter - 1;
 
   for (const jobId of jobIds) {
     const jobRef = doc(db, "jobOrders", jobId);
@@ -299,7 +352,16 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
             noCycleCount++;
             continue;
         }
-        batch.update(jobRef, { status: 'production' });
+        
+        currentCounter++;
+        const newOdlId = `${currentCounter}/${shortYear}`;
+
+        batch.update(jobRef, { 
+            status: 'production' as const,
+            odlCreationDate: Timestamp.fromDate(now),
+            numeroODLInterno: newOdlId,
+            odlCounter: currentCounter
+        });
         createdCount++;
     } else {
         failedCount++;
@@ -338,6 +400,7 @@ export async function cancelODL(jobId: string): Promise<{ success: boolean; mess
     return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
   }
 
+  // When canceling, we keep the ODL number for historical reference, but reset status
   await updateDoc(jobRef, { status: 'planned' });
   
   revalidatePath('/admin/data-management');

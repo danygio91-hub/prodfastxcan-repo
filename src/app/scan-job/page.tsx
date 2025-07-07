@@ -200,7 +200,7 @@ export default function ScanJobPage() {
 
     const jobWithStartTime = {
         ...jobToStart,
-        status: 'production',
+        status: 'production' as const,
         overallStartTime: jobToStart.overallStartTime || new Date(),
         phases: jobToStart.phases.map(p => ({
             ...p,
@@ -899,7 +899,7 @@ export default function ScanJobPage() {
               <Package className="mr-3 h-7 w-7 text-primary shrink-0" />
               <div>
                 <CardTitle className="font-headline">
-                  Dettagli Commessa: {job.id}
+                  Dettagli Commessa: {job.ordinePF}
                 </CardTitle>
                 <CardDescription>Reparto: {job.department}</CardDescription>
               </div>
@@ -929,24 +929,32 @@ export default function ScanJobPage() {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
-              <Input id="ordinePF" value={job.ordinePF} readOnly className="bg-input text-foreground mt-1" />
+            <div className="space-y-4">
+                <div>
+                    <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
+                    <p id="ordinePF" className="mt-1 p-2 bg-input rounded-md text-foreground font-medium">{job.ordinePF}</p>
+                </div>
+                <div>
+                    <Label htmlFor="ordineNrEst" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine Nr Est</Label>
+                    <p id="ordineNrEst" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.numeroODL}</p>
+                </div>
+                <div>
+                    <Label htmlFor="numeroODLInterno" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
+                    <p id="numeroODLInterno" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.numeroODLInterno || 'N/D'}</p>
+                </div>
+                <div>
+                    <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna</Label>
+                    <p id="dataConsegnaFinale" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.dataConsegnaFinale || 'N/D'}</p>
+                </div>
+                <div>
+                    <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
+                    <p id="codiceArticolo" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
+                </div>
+                 <div>
+                    <Label htmlFor="qta" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Qta</Label>
+                    <p id="qta" className="mt-1 p-2 bg-input rounded-md text-foreground font-bold">{job.qta}</p>
+                </div>
             </div>
-            <div>
-              <Label htmlFor="numeroODL" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
-              <Input id="numeroODL" value={job.numeroODL} readOnly className="bg-input text-foreground mt-1" />
-            </div>
-            <div>
-              <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna Finale</Label>
-              <Input id="dataConsegnaFinale" value={job.dataConsegnaFinale} readOnly className="bg-input text-foreground mt-1" />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
-            <p className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
-          </div>
         </CardContent>
         <CardFooter className="pt-4">
           <AlertDialog>
