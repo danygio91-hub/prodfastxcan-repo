@@ -164,7 +164,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      'Unita Misura': z.enum(['pz', 'mt', 'kg']).optional().default('pz'),
+      'Unita Misura': z.coerce.string().optional().default('pz'),
       'Fattore Conversione': z.coerce.number().optional(),
       'Stock Unita': z.coerce.number().min(0).optional().default(0),
       'Stock Kg': z.coerce.number().min(0).optional().default(0),
@@ -194,10 +194,20 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             skippedCount++;
             continue;
         }
+        
+        let unitOfMeasure: 'pz' | 'mt' | 'kg' = 'pz';
+        const rawUoM = (validData['Unita Misura'] || 'pz').toLowerCase();
+        if (rawUoM === 'kg') {
+            unitOfMeasure = 'kg';
+        } else if (rawUoM === 'm' || rawUoM === 'mt') {
+            unitOfMeasure = 'mt';
+        } else if (rawUoM === 'n' || rawUoM === 'pz') {
+            unitOfMeasure = 'pz';
+        }
 
         const newDocRef = doc(materialsRef);
         
-        const stockUnits = validData['Unita Misura'] === 'kg' ? validData['Stock Kg'] : validData['Stock Unita'];
+        const stockUnits = unitOfMeasure === 'kg' ? validData['Stock Kg'] : validData['Stock Unita'];
 
         const initialBatch: RawMaterialBatch = {
             id: `batch-import-${Date.now()}`,
@@ -218,8 +228,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 larghezza: validData.larghezza || '',
                 tipologia: validData.tipologia || '',
             },
-            unitOfMeasure: validData['Unita Misura'],
-            conversionFactor: validData['Unita Misura'] === 'kg' ? undefined : validData['Fattore Conversione'] || undefined,
+            unitOfMeasure: unitOfMeasure,
+            conversionFactor: unitOfMeasure === 'kg' ? undefined : validData['Fattore Conversione'] || undefined,
             currentStockUnits: initialBatch.quantityUnits,
             currentWeightKg: initialBatch.weightKg,
             batches: [initialBatch],
