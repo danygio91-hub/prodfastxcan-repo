@@ -204,17 +204,31 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         }
 
         const headerMapping: { [key: string]: string } = {
-            'code': 'code', 'type': 'type', 'description': 'description',
-            'sezione': 'sezione', 'filo_el': 'filo_el', 'larghezza': 'larghezza', 'tipologia': 'tipologia',
-            'Stock Unita': 'Stock Unita', 'Stock Kg': 'Stock Kg', 
-            'Unita Misura': 'Unita Misura', 'Fattore Conversione': 'Fattore Conversione'
+            'codice': 'code',
+            'code': 'code',
+            'tipo': 'type',
+            'type': 'type',
+            'descrizione': 'description',
+            'description': 'description',
+            'sezione': 'sezione',
+            'filo': 'filo_el',
+            'filo el.': 'filo_el',
+            'filo_el': 'filo_el',
+            'larghezza': 'larghezza',
+            'tipologia': 'tipologia',
+            'stock': 'Stock Unita',
+            'stock unita': 'Stock Unita',
+            'peso (kg)': 'Stock Kg',
+            'stock kg': 'Stock Kg',
+            'unita misura': 'Unita Misura',
+            'fattore conversione': 'Fattore Conversione',
         };
         
         const mappedJson = filteredData.map((row: any) => {
             const normalizedRow: { [key: string]: any } = {};
             for (const key in row) {
                 const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, ' ');
-                const targetKey = headerMapping[normalizedKey as keyof typeof headerMapping];
+                const targetKey = headerMapping[normalizedKey];
                 if (targetKey && row[key] !== null && row[key] !== undefined && row[key] !== '') {
                   normalizedRow[targetKey] = row[key];
                 }
