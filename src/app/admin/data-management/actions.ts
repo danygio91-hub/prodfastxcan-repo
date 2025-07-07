@@ -105,6 +105,13 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const jobsToUpdate: JobOrder[] = [];
     let skippedCount = 0;
 
+    // Fetch all work cycles once to create a lookup map
+    const workCyclesSnap = await getDocs(collection(db, "workCycles"));
+    const workCyclesMap = new Map(workCyclesSnap.docs.map(doc => {
+        const cycleData = doc.data() as Omit<WorkCycle, 'id'>;
+        return [cycleData.name, { ...cycleData, id: doc.id }];
+    }));
+
     const importSchema = z.object({
       cliente: z.coerce.string().optional(),
       ordinePF: z.coerce.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
@@ -113,7 +120,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
       qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
       dataConsegnaFinale: z.string().optional(),
       department: z.coerce.string().optional(),
-      workCycleId: z.coerce.string().optional(),
+      workCycleName: z.coerce.string().optional(), // Changed from workCycleId
     });
 
     for (const row of data) {
@@ -128,7 +135,11 @@ export async function processAndValidateImport(data: any[]): Promise<{
         
         const jobRef = doc(db, "jobOrders", sanitizedId);
         const docSnap = await getDoc(jobRef);
-        const phases = validData.workCycleId ? await createPhasesFromCycle(validData.workCycleId) : [];
+        
+        // Find work cycle by name and get its ID to create phases
+        const workCycle = validData.workCycleName ? workCyclesMap.get(validData.workCycleName.trim()) : undefined;
+        const workCycleId = workCycle?.id;
+        const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
 
         if (docSnap.exists()) {
             const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
@@ -143,7 +154,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 details: validData.details ?? existingJob.details,
                 department: validData.department ?? existingJob.department,
                 dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
-                workCycleId: validData.workCycleId ?? existingJob.workCycleId,
+                workCycleId: workCycleId ?? existingJob.workCycleId, // Use found ID
                 phases: phases.length > 0 ? phases : existingJob.phases,
             };
             jobsToUpdate.push(updatedJob);
@@ -165,7 +176,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 qta: validData.qta,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
-                workCycleId: validData.workCycleId || '',
+                workCycleId: workCycleId || '', // Use found ID
             };
             newJobs.push(newJob);
         }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -221,7 +222,7 @@ export default function DataManagementClientPage({
           'qta': 'qta',
           'data consegna prevista': 'dataConsegnaFinale',
           'reparto': 'department',
-          'ciclo': 'workCycleId'
+          'ciclo': 'workCycleName'
         };
 
         const mappedJson = filteredData.map((row: any) => {
