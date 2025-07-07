@@ -107,8 +107,8 @@ export interface RawMaterial {
     tipologia?: string;
   };
   // New UoM fields
-  unitOfMeasure: 'pz' | 'mt';
-  conversionFactor?: number;
+  unitOfMeasure: 'pz' | 'mt' | 'kg';
+  conversionFactor?: number | null;
 
   // Stock properties are now calculated from batches
   currentWeightKg: number;

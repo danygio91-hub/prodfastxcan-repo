@@ -447,7 +447,9 @@ export default function RawMaterialScanPage() {
                                                 <FormField control={form.control} name="kgChiusura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Chiusura</FormLabel> <FormControl><Input type="number" placeholder="Es. 50.2" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              </div>
                                              <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                             <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             {scannedMaterial.unitOfMeasure !== 'kg' && (
+                                                <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             )}
                                              
                                               {scannedMaterial.type === 'BOB' && (
                                                 <div className="space-y-2 pt-4 border-t">

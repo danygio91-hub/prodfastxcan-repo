@@ -136,6 +136,11 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
         }
         newWeightKg -= weightConsumed;
         messageParts.push(`${weightConsumed.toFixed(2)} kg consumati`);
+
+        // If the material is managed purely in kg, keep the unit stock in sync.
+        if (material.unitOfMeasure === 'kg') {
+            newStockUnits = newWeightKg;
+        }
     }
 
     if (messageParts.length === 0) {

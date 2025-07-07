@@ -36,7 +36,7 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
-  unitOfMeasure: z.enum(['pz', 'mt']),
+  unitOfMeasure: z.enum(['pz', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
 });
 
@@ -75,6 +75,16 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     resolver: zodResolver(batchFormSchema),
     defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityUnits: 0, weightKg: 0 },
   });
+  
+  const watchedUnitOfMeasure = form.watch('unitOfMeasure');
+  const isKgBased = selectedMaterial?.unitOfMeasure === 'kg';
+
+  useEffect(() => {
+    if (isKgBased) {
+        const currentWeight = batchForm.getValues('weightKg');
+        batchForm.setValue('quantityUnits', currentWeight);
+    }
+  }, [isKgBased, batchForm, batchForm.watch('weightKg')]);
 
   const fetchMaterials = useCallback(async () => {
     const data = await getRawMaterials();
@@ -309,7 +319,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableCell className="font-medium">{material.code}</TableCell>
                         <TableCell>{material.type}</TableCell>
                         <TableCell>{material.description}</TableCell>
-                        <TableCell>{material.currentStockUnits}</TableCell>
+                        <TableCell>{material.unitOfMeasure === 'kg' ? 'N/A' : material.currentStockUnits}</TableCell>
                         <TableCell>{material.unitOfMeasure}</TableCell>
                         <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
                         <TableCell className="text-right">
@@ -414,14 +424,17 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <SelectContent>
                           <SelectItem value="pz">Pezzi (pz)</SelectItem>
                           <SelectItem value="mt">Metri (mt)</SelectItem>
+                          <SelectItem value="kg">Chilogrammi (kg)</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )} />
                 </div>
-
-                <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore Conversione (es. kg/pz o kg/mt)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                
+                {watchedUnitOfMeasure !== 'kg' && (
+                  <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore Conversione (es. kg/pz o kg/mt)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                )}
 
                 <h4 className="text-sm font-medium pt-2">Dettagli (opzionale)</h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -453,7 +466,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} disabled={isKgBased} /></FormControl> <FormMessage /> </FormItem> )} />
                             <FormField control={batchForm.control} name="weightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         </div>
                         <DialogFooter>
@@ -512,4 +525,3 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
-
