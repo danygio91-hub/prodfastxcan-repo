@@ -18,13 +18,15 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
+  unitOfMeasure: z.enum(['pz', 'mt']),
+  conversionFactor: z.coerce.number().optional().nullable(),
 });
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantityPcs: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  quantityUnits: z.coerce.number().min(0, "La quantità non può essere negativa."),
   weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
 });
 
@@ -64,6 +66,8 @@ export async function saveRawMaterial(formData: FormData) {
       larghezza: data.larghezza || '',
       tipologia: data.tipologia || '',
     },
+    unitOfMeasure: data.unitOfMeasure,
+    conversionFactor: data.conversionFactor || null,
   };
 
   if (data.id) {
@@ -85,7 +89,7 @@ export async function saveRawMaterial(formData: FormData) {
     // Initialize with empty stock, which will be updated by adding batches
     const fullMaterialData = {
         ...materialData,
-        currentStockPcs: 0,
+        currentStockUnits: 0,
         currentWeightKg: 0,
         batches: [],
     }
@@ -104,7 +108,7 @@ export async function addBatchToRawMaterial(formData: FormData) {
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantityPcs, weightKg } = validatedFields.data;
+  const { materialId, date, ddt, quantityUnits, weightKg } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   const docSnap = await getDoc(materialRef);
@@ -120,19 +124,19 @@ export async function addBatchToRawMaterial(formData: FormData) {
     id: `batch-${Date.now()}`,
     date: new Date(date).toISOString(),
     ddt,
-    quantityPcs,
+    quantityUnits,
     weightKg,
   };
 
   const updatedBatches = [...existingBatches, newBatch];
   
   // Recalculate totals based on all batches
-  const newTotalPcs = updatedBatches.reduce((sum, batch) => sum + batch.quantityPcs, 0);
+  const newTotalUnits = updatedBatches.reduce((sum, batch) => sum + batch.quantityUnits, 0);
   const newTotalKg = updatedBatches.reduce((sum, batch) => sum + (batch.weightKg || 0), 0);
 
   await setDoc(materialRef, {
     batches: updatedBatches,
-    currentStockPcs: newTotalPcs,
+    currentStockUnits: newTotalUnits,
     currentWeightKg: newTotalKg,
   }, { merge: true });
 
@@ -160,8 +164,10 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      stock_pcs: z.coerce.number().min(0).optional().default(0),
-      weight_kg: z.coerce.number().min(0).optional().default(0),
+      'Unita Misura': z.enum(['pz', 'mt']).optional().default('pz'),
+      'Fattore Conversione': z.coerce.number().optional(),
+      'Stock Unita': z.coerce.number().min(0).optional().default(0),
+      'Stock Kg': z.coerce.number().min(0).optional().default(0),
     });
 
     const materialsRef = collection(db, "rawMaterials");
@@ -195,8 +201,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            quantityPcs: validData.stock_pcs,
-            weightKg: validData.weight_kg,
+            quantityUnits: validData['Stock Unita'],
+            weightKg: validData['Stock Kg'],
         };
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
@@ -210,7 +216,9 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 larghezza: validData.larghezza || '',
                 tipologia: validData.tipologia || '',
             },
-            currentStockPcs: initialBatch.quantityPcs,
+            unitOfMeasure: validData['Unita Misura'],
+            conversionFactor: validData['Fattore Conversione'] || undefined,
+            currentStockUnits: initialBatch.quantityUnits,
             currentWeightKg: initialBatch.weightKg,
             batches: [initialBatch],
         };

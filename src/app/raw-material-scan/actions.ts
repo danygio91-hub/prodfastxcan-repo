@@ -74,7 +74,7 @@ const consumptionLogSchema = z.object({
   kgApertura: z.coerce.number().optional(),
   kgChiusura: z.coerce.number().optional(),
   notaLordoNetto: z.string().optional(),
-  numPz: z.coerce.number().optional(),
+  numUnits: z.coerce.number().optional(),
   lottoBobina: z.string().optional(),
 }).refine(data => {
     // If kgApertura is provided, kgChiusura must also be provided
@@ -93,13 +93,15 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
     const validatedFields = consumptionLogSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
-      return { success: false, message: 'Dati del modulo non validi.', errors: validatedFields.error.flatten().fieldErrors };
+      const issues = validatedFields.error.flatten().fieldErrors;
+      const errorMessage = issues.kgChiusura?.[0] || 'Dati del modulo non validi.';
+      return { success: false, message: errorMessage };
     }
 
-    const { materialId, kgApertura, kgChiusura, numPz, lottoBobina } = validatedFields.data;
+    const { materialId, kgApertura, kgChiusura, numUnits, lottoBobina } = validatedFields.data;
     
-    if (kgApertura === undefined && numPz === undefined) {
-         return { success: false, message: 'Nessun dato di consumo inserito (Pezzi o Pesi).' };
+    if (kgApertura === undefined && numUnits === undefined) {
+         return { success: false, message: 'Nessun dato di consumo inserito (Unità o Pesi).' };
     }
     
     const materialRef = doc(db, "rawMaterials", materialId);
@@ -110,17 +112,17 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
     }
 
     const material = docSnap.data() as RawMaterial;
-    let newStockPcs = material.currentStockPcs;
+    let newStockUnits = material.currentStockUnits;
     let newWeightKg = material.currentWeightKg;
     let messageParts: string[] = [];
 
-    // Handle pieces consumption
-    if (numPz !== undefined && numPz > 0) {
-        if (newStockPcs < numPz) {
-             return { success: false, message: `Stock pezzi insufficiente. Disponibili: ${newStockPcs}, richiesti: ${numPz}.` };
+    // Handle units consumption
+    if (numUnits !== undefined && numUnits > 0) {
+        if (newStockUnits < numUnits) {
+             return { success: false, message: `Stock unità insufficiente. Disponibili: ${newStockUnits}, richiesti: ${numUnits}.` };
         }
-        newStockPcs -= numPz;
-        messageParts.push(`${numPz} pz consumati`);
+        newStockUnits -= numUnits;
+        messageParts.push(`${numUnits} ${material.unitOfMeasure} consumati`);
     }
 
     // Handle weight consumption
@@ -140,7 +142,7 @@ export async function logMaterialConsumption(formData: FormData): Promise<{ succ
         return { success: false, message: 'Nessun consumo valido da registrare. Controllare i campi.' };
     }
 
-    await setDoc(materialRef, { currentStockPcs: newStockPcs, currentWeightKg: newWeightKg }, { merge: true });
+    await setDoc(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg }, { merge: true });
 
     revalidatePath('/raw-material-scan');
     

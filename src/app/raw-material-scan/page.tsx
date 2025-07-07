@@ -37,7 +37,7 @@ const consumptionLogSchema = z.object({
   kgApertura: z.string().optional(),
   kgChiusura: z.string().optional(),
   notaLordoNetto: z.string().optional(),
-  numPz: z.string().optional(),
+  numUnits: z.string().optional(),
   cliente: z.string().optional(),
   commessa: z.string().optional(),
   codice: z.string().optional(),
@@ -49,9 +49,9 @@ const consumptionLogSchema = z.object({
 }, {
     message: "KG Apertura e Chiusura sono entrambi richiesti se uno dei due è compilato.",
     path: ["kgChiusura"],
-}).refine(data => data.kgApertura || data.numPz, {
-    message: "Devi compilare il consumo in Pezzi o entrambi i campi KG.",
-    path: ["numPz"],
+}).refine(data => data.kgApertura || data.numUnits, {
+    message: "Devi compilare il consumo in Unità o entrambi i campi KG.",
+    path: ["numUnits"],
 });
 
 
@@ -102,7 +102,7 @@ export default function RawMaterialScanPage() {
 
     const form = useForm<ConsumptionLogFormValues>({
         resolver: zodResolver(consumptionLogSchema),
-        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', cliente: '', commessa: '', codice: '', lottoBobina: '' },
+        defaultValues: { materialId: '', kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', cliente: '', commessa: '', codice: '', lottoBobina: '' },
     });
 
     useEffect(() => {
@@ -144,7 +144,7 @@ export default function RawMaterialScanPage() {
             setScannedMaterial(result);
             form.reset({
                 materialId: result.id,
-                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numPz: '', lottoBobina: '',
+                kgApertura: '', kgChiusura: '', notaLordoNetto: '', numUnits: '', lottoBobina: '',
                 cliente: activeJob?.cliente || '',
                 commessa: activeJob?.ordinePF || '',
                 codice: activeJob?.details || '',
@@ -412,12 +412,12 @@ export default function RawMaterialScanPage() {
                                     </div>
                                     <div className="grid grid-cols-2 gap-4 pt-4">
                                         <div className="p-3 rounded-lg border bg-background">
-                                            <Label>Qta Stock</Label>
-                                            <p className="text-2xl font-bold">{scannedMaterial.currentStockPcs ?? 0}</p>
+                                            <Label>Stock ({scannedMaterial.unitOfMeasure.toUpperCase()})</Label>
+                                            <p className="text-2xl font-bold">{scannedMaterial.currentStockUnits ?? 0}</p>
                                         </div>
                                          <div className="p-3 rounded-lg border bg-background">
-                                            <Label>Kg Stock</Label>
-                                            <p className="text-2xl font-bold">{scannedMaterial.currentWeightKg ?? 0}</p>
+                                            <Label>Stock (KG)</Label>
+                                            <p className="text-2xl font-bold">{scannedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
                                         </div>
                                     </div>
                                 </CardContent>
@@ -447,7 +447,7 @@ export default function RawMaterialScanPage() {
                                                 <FormField control={form.control} name="kgChiusura" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4" /> KG Chiusura</FormLabel> <FormControl><Input type="number" placeholder="Es. 50.2" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              </div>
                                              <FormField control={form.control} name="notaLordoNetto" render={({ field }) => ( <FormItem> <FormLabel>Nota Lordo/Netto</FormLabel> <FormControl><Input placeholder="Es. Tara 0.3kg" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                                             <FormField control={form.control} name="numPz" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° Pezzi Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              
                                               {scannedMaterial.type === 'BOB' && (
                                                 <div className="space-y-2 pt-4 border-t">

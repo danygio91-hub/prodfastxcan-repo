@@ -90,7 +90,7 @@ export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  quantityPcs: number;
+  quantityUnits: number; // Can be pieces or meters
   weightKg: number;
 }
 
@@ -106,11 +106,17 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
+  // New UoM fields
+  unitOfMeasure: 'pz' | 'mt';
+  conversionFactor?: number;
+
   // Stock properties are now calculated from batches
   currentWeightKg: number;
-  currentStockPcs: number;
+  currentStockUnits: number;
+
   batches: RawMaterialBatch[]; // Array of received batches
 }
+
 
 export interface MaterialWithdrawal {
   id: string; // doc id

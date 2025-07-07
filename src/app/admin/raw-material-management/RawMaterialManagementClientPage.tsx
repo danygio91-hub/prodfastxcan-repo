@@ -36,6 +36,8 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
+  unitOfMeasure: z.enum(['pz', 'mt']),
+  conversionFactor: z.coerce.number().optional().nullable(),
 });
 
 type RawMaterialFormValues = z.infer<typeof rawMaterialFormSchema>;
@@ -44,7 +46,7 @@ const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantityPcs: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  quantityUnits: z.coerce.number().min(0, "La quantità non può essere negativa."),
   weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
 });
 
@@ -66,12 +68,12 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "" },
+    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'pz', conversionFactor: null },
   });
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityPcs: 0, weightKg: 0 },
+    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityUnits: 0, weightKg: 0 },
   });
 
   const fetchMaterials = useCallback(async () => {
@@ -93,16 +95,18 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         filo_el: material.details.filo_el,
         larghezza: material.details.larghezza,
         tipologia: material.details.tipologia,
+        unitOfMeasure: material.unitOfMeasure || 'pz',
+        conversionFactor: material.conversionFactor || null,
       });
     } else {
-      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "" });
+      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'pz', conversionFactor: null });
     }
     setIsEditDialogOpen(true);
   };
 
   const handleOpenAddBatchDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
-    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityPcs: 0, weightKg: 0 });
+    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityUnits: 0, weightKg: 0 });
     setIsAddBatchDialogOpen(true);
   };
 
@@ -190,16 +194,17 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         }
 
         const headerMapping: { [key: string]: string } = {
-          'code': 'code', 'type': 'type', 'description': 'description',
-          'sezione': 'sezione', 'filo_el': 'filo_el', 'larghezza': 'larghezza', 'tipologia': 'tipologia',
-          'stock_pcs': 'stock_pcs', 'weight_kg': 'weight_kg',
+            'code': 'code', 'type': 'type', 'description': 'description',
+            'sezione': 'sezione', 'filo_el': 'filo_el', 'larghezza': 'larghezza', 'tipologia': 'tipologia',
+            'Stock Unita': 'Stock Unita', 'Stock Kg': 'Stock Kg', 
+            'Unita Misura': 'Unita Misura', 'Fattore Conversione': 'Fattore Conversione'
         };
         
         const mappedJson = filteredData.map((row: any) => {
             const normalizedRow: { [key: string]: any } = {};
             for (const key in row) {
-                const normalizedKey = key.trim().toLowerCase();
-                const targetKey = headerMapping[normalizedKey];
+                const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, ' ');
+                const targetKey = headerMapping[normalizedKey as keyof typeof headerMapping];
                 if (targetKey && row[key] !== null && row[key] !== undefined && row[key] !== '') {
                   normalizedRow[targetKey] = row[key];
                 }
@@ -232,8 +237,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
-        'Stock (Pz)': m.currentStockPcs,
+        'Stock': m.currentStockUnits,
+        'Unita Misura': m.unitOfMeasure,
         'Peso (Kg)': m.currentWeightKg,
+        'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
         'Filo El.': m.details.filo_el,
         'Larghezza': m.details.larghezza,
@@ -289,7 +296,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <TableHead>Codice</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Descrizione</TableHead>
-                    <TableHead>Stock (Pz)</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead>Unità</TableHead>
                     <TableHead>Peso (Kg)</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
@@ -301,7 +309,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableCell className="font-medium">{material.code}</TableCell>
                         <TableCell>{material.type}</TableCell>
                         <TableCell>{material.description}</TableCell>
-                        <TableCell>{material.currentStockPcs}</TableCell>
+                        <TableCell>{material.currentStockUnits}</TableCell>
+                        <TableCell>{material.unitOfMeasure}</TableCell>
                         <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
                         <TableCell className="text-right">
                             <DropdownMenu>
@@ -352,7 +361,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center h-24">Nessuna materia prima trovata.</TableCell>
+                      <TableCell colSpan={7} className="text-center h-24">Nessuna materia prima trovata.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -373,24 +382,47 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
                 <FormField control={form.control} name="code" render={({ field }) => ( <FormItem> <FormLabel>Codice *</FormLabel> <FormControl><Input placeholder="Es. BOB-12345" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                <FormField control={form.control} name="type" render={({ field }) => ( 
-                  <FormItem>
-                    <FormLabel>Tipo *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Seleziona un tipo" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="BOB">BOB</SelectItem>
-                        <SelectItem value="TUBI">TUBI</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
                 <FormField control={form.control} name="description" render={({ field }) => ( <FormItem> <FormLabel>Descrizione *</FormLabel> <FormControl><Textarea placeholder="Descrizione dettagliata del materiale" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={form.control} name="type" render={({ field }) => ( 
+                    <FormItem>
+                      <FormLabel>Tipo *</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona un tipo" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="BOB">BOB</SelectItem>
+                          <SelectItem value="TUBI">TUBI</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                   <FormField control={form.control} name="unitOfMeasure" render={({ field }) => ( 
+                    <FormItem>
+                      <FormLabel>Unità di Misura</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona un'unità" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="pz">Pezzi (pz)</SelectItem>
+                          <SelectItem value="mt">Metri (mt)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+
+                <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore Conversione (es. kg/pz o kg/mt)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+
                 <h4 className="text-sm font-medium pt-2">Dettagli (opzionale)</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="sezione" render={({ field }) => ( <FormItem> <FormLabel>Sezione</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -421,7 +453,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField control={batchForm.control} name="quantityPcs" render={({ field }) => ( <FormItem> <FormLabel>Quantità (Pz)</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                             <FormField control={batchForm.control} name="weightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         </div>
                         <DialogFooter>
@@ -448,7 +480,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableRow>
                           <TableHead>Data</TableHead>
                           <TableHead>DDT</TableHead>
-                          <TableHead>Quantità (Pz)</TableHead>
+                          <TableHead>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</TableHead>
                           <TableHead>Peso (Kg)</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -458,7 +490,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableRow key={batch.id}>
                                 <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy', { locale: it })}</TableCell>
                                 <TableCell>{batch.ddt}</TableCell>
-                                <TableCell>{batch.quantityPcs}</TableCell>
+                                <TableCell>{batch.quantityUnits}</TableCell>
                                 <TableCell>{batch.weightKg.toFixed(2)}</TableCell>
                             </TableRow>
                             ))
