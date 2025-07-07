@@ -444,6 +444,16 @@ export default function RawMaterialScanPage() {
                                 </CardContent>
                             </Card>
 
+                            {scannedMaterial.unitOfMeasure !== 'kg' && !scannedMaterial.conversionFactor && (
+                                <Alert variant="destructive">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertTitle>Fattore di Conversione Mancante</AlertTitle>
+                                    <AlertDescription>
+                                        Questo materiale non ha un fattore di conversione (es. kg/pz). Lo scarico a peso non aggiornerà lo stock a unità e viceversa. Chiedi a un amministratore di aggiornarlo.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
                             <Form {...form}>
                                 <form onSubmit={form.handleSubmit(onLogSubmit)}>
                                     <Card>
@@ -476,7 +486,7 @@ export default function RawMaterialScanPage() {
                                              
                                             <div className="space-y-4">
                                                 {scannedMaterial.unitOfMeasure !== 'kg' ? (
-                                                    <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {scannedMaterial.unitOfMeasure.toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                    <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {(scannedMaterial.unitOfMeasure || 'pz').toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                                 ) : (
                                                     <Alert variant="default" className="text-center">
                                                         <Info className="h-4 w-4" />
