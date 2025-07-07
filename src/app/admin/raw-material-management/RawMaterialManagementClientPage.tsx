@@ -30,7 +30,7 @@ import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertica
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, 'Il codice deve avere almeno 3 caratteri.'),
-  type: z.enum(['BOB', 'TUBI']),
+  type: z.enum(['BOB', 'TUBI', 'PF3V0']),
   description: z.string().min(5, 'La descrizione è obbligatoria.'),
   sezione: z.string().optional(),
   filo_el: z.string().optional(),
@@ -407,6 +407,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <SelectContent>
                           <SelectItem value="BOB">BOB</SelectItem>
                           <SelectItem value="TUBI">TUBI</SelectItem>
+                          <SelectItem value="PF3V0">PF3V0</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

@@ -96,7 +96,7 @@ export interface RawMaterialBatch {
 
 export interface RawMaterial {
   id: string; //firestore doc id
-  type: 'BOB' | 'TUBI';
+  type: 'BOB' | 'TUBI' | 'PF3V0';
   code: string; // a unique code, from QR
   code_normalized?: string; // for case-insensitive search
   description: string;
