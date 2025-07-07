@@ -453,7 +453,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <div className="grid grid-cols-2 gap-4">
-                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                             <FormField control={batchForm.control} name="weightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         </div>
                         <DialogFooter>
@@ -480,7 +480,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableRow>
                           <TableHead>Data</TableHead>
                           <TableHead>DDT</TableHead>
-                          <TableHead>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</TableHead>
+                          <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</TableHead>
                           <TableHead>Peso (Kg)</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -512,3 +512,4 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
