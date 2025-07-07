@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search } from 'lucide-react';
 
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
@@ -63,6 +63,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -90,6 +91,18 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     const data = await getRawMaterials();
     setMaterials(data);
   }, []);
+  
+  const filteredMaterials = useMemo(() => {
+    if (!searchTerm) {
+      return materials;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return materials.filter(material =>
+      (material.code?.toLowerCase() || '').includes(lowercasedFilter) ||
+      (material.description?.toLowerCase() || '').includes(lowercasedFilter)
+    );
+  }, [materials, searchTerm]);
+
 
   // --- Dialog Handlers ---
 
@@ -309,8 +322,21 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
         <Card>
           <CardHeader>
-            <CardTitle>Elenco Materie Prime</CardTitle>
-            <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
+             <div className="flex justify-between items-center flex-wrap gap-4">
+                <div>
+                  <CardTitle>Elenco Materie Prime</CardTitle>
+                  <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
+                </div>
+                 <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Cerca per codice o descrizione..."
+                        className="pl-9"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -327,8 +353,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {materials.length > 0 ? (
-                    materials.map((material) => (
+                  {filteredMaterials.length > 0 ? (
+                    filteredMaterials.map((material) => (
                       <TableRow key={material.id}>
                         <TableCell className="font-medium">{material.code}</TableCell>
                         <TableCell>{material.type}</TableCell>
@@ -385,7 +411,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center h-24">Nessuna materia prima trovata.</TableCell>
+                      <TableCell colSpan={7} className="text-center h-24">
+                        {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
+                      </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
