@@ -36,7 +36,23 @@ const batchFormSchema = z.object({
 export async function getRawMaterials(): Promise<RawMaterial[]> {
   const materialsCol = collection(db, 'rawMaterials');
   const snapshot = await getDocs(materialsCol);
-  const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as RawMaterial);
+  const list = snapshot.docs.map(doc => {
+    const data = doc.data();
+    // Provide default values for potentially missing fields to prevent runtime errors
+    return {
+      id: doc.id,
+      type: data.type || 'BOB',
+      code: data.code || 'CODICE MANCANTE',
+      code_normalized: data.code_normalized || (data.code || '').toLowerCase(),
+      description: data.description || 'Nessuna descrizione',
+      details: data.details || {},
+      unitOfMeasure: data.unitOfMeasure || 'pz',
+      conversionFactor: data.conversionFactor === undefined ? null : data.conversionFactor,
+      currentWeightKg: data.currentWeightKg ?? 0,
+      currentStockUnits: data.currentStockUnits ?? 0,
+      batches: data.batches || [],
+    } as RawMaterial;
+  });
   return list;
 }
 
@@ -163,17 +179,17 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
 
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
-      code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio."),
+      code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio.").optional(),
       type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']).optional(),
       description: z.coerce.string().optional(),
       sezione: z.coerce.string().optional(),
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      'Unita Misura': z.enum(['pz', 'mt', 'kg', 'n', 'm']).optional().default('pz'),
+      'Unita Misura': z.enum(['pz', 'mt', 'kg', 'n', 'm']).optional(),
       'Fattore Conversione': z.coerce.number().optional().nullable(),
-      'Stock Unita': z.coerce.number().min(0).optional().default(0),
-      'Stock Kg': z.coerce.number().min(0).optional().default(0),
+      'Stock Unita': z.coerce.number().min(0).optional(),
+      'Stock Kg': z.coerce.number().min(0).optional(),
     });
 
     const materialsRef = collection(db, "rawMaterials");
@@ -187,7 +203,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     for (const row of data) {
         const validated = importSchema.safeParse(row);
         
-        if (!validated.success) {
+        if (!validated.success || !validated.data.code) {
             skippedCount++;
             continue;
         }
@@ -213,14 +229,15 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        const stockUnits = unitOfMeasure === 'kg' ? validData['Stock Kg'] : validData['Stock Unita'];
+        const stockKg = validData['Stock Kg'] ?? 0;
+        const stockUnits = unitOfMeasure === 'kg' ? stockKg : (validData['Stock Unita'] ?? 0);
 
         const initialBatch: RawMaterialBatch = {
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
             quantityUnits: stockUnits,
-            weightKg: validData['Stock Kg'],
+            weightKg: stockKg,
         };
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
@@ -235,7 +252,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 tipologia: validData.tipologia || '',
             },
             unitOfMeasure: unitOfMeasure,
-            conversionFactor: unitOfMeasure === 'kg' ? null : validData['Fattore Conversione'] || null,
+            conversionFactor: unitOfMeasure === 'kg' ? null : (validData['Fattore Conversione'] || null),
             currentStockUnits: initialBatch.quantityUnits,
             currentWeightKg: initialBatch.weightKg,
             batches: [initialBatch],
