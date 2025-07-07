@@ -3,6 +3,9 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
+import * as z from 'zod';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,6 +28,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +41,12 @@ import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
 import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs } from './actions';
+
+const odlFormSchema = z.object({
+    manualOdlNumber: z.string().optional(),
+});
+type OdlFormValues = z.infer<typeof odlFormSchema>;
+
 
 interface DataManagementClientPageProps {
   initialPlannedJobOrders: JobOrder[];
@@ -56,6 +67,13 @@ export default function DataManagementClientPage({
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
+  const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
+  
+  const form = useForm<OdlFormValues>({
+    resolver: zodResolver(odlFormSchema),
+  });
 
   const fetchPlannedJobOrders = useCallback(async () => {
     setPlannedJobOrders(await getPlannedJobOrders());
@@ -86,6 +104,7 @@ export default function DataManagementClientPage({
     const dataToExport = productionJobOrders.map(job => ({
         'Cliente': job.cliente,
         'Ordine PF': job.ordinePF,
+        'N° ODL Interno': job.numeroODLInterno,
         'Ordine Nr Est': job.numeroODL,
         'Codice': job.details,
         'Qta': job.qta,
@@ -128,16 +147,26 @@ export default function DataManagementClientPage({
     );
   };
   
-  const handleCreateOdl = async (jobId: string) => {
-    const result = await createODL(jobId);
+  const handleOpenCreateOdlDialog = (job: JobOrder) => {
+    setJobToProcess(job);
+    form.reset({ manualOdlNumber: '' });
+    setIsCreateOdlDialogOpen(true);
+  };
+
+  const onCreateOdlSubmit = async (data: OdlFormValues) => {
+    if (!jobToProcess) return;
+
+    const result = await createODL(jobToProcess.id, data.manualOdlNumber);
     toast({
       title: result.success ? "Operazione Riuscita" : "Errore",
       description: result.message,
       variant: result.success ? "default" : "destructive",
     });
+
     if (result.success) {
       fetchPlannedJobOrders();
       fetchProductionJobOrders();
+      setIsCreateOdlDialogOpen(false);
     }
   };
 
@@ -502,7 +531,7 @@ export default function DataManagementClientPage({
                           </TableCell>
                           <TableCell>{job.department}</TableCell>
                           <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => handleCreateOdl(job.id)}>
+                            <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
                               <FileText className="mr-2 h-4 w-4" />
                               Crea ODL
                             </Button>
@@ -581,6 +610,7 @@ export default function DataManagementClientPage({
                             </TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Ordine PF</TableHead>
+                            <TableHead>N° ODL Interno</TableHead>
                             <TableHead>Ordine Nr Est</TableHead>
                             <TableHead className="min-w-[200px]">Codice</TableHead>
                             <TableHead>Qta</TableHead>
@@ -601,6 +631,7 @@ export default function DataManagementClientPage({
                               </TableCell>
                               <TableCell>{job.cliente}</TableCell>
                               <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                              <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
                               <TableCell>{job.numeroODL}</TableCell>
                               <TableCell>{job.details}</TableCell>
                               <TableCell>{job.qta}</TableCell>
@@ -677,6 +708,39 @@ export default function DataManagementClientPage({
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Crea Ordine di Lavoro (ODL)</DialogTitle>
+                    <DialogDescription>
+                        Crea un ODL per la commessa <span className="font-bold">{jobToProcess?.id}</span>.
+                        Lascia il campo vuoto per generare un numero automatico, oppure inserisci un numero per forzarlo.
+                    </DialogDescription>
+                </DialogHeader>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onCreateOdlSubmit)} className="space-y-4 py-4">
+                        <FormField
+                            control={form.control}
+                            name="manualOdlNumber"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Numero ODL Manuale (Opzionale)</FormLabel>
+                                    <FormControl>
+                                        <Input type="number" placeholder="Es. 150" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <DialogFooter>
+                           <Button type="button" variant="outline" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button>
+                           <Button type="submit">Conferma e Crea ODL</Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
       </div>
   );
 }

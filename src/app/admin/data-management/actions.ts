@@ -260,10 +260,29 @@ export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; m
     return { success: true, message: `Tutte le ${deletedCount} commesse pianificate sono state eliminate.` };
 }
 
-export async function createODL(jobId: string): Promise<{ success: boolean; message: string }> {
+export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {
   const jobRef = doc(db, "jobOrders", jobId);
   
   try {
+    const now = new Date();
+    const year = now.getFullYear();
+    const shortYear = year.toString().slice(-2);
+
+    // If a manual ODL number is provided, perform a pre-transaction check for uniqueness.
+    if (manualOdlNumberStr && manualOdlNumberStr.trim() !== '') {
+      const manualOdlNumber = parseInt(manualOdlNumberStr, 10);
+      if (isNaN(manualOdlNumber) || manualOdlNumber <= 0) {
+        return { success: false, message: "Il numero ODL manuale fornito non è un numero valido." };
+      }
+      const manualOdlId = `${manualOdlNumber}/${shortYear}`;
+      
+      const q = query(collection(db, "jobOrders"), where("numeroODLInterno", "==", manualOdlId));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        return { success: false, message: `Errore: L'ODL ${manualOdlId} è già stato utilizzato.` };
+      }
+    }
+
     const newOdlData = await runTransaction(db, async (transaction) => {
       // 1. Get the current job data
       const docSnap = await transaction.get(jobRef);
@@ -277,26 +296,35 @@ export async function createODL(jobId: string): Promise<{ success: boolean; mess
         throw new Error(`La commessa ${jobId} non ha un ciclo di lavorazione associato. Impossibile creare ODL.`);
       }
 
-      // 3. Get and increment the counter for the current year
-      const now = new Date();
-      const year = now.getFullYear();
+      // 3. Get the counter for the current year
       const counterRef = doc(db, "counters", `odl_${year}`);
       const counterDoc = await transaction.get(counterRef);
-      
-      const newCounter = (counterDoc.data()?.value || 0) + 1;
-      const newOdlId = `${newCounter}/${year.toString().slice(-2)}`;
+      const currentCounter = counterDoc.data()?.value || 0;
+
+      let newOdlId: string;
+      let newCounterValue: number;
+
+      if (manualOdlNumberStr && manualOdlNumberStr.trim() !== '') {
+        newCounterValue = parseInt(manualOdlNumberStr, 10);
+        newOdlId = `${newCounterValue}/${shortYear}`;
+      } else {
+        newCounterValue = currentCounter + 1;
+        newOdlId = `${newCounterValue}/${shortYear}`;
+      }
       
       // 4. Prepare update data
       const dataToUpdate = {
         status: 'production' as const,
         odlCreationDate: Timestamp.fromDate(now),
         numeroODLInterno: newOdlId,
-        odlCounter: newCounter,
+        odlCounter: newCounterValue,
       };
       
       // 5. Perform writes within the transaction
       transaction.update(jobRef, dataToUpdate);
-      transaction.set(counterRef, { value: newCounter });
+      if (newCounterValue > currentCounter) {
+        transaction.set(counterRef, { value: newCounterValue });
+      }
       
       return { newOdlId };
     });
