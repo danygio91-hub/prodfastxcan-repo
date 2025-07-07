@@ -1,111 +1,130 @@
+
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import type { ActiveMaterialSessionData, MaterialSessionCategory, RawMaterialType } from '@/lib/mock-data';
 
-const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_session';
-
-export interface ActiveMaterialSessionData {
-    materialId: string;
-    materialCode: string;
-    openingWeight: number;
-    originatorJobId: string;
-    associatedJobs: { jobId: string; jobOrderPF: string }[];
-}
+const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_sessions'; // Pluralized
 
 interface ActiveMaterialSessionContextType {
-  activeSession: ActiveMaterialSessionData | null;
-  startSession: (sessionData: ActiveMaterialSessionData) => void;
+  activeSessions: ActiveMaterialSessionData[];
+  startSession: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
   addJobToSession: (job: { jobId: string; jobOrderPF: string }) => void;
-  clearSession: () => void;
+  closeSession: (materialId: string) => void;
+  getSessionForType: (type: RawMaterialType) => ActiveMaterialSessionData | undefined;
   isLoading: boolean;
 }
 
 const ActiveMaterialSessionContext = createContext<ActiveMaterialSessionContextType | undefined>(undefined);
 
+function getMaterialCategory(type: RawMaterialType): MaterialSessionCategory {
+  if (type === 'BOB' || type === 'PF3V0') return 'TRECCIA';
+  if (type === 'TUBI') return 'TUBI';
+  if (type === 'GUAINA') return 'GUAINA';
+  // Fallback for safety, though should ideally not be reached with proper checks
+  console.warn(`Unknown material type received for session category: ${type}`);
+  return 'TRECCIA';
+}
+
 export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNode }) => {
-  const [activeSession, setActiveSession] = useState<ActiveMaterialSessionData | null>(null);
+  const [activeSessions, setActiveSessions] = useState<ActiveMaterialSessionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const validateActiveSession = async () => {
+    const validateActiveSessions = async () => {
         try {
-            const storedSession = localStorage.getItem(ACTIVE_MATERIAL_SESSION_KEY);
-            if (storedSession) {
-                const parsedSession: ActiveMaterialSessionData = JSON.parse(storedSession);
+            const storedSessions = localStorage.getItem(ACTIVE_MATERIAL_SESSION_KEY);
+            if (storedSessions) {
+                const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
+                const validSessions: ActiveMaterialSessionData[] = [];
 
-                // A session is only valid if its originating job still exists.
-                if (parsedSession.originatorJobId) {
-                    const jobRef = doc(db, "jobOrders", parsedSession.originatorJobId);
-                    const docSnap = await getDoc(jobRef);
-
-                    if (docSnap.exists()) {
-                        setActiveSession(parsedSession);
-                    } else {
-                        // Originating job was deleted, so the session is invalid.
-                        localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
-                        setActiveSession(null);
+                for (const session of parsedSessions) {
+                    if (session.originatorJobId) {
+                        const jobRef = doc(db, "jobOrders", session.originatorJobId);
+                        const docSnap = await getDoc(jobRef);
+                        if (docSnap.exists()) {
+                            validSessions.push(session);
+                        }
                     }
-                } else {
-                    // Data is malformed, clear it
-                    localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
-                    setActiveSession(null);
                 }
+                setActiveSessions(validSessions);
             }
         } catch (error) {
-            console.error("Failed to load or validate active material session from localStorage", error);
+            console.error("Failed to load or validate active material sessions from localStorage", error);
             localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
-            setActiveSession(null);
+            setActiveSessions([]);
         } finally {
             setIsLoading(false);
         }
     };
-    validateActiveSession();
+    validateActiveSessions();
   }, []);
 
-  const persistSession = (session: ActiveMaterialSessionData | null) => {
+  const persistSessions = (sessions: ActiveMaterialSessionData[]) => {
     try {
-        if (session) {
-            localStorage.setItem(ACTIVE_MATERIAL_SESSION_KEY, JSON.stringify(session));
+        if (sessions.length > 0) {
+            localStorage.setItem(ACTIVE_MATERIAL_SESSION_KEY, JSON.stringify(sessions));
         } else {
             localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
         }
     } catch (error) {
-        console.error("Failed to save active material session to localStorage", error);
+        console.error("Failed to save active material sessions to localStorage", error);
     }
   }
 
-  const startSession = useCallback((sessionData: ActiveMaterialSessionData) => {
-    setActiveSession(sessionData);
-    persistSession(sessionData);
-  }, []);
-
-  const addJobToSession = useCallback((job: { jobId: string; jobOrderPF: string }) => {
-    setActiveSession(prevSession => {
-        if (!prevSession) return null;
-        
-        // Avoid adding duplicates
-        if (prevSession.associatedJobs.some(j => j.jobId === job.jobId)) {
-            return prevSession;
+  const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
+    const category = getMaterialCategory(type);
+    
+    setActiveSessions(prevSessions => {
+        const categoryExists = prevSessions.some(s => s.category === category);
+        if (categoryExists) {
+            // This should be caught earlier in the UI, but as a safeguard:
+            throw new Error(`Una sessione per la categoria '${category}' è già attiva.`);
         }
-
-        const updatedSession = {
-            ...prevSession,
-            associatedJobs: [...prevSession.associatedJobs, job],
-        };
-        persistSession(updatedSession);
-        return updatedSession;
+        
+        const newSession: ActiveMaterialSessionData = { ...sessionData, category };
+        const updatedSessions = [...prevSessions, newSession];
+        persistSessions(updatedSessions);
+        return updatedSessions;
     });
   }, []);
 
-  const clearSession = useCallback(() => {
-    setActiveSession(null);
-    persistSession(null);
+  const addJobToSession = useCallback((job: { jobId: string; jobOrderPF: string }) => {
+    setActiveSessions(prevSessions => {
+        if (prevSessions.length === 0) return prevSessions;
+        
+        const updatedSessions = prevSessions.map(session => {
+            if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
+                return session; // Job already associated
+            }
+            return {
+                ...session,
+                associatedJobs: [...session.associatedJobs, job],
+            };
+        });
+        persistSessions(updatedSessions);
+        return updatedSessions;
+    });
   }, []);
 
+  const closeSession = useCallback((materialId: string) => {
+    setActiveSessions(prevSessions => {
+        const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
+        persistSessions(updatedSessions);
+        return updatedSessions;
+    });
+  }, []);
+
+  const getSessionForType = useCallback((type: RawMaterialType): ActiveMaterialSessionData | undefined => {
+    const category = getMaterialCategory(type);
+    return activeSessions.find(s => s.category === category);
+  }, [activeSessions]);
+
+
   return (
-    <ActiveMaterialSessionContext.Provider value={{ activeSession, startSession, addJobToSession, clearSession, isLoading }}>
+    <ActiveMaterialSessionContext.Provider value={{ activeSessions, startSession, addJobToSession, closeSession, getSessionForType, isLoading }}>
       {children}
     </ActiveMaterialSessionContext.Provider>
   );

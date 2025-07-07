@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -30,7 +31,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob } from './actions';
 import { getRawMaterialByCode, searchRawMaterials } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
@@ -90,7 +91,7 @@ export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
   const { activeJob: activeJobOrder, setActiveJob: setActiveJobOrder, isLoading: isJobLoading } = useActiveJob();
-  const { activeSession, startSession, addJobToSession, clearSession } = useActiveMaterialSession();
+  const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -149,8 +150,8 @@ export default function ScanJobPage() {
         if (activeJobOrder.status === 'completed') {
           setStep('finished');
         } else {
-          if (activeSession && !activeSession.associatedJobs.some(j => j.jobId === activeJobOrder.id)) {
-            addJobToSession({ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF });
+          if (activeSessions.length > 0 && !activeSessions.every(s => s.associatedJobs.some(j => j.jobId === activeJobOrder.id))) {
+              addJobToSession({ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF });
           }
           setStep('processing');
         }
@@ -160,7 +161,7 @@ export default function ScanJobPage() {
     } else {
       setStep('loading');
     }
-  }, [isJobLoading, activeJobOrder, activeSession, addJobToSession]);
+  }, [isJobLoading, activeJobOrder, activeSessions, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder | null) => {
     setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
@@ -339,12 +340,18 @@ export default function ScanJobPage() {
       
       const phaseType = phaseToStart.type || 'production';
 
-      if (phaseType === 'preparation' && activeSession) {
-          phaseToStart.materialConsumption = {
-              materialId: activeSession.materialId,
-              materialCode: activeSession.materialCode,
-              openingWeight: activeSession.openingWeight,
-          };
+      if (phaseType === 'preparation') {
+        const materialTypeForPhase = phaseToStart.allowedMaterialTypes?.[0]; // Get the first allowed type to find session
+        if (materialTypeForPhase) {
+            const relevantSession = getSessionForType(materialTypeForPhase);
+            if(relevantSession) {
+                phaseToStart.materialConsumption = {
+                    materialId: relevantSession.materialId,
+                    materialCode: relevantSession.materialCode,
+                    openingWeight: relevantSession.openingWeight,
+                };
+            }
+        }
       }
 
       if (phaseType === 'production' && !phaseToStart.materialReady) {
@@ -504,9 +511,13 @@ export default function ScanJobPage() {
     const completedPhaseType = phaseToComplete.type || 'production';
 
     if (completedPhaseType === 'preparation' && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
-        setJobToFinalize(jobToUpdate);
-        setIsContinueOrCloseDialogOpen(true);
-        return; // Exit, let the dialog handle the rest
+        const materialTypeForPhase = phaseToComplete.allowedMaterialTypes?.[0];
+        const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
+        if (relevantSession) {
+            setJobToFinalize(jobToUpdate);
+            setIsContinueOrCloseDialogOpen(true);
+            return; // Exit, let the dialog handle the rest
+        }
     }
 
     if (completedPhaseType === 'production') {
@@ -523,10 +534,14 @@ export default function ScanJobPage() {
   };
 
   const handleContinueWithMaterial = () => {
-    if (!jobToFinalize || !activeSession) return;
+    if (!jobToFinalize) return;
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
+    const materialTypeForPhase = phaseThatTriggered?.allowedMaterialTypes?.[0];
+    const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
+
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobOrder(null); // Clear current job to scan a new one
-    toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${activeSession.materialCode} rimane attiva.` });
+    toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
     setJobToFinalize(null);
     setIsContinueOrCloseDialogOpen(false);
   };
@@ -592,7 +607,7 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobOrder(null);
-    clearSession();
+    activeSessions.forEach(s => closeSession(s.materialId));
     setPhaseForPhaseScan(null);
     setStep('initial');
   }
@@ -618,14 +633,27 @@ export default function ScanJobPage() {
     }
     toast({ title: "Ricerca materia prima..." });
     const result = await getRawMaterialByCode(trimmedCode);
+
     if ('error' in result) {
-      toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-      setScannedMaterialForPhase(null);
-    } else {
-      setScannedMaterialForPhase(result);
-      setMaterialScanStep('form');
+        toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+        setScannedMaterialForPhase(null);
+        return;
     }
-  }, [stopCamera, toast]);
+
+    if (phaseForMaterialScan?.allowedMaterialTypes && !phaseForMaterialScan.allowedMaterialTypes.includes(result.type)) {
+        toast({
+            variant: 'destructive',
+            title: "Tipo Materiale Errato",
+            description: `Questa fase accetta solo tipi: ${phaseForMaterialScan.allowedMaterialTypes.join(', ')}. Scansionato: ${result.type}.`
+        });
+        setScannedMaterialForPhase(null);
+        return;
+    }
+    
+    setScannedMaterialForPhase(result);
+    setMaterialScanStep('form');
+
+  }, [stopCamera, toast, phaseForMaterialScan]);
 
   const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
     if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase) return;
@@ -640,17 +668,24 @@ export default function ScanJobPage() {
             openingWeight: values.openingWeight,
             lottoBobina: values.lottoBobina,
         };
-        phaseToUpdate.materialConsumption = materialConsumptionData;
 
-        // Start a new material session
-        startSession({
-            ...materialConsumptionData,
-            originatorJobId: activeJobOrder.id,
-            associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
-        });
+        try {
+            startSession({
+                ...materialConsumptionData,
+                originatorJobId: activeJobOrder.id,
+                associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
+            }, scannedMaterialForPhase.type);
+            
+            // This is a temporary association, it will be finalized when the phase starts
+            // to link it to the correct session via getSessionForType.
+            // phaseToUpdate.materialConsumption = materialConsumptionData; 
+            
+            handleUpdateAndPersistJob(jobToUpdate);
+            toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
 
-        handleUpdateAndPersistJob(jobToUpdate);
-        toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Errore Sessione', description: error instanceof Error ? error.message : "Impossibile avviare la sessione." });
+        }
     }
     setIsMaterialScanDialogOpen(false);
   };
@@ -1009,7 +1044,9 @@ export default function ScanJobPage() {
             }
           }
 
-          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && (!!phase.materialConsumption || !!activeSession));
+          const materialTypeForPhase = phase.allowedMaterialTypes?.[0];
+          const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
+          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && (!!phase.materialConsumption || !!relevantSession));
           
           const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
           const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherPhaseActiveOrPaused;
@@ -1017,7 +1054,7 @@ export default function ScanJobPage() {
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
-          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption && !activeSession;
+          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption && !relevantSession;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1336,27 +1373,34 @@ export default function ScanJobPage() {
     </Dialog>
   );
 
-  const renderContinueOrCloseDialog = () => (
-    <AlertDialog open={isContinueOrCloseDialogOpen} onOpenChange={setIsContinueOrCloseDialogOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Lavorazione per questa commessa completata</AlertDialogTitle>
-          <AlertDialogDescription>
-            Vuoi continuare a lavorare con il materiale <span className="font-bold">{activeSession?.materialCode}</span> su un'altra commessa, oppure hai terminato e vuoi registrare la chiusura finale del materiale?
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
-          <AlertDialogAction onClick={handleContinueWithMaterial}>
-            Lavora su altra Commessa
-          </AlertDialogAction>
-          <AlertDialogAction onClick={handleRequestMaterialClosure} className="bg-destructive hover:bg-destructive/90">
-            Registra Chiusura Materiale
-          </AlertDialogAction>
-          <AlertDialogCancel>Annulla</AlertDialogCancel>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
+  const renderContinueOrCloseDialog = () => {
+    if (!jobToFinalize) return null;
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
+    const materialTypeForPhase = phaseThatTriggered?.allowedMaterialTypes?.[0];
+    const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
+
+    return (
+        <AlertDialog open={isContinueOrCloseDialogOpen} onOpenChange={setIsContinueOrCloseDialogOpen}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+            <AlertDialogTitle>Lavorazione per questa commessa completata</AlertDialogTitle>
+            <AlertDialogDescription>
+                Vuoi continuare a lavorare con il materiale <span className="font-bold">{relevantSession?.materialCode}</span> su un'altra commessa, oppure hai terminato e vuoi registrare la chiusura finale del materiale?
+            </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            <AlertDialogAction onClick={handleContinueWithMaterial}>
+                Lavora su altra Commessa
+            </AlertDialogAction>
+            <AlertDialogAction onClick={handleRequestMaterialClosure} className="bg-destructive hover:bg-destructive/90">
+                Registra Chiusura Materiale
+            </AlertDialogAction>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+        </AlertDialog>
+    );
+  };
 
 
   return (
