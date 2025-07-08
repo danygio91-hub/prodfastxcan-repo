@@ -249,6 +249,7 @@ export default function DataManagementClientPage({
           'ordine nr est': 'numeroODL',
           'codice': 'details',
           'qta': 'qta',
+          'data consegna': 'dataConsegnaFinale',
           'data consegna prevista': 'dataConsegnaFinale',
           'reparto': 'department',
           'ciclo': 'workCycleName'
@@ -271,34 +272,47 @@ export default function DataManagementClientPage({
               return null;
             }
             
-            if (typeof normalizedRow.dataConsegnaFinale === 'number') {
-                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                const jsTimestamp = excelEpoch.getTime() + normalizedRow.dataConsegnaFinale * 86400 * 1000;
-                const date = new Date(jsTimestamp);
-                if (isValid(date)) {
-                    const timezoneOffset = date.getTimezoneOffset() * 60000;
-                    const adjustedDate = new Date(date.getTime() + timezoneOffset);
-                    normalizedRow.dataConsegnaFinale = format(adjustedDate, 'yyyy-MM-dd');
-                } else {
-                     delete normalizedRow.dataConsegnaFinale;
-                }
-            } else if (typeof normalizedRow.dataConsegnaFinale === 'string') {
-                const dateString = String(normalizedRow.dataConsegnaFinale).trim();
-                const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'M/d/yy'];
-                let parsedDate: Date | null = null;
-                for (const fmt of formatsToTry) {
-                    const tempDate = parse(dateString, fmt, new Date());
-                    if (isValid(tempDate)) {
-                        parsedDate = tempDate;
-                        break;
+            // --- Robust Date Parsing ---
+            const rawDate = normalizedRow.dataConsegnaFinale;
+            let parsedDate: Date | null = null;
+
+            if (rawDate) {
+                if (typeof rawDate === 'number') {
+                    // Handle Excel's numeric date format
+                    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                    const jsTimestamp = excelEpoch.getTime() + rawDate * 86400 * 1000;
+                    const date = new Date(jsTimestamp);
+                    
+                    if (isValid(date)) {
+                        const timezoneOffset = date.getTimezoneOffset() * 60000;
+                        parsedDate = new Date(date.getTime() + timezoneOffset);
+                    }
+                } else if (typeof rawDate === 'string') {
+                    // Handle various string date formats
+                    const dateString = String(rawDate).trim();
+                    const formatsToTry = [
+                        'dd/MM/yyyy', 'd/M/yyyy', 
+                        'dd-MM-yyyy', 'd-M-yyyy', 
+                        'yyyy-MM-dd', 'yyyy/MM/dd',
+                        'MM/dd/yyyy', 'M/d/yyyy',
+                        'MM-dd-yyyy', 'M-d-yyyy',
+                    ];
+                    for (const fmt of formatsToTry) {
+                        const tempDate = parse(dateString, fmt, new Date());
+                        if (isValid(tempDate)) {
+                            parsedDate = tempDate;
+                            break;
+                        }
                     }
                 }
-                 if (parsedDate && isValid(parsedDate)) {
-                    normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
-                } else {
-                    delete normalizedRow.dataConsegnaFinale;
-                }
             }
+            
+            if (parsedDate && isValid(parsedDate)) {
+                normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
+            } else {
+                delete normalizedRow.dataConsegnaFinale;
+            }
+            // --- End Robust Date Parsing ---
 
             return normalizedRow;
         }).filter(Boolean);
