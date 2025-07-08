@@ -8,18 +8,22 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getJobDetailReport } from '../actions';
 import { notFound } from 'next/navigation';
-import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert } from 'lucide-react';
+import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle } from 'lucide-react';
 import type { JobPhase } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-function getPhaseIcon(status: JobPhase['status']) {
+function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
+  if (status === 'completed') {
+    if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    if (qualityResult === 'failed') return <XCircle className="h-4 w-4 text-destructive" />;
+    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  }
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
     case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
     case 'paused': return <Hourglass className="h-4 w-4 text-orange-500" />;
-    case 'completed': return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
   }
 }
@@ -111,6 +115,7 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                         <TableRow>
                           <TableHead>Fase</TableHead>
                           <TableHead>Stato</TableHead>
+                          <TableHead>Esito</TableHead>
                           <TableHead>Tempo Impiegato</TableHead>
                           <TableHead>Operatori</TableHead>
                         </TableRow>
@@ -121,16 +126,20 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                             <TableCell className="font-medium">{phase.name}</TableCell>
                             <TableCell>
                                 <div className="flex items-center gap-2">
-                                    {getPhaseIcon(phase.status)}
+                                    {getPhaseIcon(phase.status, phase.qualityResult)}
                                     <span>{phase.status.charAt(0).toUpperCase() + phase.status.slice(1)}</span>
                                 </div>
+                            </TableCell>
+                            <TableCell>
+                                {phase.qualityResult === 'passed' && <Badge className="bg-green-600 hover:bg-green-700">Superato</Badge>}
+                                {phase.qualityResult === 'failed' && <Badge variant="destructive">Fallito</Badge>}
                             </TableCell>
                             <TableCell>{phase.timeElapsed}</TableCell>
                             <TableCell>{phase.operators}</TableCell>
                           </TableRow>
                         )) : (
                              <TableRow>
-                                <TableCell colSpan={4} className="text-center h-24">Nessuna fase definita per questa commessa.</TableCell>
+                                <TableCell colSpan={5} className="text-center h-24">Nessuna fase definita per questa commessa.</TableCell>
                             </TableRow>
                         )}
                       </TableBody>

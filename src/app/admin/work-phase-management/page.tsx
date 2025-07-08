@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useTransition } from 'react';
@@ -33,7 +34,7 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
-  type: z.enum(['preparation', 'production'], { required_error: 'Specificare il tipo di fase' }),
+  type: z.enum(['preparation', 'production', 'quality'], { required_error: 'Specificare il tipo di fase' }),
   requiresMaterialScan: z.boolean().default(false).optional(),
 });
 
@@ -95,7 +96,7 @@ export default function AdminWorkPhaseManagementPage() {
     formData.append('description', values.description);
     values.departmentCodes.forEach(code => formData.append('departmentCodes', code));
     formData.append('type', values.type);
-    if (values.requiresMaterialScan) {
+    if (values.type !== 'quality' && values.requiresMaterialScan) {
       formData.append('requiresMaterialScan', 'on');
     }
 
@@ -300,8 +301,8 @@ export default function AdminWorkPhaseManagementPage() {
                           </TableCell>
                           <TableCell className="font-medium">{phase.name}</TableCell>
                            <TableCell>
-                            <Badge variant={phase.type === 'production' ? 'default' : 'secondary'}>
-                              {phase.type === 'production' ? 'Produzione' : 'Preparazione'}
+                            <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : 'outline'}>
+                              {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : 'Preparazione'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-center">
@@ -390,20 +391,16 @@ export default function AdminWorkPhaseManagementPage() {
                             className="flex flex-col space-y-1"
                         >
                             <FormItem className="flex items-center space-x-3 space-y-0">
-                            <FormControl>
-                                <RadioGroupItem value="production" />
-                            </FormControl>
-                            <FormLabel className="font-normal">
-                                Produzione (sequenziale)
-                            </FormLabel>
+                                <FormControl><RadioGroupItem value="production" /></FormControl>
+                                <FormLabel className="font-normal">Produzione (sequenziale)</FormLabel>
                             </FormItem>
                             <FormItem className="flex items-center space-x-3 space-y-0">
-                            <FormControl>
-                                <RadioGroupItem value="preparation" />
-                            </FormControl>
-                            <FormLabel className="font-normal">
-                                Preparazione (indipendente)
-                            </FormLabel>
+                                <FormControl><RadioGroupItem value="preparation" /></FormControl>
+                                <FormLabel className="font-normal">Preparazione (indipendente)</FormLabel>
+                            </FormItem>
+                            <FormItem className="flex items-center space-x-3 space-y-0">
+                                <FormControl><RadioGroupItem value="quality" /></FormControl>
+                                <FormLabel className="font-normal">Controllo Qualità (senza tempo)</FormLabel>
                             </FormItem>
                         </RadioGroup>
                         </FormControl>
@@ -411,28 +408,30 @@ export default function AdminWorkPhaseManagementPage() {
                     </FormItem>
                     )}
                 />
-                <FormField
-                    control={form.control}
-                    name="requiresMaterialScan"
-                    render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                        <FormLabel className="text-base">
-                            Richiede Scansione Materiale
-                        </FormLabel>
-                        <FormDescription>
-                            Se attiva, l'operatore dovrà scansionare un materiale per avviare questa fase.
-                        </FormDescription>
-                        </div>
-                        <FormControl>
-                        <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                        />
-                        </FormControl>
-                    </FormItem>
-                    )}
-                />
+                {form.watch('type') !== 'quality' && (
+                  <FormField
+                      control={form.control}
+                      name="requiresMaterialScan"
+                      render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                          <FormLabel className="text-base">
+                              Richiede Scansione Materiale
+                          </FormLabel>
+                          <FormDescription>
+                              Se attiva, l'operatore dovrà scansionare un materiale per avviare questa fase.
+                          </FormDescription>
+                          </div>
+                          <FormControl>
+                          <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                          />
+                          </FormControl>
+                      </FormItem>
+                      )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="departmentCodes"

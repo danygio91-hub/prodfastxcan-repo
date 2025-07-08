@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -18,8 +19,8 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
-  type: z.enum(['preparation', 'production']),
-  requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()),
+  type: z.enum(['preparation', 'production', 'quality']),
+  requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
 });
 
 // --- Actions ---
@@ -71,7 +72,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         description,
         departmentCodes,
         type,
-        requiresMaterialScan,
+        requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
     };
 
     if (id) {
@@ -86,13 +87,14 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         const snapshot = await getDocs(templatesCol);
         
         let newSequence: number;
+        const sequences = snapshot.docs.map(doc => doc.data().sequence || 0);
 
-        if (type === 'production') {
-            const sequences = snapshot.docs.map(doc => doc.data().sequence || 0).filter(s => s >= 0);
-            newSequence = sequences.length > 0 ? Math.max(...sequences) + 1 : 1;
+        if (type === 'production' || type === 'quality') {
+            const prodSequences = sequences.filter(s => s >= 0);
+            newSequence = prodSequences.length > 0 ? Math.max(...prodSequences) + 1 : 1;
         } else { // preparation
-            const sequences = snapshot.docs.map(doc => doc.data().sequence || 0).filter(s => s < 0);
-            newSequence = sequences.length > 0 ? Math.min(...sequences) - 1 : -1;
+            const prepSequences = sequences.filter(s => s < 0);
+            newSequence = prepSequences.length > 0 ? Math.min(...prepSequences) - 1 : -1;
         }
 
         const newId = `phase-tpl-${Date.now()}`;
@@ -103,7 +105,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             description, 
             departmentCodes,
             type,
-            requiresMaterialScan: requiresMaterialScan || false,
+            requiresMaterialScan: dataToSave.requiresMaterialScan,
             sequence: newSequence,
         };
         await setDoc(phaseRef, newPhase);
