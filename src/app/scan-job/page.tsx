@@ -640,7 +640,7 @@ export default function ScanJobPage() {
         return;
     }
 
-    if (phaseForMaterialScan?.allowedMaterialTypes && !phaseForMaterialScan.allowedMaterialTypes.includes(result.type)) {
+    if (phaseForMaterialScan?.allowedMaterialTypes && phaseForMaterialScan.allowedMaterialTypes.length > 0 && !phaseForMaterialScan.allowedMaterialTypes.includes(result.type)) {
         toast({
             variant: 'destructive',
             title: "Tipo Materiale Errato",
