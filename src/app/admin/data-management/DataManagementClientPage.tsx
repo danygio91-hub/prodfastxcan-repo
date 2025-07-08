@@ -68,7 +68,6 @@ export default function DataManagementClientPage({
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
-  const [updatingCycleId, setUpdatingCycleId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -403,20 +402,6 @@ export default function DataManagementClientPage({
     }
   };
   
-  const handleCycleChange = async (jobId: string, newCycleId: string) => {
-    setUpdatingCycleId(jobId);
-    const result = await updateJobOrderCycle(jobId, newCycleId);
-    toast({
-      title: result.success ? "Operazione Riuscita" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-      fetchPlannedJobOrders();
-    }
-    setUpdatingCycleId(null);
-  };
-
   return (
       <div className="space-y-6">
         <AdminNavMenu />
@@ -544,7 +529,7 @@ export default function DataManagementClientPage({
                         <TableHead>Cliente</TableHead>
                         <TableHead>Ordine PF</TableHead>
                         <TableHead>Ordine Nr Est</TableHead>
-                        <TableHead className="min-w-[200px]">Codice</TableHead>
+                        <TableHead>Codice</TableHead>
                         <TableHead>Qta</TableHead>
                         <TableHead>Data Consegna</TableHead>
                         <TableHead>Reparto</TableHead>
@@ -571,32 +556,8 @@ export default function DataManagementClientPage({
                             {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
                           </TableCell>
                           <TableCell>{job.department}</TableCell>
-                           <TableCell className="w-[250px]">
-                            {updatingCycleId === job.id ? (
-                              <div className="flex items-center gap-2 text-sm">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span>Aggiornamento...</span>
-                              </div>
-                            ) : (
-                              <Select
-                                value={job.workCycleId || ''}
-                                onValueChange={(newCycleId) => handleCycleChange(job.id, newCycleId)}
-                                disabled={!workCycles || workCycles.length === 0}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Seleziona un ciclo...">
-                                    {job.workCycleId ? workCyclesMap.get(job.workCycleId) : "Nessun ciclo"}
-                                  </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {workCycles.map((cycle) => (
-                                    <SelectItem key={cycle.id} value={cycle.id}>
-                                      {cycle.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            )}
+                           <TableCell>
+                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
                           </TableCell>
                           <TableCell>
                             <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
@@ -680,7 +641,7 @@ export default function DataManagementClientPage({
                             <TableHead>Ordine PF</TableHead>
                             <TableHead>N° ODL Interno</TableHead>
                             <TableHead>Ordine Nr Est</TableHead>
-                            <TableHead className="min-w-[200px]">Codice</TableHead>
+                            <TableHead>Codice</TableHead>
                             <TableHead>Qta</TableHead>
                             <TableHead>Data Consegna</TableHead>
                             <TableHead>Reparto</TableHead>
