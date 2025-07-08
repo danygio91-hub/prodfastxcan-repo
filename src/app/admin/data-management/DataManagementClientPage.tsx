@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -35,12 +35,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle } from 'lucide-react';
-import { type JobOrder, type Reparto } from '@/lib/mock-data';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge } from 'lucide-react';
+import { type JobOrder, type Reparto, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle } from './actions';
 
 const odlFormSchema = z.object({
     manualOdlNumber: z.string().optional(),
@@ -52,12 +53,14 @@ interface DataManagementClientPageProps {
   initialPlannedJobOrders: JobOrder[];
   initialProductionJobOrders: JobOrder[];
   departmentMap: { [key in Reparto]?: string };
+  workCycles: WorkCycle[];
 }
 
 export default function DataManagementClientPage({
   initialPlannedJobOrders,
   initialProductionJobOrders,
   departmentMap,
+  workCycles,
 }: DataManagementClientPageProps) {
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
@@ -65,6 +68,7 @@ export default function DataManagementClientPage({
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
+  const [updatingCycleId, setUpdatingCycleId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -74,6 +78,14 @@ export default function DataManagementClientPage({
   const form = useForm<OdlFormValues>({
     resolver: zodResolver(odlFormSchema),
   });
+
+  const workCyclesMap = useMemo(() => {
+    const map = new Map<string, string>();
+    workCycles.forEach(cycle => {
+      map.set(cycle.id, cycle.name);
+    });
+    return map;
+  }, [workCycles]);
 
   const fetchPlannedJobOrders = useCallback(async () => {
     setPlannedJobOrders(await getPlannedJobOrders());
@@ -92,7 +104,7 @@ export default function DataManagementClientPage({
         'Qta': job.qta,
         'Data Consegna': job.dataConsegnaFinale,
         'Reparto': job.department,
-        'Ciclo': job.workCycleId,
+        'Ciclo': job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D',
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -110,7 +122,7 @@ export default function DataManagementClientPage({
         'Qta': job.qta,
         'Data Consegna': job.dataConsegnaFinale,
         'Reparto': job.department,
-        'Ciclo': job.workCycleId,
+        'Ciclo': job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D',
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -390,6 +402,20 @@ export default function DataManagementClientPage({
       toast({ variant: "destructive", title: "Errore", description: result.message });
     }
   };
+  
+  const handleCycleChange = async (jobId: string, newCycleId: string) => {
+    setUpdatingCycleId(jobId);
+    const result = await updateJobOrderCycle(jobId, newCycleId);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      fetchPlannedJobOrders();
+    }
+    setUpdatingCycleId(null);
+  };
 
   return (
       <div className="space-y-6">
@@ -520,8 +546,9 @@ export default function DataManagementClientPage({
                         <TableHead>Ordine Nr Est</TableHead>
                         <TableHead className="min-w-[200px]">Codice</TableHead>
                         <TableHead>Qta</TableHead>
-                        <TableHead>Data Consegna prevista</TableHead>
+                        <TableHead>Data Consegna</TableHead>
                         <TableHead>Reparto</TableHead>
+                        <TableHead>Ciclo</TableHead>
                         <TableHead>Azioni</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -544,6 +571,33 @@ export default function DataManagementClientPage({
                             {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
                           </TableCell>
                           <TableCell>{job.department}</TableCell>
+                           <TableCell className="w-[250px]">
+                            {updatingCycleId === job.id ? (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span>Aggiornamento...</span>
+                              </div>
+                            ) : (
+                              <Select
+                                value={job.workCycleId || ''}
+                                onValueChange={(newCycleId) => handleCycleChange(job.id, newCycleId)}
+                                disabled={!workCycles || workCycles.length === 0}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Seleziona un ciclo...">
+                                    {job.workCycleId ? workCyclesMap.get(job.workCycleId) : "Nessun ciclo"}
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {workCycles.map((cycle) => (
+                                    <SelectItem key={cycle.id} value={cycle.id}>
+                                      {cycle.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
                               <FileText className="mr-2 h-4 w-4" />

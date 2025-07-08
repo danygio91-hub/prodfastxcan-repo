@@ -1,5 +1,5 @@
 
-import { getPlannedJobOrders, getProductionJobOrders } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
 import { getDepartmentMap } from '@/app/admin/settings/actions';
 import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
@@ -11,6 +11,7 @@ export default async function AdminDataManagementCommessePage() {
   const plannedJobOrders = await getPlannedJobOrders();
   const productionJobOrders = await getProductionJobOrders();
   const departmentMap = await getDepartmentMap();
+  const workCycles = await getWorkCycles();
 
   return (
     <AdminAuthGuard>
@@ -19,6 +20,7 @@ export default async function AdminDataManagementCommessePage() {
           initialPlannedJobOrders={plannedJobOrders}
           initialProductionJobOrders={productionJobOrders}
           departmentMap={departmentMap}
+          workCycles={workCycles}
         />
       </AppShell>
     </AdminAuthGuard>

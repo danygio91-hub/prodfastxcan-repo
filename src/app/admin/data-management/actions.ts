@@ -49,23 +49,31 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     if (!phaseTemplateIds || phaseTemplateIds.length === 0) {
         return [];
     }
+    
+    const templatesQuery = query(collection(db, "workPhaseTemplates"));
+    const templatesSnap = await getDocs(templatesQuery);
+    const allTemplates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
+    const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
 
-    const templatesRef = collection(db, "workPhaseTemplates");
-    const q = query(templatesRef, where("id", "in", phaseTemplateIds));
-    const templatesSnap = await getDocs(q);
-    const templates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
+    const phases: JobPhase[] = phaseTemplateIds.map(templateId => {
+        const template = allTemplatesMap.get(templateId);
+        if (!template) return null;
 
-    const phases: JobPhase[] = templates.map(template => ({
-        id: template.id,
-        name: template.name,
-        status: 'pending',
-        materialReady: !(template.requiresMaterialScan),
-        workPeriods: [],
-        sequence: template.sequence,
-        type: template.type,
-        requiresMaterialScan: template.requiresMaterialScan,
-        materialConsumption: null,
-    }));
+        return {
+            id: template.id,
+            name: template.name,
+            status: 'pending',
+            materialReady: !(template.requiresMaterialScan),
+            workPeriods: [],
+            sequence: template.sequence,
+            type: template.type,
+            requiresMaterialScan: template.requiresMaterialScan,
+            allowedMaterialTypes: template.allowedMaterialTypes || [],
+            materialConsumption: null,
+            qualityResult: null,
+        };
+    }).filter((p): p is JobPhase => p !== null);
+
 
     // Ensure the first production phase is marked as materialReady if there are no preparation phases
     if (!phases.some(p => p.type === 'preparation')) {
@@ -478,4 +486,37 @@ export async function getWorkCycles(): Promise<WorkCycle[]> {
   const snapshot = await getDocs(cyclesCol);
   const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
   return list;
+}
+
+
+export async function updateJobOrderCycle(jobId: string, workCycleId: string): Promise<{ success: boolean; message: string; }> {
+    const jobRef = doc(db, "jobOrders", jobId);
+    const cycleRef = doc(db, "workCycles", workCycleId);
+
+    try {
+        const jobSnap = await getDoc(jobRef);
+        const cycleSnap = await getDoc(cycleRef);
+
+        if (!jobSnap.exists()) {
+            return { success: false, message: "Commessa non trovata." };
+        }
+        if (!cycleSnap.exists()) {
+            return { success: false, message: "Ciclo di lavorazione non trovato." };
+        }
+
+        const newPhases = await createPhasesFromCycle(workCycleId);
+
+        await updateDoc(jobRef, {
+            workCycleId: workCycleId,
+            phases: newPhases,
+        });
+
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'Ciclo di lavorazione aggiornato con successo.' };
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'aggiornamento del ciclo.";
+        console.error("Failed to update job order cycle:", error);
+        return { success: false, message: errorMessage };
+    }
 }
