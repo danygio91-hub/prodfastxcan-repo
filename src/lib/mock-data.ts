@@ -28,7 +28,7 @@ export interface JobPhase {
   type?: 'preparation' | 'production';
   requiresMaterialScan?: boolean;
   materialConsumption?: MaterialConsumption | null;
-  allowedMaterialTypes?: Array<RawMaterial['type']>;
+  allowedMaterialTypes?: Array<RawMaterialType>;
 }
 
 export interface JobOrder {
@@ -84,7 +84,7 @@ export interface WorkPhaseTemplate {
   sequence: number;
   type: 'preparation' | 'production';
   requiresMaterialScan?: boolean;
-  allowedMaterialTypes?: Array<RawMaterial['type']>;
+  allowedMaterialTypes?: Array<RawMaterialType>;
 }
 
 export interface Workstation {
