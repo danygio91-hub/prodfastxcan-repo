@@ -259,10 +259,15 @@ export default function LoginForm() {
                             <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
                             <CardDescription className="text-center">Inquadra il tuo QR code personale per accedere.</CardDescription>
                         </CardHeader>
-                        <CardContent className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                        <CardContent className="relative flex items-center justify-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                             <div className="absolute inset-0 bg-transparent flex items-center justify-center pointer-events-none">
-                                <div className="w-2/3 h-2/3 border-4 border-dashed border-primary/70 rounded-lg" />
+                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-2/3 h-2/3 relative">
+                                    <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                    <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                    <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                    <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                </div>
                              </div>
                              {!hasCameraPermission && (
                                 <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
