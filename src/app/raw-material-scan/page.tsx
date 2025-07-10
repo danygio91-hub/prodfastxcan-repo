@@ -197,7 +197,7 @@ export default function RawMaterialScanPage() {
                     await video.play();
                 }
 
-                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
                 
                 const detect = async () => {
                     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -402,17 +402,18 @@ export default function RawMaterialScanPage() {
                     {step === 'scanning' && (
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-center">Inquadra il QR Code</CardTitle>
-                                <CardDescription className="text-center">Posiziona il QR code della materia prima all'interno del riquadro.</CardDescription>
+                                <CardTitle className="text-center">Inquadra il Codice</CardTitle>
+                                <CardDescription className="text-center">Posiziona il QR code o il codice a barre all'interno del riquadro.</CardDescription>
                             </CardHeader>
-                            <CardContent className="relative flex items-center justify-center aspect-square bg-black rounded-lg overflow-hidden">
+                            <CardContent className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
                                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="w-2/3 h-2/3 relative">
-                                        <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                                        <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                                        <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                                        <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                    <div className="w-5/6 h-2/5 relative flex items-center justify-center">
+                                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                        <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
                                     </div>
                                 </div>
                             </CardContent>
