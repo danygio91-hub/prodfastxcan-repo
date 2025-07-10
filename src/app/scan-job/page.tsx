@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -93,6 +93,7 @@ export default function ScanJobPage() {
   const { activeJob: activeJobOrder, setActiveJob: setActiveJobOrder, isLoading: isJobLoading } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
+  const [isPending, startTransition] = useTransition();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const lottoVideoRef = useRef<HTMLVideoElement>(null);
@@ -164,7 +165,9 @@ export default function ScanJobPage() {
   }, [isJobLoading, activeJobOrder, activeSessions, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder | null) => {
-    setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
+    startTransition(() => {
+      setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
+    });
     if (updatedJob === null) return;
 
     const result = await updateJob(updatedJob);
@@ -176,7 +179,7 @@ export default function ScanJobPage() {
         });
         // Optionally revert state here if sync fails
     }
-  }, [setActiveJobOrder, toast]);
+  }, [setActiveJobOrder, toast, startTransition]);
   
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -999,7 +1002,7 @@ export default function ScanJobPage() {
         <CardFooter className="pt-4">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="w-full">
+                <Button variant="destructive" className="w-full" disabled={isPending}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Abbandona Commessa
                 </Button>
@@ -1107,19 +1110,19 @@ export default function ScanJobPage() {
               
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
-                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem}>
+                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending}>
                         <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
                     </Button>
                 )}
                  {canStartWithScan && (
-                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem}>
+                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
                 )}
                 {canForceStart && (
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem}>
+                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending}>
                                 <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
                             </Button>
                         </AlertDialogTrigger>
@@ -1140,17 +1143,17 @@ export default function ScanJobPage() {
                     </AlertDialog>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem}>
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending}>
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem}>
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={isJobBlockedByProblem && phase.status !== 'completed'}>
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
@@ -1203,7 +1206,7 @@ export default function ScanJobPage() {
           <Button 
             onClick={handleConcludeOverallJob} 
             className="w-full mt-4 bg-primary text-primary-foreground"
-            disabled={isJobBlockedByProblem}
+            disabled={isJobBlockedByProblem || isPending}
           >
             <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
           </Button>

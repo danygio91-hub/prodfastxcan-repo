@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes } from 'lucide-react';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2 } from 'lucide-react';
 import { getJobsReport, getOperatorsReport, getMaterialWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
@@ -53,9 +53,11 @@ export default function ReportsClientPage({
   initialOperatorsReport,
   initialWithdrawalsReport,
 }: ReportsClientPageProps) {
-  const [jobsReport, setJobsReport] = useState(initialJobsReport);
-  const [operatorsReport, setOperatorsReport] = useState(initialOperatorsReport);
-  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>(initialWithdrawalsReport);
+  const [jobsReport, setJobsReport] = useState<JobsReport>([]);
+  const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>([]);
+  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>([]);
+  
+  const [isLoading, setIsLoading] = useState(true);
   const [isPendingWithdrawals, startTransitionWithdrawals] = useTransition();
 
   const [date, setDate] = React.useState<DateRange | undefined>({
@@ -63,12 +65,35 @@ export default function ReportsClientPage({
     to: new Date(),
   });
 
-  // This useEffect remains to handle interactive date range changes
+  // Fetch all initial data on mount
   useEffect(() => {
+    async function fetchReports() {
+      setIsLoading(true);
+      const [jobs, operators, withdrawals] = await Promise.all([
+        getJobsReport(),
+        getOperatorsReport(),
+        getMaterialWithdrawals({ from: date?.from, to: date?.to }),
+      ]);
+      setJobsReport(jobs);
+      setOperatorsReport(operators);
+      setWithdrawalsReport(withdrawals);
+      setIsLoading(false);
+    }
+    fetchReports();
+    // We only want this to run once on mount, so we disable the exhaustive-deps warning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // This useEffect is now just for date changes for withdrawals
+  useEffect(() => {
+    // Prevent refetching on initial load as it's handled above
+    if (isLoading) return;
+
     startTransitionWithdrawals(() => {
         getMaterialWithdrawals({ from: date?.from, to: date?.to }).then(setWithdrawalsReport);
-    })
-  }, [date]);
+    });
+  }, [date, isLoading]);
+
 
   const handleExportJobs = () => {
     const dataToExport = jobsReport.map(job => ({
@@ -114,6 +139,17 @@ export default function ReportsClientPage({
     XLSX.utils.book_append_sheet(wb, ws, "Report Prelievi");
     XLSX.writeFile(wb, "report_prelievi_magazzino.xlsx");
   };
+  
+  const renderLoadingRow = (colspan: number) => (
+    <TableRow>
+      <TableCell colSpan={colspan} className="h-24 text-center">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Caricamento report...</span>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
 
   return (
       <div className="space-y-6">
@@ -153,7 +189,7 @@ export default function ReportsClientPage({
                           <CardTitle>Riepilogo Lavorazioni per Commessa</CardTitle>
                           <CardDescription>Elenco delle commesse in lavorazione o completate.</CardDescription>
                       </div>
-                      <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
+                      <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={isLoading || jobsReport.length === 0}>
                           <Download className="mr-2 h-4 w-4" />
                           Esporta Excel
                       </Button>
@@ -173,7 +209,8 @@ export default function ReportsClientPage({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {jobsReport.length > 0 ? jobsReport.map((job) => (
+                      {isLoading ? renderLoadingRow(6) :
+                       jobsReport.length > 0 ? jobsReport.map((job) => (
                         <TableRow key={job.id}>
                           <TableCell className="font-medium">{job.id}</TableCell>
                           <TableCell>{job.details}</TableCell>
@@ -209,7 +246,7 @@ export default function ReportsClientPage({
                       <CardTitle>Riepilogo Ore per Operatore</CardTitle>
                       <CardDescription>Sommario delle ore di lavoro registrate dagli operatori.</CardDescription>
                   </div>
-                    <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
+                    <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={isLoading || operatorsReport.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Esporta Excel
                   </Button>
@@ -230,7 +267,8 @@ export default function ReportsClientPage({
                           </TableRow>
                       </TableHeader>
                       <TableBody>
-                          {operatorsReport.length > 0 ? operatorsReport.map((op) => (
+                        {isLoading ? renderLoadingRow(7) :
+                         operatorsReport.length > 0 ? operatorsReport.map((op) => (
                           <TableRow key={op.id}>
                               <TableCell className="font-medium">{op.name}</TableCell>
                               <TableCell>{op.department}</TableCell>
@@ -307,7 +345,7 @@ export default function ReportsClientPage({
                                       />
                                   </PopoverContent>
                               </Popover>
-                              <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={withdrawalsReport.length === 0}>
+                              <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || withdrawalsReport.length === 0}>
                                   <Download className="mr-2 h-4 w-4" />
                                   Scarica Prelievi
                               </Button>
@@ -327,9 +365,8 @@ export default function ReportsClientPage({
                                   </TableRow>
                               </TableHeader>
                               <TableBody>
-                                  {isPendingWithdrawals ? (
-                                      <TableRow><TableCell colSpan={5} className="h-24 text-center">Caricamento...</TableCell></TableRow>
-                                  ) : withdrawalsReport.length > 0 ? (
+                                  {isPendingWithdrawals ? renderLoadingRow(5) : 
+                                   withdrawalsReport.length > 0 ? (
                                       withdrawalsReport.map((w) => (
                                           <TableRow key={w.id}>
                                               <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>

@@ -51,8 +51,30 @@ export async function getJobsReport() {
     const jobsSnapshot = await getDocs(q);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
-    const operatorsSnapshot = await getDocs(collection(db, "operators"));
-    const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.id, doc.data() as Operator]));
+    // Collect all unique operator IDs from all jobs
+    const allOperatorIds = [...new Set(jobs.flatMap(job => 
+        (job.phases || []).flatMap(phase => 
+            (phase.workPeriods || []).map(wp => wp.operatorId)
+        )
+    ))];
+
+    const operatorsMap = new Map<string, Operator>();
+    if (allOperatorIds.length > 0) {
+        // Firestore 'in' query is limited to 30 elements. If there are more, we need to chunk the requests.
+        const chunks = [];
+        for (let i = 0; i < allOperatorIds.length; i += 30) {
+            chunks.push(allOperatorIds.slice(i, i + 30));
+        }
+
+        for (const chunk of chunks) {
+            const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
+            const operatorsSnapshot = await getDocs(operatorsQuery);
+            operatorsSnapshot.forEach(doc => {
+                operatorsMap.set(doc.id, doc.data() as Operator);
+            });
+        }
+    }
+
 
     return jobs.map(job => {
         const allWorkPeriods = job.phases.flatMap(p => p.workPeriods || []);
@@ -155,8 +177,24 @@ export async function getJobDetailReport(jobId: string) {
     
     const jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
 
-    const operatorsSnapshot = await getDocs(collection(db, "operators"));
-    const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.id, doc.data() as Operator]));
+    const operatorIds = [...new Set((jobDetail.phases || []).flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
+    const operatorsMap = new Map<string, Operator>();
+
+    if (operatorIds.length > 0) {
+        // Fetch only the needed operators
+        const chunks = [];
+        for (let i = 0; i < operatorIds.length; i += 30) {
+            chunks.push(operatorIds.slice(i, i + 30));
+        }
+        for (const chunk of chunks) {
+            const operatorsQuery = query(collection(db, "operators"), where('id', 'in', chunk));
+            const operatorsSnapshot = await getDocs(operatorsQuery);
+            operatorsSnapshot.forEach(doc => {
+                operatorsMap.set(doc.id, doc.data() as Operator);
+            });
+        }
+    }
+
 
     const phasesWithDetails = (jobDetail.phases || []).map(phase => {
         const timeElapsedMs = calculateTimeForPeriods(phase.workPeriods || []);
@@ -275,7 +313,7 @@ export async function getOperatorDetailReport(operatorId: string) {
     };
 }
 
-export async function getMaterialWithdrawals(dateRange?: { from: Date; to: Date }): Promise<MaterialWithdrawal[]> {
+export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Date }): Promise<MaterialWithdrawal[]> {
     const withdrawalsRef = collection(db, "materialWithdrawals");
     let q = query(withdrawalsRef);
 
