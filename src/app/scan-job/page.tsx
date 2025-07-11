@@ -364,7 +364,7 @@ export default function ScanJobPage() {
         }
       }
 
-      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
+      if (phaseType === 'production' && jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return;
       }
@@ -659,8 +659,6 @@ export default function ScanJobPage() {
         };
         startSession(sessionData, scannedMaterialForPhase.type);
         
-        // After starting the session, immediately update all pending preparation phases
-        // of the same category to reflect that material is now available.
         const materialType = scannedMaterialForPhase.type;
         jobToUpdate.phases.forEach((p: JobPhase) => {
             if (p.status === 'pending' && p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
@@ -1027,18 +1025,18 @@ export default function ScanJobPage() {
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
           const phaseType = phase.type || 'production';
-          const noOtherPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress' || p.status === 'paused'));
+          const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
           const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
           
           let canStartPhase = false;
           if (phaseType === 'preparation') {
-            canStartPhase = noOtherPhaseActiveOrPaused;
+            canStartPhase = true; // Preparation phases can start anytime if material is ready
           } else { // production
             if (phase.sequence === 1) {
-              canStartPhase = allPreparationPhasesCompleted && noOtherPhaseActiveOrPaused;
+              canStartPhase = allPreparationPhasesCompleted && noOtherProductionPhaseActiveOrPaused;
             } else {
               const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
-              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherPhaseActiveOrPaused;
+              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
             }
           }
 
@@ -1047,10 +1045,10 @@ export default function ScanJobPage() {
           const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && (!!phase.materialConsumption || !!relevantSession));
           
           const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
-          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherPhaseActiveOrPaused;
+          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherProductionPhaseActiveOrPaused;
 
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
-          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActiveOrPaused;
+          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || noOtherProductionPhaseActiveOrPaused);
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
           const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption && !relevantSession;
 
@@ -1073,10 +1071,10 @@ export default function ScanJobPage() {
                    <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
                    <Switch
                     id={`material-${phase.id}`}
-                    checked={phase.materialReady}
+                    checked={materialRequirementMet}
                     disabled={true} 
                   />
-                  {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
+                  {materialRequirementMet ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
               </div>
 
@@ -1458,3 +1456,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
