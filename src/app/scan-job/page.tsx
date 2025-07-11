@@ -343,20 +343,6 @@ export default function ScanJobPage() {
       
       const phaseType = phaseToStart.type || 'production';
 
-      if (phaseType === 'preparation') {
-        const materialTypeForPhase = phaseToStart.allowedMaterialTypes?.[0]; // Get the first allowed type to find session
-        if (materialTypeForPhase) {
-            const relevantSession = getSessionForType(materialTypeForPhase);
-            if(relevantSession) {
-                phaseToStart.materialConsumption = {
-                    materialId: relevantSession.materialId,
-                    materialCode: relevantSession.materialCode,
-                    openingWeight: relevantSession.openingWeight,
-                };
-            }
-        }
-      }
-
       if (phaseType === 'production' && !phaseToStart.materialReady) {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
@@ -662,34 +648,40 @@ export default function ScanJobPage() {
     if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
 
-    if (phaseToUpdate) {
-        const materialConsumptionData = {
+    try {
+        const sessionData = {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
             openingWeight: values.openingWeight,
-            lottoBobina: values.lottoBobina,
+            originatorJobId: activeJobOrder.id,
+            associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
         };
-
-        try {
-            startSession({
-                ...materialConsumptionData,
-                originatorJobId: activeJobOrder.id,
-                associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
-            }, scannedMaterialForPhase.type);
-            
-            // This is a temporary association, it will be finalized when the phase starts
-            // to link it to the correct session via getSessionForType.
-            // phaseToUpdate.materialConsumption = materialConsumptionData; 
-            
-            handleUpdateAndPersistJob(jobToUpdate);
-            toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
-
-        } catch (error) {
-            toast({ variant: 'destructive', title: 'Errore Sessione', description: error instanceof Error ? error.message : "Impossibile avviare la sessione." });
+        startSession(sessionData, scannedMaterialForPhase.type);
+        
+        // After starting the session, immediately update all pending preparation phases
+        // of the same category to reflect that material is now available.
+        const newSession = getSessionForType(scannedMaterialForPhase.type);
+        if (newSession) {
+            jobToUpdate.phases.forEach((p: JobPhase) => {
+                if (p.status === 'pending' && p.requiresMaterialScan && p.allowedMaterialTypes?.includes(scannedMaterialForPhase!.type)) {
+                    p.materialConsumption = {
+                        materialId: newSession.materialId,
+                        materialCode: newSession.materialCode,
+                        openingWeight: newSession.openingWeight,
+                        lottoBobina: values.lottoBobina,
+                    };
+                }
+            });
         }
+        
+        handleUpdateAndPersistJob(jobToUpdate);
+        toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
+
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Errore Sessione', description: error instanceof Error ? error.message : "Impossibile avviare la sessione." });
     }
+    
     setIsMaterialScanDialogOpen(false);
   };
 
