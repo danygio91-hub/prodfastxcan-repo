@@ -11,9 +11,6 @@ const withPWA = require('next-pwa')({
 
 const nextConfig = {
   /* config options here */
-  experimental: {
-    esmExternals: 'loose',
-  },
   images: {
     remotePatterns: [
       {
