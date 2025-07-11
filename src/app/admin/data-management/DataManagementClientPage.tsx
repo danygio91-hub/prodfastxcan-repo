@@ -41,29 +41,21 @@ import { type JobOrder, type Reparto, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle, getWorkCycles } from './actions';
+import { getDepartmentMap } from '@/app/admin/settings/actions';
 
 const odlFormSchema = z.object({
     manualOdlNumber: z.string().optional(),
 });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
 
+export default function DataManagementClientPage() {
+  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
+  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
+  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-interface DataManagementClientPageProps {
-  initialPlannedJobOrders: JobOrder[];
-  initialProductionJobOrders: JobOrder[];
-  departmentMap: { [key in Reparto]?: string };
-  workCycles: WorkCycle[];
-}
-
-export default function DataManagementClientPage({
-  initialPlannedJobOrders,
-  initialProductionJobOrders,
-  departmentMap,
-  workCycles,
-}: DataManagementClientPageProps) {
-  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
-  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
@@ -85,14 +77,34 @@ export default function DataManagementClientPage({
     });
     return map;
   }, [workCycles]);
+  
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+        const [planned, production, departments, cycles] = await Promise.all([
+            getPlannedJobOrders(),
+            getProductionJobOrders(),
+            getDepartmentMap(),
+            getWorkCycles(),
+        ]);
+        setPlannedJobOrders(planned);
+        setProductionJobOrders(production);
+        setDepartmentMap(departments);
+        setWorkCycles(cycles);
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Errore di Caricamento",
+            description: "Impossibile caricare i dati delle commesse.",
+        });
+    } finally {
+        setIsLoading(false);
+    }
+  }, [toast]);
 
-  const fetchPlannedJobOrders = useCallback(async () => {
-    setPlannedJobOrders(await getPlannedJobOrders());
-  }, []);
-
-  const fetchProductionJobOrders = useCallback(async () => {
-    setProductionJobOrders(await getProductionJobOrders());
-  }, []);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleExportPlanned = () => {
     const dataToExport = plannedJobOrders.map(job => ({
@@ -175,8 +187,7 @@ export default function DataManagementClientPage({
     });
 
     if (result.success) {
-      fetchPlannedJobOrders();
-      fetchProductionJobOrders();
+      fetchData();
       setIsCreateOdlDialogOpen(false);
     }
   };
@@ -189,8 +200,7 @@ export default function DataManagementClientPage({
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      fetchPlannedJobOrders();
-      fetchProductionJobOrders();
+      fetchData();
     }
   };
 
@@ -203,8 +213,7 @@ export default function DataManagementClientPage({
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchPlannedJobOrders();
-        fetchProductionJobOrders();
+        fetchData();
         setSelectedRows([]);
     }
   };
@@ -218,8 +227,7 @@ export default function DataManagementClientPage({
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchPlannedJobOrders();
-        fetchProductionJobOrders();
+        fetchData();
         setSelectedProductionRows([]);
     }
   };
@@ -346,7 +354,7 @@ export default function DataManagementClientPage({
                     title: "Importazione Completata",
                     description: commitResult.message,
                 });
-                fetchPlannedJobOrders();
+                fetchData();
             } else {
                  toast({ title: "Analisi File Completata", description: result.message });
             }
@@ -374,7 +382,7 @@ export default function DataManagementClientPage({
     } else {
         const result = await commitImportedJobOrders(dataToCommit);
         toast({ title: "Operazione Completata", description: result.message });
-        fetchPlannedJobOrders();
+        fetchData();
     }
     setPendingImport(null);
   };
@@ -384,7 +392,7 @@ export default function DataManagementClientPage({
     const result = await deleteSelectedJobOrders(selectedRows);
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchPlannedJobOrders();
+      fetchData();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
@@ -395,13 +403,20 @@ export default function DataManagementClientPage({
     const result = await deleteAllPlannedJobOrders();
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchPlannedJobOrders();
+      fetchData();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
     }
   };
   
+  const renderLoading = () => (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="ml-4 text-muted-foreground">Caricamento dati commesse...</p>
+    </div>
+  );
+
   return (
       <div className="space-y-6">
         <AdminNavMenu />
@@ -413,301 +428,303 @@ export default function DataManagementClientPage({
               accept=".xlsx, .xls"
               className="hidden"
             />
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
+            <Button onClick={handleImportClick} variant="outline" disabled={isImporting || isLoading}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa da Excel
             </Button>
         </div>
 
-        <Tabs defaultValue="planned" className="mt-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="planned">
-                <ListChecks className="mr-2 h-4 w-4" />
-                Commesse Pianificate
-            </TabsTrigger>
-            <TabsTrigger value="production">
-                <Briefcase className="mr-2 h-4 w-4" />
-                Commesse in Produzione
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="planned">
-              <Card className="shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div className="flex items-center space-x-3">
-                      <ListChecks className="h-8 w-8 text-primary" />
-                      <div>
-                      <CardTitle className="text-2xl font-headline mb-1">Gestione Dati Commesse</CardTitle>
-                      <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
-                      </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Esporta
-                    </Button>
-                    {selectedRows.length > 0 && (
-                      <>
-                        <AlertDialog>
+        {isLoading ? renderLoading() : (
+            <Tabs defaultValue="planned" className="mt-6">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="planned">
+                    <ListChecks className="mr-2 h-4 w-4" />
+                    Commesse Pianificate
+                </TabsTrigger>
+                <TabsTrigger value="production">
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    Commesse in Produzione
+                </TabsTrigger>
+            </TabsList>
+            <TabsContent value="planned">
+                <Card className="shadow-lg">
+                <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center space-x-3">
+                        <ListChecks className="h-8 w-8 text-primary" />
+                        <div>
+                        <CardTitle className="text-2xl font-headline mb-1">Gestione Dati Commesse</CardTitle>
+                        <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Esporta
+                        </Button>
+                        {selectedRows.length > 0 && (
+                        <>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="outline" size="sm">
+                                        <FileText className="mr-2 h-4 w-4" />
+                                        Crea ODL Selezionate ({selectedRows.length})
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                    <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
+                                    </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                            <AlertDialog>
                             <AlertDialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                    <FileText className="mr-2 h-4 w-4" />
-                                    Crea ODL Selezionate ({selectedRows.length})
+                                <Button variant="destructive" size="sm">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Elimina Selezionate ({selectedRows.length})
                                 </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                                 <AlertDialogHeader>
-                                <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
+                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
+                                    Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
                                 </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                 <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                                <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
-                        </AlertDialog>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm">
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Elimina Selezionate ({selectedRows.length})
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </>
-                    )}
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={plannedJobOrders.length === 0}>
-                            Svuota Elenco
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Questa azione non può essere annullata. Verranno eliminate tutte le {plannedJobOrders.length} commesse pianificate.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {plannedJobOrders.length > 0 ? (
-                  <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead padding="checkbox">
-                          <Checkbox
-                            checked={selectedRows.length > 0 && selectedRows.length === plannedJobOrders.length}
-                            onCheckedChange={handleSelectAll}
-                            aria-label="Seleziona tutte"
-                            indeterminate={selectedRows.length > 0 && selectedRows.length < plannedJobOrders.length}
-                          />
-                        </TableHead>
-                        <TableHead>Cliente</TableHead>
-                        <TableHead>Ordine PF</TableHead>
-                        <TableHead>Ordine Nr Est</TableHead>
-                        <TableHead>Codice</TableHead>
-                        <TableHead>Qta</TableHead>
-                        <TableHead>Data Consegna</TableHead>
-                        <TableHead>Reparto</TableHead>
-                        <TableHead>Ciclo</TableHead>
-                        <TableHead>Azioni</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {plannedJobOrders.map((job) => (
-                        <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={selectedRows.includes(job.id)}
-                              onCheckedChange={() => handleSelectRow(job.id)}
-                              aria-label={`Seleziona commessa ${job.id}`}
-                            />
-                          </TableCell>
-                          <TableCell>{job.cliente}</TableCell>
-                          <TableCell className="font-medium">{job.ordinePF}</TableCell>
-                          <TableCell>{job.numeroODL}</TableCell>
-                          <TableCell>{job.details}</TableCell>
-                          <TableCell>{job.qta}</TableCell>
-                          <TableCell>
-                            {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
-                          </TableCell>
-                          <TableCell>{job.department}</TableCell>
-                           <TableCell>
-                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
-                              <FileText className="mr-2 h-4 w-4" />
-                              Crea ODL
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-10 text-center">
-                    <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                    <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
-                    <p className="text-sm text-muted-foreground">
-                      Usa l'importazione da file Excel per iniziare.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="production">
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center space-x-3">
-                        <Briefcase className="h-8 w-8 text-primary" />
-                        <div>
-                        <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
-                        <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
-                          <Download className="mr-2 h-4 w-4" />
-                          Esporta
-                      </Button>
-                      {selectedProductionRows.length > 0 && (
+                            </AlertDialog>
+                        </>
+                        )}
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm">
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Annulla ODL Selezionati ({selectedProductionRows.length})
-                              </Button>
+                            <Button variant="outline" size="sm" disabled={plannedJobOrders.length === 0}>
+                                Svuota Elenco
+                            </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Sei sicuro di voler annullare gli ODL selezionati?</AlertDialogTitle>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Questa azione riporterà le {selectedProductionRows.length} commesse selezionate allo stato di "Pianificata".
+                                Questa azione non può essere annullata. Verranno eliminate tutte le {plannedJobOrders.length} commesse pianificate.
                                 </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
                                 <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleCancelSelectedOdls} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
-                              </AlertDialogFooter>
+                                <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
+                            </AlertDialogFooter>
                             </AlertDialogContent>
-                          </AlertDialog>
-                      )}
-                      </div>
-                  </div>
+                        </AlertDialog>
+                    </div>
+                    </div>
                 </CardHeader>
                 <CardContent>
-                  {productionJobOrders.length > 0 ? (
+                    {plannedJobOrders.length > 0 ? (
                     <div className="overflow-x-auto">
-                      <Table>
+                    <Table>
                         <TableHeader>
-                          <TableRow>
-                              <TableHead padding="checkbox">
-                              <Checkbox
-                                checked={selectedProductionRows.length > 0 && selectedProductionRows.length === productionJobOrders.length}
-                                onCheckedChange={handleSelectAllProduction}
+                        <TableRow>
+                            <TableHead padding="checkbox">
+                            <Checkbox
+                                checked={selectedRows.length > 0 && selectedRows.length === plannedJobOrders.length}
+                                onCheckedChange={handleSelectAll}
                                 aria-label="Seleziona tutte"
-                                indeterminate={selectedProductionRows.length > 0 && selectedProductionRows.length < productionJobOrders.length}
-                              />
+                                indeterminate={selectedRows.length > 0 && selectedRows.length < plannedJobOrders.length}
+                            />
                             </TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Ordine PF</TableHead>
-                            <TableHead>N° ODL Interno</TableHead>
                             <TableHead>Ordine Nr Est</TableHead>
                             <TableHead>Codice</TableHead>
                             <TableHead>Qta</TableHead>
                             <TableHead>Data Consegna</TableHead>
                             <TableHead>Reparto</TableHead>
+                            <TableHead>Ciclo</TableHead>
                             <TableHead>Azioni</TableHead>
-                          </TableRow>
+                        </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {productionJobOrders.map((job) => (
-                            <TableRow key={job.id} data-state={selectedProductionRows.includes(job.id) ? "selected" : undefined}>
-                                <TableCell padding="checkbox">
+                        {plannedJobOrders.map((job) => (
+                            <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
+                            <TableCell padding="checkbox">
                                 <Checkbox
-                                  checked={selectedProductionRows.includes(job.id)}
-                                  onCheckedChange={() => handleSelectProductionRow(job.id)}
-                                  aria-label={`Seleziona commessa ${job.id}`}
+                                checked={selectedRows.includes(job.id)}
+                                onCheckedChange={() => handleSelectRow(job.id)}
+                                aria-label={`Seleziona commessa ${job.id}`}
                                 />
-                              </TableCell>
-                              <TableCell>{job.cliente}</TableCell>
-                              <TableCell className="font-medium">{job.ordinePF}</TableCell>
-                              <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
-                              <TableCell>{job.numeroODL}</TableCell>
-                              <TableCell>{job.details}</TableCell>
-                              <TableCell>{job.qta}</TableCell>
-                              <TableCell>
+                            </TableCell>
+                            <TableCell>{job.cliente}</TableCell>
+                            <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                            <TableCell>{job.numeroODL}</TableCell>
+                            <TableCell>{job.details}</TableCell>
+                            <TableCell>{job.qta}</TableCell>
+                            <TableCell>
                                 {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
-                              </TableCell>
-                              <TableCell>{job.department}</TableCell>
-                              <TableCell>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm">
-                                      <XCircle className="mr-2 h-4 w-4" />
-                                      Annulla ODL
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei sicuro di voler annullare l'ODL?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Questa azione riporterà la commessa '{job.id}' allo stato di "Pianificata" e la rimuoverà dalla Console di Produzione.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => handleCancelOdl(job.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </TableCell>
+                            </TableCell>
+                            <TableCell>{job.department}</TableCell>
+                            <TableCell>
+                                {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
+                            </TableCell>
+                            <TableCell>
+                                <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
+                                <FileText className="mr-2 h-4 w-4" />
+                                Crea ODL
+                                </Button>
+                            </TableCell>
                             </TableRow>
-                          ))}
+                        ))}
                         </TableBody>
-                      </Table>
+                    </Table>
                     </div>
-                  ) : (
+                    ) : (
                     <div className="flex flex-col items-center justify-center py-10 text-center">
-                      <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                      <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa in produzione.</p>
-                      <p className="text-sm text-muted-foreground">
-                        Crea un ODL dalla tabella delle commesse pianificate per vederle qui.
-                      </p>
+                        <Package className="h-16 w-16 text-muted-foreground mb-4" />
+                        <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
+                        <p className="text-sm text-muted-foreground">
+                        Usa l'importazione da file Excel per iniziare.
+                        </p>
                     </div>
-                  )}
+                    )}
                 </CardContent>
-              </Card>
-          </TabsContent>
-        </Tabs>
+                </Card>
+            </TabsContent>
+            <TabsContent value="production">
+                <Card className="shadow-lg">
+                    <CardHeader>
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                        <div className="flex items-center space-x-3">
+                            <Briefcase className="h-8 w-8 text-primary" />
+                            <div>
+                            <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
+                            <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Esporta
+                        </Button>
+                        {selectedProductionRows.length > 0 && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm">
+                                    <XCircle className="mr-2 h-4 w-4" />
+                                    Annulla ODL Selezionati ({selectedProductionRows.length})
+                                </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei sicuro di voler annullare gli ODL selezionati?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                    Questa azione riporterà le {selectedProductionRows.length} commesse selezionate allo stato di "Pianificata".
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleCancelSelectedOdls} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
+                                </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
+                        </div>
+                    </div>
+                    </CardHeader>
+                    <CardContent>
+                    {productionJobOrders.length > 0 ? (
+                        <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                            <TableRow>
+                                <TableHead padding="checkbox">
+                                <Checkbox
+                                    checked={selectedProductionRows.length > 0 && selectedProductionRows.length === productionJobOrders.length}
+                                    onCheckedChange={handleSelectAllProduction}
+                                    aria-label="Seleziona tutte"
+                                    indeterminate={selectedProductionRows.length > 0 && selectedProductionRows.length < productionJobOrders.length}
+                                />
+                                </TableHead>
+                                <TableHead>Cliente</TableHead>
+                                <TableHead>Ordine PF</TableHead>
+                                <TableHead>N° ODL Interno</TableHead>
+                                <TableHead>Ordine Nr Est</TableHead>
+                                <TableHead>Codice</TableHead>
+                                <TableHead>Qta</TableHead>
+                                <TableHead>Data Consegna</TableHead>
+                                <TableHead>Reparto</TableHead>
+                                <TableHead>Azioni</TableHead>
+                            </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                            {productionJobOrders.map((job) => (
+                                <TableRow key={job.id} data-state={selectedProductionRows.includes(job.id) ? "selected" : undefined}>
+                                    <TableCell padding="checkbox">
+                                    <Checkbox
+                                    checked={selectedProductionRows.includes(job.id)}
+                                    onCheckedChange={() => handleSelectProductionRow(job.id)}
+                                    aria-label={`Seleziona commessa ${job.id}`}
+                                    />
+                                </TableCell>
+                                <TableCell>{job.cliente}</TableCell>
+                                <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                                <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
+                                <TableCell>{job.numeroODL}</TableCell>
+                                <TableCell>{job.details}</TableCell>
+                                <TableCell>{job.qta}</TableCell>
+                                <TableCell>
+                                    {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
+                                </TableCell>
+                                <TableCell>{job.department}</TableCell>
+                                <TableCell>
+                                    <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm">
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                        Annulla ODL
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro di voler annullare l'ODL?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Questa azione riporterà la commessa '{job.id}' allo stato di "Pianificata" e la rimuoverà dalla Console di Produzione.
+                                        </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleCancelOdl(job.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                    </AlertDialog>
+                                </TableCell>
+                                </TableRow>
+                            ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <Package className="h-16 w-16 text-muted-foreground mb-4" />
+                        <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa in produzione.</p>
+                        <p className="text-sm text-muted-foreground">
+                            Crea un ODL dalla tabella delle commesse pianificate per vederle qui.
+                        </p>
+                        </div>
+                    )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            </Tabs>
+        )}
         
         <AlertDialog open={!!pendingImport} onOpenChange={(open) => !open && setPendingImport(null)}>
             <AlertDialogContent>

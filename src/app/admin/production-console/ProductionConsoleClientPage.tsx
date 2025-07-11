@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,8 @@ import { Briefcase, Package2, Loader2 } from 'lucide-react';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
-
+import { getProductionJobOrders } from '@/app/admin/data-management/actions';
+import { useToast } from '@/hooks/use-toast';
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
@@ -46,14 +47,31 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   return 'Da Iniziare';
 }
 
-interface ProductionConsoleClientPageProps {
-  initialJobOrders: JobOrder[];
-}
 
-export default function ProductionConsoleClientPage({ initialJobOrders }: ProductionConsoleClientPageProps) {
-  const [jobOrders, setJobOrders] = useState<JobOrder[]>(initialJobOrders);
-  const [isLoading, setIsLoading] = useState(false);
+export default function ProductionConsoleClientPage() {
+  const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
+  const { toast } = useToast();
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+        setJobOrders(await getProductionJobOrders());
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Errore di Caricamento",
+            description: "Impossibile caricare i dati della console di produzione.",
+        });
+    } finally {
+        setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const filteredJobs = useMemo(() => {
     if (activeFilter === 'all') {

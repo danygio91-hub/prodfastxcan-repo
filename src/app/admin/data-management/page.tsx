@@ -1,6 +1,4 @@
 
-import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
-import { getDepartmentMap } from '@/app/admin/settings/actions';
 import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -8,20 +6,12 @@ import AppShell from '@/components/layout/AppShell';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminDataManagementCommessePage() {
-  const plannedJobOrders = await getPlannedJobOrders();
-  const productionJobOrders = await getProductionJobOrders();
-  const departmentMap = await getDepartmentMap();
-  const workCycles = await getWorkCycles();
-
+  // Data fetching is now handled on the client-side
+  // to improve navigation performance. The client component will show a loading state.
   return (
     <AdminAuthGuard>
       <AppShell>
-        <DataManagementClientPage
-          initialPlannedJobOrders={plannedJobOrders}
-          initialProductionJobOrders={productionJobOrders}
-          departmentMap={departmentMap}
-          workCycles={workCycles}
-        />
+        <DataManagementClientPage />
       </AppShell>
     </AdminAuthGuard>
   );

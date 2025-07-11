@@ -51,12 +51,10 @@ const batchFormSchema = z.object({
 
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
-interface RawMaterialManagementClientPageProps {
-  initialMaterials: RawMaterial[];
-}
 
-export default function RawMaterialManagementClientPage({ initialMaterials }: RawMaterialManagementClientPageProps) {
-  const [materials, setMaterials] = useState<RawMaterial[]>(initialMaterials);
+export default function RawMaterialManagementClientPage() {
+  const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddBatchDialogOpen, setIsAddBatchDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
@@ -80,9 +78,24 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
 
   const fetchMaterials = useCallback(async () => {
-    const data = await getRawMaterials();
-    setMaterials(data);
-  }, []);
+    setIsLoading(true);
+    try {
+      const data = await getRawMaterials();
+      setMaterials(data);
+    } catch (error) {
+       toast({
+        variant: "destructive",
+        title: "Errore di Caricamento",
+        description: "Impossibile caricare le materie prime.",
+       });
+    } finally {
+        setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchMaterials();
+  }, [fetchMaterials]);
   
   const filteredMaterials = useMemo(() => {
     if (!searchTerm) {
@@ -293,7 +306,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
-        'Stock': m.currentStockUnits,
+        'Stock': m.stock,
         'Unita Misura': m.unitOfMeasure,
         'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
@@ -306,6 +319,13 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     XLSX.utils.book_append_sheet(wb, ws, "Materie Prime");
     XLSX.writeFile(wb, "anagrafica_materie_prime.xlsx");
   };
+  
+  const renderLoading = () => (
+    <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-4 text-muted-foreground">Caricamento materie prime...</p>
+    </div>
+  );
 
 
   return (
@@ -323,124 +343,126 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
           </header>
           <div className="flex items-center gap-2">
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-              <Button onClick={handleExport} variant="outline" disabled={materials.length === 0}>
+              <Button onClick={handleExport} variant="outline" disabled={isLoading || materials.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               Esporta Elenco
             </Button>
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
+            <Button onClick={handleImportClick} variant="outline" disabled={isImporting || isLoading}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa da Excel
             </Button>
-            <Button onClick={() => handleOpenEditDialog()}>
+            <Button onClick={() => handleOpenEditDialog()} disabled={isLoading}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Aggiungi Materiale
             </Button>
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-             <div className="flex justify-between items-center flex-wrap gap-4">
-                <div>
-                  <CardTitle>Elenco Materie Prime</CardTitle>
-                  <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
+        {isLoading ? renderLoading() : (
+            <Card>
+            <CardHeader>
+                <div className="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                    <CardTitle>Elenco Materie Prime</CardTitle>
+                    <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Cerca per codice o descrizione..."
+                            className="pl-9"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
                 </div>
-                 <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Cerca per codice o descrizione..."
-                        className="pl-9"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Codice</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Descrizione</TableHead>
-                    <TableHead>Unità Misura</TableHead>
-                    <TableHead>Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMaterials.length > 0 ? (
-                    filteredMaterials.map((material) => (
-                      <TableRow key={material.id}>
-                        <TableCell className="font-medium">{material.code}</TableCell>
-                        <TableCell>{material.type}</TableCell>
-                        <TableCell>{material.description}</TableCell>
-                        <TableCell>{material.unitOfMeasure}</TableCell>
-                        <TableCell>{material.currentStockUnits.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <MoreVertical className="h-4 w-4" />
-                                  <span className="sr-only">Apri menu</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
-                                  <Eye className="mr-2 h-4 w-4" />
-                                  <span>Vedi Dettaglio Stock</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
-                                  <Edit className="mr-2 h-4 w-4" />
-                                  <span>Modifica Dettagli</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleOpenAddBatchDialog(material)}>
-                                  <PackagePlus className="mr-2 h-4 w-4" />
-                                  <span>Aggiungi Lotto</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
-                                  <History className="mr-2 h-4 w-4" />
-                                  <span>Vedi Storico Lotti</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        <span>Elimina</span>
-                                    </DropdownMenuItem>
-                                  </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Questa azione non può essere annullata. La materia prima e tutto il suo storico verranno eliminati.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => handleDelete(material.id)}>Continua</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
+            </CardHeader>
+            <CardContent>
+                <div className="overflow-x-auto">
+                <Table>
+                    <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center h-24">
-                        {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
-                      </TableCell>
+                        <TableHead>Codice</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Descrizione</TableHead>
+                        <TableHead>Unità Misura</TableHead>
+                        <TableHead>Stock</TableHead>
+                        <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                    </TableHeader>
+                    <TableBody>
+                    {filteredMaterials.length > 0 ? (
+                        filteredMaterials.map((material) => (
+                        <TableRow key={material.id}>
+                            <TableCell className="font-medium">{material.code}</TableCell>
+                            <TableCell>{material.type}</TableCell>
+                            <TableCell>{material.description}</TableCell>
+                            <TableCell>{material.unitOfMeasure}</TableCell>
+                            <TableCell>{material.stock}</TableCell>
+                            <TableCell className="text-right">
+                                <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon">
+                                    <MoreVertical className="h-4 w-4" />
+                                    <span className="sr-only">Apri menu</span>
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
+                                    <Eye className="mr-2 h-4 w-4" />
+                                    <span>Vedi Dettaglio Stock</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    <span>Modifica Dettagli</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => handleOpenAddBatchDialog(material)}>
+                                    <PackagePlus className="mr-2 h-4 w-4" />
+                                    <span>Aggiungi Lotto</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
+                                    <History className="mr-2 h-4 w-4" />
+                                    <span>Vedi Storico Lotti</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            <span>Elimina</span>
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Questa azione non può essere annullata. La materia prima e tutto il suo storico verranno eliminati.
+                                        </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleDelete(material.id)}>Continua</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                    </AlertDialog>
+                                </DropdownMenuContent>
+                                </DropdownMenu>
+                            </TableCell>
+                        </TableRow>
+                        ))
+                    ) : (
+                        <TableRow>
+                        <TableCell colSpan={6} className="text-center h-24">
+                            {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
+                        </TableCell>
+                        </TableRow>
+                    )}
+                    </TableBody>
+                </Table>
+                </div>
+            </CardContent>
+            </Card>
+        )}
 
         {/* Edit/Add Material Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -601,11 +623,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
+                                <p className="text-2xl font-bold">{selectedMaterial.stock ?? 0}</p>
                             </div>
                                 <div className="p-3 rounded-lg border bg-background">
-                                <Label>Stock (KG)</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
+                                <Label>Fattore Conversione</Label>
+                                <p className="text-2xl font-bold">{selectedMaterial.conversionFactor ?? 'N/A'}</p>
                             </div>
                         </div>
                     </div>
