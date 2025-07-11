@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType } from '@/lib/mock-data';
 import { format } from 'date-fns';
 
 // --- Schemas ---
@@ -54,7 +54,7 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   return list;
 }
 
-export async function saveRawMaterial(formData: FormData) {
+export async function saveRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; savedMaterial?: RawMaterial; }> {
   const rawData = Object.fromEntries(formData.entries());
   const validatedFields = rawMaterialFormSchema.safeParse(rawData);
 
@@ -69,9 +69,8 @@ export async function saveRawMaterial(formData: FormData) {
   const data = validatedFields.data;
   const trimmedCode = data.code.trim();
 
-  const materialData = {
+  const materialData: Omit<RawMaterial, 'id' | 'stock' | 'batches' | 'code_normalized'> = {
     code: trimmedCode,
-    code_normalized: trimmedCode.toLowerCase(),
     type: data.type,
     description: data.description,
     details: {
@@ -87,9 +86,22 @@ export async function saveRawMaterial(formData: FormData) {
   if (data.id) {
     // Update existing material
     const materialRef = doc(db, "rawMaterials", data.id);
-    await setDoc(materialRef, materialData, { merge: true });
+    const docSnap = await getDoc(materialRef);
+    if (!docSnap.exists()) {
+        return { success: false, message: "Materiale non trovato per l'aggiornamento." };
+    }
+    const existingData = docSnap.data() as RawMaterial;
+
+    const finalData = {
+        ...existingData,
+        ...materialData,
+        code_normalized: trimmedCode.toLowerCase(),
+    };
+    
+    await setDoc(materialRef, finalData, { merge: true });
+    
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiornata con successo.' };
+    return { success: true, message: 'Materia prima aggiornata con successo.', savedMaterial: finalData };
   } else {
     // Add new material - check for unique normalized code first
     const normalizedCode = trimmedCode.toLowerCase();
@@ -101,19 +113,21 @@ export async function saveRawMaterial(formData: FormData) {
 
     const newDocRef = doc(collection(db, "rawMaterials"));
     // Initialize with empty stock, which will be updated by adding batches
-    const fullMaterialData = {
+    const fullMaterialData: RawMaterial = {
+        id: newDocRef.id,
         ...materialData,
+        code_normalized: normalizedCode,
         stock: 0,
         batches: [],
     }
     await setDoc(newDocRef, fullMaterialData);
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiunta con successo. Aggiungi un lotto per aggiornare lo stock.' };
+    return { success: true, message: 'Materia prima aggiunta con successo. Aggiungi un lotto per aggiornare lo stock.', savedMaterial: fullMaterialData };
   }
 }
 
 
-export async function addBatchToRawMaterial(formData: FormData) {
+export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
   const rawData = Object.fromEntries(formData.entries());
   const validatedFields = batchFormSchema.safeParse(rawData);
 
@@ -142,17 +156,23 @@ export async function addBatchToRawMaterial(formData: FormData) {
 
   const updatedBatches = [...existingBatches, newBatch];
   
-  // Recalculate totals based on all batches
   const newTotalStock = updatedBatches.reduce((sum, batch) => sum + batch.quantity, 0);
 
-  await setDoc(materialRef, {
+  const updatedData = {
     batches: updatedBatches,
     stock: newTotalStock,
-  }, { merge: true });
+  };
+
+  await setDoc(materialRef, updatedData, { merge: true });
+  
+  const finalMaterialState: RawMaterial = {
+      ...material,
+      ...updatedData,
+  };
 
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/raw-material-scan');
-  return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
+  return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
 }
 
 
@@ -169,7 +189,7 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
       code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio.").optional(),
-      type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']).optional(),
+      type: z.enum(['BOB', 'TUB', 'TUBI', 'PF3V0', 'GUAINA']).optional(),
       description: z.coerce.string().optional(),
       sezione: z.coerce.string().optional(),
       filo_el: z.coerce.string().optional(),
@@ -215,6 +235,19 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             unitOfMeasure = 'pz';
         }
 
+        let type: RawMaterialType = 'BOB';
+        const rawType = (validData.type || 'BOB').toUpperCase();
+        if (rawType === 'TUB' || rawType === 'TUBI') {
+            type = 'TUBI';
+        } else if (rawType === 'PF3V0') {
+            type = 'PF3V0';
+        } else if (rawType === 'GUAINA') {
+            type = 'GUAINA';
+        } else {
+            type = 'BOB';
+        }
+
+
         const newDocRef = doc(materialsRef);
         
         const stock = validData.stock ?? 0;
@@ -229,7 +262,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         const newMaterial: Omit<RawMaterial, 'id'> = {
             code: trimmedCode,
             code_normalized: normalizedCode,
-            type: validData.type || 'BOB',
+            type: type,
             description: validData.description || "N/D",
             details: {
                 sezione: validData.sezione || '',
