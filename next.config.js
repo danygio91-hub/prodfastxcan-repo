@@ -22,4 +22,4 @@ const nextConfig = {
   },
 };
 
-module.exports = process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
+module.exports = withPWA(nextConfig);
