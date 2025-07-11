@@ -29,10 +29,11 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from '@/components/ui/switch';
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal } from './actions';
 import { getRawMaterialByCode } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -53,6 +54,13 @@ const phaseMaterialSchema = z.object({
   lottoBobina: z.string().optional(),
 });
 type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
+
+const tubiWithdrawalSchema = z.object({
+  quantity: z.coerce.number().positive("La quantità deve essere positiva."),
+  unit: z.enum(['n', 'kg'], { required_error: "Selezionare l'unità di misura." }),
+});
+type TubiWithdrawalFormValues = z.infer<typeof tubiWithdrawalSchema>;
+
 
 const closingWeightSchema = z.object({
   closingWeight: z.coerce.number().min(0, "Il peso di chiusura non può essere negativo."),
@@ -114,7 +122,6 @@ export default function ScanJobPage() {
   const [scannedMaterialForPhase, setScannedMaterialForPhase] = useState<RawMaterial | null>(null);
   const [manualMaterialCode, setManualMaterialCode] = useState('');
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
-  const [materialSearchResults, setMaterialSearchResults] = useState<SearchResult[]>([]);
 
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
@@ -122,6 +129,11 @@ export default function ScanJobPage() {
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
     defaultValues: { openingWeight: 0, lottoBobina: '' },
+  });
+  
+  const tubiWithdrawalForm = useForm<TubiWithdrawalFormValues>({
+    resolver: zodResolver(tubiWithdrawalSchema),
+    defaultValues: { quantity: 0 },
   });
 
   const closingWeightForm = useForm<ClosingWeightFormValues>({
@@ -482,21 +494,15 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      if (phaseToComplete.type === 'preparation') {
-        const nextProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production' && p.sequence > phaseToComplete.sequence);
-        if (nextProductionPhase) {
-          nextProductionPhase.materialReady = true;
-        }
-      } else {
-        const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
-        if (nextPhase && nextPhase.status === 'pending') {
-            nextPhase.materialReady = true;
-        }
+      // Sblocco fase successiva
+      const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
+      if (nextPhase && nextPhase.status === 'pending') {
+          nextPhase.materialReady = true;
       }
       
       const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
-
-      if (phaseToComplete.type === 'preparation' && relevantSession && (operator?.role === 'superadvisor' || operator?.reparto === 'MAG')) {
+      
+      if (phaseToComplete.type === 'preparation' && relevantSession) {
           setJobToFinalize(jobToUpdate);
           setIsContinueOrCloseDialogOpen(true);
           return;
@@ -509,7 +515,7 @@ export default function ScanJobPage() {
 
   const handleContinueWithMaterial = () => {
     if (!jobToFinalize) return;
-    const relevantSession = activeSessions.find(s => s.originatorJobId === jobToFinalize.id);
+    const relevantSession = activeSessions.find(s => s.materialId === jobToFinalize.phases.find(p => p.materialConsumption)?.materialConsumption?.materialId);
 
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobOrder(null); // Clear current job to scan a new one
@@ -588,8 +594,8 @@ export default function ScanJobPage() {
     setPhaseForMaterialScan(phase);
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
-    setMaterialSearchResults([]);
     phaseMaterialForm.reset();
+    tubiWithdrawalForm.reset();
     setMaterialScanStep('initial');
     setIsMaterialScanDialogOpen(true);
   };
@@ -653,7 +659,7 @@ export default function ScanJobPage() {
                 openingWeight: sessionData.openingWeight,
                 lottoBobina: values.lottoBobina,
             };
-            phaseToUpdate.materialReady = true; // Mark THE SPECIFIC phase as ready
+            phaseToUpdate.materialReady = true; 
         }
         
         handleUpdateAndPersistJob(jobToUpdate);
@@ -664,6 +670,36 @@ export default function ScanJobPage() {
     }
     
     setIsMaterialScanDialogOpen(false);
+  };
+  
+  const onTubiWithdrawalSubmit = async (values: TubiWithdrawalFormValues) => {
+      if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
+
+      const formData = new FormData();
+      formData.append('materialId', scannedMaterialForPhase.id);
+      formData.append('operatorId', operator.id);
+      formData.append('jobId', activeJobOrder.id);
+      formData.append('jobOrderPF', activeJobOrder.ordinePF);
+      formData.append('quantity', String(values.quantity));
+      formData.append('unit', values.unit);
+      
+      const result = await logTubiWithdrawal(formData);
+
+      toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+
+      if (result.success) {
+          const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+          const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
+          if(phaseToUpdate) {
+            phaseToUpdate.materialReady = true;
+          }
+          handleUpdateAndPersistJob(jobToUpdate);
+          setIsMaterialScanDialogOpen(false);
+      }
   };
 
   const handleAbandonJob = () => {
@@ -1262,58 +1298,49 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'form' && scannedMaterialForPhase && (
-                 <Form {...phaseMaterialForm}>
-                    <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle>
-                                <CardDescription>{scannedMaterialForPhase.description}</CardDescription>
-                            </CardHeader>
-                        </Card>
-                        <FormField
-                            control={phaseMaterialForm.control}
-                            name="openingWeight"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>KG di Apertura</FormLabel>
-                                    <FormControl>
-                                        <Input type="number" step="0.01" placeholder="Es. 10.5" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
-                         {scannedMaterialForPhase.type === 'BOB' && (
-                            <FormField
-                                control={phaseMaterialForm.control}
-                                name="lottoBobina"
-                                render={({ field }) => (
+                scannedMaterialForPhase.type === 'TUBI' ? (
+                     <Form {...tubiWithdrawalForm}>
+                        <form onSubmit={tubiWithdrawalForm.handleSubmit(onTubiWithdrawalSubmit)} className="space-y-4">
+                            <Card>
+                                <CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader>
+                            </Card>
+                            <FormField control={tubiWithdrawalForm.control} name="unit" render={({ field }) => (
+                                <FormItem className="space-y-3"><FormLabel>Prelievo per unità o peso?</FormLabel>
+                                <FormControl>
+                                    <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
+                                        <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
+                                        <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
+                                    </RadioGroup>
+                                </FormControl><FormMessage /></FormItem>
+                            )} />
+                            <FormField control={tubiWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                <FormItem><FormLabel>Quantità da Prelevare</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
+                            )} />
+                            <DialogFooter><Button type="submit" disabled={tubiWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                        </form>
+                    </Form>
+                ) : (
+                    <Form {...phaseMaterialForm}>
+                        <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
+                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                            <FormField control={phaseMaterialForm.control} name="openingWeight" render={({ field }) => (
+                                <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} /></FormControl><FormMessage /></FormItem>
+                            )} />
+                            {scannedMaterialForPhase.type === 'BOB' && (
+                                <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="flex items-center">
-                                            <Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)
-                                        </FormLabel>
+                                        <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
                                         <div className="flex gap-2">
-                                            <FormControl>
-                                                <Input placeholder="Scansiona o inserisci lotto" {...field} />
-                                            </FormControl>
-                                            <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}>
-                                                <QrCode className="h-4 w-4" />
-                                                <span className="sr-only">Scansiona lotto</span>
-                                            </Button>
-                                        </div>
-                                        <FormMessage />
+                                            <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} /></FormControl>
+                                            <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
+                                        </div><FormMessage />
                                     </FormItem>
-                                )}
-                            />
-                        )}
-                         <DialogFooter>
-                            <Button type="submit">
-                                <Send className="mr-2 h-4 w-4" />
-                                Avvia Sessione Materiale
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                 </Form>
+                                )} />
+                            )}
+                            <DialogFooter><Button type="submit"><Send className="mr-2 h-4 w-4" />Avvia Sessione Materiale</Button></DialogFooter>
+                        </form>
+                    </Form>
+                )
             )}
             
         </DialogContent>
@@ -1439,3 +1466,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+

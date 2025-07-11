@@ -1,9 +1,10 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType } from '@/lib/mock-data';
 import { format } from 'date-fns';
@@ -37,19 +38,12 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
     const data = doc.data();
-    // Provide default values for potentially missing fields to prevent runtime errors
+    const stock = data.batches?.reduce((acc: number, batch: RawMaterialBatch) => acc + batch.quantity, 0) || 0;
+    
     return {
       id: doc.id,
-      type: data.type || 'BOB',
-      code: data.code || 'CODICE MANCANTE',
-      code_normalized: data.code_normalized || (data.code || '').toLowerCase(),
-      description: data.description || 'Nessuna descrizione',
-      details: data.details || {},
-      unitOfMeasure: data.unitOfMeasure || 'n',
-      conversionFactor: data.conversionFactor === undefined ? null : data.conversionFactor,
-      currentStockUnits: data.currentStockUnits ?? 0,
-      currentWeightKg: data.currentWeightKg ?? 0,
-      batches: data.batches || [],
+      stock: stock,
+      ...data
     } as RawMaterial;
   });
   return list;
@@ -71,8 +65,9 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
   const trimmedCode = data.code.trim();
   const conversionFactor = data.unitOfMeasure === 'kg' ? null : data.conversionFactor || null;
 
-  const materialData: Omit<RawMaterial, 'id' | 'currentStockUnits' | 'currentWeightKg' | 'batches' | 'code_normalized'> = {
+  let materialData: Omit<RawMaterial, 'id' | 'batches' | 'stock'> & { code_normalized: string } = {
     code: trimmedCode,
+    code_normalized: trimmedCode.toLowerCase(),
     type: data.type,
     description: data.description,
     details: {
@@ -88,22 +83,13 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
   if (data.id) {
     // Update existing material
     const materialRef = doc(db, "rawMaterials", data.id);
-    const docSnap = await getDoc(materialRef);
-    if (!docSnap.exists()) {
-        return { success: false, message: "Materiale non trovato per l'aggiornamento." };
-    }
-    const existingData = docSnap.data() as RawMaterial;
+    await setDoc(materialRef, materialData, { merge: true });
+    
+    const updatedDoc = await getDoc(materialRef);
+    const savedMaterial = { id: updatedDoc.id, ...updatedDoc.data() } as RawMaterial;
 
-    const finalData: RawMaterial = {
-        ...existingData,
-        ...materialData,
-        code_normalized: trimmedCode.toLowerCase(),
-    };
-    
-    await setDoc(materialRef, finalData, { merge: true });
-    
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiornata con successo.', savedMaterial: finalData };
+    return { success: true, message: 'Materia prima aggiornata con successo.', savedMaterial };
   } else {
     // Add new material - check for unique normalized code first
     const normalizedCode = trimmedCode.toLowerCase();
@@ -118,9 +104,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
     const fullMaterialData: RawMaterial = {
         id: newDocRef.id,
         ...materialData,
-        code_normalized: normalizedCode,
-        currentStockUnits: 0,
-        currentWeightKg: 0,
+        stock: 0,
         batches: [],
     }
     await setDoc(newDocRef, fullMaterialData);
@@ -141,58 +125,40 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   const { materialId, date, ddt, quantity } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
-  const docSnap = await getDoc(materialRef);
+  
+  try {
+      const updatedMaterial = await runTransaction(db, async (transaction) => {
+          const docSnap = await transaction.get(materialRef);
+          if (!docSnap.exists()) {
+            throw new Error('Materia prima non trovata.');
+          }
 
-  if (!docSnap.exists()) {
-    return { success: false, message: 'Materia prima non trovata.' };
+          const material = docSnap.data() as RawMaterial;
+          const existingBatches = material.batches || [];
+          
+          const newBatch: RawMaterialBatch = {
+            id: `batch-${Date.now()}`,
+            date: new Date(date).toISOString(),
+            ddt,
+            quantity,
+          };
+
+          const updatedBatches = [...existingBatches, newBatch];
+          
+          transaction.update(materialRef, { batches: updatedBatches });
+
+          return { ...material, batches: updatedBatches };
+      });
+      
+      const finalStock = updatedMaterial.batches.reduce((acc, b) => acc + b.quantity, 0);
+
+      revalidatePath('/admin/raw-material-management');
+      revalidatePath('/raw-material-scan');
+      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: { ...updatedMaterial, stock: finalStock } };
+
+  } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
-
-  const material = docSnap.data() as RawMaterial;
-  const existingBatches = material.batches || [];
-  
-  const newBatch: RawMaterialBatch = {
-    id: `batch-${Date.now()}`,
-    date: new Date(date).toISOString(),
-    ddt,
-    quantity,
-  };
-
-  const updatedBatches = [...existingBatches, newBatch];
-  
-  // Recalculate total stock from all batches
-  const totalStockUnits = updatedBatches.reduce((sum, batch) => sum + batch.quantity, 0);
-  let totalWeightKg = material.currentWeightKg;
-  
-  if (material.unitOfMeasure === 'kg') {
-    totalWeightKg = totalStockUnits;
-  } else if (material.conversionFactor && material.conversionFactor > 0) {
-    totalWeightKg = totalStockUnits * material.conversionFactor;
-  } else {
-     // If no conversion factor, we can't calculate total weight from units.
-     // We can assume the added quantity is also the weight if it's a 'kg' based batch,
-     // or we just update the unit stock. Let's stick to updating both based on conversion factor.
-     // For simplicity, we assume we just add to the existing weight if no factor.
-     // A better approach is to rely on the factor.
-     // For now, let's make it clear. If UoM is not kg, and no factor, weight is not auto-updated from batches.
-  }
-
-
-  const updatedData = {
-    batches: updatedBatches,
-    currentStockUnits: totalStockUnits,
-    currentWeightKg: material.unitOfMeasure === 'kg' ? totalStockUnits : (totalStockUnits * (material.conversionFactor || 0)),
-  };
-
-  await setDoc(materialRef, updatedData, { merge: true });
-  
-  const finalMaterialState: RawMaterial = {
-      ...material,
-      ...updatedData,
-  };
-
-  revalidatePath('/admin/raw-material-management');
-  revalidatePath('/raw-material-scan');
-  return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
 }
 
 
@@ -287,7 +253,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             quantity: stockUnits,
         };
 
-        const newMaterial: Omit<RawMaterial, 'id'> = {
+        const newMaterial: Omit<RawMaterial, 'id'|'stock'> = {
             code: trimmedCode,
             code_normalized: normalizedCode,
             type: type,
@@ -300,8 +266,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             },
             unitOfMeasure: unitOfMeasure,
             conversionFactor: conversionFactor,
-            currentStockUnits: stockUnits,
-            currentWeightKg: stockKg,
             batches: stockUnits > 0 ? [initialBatch] : [],
         };
         batch.set(newDocRef, newMaterial);

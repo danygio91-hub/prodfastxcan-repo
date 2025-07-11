@@ -6,6 +6,7 @@ import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction,
 import { db } from '@/lib/firebase';
 import type { JobOrder, RawMaterial } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
+import * as z from 'zod';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -186,5 +187,83 @@ export async function closeMaterialSessionAndUpdateStock(
     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la chiusura della sessione.";
     console.error("Failed to close material session:", error);
     return { success: false, message: errorMessage };
+  }
+}
+
+const tubiWithdrawalSchema = z.object({
+  materialId: z.string(),
+  operatorId: z.string(),
+  jobId: z.string(),
+  jobOrderPF: z.string(),
+  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  unit: z.enum(['n', 'kg']),
+});
+
+export async function logTubiWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
+  const rawData = Object.fromEntries(formData.entries());
+  const validated = tubiWithdrawalSchema.safeParse(rawData);
+  if (!validated.success) {
+    return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
+  }
+  
+  const { materialId, operatorId, jobId, jobOrderPF, quantity, unit } = validated.data;
+  const materialRef = doc(db, "rawMaterials", materialId);
+  
+  try {
+    await runTransaction(db, async (transaction) => {
+        const materialDoc = await transaction.get(materialRef);
+        if (!materialDoc.exists()) {
+            throw new Error("Materia prima non trovata.");
+        }
+        
+        const material = materialDoc.data() as RawMaterial;
+        let consumedWeight = 0;
+        let newStockUnits = material.currentStockUnits;
+
+        if (unit === 'kg') {
+            consumedWeight = quantity;
+            if (material.currentWeightKg < consumedWeight) {
+                throw new Error(`Stock a peso insufficiente. Disponibile: ${material.currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
+            }
+            if (material.conversionFactor) {
+                const unitsConsumed = Math.round(consumedWeight / material.conversionFactor);
+                newStockUnits -= unitsConsumed;
+            }
+        } else { // unit is 'n'
+            if (material.currentStockUnits < quantity) {
+                throw new Error(`Stock a unità insufficiente. Disponibile: ${material.currentStockUnits}, Richiesto: ${quantity}.`);
+            }
+            newStockUnits -= quantity;
+            if (material.conversionFactor) {
+                consumedWeight = quantity * material.conversionFactor;
+            }
+        }
+
+        const newWeightKg = material.currentWeightKg - consumedWeight;
+        if (newWeightKg < 0) {
+            throw new Error(`Stock a peso risultante negativo. Verificare il fattore di conversione.`);
+        }
+        
+        transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
+        
+        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+        transaction.set(withdrawalRef, {
+            jobIds: [jobId],
+            jobOrderPFs: [jobOrderPF],
+            materialId,
+            materialCode: material.code,
+            consumedWeight: consumedWeight,
+            consumedUnits: unit === 'n' ? quantity : undefined,
+            operatorId,
+            withdrawalDate: Timestamp.now(),
+        });
+    });
+
+    revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/reports');
+    return { success: true, message: `Prelievo di ${quantity} ${unit} registrato con successo.` };
+  } catch (error) {
+     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
+     return { success: false, message: errorMessage };
   }
 }
