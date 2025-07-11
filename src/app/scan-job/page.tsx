@@ -661,19 +661,17 @@ export default function ScanJobPage() {
         
         // After starting the session, immediately update all pending preparation phases
         // of the same category to reflect that material is now available.
-        const newSession = getSessionForType(scannedMaterialForPhase.type);
-        if (newSession) {
-            jobToUpdate.phases.forEach((p: JobPhase) => {
-                if (p.status === 'pending' && p.requiresMaterialScan && p.allowedMaterialTypes?.includes(scannedMaterialForPhase!.type)) {
-                    p.materialConsumption = {
-                        materialId: newSession.materialId,
-                        materialCode: newSession.materialCode,
-                        openingWeight: newSession.openingWeight,
-                        lottoBobina: values.lottoBobina,
-                    };
-                }
-            });
-        }
+        const materialType = scannedMaterialForPhase.type;
+        jobToUpdate.phases.forEach((p: JobPhase) => {
+            if (p.status === 'pending' && p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
+                p.materialConsumption = {
+                    materialId: sessionData.materialId,
+                    materialCode: sessionData.materialCode,
+                    openingWeight: sessionData.openingWeight,
+                    lottoBobina: values.lottoBobina,
+                };
+            }
+        });
         
         handleUpdateAndPersistJob(jobToUpdate);
         toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
