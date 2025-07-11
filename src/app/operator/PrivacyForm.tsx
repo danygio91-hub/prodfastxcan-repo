@@ -77,9 +77,12 @@ export default function PrivacyForm({ operator }: PrivacyFormProps) {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-4 border rounded-md bg-background/50 text-sm text-muted-foreground space-y-2">
-                <p>Con la presente, l'utente prende atto e accetta che tutte le informazioni, i dati, i processi e le metodologie accessibili tramite questa applicazione sono di proprietà esclusiva e riservata dell'azienda <strong>Power Flex S.r.l.</strong></p>
-                <p>È severamente vietata la divulgazione, la copia, la distribuzione o l'utilizzo di tali dati per scopi non autorizzati e al di fuori delle attività lavorative preposte. La violazione di tali obblighi di riservatezza comporterà sanzioni disciplinari come previsto dalla normativa vigente.</p>
+              <div className="p-4 border rounded-md bg-background/50 text-sm text-muted-foreground space-y-3">
+                <h4 className="font-bold text-foreground">Informativa sulla Riservatezza e Diritti di Proprietà</h4>
+                <p><strong>Power Flex S.r.l.</strong> detiene tutti i diritti esclusivi e la piena proprietà intellettuale sull'applicazione ProdFastXcan e su ogni suo componente, contenuto, algoritmo e dato in essa integrato o da essa generato.</p>
+                <p>È severamente vietata qualsiasi forma di divulgazione, riproduzione, distribuzione o utilizzo esterno di ProdFastXcan, in parte o per intero, senza la preventiva autorizzazione scritta di <strong>Power Flex S.r.l.</strong> Questo include, ma non si limita a, la condivisione di schermate, dati, funzionalità o logiche operative.</p>
+                <p>L'utilizzo di ProdFastXcan è esclusivamente concesso per fini interni all'azienda <strong>Power Flex S.r.l.</strong> e per le sole attività connesse ai processi di produzione. Ogni altro uso è espressamente proibito.</p>
+                <p className="font-semibold">La presente informativa è da intendersi accettata e vincolante per tutti gli utenti e collaboratori che accedono o utilizzano l'applicazione ProdFastXcan.</p>
               </div>
               <div className="flex items-center space-x-2 pt-4">
                  <Checkbox 
