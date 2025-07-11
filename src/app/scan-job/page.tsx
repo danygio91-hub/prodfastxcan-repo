@@ -659,18 +659,17 @@ export default function ScanJobPage() {
         };
         startSession(sessionData, scannedMaterialForPhase.type);
         
-        const materialType = scannedMaterialForPhase.type;
-        jobToUpdate.phases.forEach((p: JobPhase) => {
-            if (p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
-                 p.materialConsumption = {
-                    materialId: sessionData.materialId,
-                    materialCode: sessionData.materialCode,
-                    openingWeight: sessionData.openingWeight,
-                    lottoBobina: values.lottoBobina,
-                };
-                p.materialReady = true; // Mark phase as ready
-            }
-        });
+        const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
+
+        if (phaseToUpdate) {
+            phaseToUpdate.materialConsumption = {
+                materialId: sessionData.materialId,
+                materialCode: sessionData.materialCode,
+                openingWeight: sessionData.openingWeight,
+                lottoBobina: values.lottoBobina,
+            };
+            phaseToUpdate.materialReady = true; // Mark THE SPECIFIC phase as ready
+        }
         
         handleUpdateAndPersistJob(jobToUpdate);
         toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e fase pronta.` });
@@ -1454,4 +1453,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
