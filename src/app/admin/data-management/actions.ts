@@ -63,12 +63,13 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: !(template.requiresMaterialScan), // Material is ready if scan is NOT required.
+            materialReady: template.type === 'preparation',
             workPeriods: [],
             sequence: template.sequence,
             type: template.type,
             requiresMaterialScan: template.requiresMaterialScan,
             allowedMaterialTypes: template.allowedMaterialTypes || [],
+            departmentCodes: template.departmentCodes || [], // This was missing
             materialConsumption: null,
             qualityResult: null,
         };

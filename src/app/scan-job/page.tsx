@@ -477,7 +477,7 @@ export default function ScanJobPage() {
   };
 
   const handleCompletePhase = (phaseId: string) => {
-      if (!activeJobOrder) return;
+      if (!activeJobOrder || !operator) return;
       const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
       const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
@@ -500,9 +500,10 @@ export default function ScanJobPage() {
           nextPhase.materialReady = true;
       }
       
-      const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
+      const sessionType = getMaterialCategoryFromPhase(phaseToComplete);
+      const relevantSession = sessionType ? getSessionForType(sessionType) : undefined;
       
-      if (phaseToComplete.type === 'preparation' && relevantSession) {
+      if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
           setJobToFinalize(jobToUpdate);
           setIsContinueOrCloseDialogOpen(true);
           return;
@@ -512,10 +513,19 @@ export default function ScanJobPage() {
       toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
 
+    function getMaterialCategoryFromPhase(phase: JobPhase): RawMaterialType | undefined {
+        if (!phase.allowedMaterialTypes || phase.allowedMaterialTypes.length === 0) {
+            return undefined;
+        }
+        return phase.allowedMaterialTypes[0];
+    }
+
 
   const handleContinueWithMaterial = () => {
     if (!jobToFinalize) return;
-    const relevantSession = activeSessions.find(s => s.materialId === jobToFinalize.phases.find(p => p.materialConsumption)?.materialConsumption?.materialId);
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
+    const sessionType = phaseThatTriggered ? getMaterialCategoryFromPhase(phaseThatTriggered) : undefined;
+    const relevantSession = sessionType ? getSessionForType(sessionType) : undefined;
 
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobOrder(null); // Clear current job to scan a new one
@@ -1045,14 +1055,13 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
-          const operatorHasPermission = isSuperadvisor || (operator && phase.departmentCodes.includes(operator.reparto));
+          const operatorHasPermission = isSuperadvisor || (operator && phase.departmentCodes && phase.departmentCodes.includes(operator.reparto));
 
           const phaseType = phase.type || 'production';
           
           let canStartPhase = false;
           if (phaseType === 'preparation') {
-            const noOtherPrepPhaseActiveOrPausedBySameOperator = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type === 'preparation') && (p.status === 'in-progress' || p.status === 'paused') && p.workPeriods.some(wp => wp.operatorId === operator?.id && !wp.end));
-            canStartPhase = noOtherPrepPhaseActiveOrPausedBySameOperator;
+            canStartPhase = true;
           } else { // production or quality
             const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
             if (phase.sequence === 1) {
@@ -1400,7 +1409,10 @@ export default function ScanJobPage() {
   const renderContinueOrCloseDialog = () => {
     if (!jobToFinalize) return null;
     const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
+    
+    // Find the session based on the specific materialId of the consumption
     const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
+
 
     return (
         <AlertDialog open={isContinueOrCloseDialogOpen} onOpenChange={setIsContinueOrCloseDialogOpen}>
@@ -1466,4 +1478,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-

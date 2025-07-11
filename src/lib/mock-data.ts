@@ -30,6 +30,7 @@ export interface JobPhase {
   materialConsumption?: MaterialConsumption | null;
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
+  departmentCodes: Reparto[];
 }
 
 export interface JobOrder {
