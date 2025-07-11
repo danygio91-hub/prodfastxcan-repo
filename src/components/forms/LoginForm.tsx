@@ -32,6 +32,17 @@ declare class BarcodeDetector {
   detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
 }
 
+// Add type for the install prompt event
+interface BeforeInstallPromptEvent extends Event {
+    readonly platforms: Array<string>;
+    readonly userChoice: Promise<{
+        outcome: 'accepted' | 'dismissed';
+        platform: string;
+    }>;
+    prompt(): Promise<void>;
+}
+
+
 const manualLoginSchema = z.object({
   username: z.string().min(1, { message: "Il nome utente è obbligatorio." }),
   password: z.string().min(1, { message: "La password è obbligatoria." }),
@@ -48,13 +59,13 @@ export default function LoginForm() {
     const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
-    const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+    const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
     // Effect to handle PWA install prompt
     useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
             e.preventDefault();
-            setInstallPrompt(e);
+            setInstallPrompt(e as BeforeInstallPromptEvent);
         };
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -196,8 +207,8 @@ export default function LoginForm() {
         if (!installPrompt) {
             return;
         }
-        (installPrompt as any).prompt();
-        const { outcome } = await (installPrompt as any).userChoice;
+        await installPrompt.prompt();
+        const { outcome } = await installPrompt.userChoice;
         if (outcome === 'accepted') {
             toast({ title: "Installazione Avviata", description: "L'app verrà aggiunta alla tua schermata principale." });
         }
