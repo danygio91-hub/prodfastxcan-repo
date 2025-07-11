@@ -360,7 +360,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <TableHead>Descrizione</TableHead>
                     <TableHead>Unità Misura</TableHead>
                     <TableHead>Stock</TableHead>
-                    <TableHead>Fattore Conversione</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -373,7 +372,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableCell>{material.description}</TableCell>
                         <TableCell>{material.unitOfMeasure}</TableCell>
                         <TableCell>{material.stock.toFixed(2)}</TableCell>
-                        <TableCell>{material.conversionFactor ?? 'N/A'}</TableCell>
                         <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -423,7 +421,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center h-24">
+                      <TableCell colSpan={6} className="text-center h-24">
                         {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
                       </TableCell>
                     </TableRow>
