@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -36,6 +36,7 @@ export default function AdminAppSettingsPage() {
   const [isResettingJobs, startResetJobsTransition] = useTransition();
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
   const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
+  const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
   const { toast } = useToast();
 
   const handleSeedDatabase = () => {
@@ -114,6 +115,18 @@ export default function AdminAppSettingsPage() {
     if (!user) return;
     startResetMaterialsTransition(async () => {
         const result = await resetAllRawMaterials(user.uid);
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
+  
+  const handleResetWithdrawals = () => {
+    if (!user) return;
+    startResetWithdrawalsTransition(async () => {
+        const result = await resetAllWithdrawals(user.uid);
         toast({
             title: result.success ? "Operazione Completata" : "Operazione Fallita",
             description: result.message,
@@ -314,6 +327,37 @@ export default function AdminAppSettingsPage() {
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
                                       <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials}>
                                           {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, elimina tutto
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                      <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Prelievi da Magazzino</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Elimina tutti i report dei prelievi di materiale registrati.
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingWithdrawals}>
+                                      {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Boxes className="mr-2 h-4 w-4" />}
+                                      Resetta Prelievi
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione è irreversibile. Verranno eliminati TUTTI i report di prelievo.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetWithdrawals} disabled={isResettingWithdrawals}>
+                                          {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, elimina tutto
                                       </AlertDialogAction>
                                   </AlertDialogFooter>

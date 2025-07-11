@@ -11,13 +11,25 @@ import { it } from 'date-fns/locale';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2 } from 'lucide-react';
-import { getJobsReport, getOperatorsReport, getMaterialWithdrawals } from './actions';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2 } from 'lucide-react';
+import { getJobsReport, getOperatorsReport, getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal } from '@/lib/mock-data';
@@ -65,35 +77,71 @@ export default function ReportsClientPage({
     to: new Date(),
   });
 
+  const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+
+  const fetchWithdrawals = React.useCallback(async () => {
+    startTransitionWithdrawals(async () => {
+      const data = await getMaterialWithdrawals({ from: date?.from, to: date?.to });
+      setWithdrawalsReport(data);
+    });
+  }, [date]);
+  
   // Fetch all initial data on mount
   useEffect(() => {
     async function fetchReports() {
       setIsLoading(true);
-      const [jobs, operators, withdrawals] = await Promise.all([
+      const [jobs, operators] = await Promise.all([
         getJobsReport(),
         getOperatorsReport(),
-        getMaterialWithdrawals({ from: date?.from, to: date?.to }),
       ]);
       setJobsReport(jobs);
       setOperatorsReport(operators);
-      setWithdrawalsReport(withdrawals);
+      await fetchWithdrawals(); // Fetch withdrawals with initial date range
       setIsLoading(false);
     }
     fetchReports();
-    // We only want this to run once on mount, so we disable the exhaustive-deps warning.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchWithdrawals]);
 
   // This useEffect is now just for date changes for withdrawals
   useEffect(() => {
-    // Prevent refetching on initial load as it's handled above
-    if (isLoading) return;
+    if (isLoading) return; // Prevent refetching on initial load
+    fetchWithdrawals();
+  }, [date, isLoading, fetchWithdrawals]);
+  
+  const handleSelectAllWithdrawals = (checked: boolean | 'indeterminate') => {
+    if (checked === true) {
+      setSelectedWithdrawals(withdrawalsReport.map(w => w.id));
+    } else {
+      setSelectedWithdrawals([]);
+    }
+  };
 
-    startTransitionWithdrawals(() => {
-        getMaterialWithdrawals({ from: date?.from, to: date?.to }).then(setWithdrawalsReport);
-    });
-  }, [date, isLoading]);
+  const handleSelectWithdrawalRow = (id: string) => {
+    setSelectedWithdrawals(prev =>
+      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+    );
+  };
 
+  const handleDeleteSelected = async () => {
+    if (selectedWithdrawals.length === 0) return;
+    setIsDeleting(true);
+    const result = await deleteSelectedWithdrawals(selectedWithdrawals);
+    if (result.success) {
+      await fetchWithdrawals();
+      setSelectedWithdrawals([]);
+    }
+    setIsDeleting(false);
+  };
+  
+  const handleDeleteAll = async () => {
+    setIsDeleting(true);
+    await deleteAllWithdrawals();
+    await fetchWithdrawals();
+    setSelectedWithdrawals([]);
+    setIsDeleting(false);
+  };
 
   const handleExportJobs = () => {
     const dataToExport = jobsReport.map(job => ({
@@ -307,49 +355,90 @@ export default function ReportsClientPage({
                               <CardTitle>Report Prelievi da Magazzino</CardTitle>
                               <CardDescription>Elenco degli scarichi di materiale per commessa.</CardDescription>
                           </div>
-                            <div className="flex items-center gap-2">
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                      <Button
-                                      id="date"
-                                      variant={"outline"}
-                                      className={cn(
-                                          "w-[260px] justify-start text-left font-normal",
-                                          !date && "text-muted-foreground"
-                                      )}
-                                      >
-                                      <CalendarIcon className="mr-2 h-4 w-4" />
-                                      {date?.from ? (
-                                          date.to ? (
-                                          <>
-                                              {format(date.from, "LLL dd, y")} -{" "}
-                                              {format(date.to, "LLL dd, y")}
-                                          </>
-                                          ) : (
-                                          format(date.from, "LLL dd, y")
-                                          )
-                                      ) : (
-                                          <span>Scegli un range</span>
-                                      )}
-                                      </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="end">
-                                      <Calendar
-                                      initialFocus
-                                      mode="range"
-                                      defaultMonth={date?.from}
-                                      selected={date}
-                                      onSelect={setDate}
-                                      numberOfMonths={2}
-                                      locale={it}
-                                      />
-                                  </PopoverContent>
-                              </Popover>
-                              <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || withdrawalsReport.length === 0}>
-                                  <Download className="mr-2 h-4 w-4" />
-                                  Scarica Prelievi
-                              </Button>
-                            </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                    id="date"
+                                    variant={"outline"}
+                                    className={cn(
+                                        "w-[260px] justify-start text-left font-normal",
+                                        !date && "text-muted-foreground"
+                                    )}
+                                    >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {date?.from ? (
+                                        date.to ? (
+                                        <>
+                                            {format(date.from, "LLL dd, y")} -{" "}
+                                            {format(date.to, "LLL dd, y")}
+                                        </>
+                                        ) : (
+                                        format(date.from, "LLL dd, y")
+                                        )
+                                    ) : (
+                                        <span>Scegli un range</span>
+                                    )}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="end">
+                                    <Calendar
+                                    initialFocus
+                                    mode="range"
+                                    defaultMonth={date?.from}
+                                    selected={date}
+                                    onSelect={setDate}
+                                    numberOfMonths={2}
+                                    locale={it}
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
+                                <Download className="mr-2 h-4 w-4" />
+                                Esporta Excel
+                            </Button>
+                            {selectedWithdrawals.length > 0 && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm" disabled={isDeleting}>
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Elimina ({selectedWithdrawals.length})
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Stai per eliminare {selectedWithdrawals.length} report di prelievo. Questa azione è irreversibile.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleDeleteSelected}>Continua</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                             <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
+                                        Svuota Elenco
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Questa azione è irreversibile. Verranno eliminati tutti i report di prelievo dal sistema.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleDeleteAll}>Sì, elimina tutto</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                       </div>
                   </CardHeader>
                   <CardContent>
@@ -357,6 +446,14 @@ export default function ReportsClientPage({
                           <Table>
                               <TableHeader>
                                   <TableRow>
+                                       <TableHead padding="checkbox">
+                                          <Checkbox
+                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === withdrawalsReport.length}
+                                            onCheckedChange={handleSelectAllWithdrawals}
+                                            aria-label="Seleziona tutti"
+                                            indeterminate={selectedWithdrawals.length > 0 && selectedWithdrawals.length < withdrawalsReport.length}
+                                          />
+                                      </TableHead>
                                       <TableHead>Commessa/e</TableHead>
                                       <TableHead>Materiale</TableHead>
                                       <TableHead>Peso Consumato (Kg)</TableHead>
@@ -365,10 +462,17 @@ export default function ReportsClientPage({
                                   </TableRow>
                               </TableHeader>
                               <TableBody>
-                                  {isPendingWithdrawals ? renderLoadingRow(5) : 
+                                  {isPendingWithdrawals ? renderLoadingRow(6) : 
                                    withdrawalsReport.length > 0 ? (
                                       withdrawalsReport.map((w) => (
-                                          <TableRow key={w.id}>
+                                          <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
+                                               <TableCell padding="checkbox">
+                                                  <Checkbox
+                                                    checked={selectedWithdrawals.includes(w.id)}
+                                                    onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
+                                                    aria-label={`Seleziona prelievo ${w.id}`}
+                                                  />
+                                              </TableCell>
                                               <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                               <TableCell>{w.materialCode}</TableCell>
                                               <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
@@ -378,7 +482,7 @@ export default function ReportsClientPage({
                                       ))
                                   ) : (
                                       <TableRow>
-                                          <TableCell colSpan={5} className="h-24 text-center">Nessun prelievo trovato nel periodo selezionato.</TableCell>
+                                          <TableCell colSpan={6} className="h-24 text-center">Nessun prelievo trovato nel periodo selezionato.</TableCell>
                                       </TableRow>
                                   )}
                               </TableBody>

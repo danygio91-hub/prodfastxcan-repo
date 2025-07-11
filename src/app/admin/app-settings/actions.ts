@@ -73,6 +73,37 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
   }
 }
 
+export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    
+    const querySnapshot = await getDocs(withdrawalsRef);
+    if (querySnapshot.empty) {
+      return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
+    }
+
+    const batch = writeBatch(db);
+    let deletedCount = 0;
+    querySnapshot.docs.forEach(docSnap => {
+      batch.delete(docSnap.ref);
+      deletedCount++;
+    });
+
+    await batch.commit();
+
+    revalidatePath('/admin/reports');
+    
+    return { success: true, message: `Reset completato. ${deletedCount} report di prelievo sono stati eliminati.` };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Errore nel reset dei prelievi:", error);
+    return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
+  }
+}
+
+
 export async function resetAllPrivacySignatures(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);

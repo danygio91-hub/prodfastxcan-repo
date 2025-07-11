@@ -1,11 +1,12 @@
 
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import type { OverallStatus } from '@/lib/types';
+import { revalidatePath } from 'next/cache';
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -337,5 +338,42 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
         });
     }
 
-    return withdrawals;
+    return withdrawals.sort((a, b) => b.withdrawalDate.getTime() - a.withdrawalDate.getTime());
+}
+
+
+export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ success: boolean; message: string }> {
+  if (ids.length === 0) {
+    return { success: false, message: 'Nessun ID fornito.' };
+  }
+  const batch = writeBatch(db);
+  ids.forEach(id => {
+    const docRef = doc(db, "materialWithdrawals", id);
+    batch.delete(docRef);
+  });
+
+  await batch.commit();
+  revalidatePath('/admin/reports');
+  return { success: true, message: `${ids.length} prelievi eliminati con successo.` };
+}
+
+export async function deleteAllWithdrawals(): Promise<{ success: boolean; message: string }> {
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    const q = query(withdrawalsRef);
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+        return { success: true, message: 'Nessun prelievo da eliminare.' };
+    }
+
+    const batch = writeBatch(db);
+    let deletedCount = 0;
+    querySnapshot.docs.forEach(docSnap => {
+        batch.delete(docSnap.ref);
+        deletedCount++;
+    });
+
+    await batch.commit();
+    revalidatePath('/admin/reports');
+    return { success: true, message: `Tutti i ${deletedCount} prelievi sono stati eliminati.` };
 }
