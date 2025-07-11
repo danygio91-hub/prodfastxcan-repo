@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -37,6 +37,8 @@ export default function AdminAppSettingsPage() {
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
   const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
   const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
+  const [isResettingWork, startResetWorkTransition] = useTransition();
+
   const { toast } = useToast();
 
   const handleSeedDatabase = () => {
@@ -139,6 +141,18 @@ export default function AdminAppSettingsPage() {
     if (!user) return;
     startResetPrivacyTransition(async () => {
         const result = await resetAllPrivacySignatures(user.uid);
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
+
+  const handleResetWork = () => {
+    if (!user) return;
+    startResetWorkTransition(async () => {
+        const result = await resetAllWorkInProgress(user.uid);
         toast({
             title: result.success ? "Operazione Completata" : "Operazione Fallita",
             description: result.message,
@@ -267,7 +281,7 @@ export default function AdminAppSettingsPage() {
                           Zona Pericolosa
                       </CardTitle>
                       <CardDescription>
-                          Queste operazioni sono irreversibili e cancelleranno permanentemente i dati. Procedere con la massima cautela.
+                          Queste operazioni sono irreversibili e cancelleranno permanentemente i dati o resetteranno gli stati. Procedere con la massima cautela.
                       </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -294,9 +308,40 @@ export default function AdminAppSettingsPage() {
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetJobOrders} disabled={isResettingJobs}>
+                                      <AlertDialogAction onClick={handleResetJobOrders} disabled={isResettingJobs} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                                           {isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, elimina tutto
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                       <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Tutte le Lavorazioni</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Resetta lo stato di tutte le commesse in lavorazione a "pianificata" e imposta tutti gli operatori come "inattivi".
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingWork}>
+                                      {isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Factory className="mr-2 h-4 w-4" />}
+                                      Resetta Lavorazioni
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione riporterà tutte le commesse in produzione allo stato di "pianificata", azzerando l'avanzamento.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetWork} disabled={isResettingWork} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                                          {isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, resetta tutto
                                       </AlertDialogAction>
                                   </AlertDialogFooter>
                               </AlertDialogContent>
@@ -325,7 +370,7 @@ export default function AdminAppSettingsPage() {
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials}>
+                                      <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                                           {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, elimina tutto
                                       </AlertDialogAction>
@@ -356,7 +401,7 @@ export default function AdminAppSettingsPage() {
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetWithdrawals} disabled={isResettingWithdrawals}>
+                                      <AlertDialogAction onClick={handleResetWithdrawals} disabled={isResettingWithdrawals} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                                           {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, elimina tutto
                                       </AlertDialogAction>
@@ -387,7 +432,7 @@ export default function AdminAppSettingsPage() {
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetPrivacy} disabled={isResettingPrivacy}>
+                                      <AlertDialogAction onClick={handleResetPrivacy} disabled={isResettingPrivacy} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                                           {isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                           Sì, resetta tutto
                                       </AlertDialogAction>
