@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob } from './actions';
-import { getRawMaterialByCode, searchRawMaterials } from '@/app/raw-material-scan/actions';
+import { getRawMaterialByCode } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -482,18 +482,24 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
-      if (nextPhase && nextPhase.status === 'pending') {
-          nextPhase.materialReady = true;
-          toast({ title: "Materiale Pronto", description: `Materiale per la fase successiva "${nextPhase.name}" ora disponibile.`});
+      if (phaseToComplete.type === 'preparation') {
+        const nextProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production' && p.sequence > phaseToComplete.sequence);
+        if (nextProductionPhase) {
+          nextProductionPhase.materialReady = true;
+        }
+      } else {
+        const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
+        if (nextPhase && nextPhase.status === 'pending') {
+            nextPhase.materialReady = true;
+        }
       }
       
-      // Check if a session dialog needs to be opened
       const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
-      if (phaseToComplete.type === 'preparation' && relevantSession && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
+
+      if (phaseToComplete.type === 'preparation' && relevantSession && (operator?.role === 'superadvisor' || operator?.reparto === 'MAG')) {
           setJobToFinalize(jobToUpdate);
           setIsContinueOrCloseDialogOpen(true);
-          return; // Exit, let the dialog handle the rest
+          return;
       }
       
       handleUpdateAndPersistJob(jobToUpdate);
@@ -1022,13 +1028,14 @@ export default function ScanJobPage() {
             }
           }
           
+          const canScanMaterial = operatorHasPermission && phase.requiresMaterialScan && !phase.materialReady;
+
           const canStartWithScan = operatorHasPermission && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
           const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase;
 
           const canPausePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || !activeJobOrder.phases.some(p => p.id !== phase.id && p.status === 'in-progress'));
           const canCompletePhase = operatorHasPermission && (phase.status === 'in-progress' || phase.status === 'paused');
-          const canScanMaterial = operatorHasPermission && phase.requiresMaterialScan && !phase.materialReady;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1083,19 +1090,19 @@ export default function ScanJobPage() {
               
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
-                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending}>
+                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                         <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
                     </Button>
                 )}
                  {canStartWithScan && (
-                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending}>
+                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
                 )}
                 {canForceStart && (
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending}>
+                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                                 <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
                             </Button>
                         </AlertDialogTrigger>
@@ -1116,17 +1123,17 @@ export default function ScanJobPage() {
                     </AlertDialog>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending}>
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending}>
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending}>
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending || !operatorHasPermission}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
