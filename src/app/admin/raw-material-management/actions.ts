@@ -26,8 +26,7 @@ const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantityUnits: z.coerce.number().min(0, "La quantità non può essere negativa."),
-  weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
+  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
 });
 
 
@@ -48,8 +47,7 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
       details: data.details || {},
       unitOfMeasure: data.unitOfMeasure || 'pz',
       conversionFactor: data.conversionFactor === undefined ? null : data.conversionFactor,
-      currentWeightKg: data.currentWeightKg ?? 0,
-      currentStockUnits: data.currentStockUnits ?? 0,
+      stock: data.stock ?? 0,
       batches: data.batches || [],
     } as RawMaterial;
   });
@@ -105,8 +103,7 @@ export async function saveRawMaterial(formData: FormData) {
     // Initialize with empty stock, which will be updated by adding batches
     const fullMaterialData = {
         ...materialData,
-        currentStockUnits: 0,
-        currentWeightKg: 0,
+        stock: 0,
         batches: [],
     }
     await setDoc(newDocRef, fullMaterialData);
@@ -124,7 +121,7 @@ export async function addBatchToRawMaterial(formData: FormData) {
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantityUnits, weightKg } = validatedFields.data;
+  const { materialId, date, ddt, quantity } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   const docSnap = await getDoc(materialRef);
@@ -136,29 +133,21 @@ export async function addBatchToRawMaterial(formData: FormData) {
   const material = docSnap.data() as RawMaterial;
   const existingBatches = material.batches || [];
   
-  let finalQuantityUnits = quantityUnits;
-  if (material.unitOfMeasure === 'kg') {
-    finalQuantityUnits = weightKg;
-  }
-  
   const newBatch: RawMaterialBatch = {
     id: `batch-${Date.now()}`,
     date: new Date(date).toISOString(),
     ddt,
-    quantityUnits: finalQuantityUnits,
-    weightKg,
+    quantity,
   };
 
   const updatedBatches = [...existingBatches, newBatch];
   
   // Recalculate totals based on all batches
-  const newTotalUnits = updatedBatches.reduce((sum, batch) => sum + batch.quantityUnits, 0);
-  const newTotalKg = updatedBatches.reduce((sum, batch) => sum + (batch.weightKg || 0), 0);
+  const newTotalStock = updatedBatches.reduce((sum, batch) => sum + batch.quantity, 0);
 
   await setDoc(materialRef, {
     batches: updatedBatches,
-    currentStockUnits: newTotalUnits,
-    currentWeightKg: newTotalKg,
+    stock: newTotalStock,
   }, { merge: true });
 
   revalidatePath('/admin/raw-material-management');
@@ -186,10 +175,9 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      'Unita Misura': z.enum(['pz', 'mt', 'kg', 'n', 'm']).optional(),
-      'Fattore Conversione': z.coerce.number().optional().nullable(),
-      'Stock Unita': z.coerce.number().min(0).optional(),
-      'Stock Kg': z.coerce.number().min(0).optional(),
+      unitOfMeasure: z.enum(['pz', 'mt', 'kg', 'n', 'm']).optional(),
+      conversionFactor: z.coerce.number().optional().nullable(),
+      stock: z.coerce.number().min(0).optional(),
     });
 
     const materialsRef = collection(db, "rawMaterials");
@@ -218,7 +206,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         }
         
         let unitOfMeasure: 'pz' | 'mt' | 'kg' = 'pz';
-        const rawUoM = (validData['Unita Misura'] || 'pz').toLowerCase();
+        const rawUoM = (validData.unitOfMeasure || 'pz').toLowerCase();
         if (rawUoM === 'kg') {
             unitOfMeasure = 'kg';
         } else if (rawUoM === 'm' || rawUoM === 'mt') {
@@ -229,15 +217,13 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        const stockKg = validData['Stock Kg'] ?? 0;
-        const stockUnits = unitOfMeasure === 'kg' ? stockKg : (validData['Stock Unita'] ?? 0);
+        const stock = validData.stock ?? 0;
 
         const initialBatch: RawMaterialBatch = {
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            quantityUnits: stockUnits,
-            weightKg: stockKg,
+            quantity: stock,
         };
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
@@ -252,9 +238,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 tipologia: validData.tipologia || '',
             },
             unitOfMeasure: unitOfMeasure,
-            conversionFactor: unitOfMeasure === 'kg' ? null : (validData['Fattore Conversione'] || null),
-            currentStockUnits: initialBatch.quantityUnits,
-            currentWeightKg: initialBatch.weightKg,
+            conversionFactor: unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null),
+            stock: initialBatch.quantity,
             batches: [initialBatch],
         };
         batch.set(newDocRef, newMaterial);

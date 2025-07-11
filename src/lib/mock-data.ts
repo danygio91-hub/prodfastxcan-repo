@@ -98,8 +98,7 @@ export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  quantityUnits: number; // Can be pieces or meters
-  weightKg: number;
+  quantity: number; // The quantity in the material's primary unitOfMeasure
 }
 
 export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA';
@@ -116,14 +115,9 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
-  // New UoM fields
   unitOfMeasure: 'pz' | 'mt' | 'kg';
   conversionFactor?: number | null;
-
-  // Stock properties are now calculated from batches
-  currentWeightKg: number;
-  currentStockUnits: number;
-
+  stock: number;
   batches: RawMaterialBatch[]; // Array of received batches
 }
 

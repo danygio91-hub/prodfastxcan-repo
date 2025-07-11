@@ -46,8 +46,7 @@ const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantityUnits: z.coerce.number().min(0, "La quantità non può essere negativa."),
-  weightKg: z.coerce.number().min(0, "Il peso non può essere negativo."),
+  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
 });
 
 type BatchFormValues = z.infer<typeof batchFormSchema>;
@@ -74,18 +73,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityUnits: 0, weightKg: 0 },
+    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
-  const isKgBased = selectedMaterial?.unitOfMeasure === 'kg';
-
-  useEffect(() => {
-    if (isKgBased) {
-        const currentWeight = batchForm.getValues('weightKg');
-        batchForm.setValue('quantityUnits', currentWeight);
-    }
-  }, [isKgBased, batchForm, batchForm.watch('weightKg')]);
 
   const fetchMaterials = useCallback(async () => {
     const data = await getRawMaterials();
@@ -129,7 +120,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const handleOpenAddBatchDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
-    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantityUnits: 0, weightKg: 0 });
+    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
     setIsAddBatchDialogOpen(true);
   };
 
@@ -229,12 +220,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             'filo_el': 'filo_el',
             'larghezza': 'larghezza',
             'tipologia': 'tipologia',
-            'stock': 'Stock Unita',
-            'stock unita': 'Stock Unita',
-            'peso (kg)': 'Stock Kg',
-            'stock kg': 'Stock Kg',
-            'unita misura': 'Unita Misura',
-            'fattore conversione': 'Fattore Conversione',
+            'stock': 'stock',
+            'unita misura': 'unitOfMeasure',
+            'fattore conversione': 'conversionFactor',
         };
         
         const mappedJson = filteredData.map((row: any) => {
@@ -274,9 +262,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
-        'Stock': m.currentStockUnits,
+        'Stock': m.stock,
         'Unita Misura': m.unitOfMeasure,
-        'Peso (Kg)': m.currentWeightKg,
         'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
         'Filo El.': m.details.filo_el,
@@ -346,9 +333,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <TableHead>Codice</TableHead>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Descrizione</TableHead>
+                    <TableHead>Unità Misura</TableHead>
                     <TableHead>Stock</TableHead>
-                    <TableHead>Unità</TableHead>
-                    <TableHead>Peso (Kg)</TableHead>
+                    <TableHead>Fattore Conversione</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -359,9 +346,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableCell className="font-medium">{material.code}</TableCell>
                         <TableCell>{material.type}</TableCell>
                         <TableCell>{material.description}</TableCell>
-                        <TableCell>{material.unitOfMeasure === 'kg' ? 'N/A' : material.currentStockUnits}</TableCell>
                         <TableCell>{material.unitOfMeasure}</TableCell>
-                        <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
+                        <TableCell>{material.stock.toFixed(2)}</TableCell>
+                        <TableCell>{material.conversionFactor ?? 'N/A'}</TableCell>
                         <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -509,10 +496,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <form onSubmit={batchForm.handleSubmit(onAddBatchSubmit)} className="space-y-4 py-4">
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        <div className="grid grid-cols-2 gap-4">
-                            <FormField control={batchForm.control} name="quantityUnits" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} disabled={isKgBased} /></FormControl> <FormMessage /> </FormItem> )} />
-                            <FormField control={batchForm.control} name="weightKg" render={({ field }) => ( <FormItem> <FormLabel>Peso (Kg)</FormLabel> <FormControl><Input type="number" step="0.01" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        </div>
+                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsAddBatchDialogOpen(false)}>Annulla</Button>
                             <Button type="submit">Aggiungi Lotto</Button>
@@ -538,7 +522,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           <TableHead>Data</TableHead>
                           <TableHead>DDT</TableHead>
                           <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</TableHead>
-                          <TableHead>Peso (Kg)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -547,13 +530,12 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableRow key={batch.id}>
                                 <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy', { locale: it })}</TableCell>
                                 <TableCell>{batch.ddt}</TableCell>
-                                <TableCell>{batch.quantityUnits}</TableCell>
-                                <TableCell>{batch.weightKg.toFixed(2)}</TableCell>
+                                <TableCell>{batch.quantity}</TableCell>
                             </TableRow>
                             ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={4} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
+                            <TableCell colSpan={3} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
                           </TableRow>
                         )}
                       </TableBody>
