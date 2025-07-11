@@ -47,7 +47,8 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
       details: data.details || {},
       unitOfMeasure: data.unitOfMeasure || 'n',
       conversionFactor: data.conversionFactor === undefined ? null : data.conversionFactor,
-      stock: data.stock ?? 0,
+      currentStockUnits: data.currentStockUnits ?? 0,
+      currentWeightKg: data.currentWeightKg ?? 0,
       batches: data.batches || [],
     } as RawMaterial;
   });
@@ -68,8 +69,9 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
 
   const data = validatedFields.data;
   const trimmedCode = data.code.trim();
+  const conversionFactor = data.unitOfMeasure === 'kg' ? null : data.conversionFactor || null;
 
-  const materialData: Omit<RawMaterial, 'id' | 'stock' | 'batches' | 'code_normalized'> = {
+  const materialData: Omit<RawMaterial, 'id' | 'currentStockUnits' | 'currentWeightKg' | 'batches' | 'code_normalized'> = {
     code: trimmedCode,
     type: data.type,
     description: data.description,
@@ -80,7 +82,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
       tipologia: data.tipologia || '',
     },
     unitOfMeasure: data.unitOfMeasure,
-    conversionFactor: data.unitOfMeasure === 'kg' ? null : data.conversionFactor || null,
+    conversionFactor: conversionFactor,
   };
 
   if (data.id) {
@@ -92,7 +94,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
     }
     const existingData = docSnap.data() as RawMaterial;
 
-    const finalData = {
+    const finalData: RawMaterial = {
         ...existingData,
         ...materialData,
         code_normalized: trimmedCode.toLowerCase(),
@@ -117,7 +119,8 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
         id: newDocRef.id,
         ...materialData,
         code_normalized: normalizedCode,
-        stock: 0,
+        currentStockUnits: 0,
+        currentWeightKg: 0,
         batches: [],
     }
     await setDoc(newDocRef, fullMaterialData);
@@ -156,11 +159,28 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 
   const updatedBatches = [...existingBatches, newBatch];
   
-  const newTotalStock = updatedBatches.reduce((sum, batch) => sum + batch.quantity, 0);
+  // Recalculate total stock from all batches
+  const totalStockUnits = updatedBatches.reduce((sum, batch) => sum + batch.quantity, 0);
+  let totalWeightKg = material.currentWeightKg;
+  
+  if (material.unitOfMeasure === 'kg') {
+    totalWeightKg = totalStockUnits;
+  } else if (material.conversionFactor && material.conversionFactor > 0) {
+    totalWeightKg = totalStockUnits * material.conversionFactor;
+  } else {
+     // If no conversion factor, we can't calculate total weight from units.
+     // We can assume the added quantity is also the weight if it's a 'kg' based batch,
+     // or we just update the unit stock. Let's stick to updating both based on conversion factor.
+     // For simplicity, we assume we just add to the existing weight if no factor.
+     // A better approach is to rely on the factor.
+     // For now, let's make it clear. If UoM is not kg, and no factor, weight is not auto-updated from batches.
+  }
+
 
   const updatedData = {
     batches: updatedBatches,
-    stock: newTotalStock,
+    currentStockUnits: totalStockUnits,
+    currentWeightKg: material.unitOfMeasure === 'kg' ? totalStockUnits : (totalStockUnits * (material.conversionFactor || 0)),
   };
 
   await setDoc(materialRef, updatedData, { merge: true });
@@ -195,7 +215,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      unitOfMeasure: z.enum(['n', 'mt', 'kg', 'pz']).optional(),
+      unitOfMeasure: z.enum(['n', 'mt', 'kg']).optional(),
       conversionFactor: z.coerce.number().optional().nullable(),
       stock: z.coerce.number().min(0).optional(),
     });
@@ -231,7 +251,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             unitOfMeasure = 'kg';
         } else if (rawUoM === 'm' || rawUoM === 'mt') {
             unitOfMeasure = 'mt';
-        } else if (rawUoM === 'n' || rawUoM === 'pz') {
+        } else if (rawUoM === 'n') {
             unitOfMeasure = 'n';
         }
 
@@ -250,13 +270,21 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        const stock = validData.stock ?? 0;
+        const stockUnits = validData.stock ?? 0;
+        const conversionFactor = unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null);
+        
+        let stockKg = 0;
+        if (unitOfMeasure === 'kg') {
+            stockKg = stockUnits;
+        } else if (conversionFactor && conversionFactor > 0) {
+            stockKg = stockUnits * conversionFactor;
+        }
 
         const initialBatch: RawMaterialBatch = {
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            quantity: stock,
+            quantity: stockUnits,
         };
 
         const newMaterial: Omit<RawMaterial, 'id'> = {
@@ -271,9 +299,10 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 tipologia: validData.tipologia || '',
             },
             unitOfMeasure: unitOfMeasure,
-            conversionFactor: unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null),
-            stock: initialBatch.quantity,
-            batches: [initialBatch],
+            conversionFactor: conversionFactor,
+            currentStockUnits: stockUnits,
+            currentWeightKg: stockKg,
+            batches: stockUnits > 0 ? [initialBatch] : [],
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;

@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye } from 'lucide-react';
 
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
@@ -60,6 +60,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddBatchDialogOpen, setIsAddBatchDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,6 +128,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const handleOpenHistoryDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
     setIsHistoryDialogOpen(true);
+  };
+  
+  const handleOpenDetailViewDialog = (material: RawMaterial) => {
+    setSelectedMaterial(material);
+    setIsDetailViewOpen(true);
   };
 
 
@@ -287,7 +293,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
-        'Stock': m.stock,
+        'Stock': m.currentStockUnits,
         'Unita Misura': m.unitOfMeasure,
         'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
@@ -371,7 +377,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableCell>{material.type}</TableCell>
                         <TableCell>{material.description}</TableCell>
                         <TableCell>{material.unitOfMeasure}</TableCell>
-                        <TableCell>{material.stock.toFixed(2)}</TableCell>
+                        <TableCell>{material.currentStockUnits.toFixed(2)}</TableCell>
                         <TableCell className="text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -381,6 +387,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  <span>Vedi Dettaglio Stock</span>
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
                                   <Edit className="mr-2 h-4 w-4" />
                                   <span>Modifica Dettagli</span>
@@ -391,7 +401,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
                                   <History className="mr-2 h-4 w-4" />
-                                  <span>Vedi Storico</span>
+                                  <span>Vedi Storico Lotti</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <AlertDialog>
@@ -568,6 +578,40 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <DialogClose asChild>
                         <Button type="button" variant="outline">Chiudi</Button>
                     </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+         {/* Detail View Dialog */}
+        <Dialog open={isDetailViewOpen} onOpenChange={setIsDetailViewOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Scheda Prodotto: {selectedMaterial?.code}</DialogTitle>
+                    <DialogDescription>{selectedMaterial?.description}</DialogDescription>
+                </DialogHeader>
+                {selectedMaterial && (
+                    <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="space-y-1"><Label>Tipo</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.type}</p></div>
+                            <div className="space-y-1"><Label>Sezione</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.sezione || 'N/D'}</p></div>
+                            <div className="space-y-1"><Label>Filo El.</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.filo_el || 'N/D'}</p></div>
+                            <div className="space-y-1"><Label>Larghezza</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.larghezza || 'N/D'}</p></div>
+                            <div className="space-y-1 col-span-2"><Label>Tipologia</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.tipologia || 'N/D'}</p></div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 pt-4">
+                            <div className="p-3 rounded-lg border bg-background">
+                                <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
+                                <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
+                            </div>
+                                <div className="p-3 rounded-lg border bg-background">
+                                <Label>Stock (KG)</Label>
+                                <p className="text-2xl font-bold">{selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                 <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setIsDetailViewOpen(false)}>Chiudi</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

@@ -116,8 +116,9 @@ export interface RawMaterial {
     tipologia?: string;
   };
   unitOfMeasure: 'n' | 'mt' | 'kg';
-  conversionFactor?: number | null;
-  stock: number;
+  conversionFactor?: number | null; // e.g. kg per unit (n or mt)
+  currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
+  currentWeightKg: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
 }
 
