@@ -662,7 +662,6 @@ export default function ScanJobPage() {
         const materialType = scannedMaterialForPhase.type;
         jobToUpdate.phases.forEach((p: JobPhase) => {
             if (p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
-                 p.materialReady = true; // Set material as ready
                  p.materialConsumption = {
                     materialId: sessionData.materialId,
                     materialCode: sessionData.materialCode,
@@ -1026,15 +1025,15 @@ export default function ScanJobPage() {
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
           const phaseType = phase.type || 'production';
-          const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
-          const allPreparationPhasesCompleted = preparationPhases.length === 0 || preparationPhases.every(p => p.status === 'completed');
           
           let canStartPhase = false;
           if (phaseType === 'preparation') {
-            canStartPhase = true; // Preparation phases can start anytime if material is ready
-          } else { // production
+            canStartPhase = true;
+          } else { // production or quality
+            const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
             if (phase.sequence === 1) {
-              canStartPhase = allPreparationPhasesCompleted && noOtherProductionPhaseActiveOrPaused;
+              const allPrepPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
+              canStartPhase = (allPrepPhases.length === 0 || allPrepPhases.every(p => p.status === 'completed')) && noOtherProductionPhaseActiveOrPaused;
             } else {
               const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
               canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
@@ -1042,10 +1041,10 @@ export default function ScanJobPage() {
           }
           
           const canStartWithScan = !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
-          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase && noOtherProductionPhaseActiveOrPaused;
+          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase;
 
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
-          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || noOtherProductionPhaseActiveOrPaused);
+          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || !activeJobOrder.phases.some(p => p.id !== phase.id && p.status === 'in-progress'));
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
           const canScanMaterial = phase.requiresMaterialScan && !phase.materialReady;
 
@@ -1453,5 +1452,6 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 

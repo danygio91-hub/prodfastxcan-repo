@@ -59,11 +59,15 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         const template = allTemplatesMap.get(templateId);
         if (!template) return null;
 
+        // *** FIX: Preparation phases are ALWAYS ready by default ***
+        const isPreparation = template.type === 'preparation';
+        const materialIsReady = isPreparation || !(template.requiresMaterialScan);
+
         return {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: !(template.requiresMaterialScan),
+            materialReady: materialIsReady,
             workPeriods: [],
             sequence: template.sequence,
             type: template.type,
@@ -73,15 +77,6 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             qualityResult: null,
         };
     }).filter((p): p is JobPhase => p !== null);
-
-
-    // Ensure the first production phase is marked as materialReady if there are no preparation phases
-    if (!phases.some(p => p.type === 'preparation')) {
-        const firstProductionPhase = phases.find(p => p.sequence === 1);
-        if (firstProductionPhase) {
-            firstProductionPhase.materialReady = true;
-        }
-    }
 
     return phases.sort((a, b) => a.sequence - b.sequence);
 }
