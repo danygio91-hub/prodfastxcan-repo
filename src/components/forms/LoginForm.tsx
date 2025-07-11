@@ -79,10 +79,17 @@ export default function LoginForm() {
         if (authLoading) return; 
         
         if (user && operator) {
-            toast({
-                title: `Buongiorno, ${operator.nome}!`,
-                description: `Reindirizzamento in corso...`,
-            });
+            if (operator.nome === 'Ruben') {
+                 toast({
+                    title: `Buongiorno Signor Ruben!`,
+                    description: `il più bello della Power Flex`,
+                });
+            } else {
+                toast({
+                    title: `Buongiorno, ${operator.nome}!`,
+                    description: `Reindirizzamento in corso...`,
+                });
+            }
         }
     }, [user, operator, authLoading, toast]);
 
