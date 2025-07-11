@@ -17,14 +17,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, logMaterialConsumption, searchRawMaterials } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Search, Keyboard, Info, Weight, Package, User, FileText, Fingerprint, Barcode } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Search, Keyboard, Info, Weight, Package, User, FileText, Fingerprint, Barcode, CheckCircle } from 'lucide-react';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
+import { verifyAndGetJobOrder } from '@/app/scan-job/actions';
 
 // BarcodeDetector types for compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -84,7 +85,7 @@ export default function RawMaterialScanPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
-    const { activeJob } = useActiveJob();
+    const { activeJob, setActiveJob } = useActiveJob();
 
     const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
@@ -93,8 +94,10 @@ export default function RawMaterialScanPage() {
     const [isSearching, setIsSearching] = useState(false);
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
+    const [isJobScanDialogOpen, setIsJobScanDialogOpen] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
     const lottoVideoRef = useRef<HTMLVideoElement>(null);
+    const jobVideoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
     useEffect(() => {
@@ -280,6 +283,84 @@ export default function RawMaterialScanPage() {
              stopCamera(); 
         };
     }, [isLottoScanDialogOpen, stopCamera, form, toast]);
+
+    const handleJobScannedData = useCallback(async (data: string) => {
+        const parts = data.split('@');
+        if (parts.length !== 3) {
+            toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
+            setIsJobScanDialogOpen(false);
+            return;
+        }
+        const [ordinePF, codice, qta] = parts;
+        if (!ordinePF || !codice || !qta) {
+            toast({ variant: 'destructive', title: 'QR Code Incompleto', description: 'Dati mancanti nel QR Code.' });
+            setIsJobScanDialogOpen(false);
+            return;
+        }
+
+        toast({ title: "QR Code Rilevato", description: "Verifica commessa in corso..." });
+        const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
+
+        if ('error' in result) {
+            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+        } else {
+            toast({ title: "Commessa Verificata!", description: `Commessa ${result.id} attivata.`, action: <CheckCircle className="text-green-500"/> });
+            setActiveJob(result);
+        }
+        setIsJobScanDialogOpen(false);
+    }, [toast, setActiveJob]);
+    
+    useEffect(() => {
+        if (!isJobScanDialogOpen) {
+            stopCamera();
+            return;
+        }
+
+        let animationFrameId: number;
+        const startJobCameraAndScan = async () => {
+            try {
+                if (!('BarcodeDetector' in window)) {
+                    toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
+                    setIsJobScanDialogOpen(false);
+                    return;
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                streamRef.current = stream;
+                const video = jobVideoRef.current;
+                if (video) {
+                    video.srcObject = stream;
+                    await video.play();
+                }
+
+                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+                
+                const detect = async () => {
+                     if (!jobVideoRef.current || jobVideoRef.current.paused || jobVideoRef.current.readyState < 2) {
+                        animationFrameId = requestAnimationFrame(detect);
+                        return;
+                    };
+                    const barcodes = await barcodeDetector.detect(jobVideoRef.current);
+                    if (barcodes.length > 0) {
+                        handleJobScannedData(barcodes[0].rawValue);
+                    } else {
+                        animationFrameId = requestAnimationFrame(detect);
+                    }
+                };
+                detect();
+
+            } catch (err) {
+                toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+                stopCamera();
+                setIsJobScanDialogOpen(false);
+            }
+        };
+
+        startJobCameraAndScan();
+        return () => {
+             cancelAnimationFrame(animationFrameId);
+             stopCamera(); 
+        };
+    }, [isJobScanDialogOpen, stopCamera, form, toast, handleJobScannedData]);
 
 
     async function onLogSubmit(values: ConsumptionLogFormValues) {
@@ -470,12 +551,19 @@ export default function RawMaterialScanPage() {
                                                 {activeJob ? `Collegato alla commessa: ${activeJob.ordinePF}` : 'Nessuna commessa attiva. Selezionane una per procedere.'}
                                             </CardDescription>
                                             {!activeJob && (
-                                                <Alert variant="destructive" className="mt-2">
-                                                    <Info className="h-4 w-4" />
-                                                    <AlertTitle>Commessa non attiva</AlertTitle>
-                                                    <AlertDescription>
-                                                        Per registrare un consumo, devi prima scansionare una commessa e avviarla dalla pagina "Scansione Commessa".
-                                                    </AlertDescription>
+                                                <Alert variant="destructive" className="mt-2 space-y-3">
+                                                    <div className='flex items-start gap-2'>
+                                                        <Info className="h-4 w-4 mt-0.5" />
+                                                        <div>
+                                                            <AlertTitle>Commessa non attiva</AlertTitle>
+                                                            <AlertDescription>
+                                                                Per registrare un consumo, devi prima scansionare una commessa e avviarla.
+                                                            </AlertDescription>
+                                                        </div>
+                                                    </div>
+                                                    <Button type="button" onClick={() => setIsJobScanDialogOpen(true)} className="w-full">
+                                                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Commessa Ora
+                                                    </Button>
                                                 </Alert>
                                             )}
                                         </CardHeader>
@@ -493,7 +581,7 @@ export default function RawMaterialScanPage() {
                                              
                                             <div className="space-y-4">
                                                 {scannedMaterial.unitOfMeasure !== 'kg' ? (
-                                                    <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {(scannedMaterial.unitOfMeasure || 'pz').toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                                    <FormField control={form.control} name="numUnits" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> N° {(scannedMaterial.unitOfMeasure || 'n').toUpperCase()} Consumati</FormLabel> <FormControl><Input type="number" placeholder="Es. 10" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                                 ) : (
                                                     <Alert variant="default" className="text-center">
                                                         <Info className="h-4 w-4" />
@@ -600,7 +688,31 @@ export default function RawMaterialScanPage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
+
+                <Dialog open={isJobScanDialogOpen} onOpenChange={setIsJobScanDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Inquadra il QR della Commessa</DialogTitle>
+                        </DialogHeader>
+                        <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                            <video ref={jobVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-5/6 h-2/5 relative flex items-center justify-center">
+                                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                    <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsJobScanDialogOpen(false)}>Annulla</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </AppShell>
         </AuthGuard>
     );
 }
+
