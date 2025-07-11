@@ -86,7 +86,10 @@ export default function ActiveJobStatusBar() {
       const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
       if (allPrepPhases.every((p: JobPhase) => p.status === 'completed')) {
         const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
-        if (firstProductionPhase) firstProductionPhase.materialReady = true;
+        if (firstProductionPhase) {
+          firstProductionPhase.materialReady = true;
+          toast({ title: "Materiale Pronto", description: `Materiale per la fase "${firstProductionPhase.name}" ora disponibile.`});
+        }
       }
     } else {
         const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToUpdate.sequence + 1);
