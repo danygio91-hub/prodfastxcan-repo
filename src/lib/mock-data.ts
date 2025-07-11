@@ -115,7 +115,7 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
-  unitOfMeasure: 'pz' | 'mt' | 'kg';
+  unitOfMeasure: 'n' | 'mt' | 'kg';
   conversionFactor?: number | null;
   stock: number;
   batches: RawMaterialBatch[]; // Array of received batches

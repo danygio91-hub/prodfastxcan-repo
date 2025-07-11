@@ -36,7 +36,7 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
-  unitOfMeasure: z.enum(['pz', 'mt', 'kg']),
+  unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
 });
 
@@ -68,7 +68,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'pz', conversionFactor: null },
+    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null },
   });
 
   const batchForm = useForm<BatchFormValues>({
@@ -109,11 +109,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         filo_el: material.details.filo_el,
         larghezza: material.details.larghezza,
         tipologia: material.details.tipologia,
-        unitOfMeasure: material.unitOfMeasure || 'pz',
+        unitOfMeasure: material.unitOfMeasure || 'n',
         conversionFactor: material.conversionFactor || null,
       });
     } else {
-      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'pz', conversionFactor: null });
+      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null });
     }
     setIsEditDialogOpen(true);
   };
@@ -146,7 +146,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     });
 
     if (result.success) {
-      fetchMaterials();
+      if (result.savedMaterial) {
+          setMaterials(prev => {
+              const index = prev.findIndex(m => m.id === result.savedMaterial!.id);
+              if (index > -1) {
+                  const newMaterials = [...prev];
+                  newMaterials[index] = result.savedMaterial!;
+                  return newMaterials;
+              } else {
+                  return [...prev, result.savedMaterial!];
+              }
+          });
+      } else {
+          fetchMaterials();
+      }
       setIsEditDialogOpen(false);
     }
   };
@@ -163,8 +176,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       variant: result.success ? "default" : "destructive",
     });
       if (result.success) {
-      fetchMaterials();
-      setIsAddBatchDialogOpen(false);
+        if (result.updatedMaterial) {
+            setMaterials(prev => {
+                const index = prev.findIndex(m => m.id === result.updatedMaterial!.id);
+                if (index > -1) {
+                    const newMaterials = [...prev];
+                    newMaterials[index] = result.updatedMaterial!;
+                    return newMaterials;
+                }
+                return prev;
+            });
+        } else {
+            fetchMaterials();
+        }
+        setIsAddBatchDialogOpen(false);
     }
   };
 
@@ -453,7 +478,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="pz">Pezzi (pz)</SelectItem>
+                          <SelectItem value="n">Numero (n)</SelectItem>
                           <SelectItem value="mt">Metri (mt)</SelectItem>
                           <SelectItem value="kg">Chilogrammi (kg)</SelectItem>
                         </SelectContent>
@@ -496,7 +521,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <form onSubmit={batchForm.handleSubmit(onAddBatchSubmit)} className="space-y-4 py-4">
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsAddBatchDialogOpen(false)}>Annulla</Button>
                             <Button type="submit">Aggiungi Lotto</Button>
@@ -521,7 +546,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableRow>
                           <TableHead>Data</TableHead>
                           <TableHead>DDT</TableHead>
-                          <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'pz').toUpperCase()})</TableHead>
+                          <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

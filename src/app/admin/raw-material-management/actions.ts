@@ -18,7 +18,7 @@ const rawMaterialFormSchema = z.object({
   filo_el: z.string().optional(),
   larghezza: z.string().optional(),
   tipologia: z.string().optional(),
-  unitOfMeasure: z.enum(['pz', 'mt', 'kg']),
+  unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
 });
 
@@ -45,7 +45,7 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
       code_normalized: data.code_normalized || (data.code || '').toLowerCase(),
       description: data.description || 'Nessuna descrizione',
       details: data.details || {},
-      unitOfMeasure: data.unitOfMeasure || 'pz',
+      unitOfMeasure: data.unitOfMeasure || 'n',
       conversionFactor: data.conversionFactor === undefined ? null : data.conversionFactor,
       stock: data.stock ?? 0,
       batches: data.batches || [],
@@ -195,7 +195,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      unitOfMeasure: z.enum(['pz', 'mt', 'kg', 'n', 'm']).optional(),
+      unitOfMeasure: z.enum(['n', 'mt', 'kg', 'pz']).optional(),
       conversionFactor: z.coerce.number().optional().nullable(),
       stock: z.coerce.number().min(0).optional(),
     });
@@ -225,14 +225,14 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             continue;
         }
         
-        let unitOfMeasure: 'pz' | 'mt' | 'kg' = 'pz';
-        const rawUoM = (validData.unitOfMeasure || 'pz').toLowerCase();
+        let unitOfMeasure: 'n' | 'mt' | 'kg' = 'n';
+        const rawUoM = (validData.unitOfMeasure || 'n').toLowerCase();
         if (rawUoM === 'kg') {
             unitOfMeasure = 'kg';
         } else if (rawUoM === 'm' || rawUoM === 'mt') {
             unitOfMeasure = 'mt';
         } else if (rawUoM === 'n' || rawUoM === 'pz') {
-            unitOfMeasure = 'pz';
+            unitOfMeasure = 'n';
         }
 
         let type: RawMaterialType = 'BOB';
