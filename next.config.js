@@ -1,5 +1,5 @@
 
-import type {NextConfig} from 'next';
+/** @type {import('next').NextConfig} */
 
 const withPWA = require('next-pwa')({
   dest: 'public',
@@ -9,9 +9,11 @@ const withPWA = require('next-pwa')({
   cacheOnFrontEndNav: true,
 });
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   /* config options here */
-  allowedDevOrigins: ["https://*.cloudworkstations.dev"],
+  experimental: {
+    esmExternals: 'loose',
+  },
   images: {
     remotePatterns: [
       {
@@ -24,4 +26,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withPWA(nextConfig);
+module.exports = withPWA(nextConfig);
