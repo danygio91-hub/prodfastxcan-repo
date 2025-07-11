@@ -661,8 +661,9 @@ export default function ScanJobPage() {
         
         const materialType = scannedMaterialForPhase.type;
         jobToUpdate.phases.forEach((p: JobPhase) => {
-            if (p.status === 'pending' && p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
-                p.materialConsumption = {
+            if (p.requiresMaterialScan && p.allowedMaterialTypes?.includes(materialType)) {
+                 p.materialReady = true; // Set material as ready
+                 p.materialConsumption = {
                     materialId: sessionData.materialId,
                     materialCode: sessionData.materialCode,
                     openingWeight: sessionData.openingWeight,
@@ -1039,18 +1040,14 @@ export default function ScanJobPage() {
               canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
             }
           }
-
-          const materialTypeForPhase = phase.allowedMaterialTypes?.[0];
-          const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
-          const materialRequirementMet = !phase.requiresMaterialScan || (phase.requiresMaterialScan && (!!phase.materialConsumption || !!relevantSession));
           
-          const canStartWithScan = !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && canStartPhase;
-          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && materialRequirementMet && phase.status === 'pending' && !canStartPhase && noOtherProductionPhaseActiveOrPaused;
+          const canStartWithScan = !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
+          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase && noOtherProductionPhaseActiveOrPaused;
 
           const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || noOtherProductionPhaseActiveOrPaused);
           const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
-          const canScanMaterial = phase.requiresMaterialScan && !phase.materialConsumption && !relevantSession;
+          const canScanMaterial = phase.requiresMaterialScan && !phase.materialReady;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1071,10 +1068,10 @@ export default function ScanJobPage() {
                    <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
                    <Switch
                     id={`material-${phase.id}`}
-                    checked={materialRequirementMet}
+                    checked={phase.materialReady}
                     disabled={true} 
                   />
-                  {materialRequirementMet ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
+                  {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
               </div>
 
@@ -1456,4 +1453,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
