@@ -482,31 +482,15 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      const completedPhaseType = phaseToComplete.type || 'production';
-      
-      // Unlock next production phase if needed
-      if (completedPhaseType === 'preparation') {
-          const allPrepPhasesCompleted = jobToUpdate.phases
-              .filter((p: JobPhase) => (p.type || 'production') === 'preparation')
-              .every((p: JobPhase) => p.status === 'completed');
-
-          if (allPrepPhasesCompleted) {
-              const firstProdPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
-              if (firstProdPhase && !firstProdPhase.materialReady) {
-                  firstProdPhase.materialReady = true;
-                  toast({ title: "Produzione Sbloccata", description: `Fase "${firstProdPhase.name}" ora pronta.`});
-              }
-          }
-      } else {
-          const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
-          if (nextPhase && nextPhase.status === 'pending' && !nextPhase.materialReady) {
-              nextPhase.materialReady = true;
-          }
+      const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
+      if (nextPhase && nextPhase.status === 'pending') {
+          nextPhase.materialReady = true;
+          toast({ title: "Materiale Pronto", description: `Materiale per la fase successiva "${nextPhase.name}" ora disponibile.`});
       }
       
       // Check if a session dialog needs to be opened
       const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
-      if (completedPhaseType === 'preparation' && relevantSession && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
+      if (phaseToComplete.type === 'preparation' && relevantSession && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
           setJobToFinalize(jobToUpdate);
           setIsContinueOrCloseDialogOpen(true);
           return; // Exit, let the dialog handle the rest
@@ -614,7 +598,9 @@ export default function ScanJobPage() {
       return;
     }
     toast({ title: "Ricerca materia prima..." });
+    setIsSearchingMaterial(true);
     const result = await getRawMaterialByCode(trimmedCode);
+    setIsSearchingMaterial(false);
 
     if ('error' in result) {
         toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
@@ -1017,6 +1003,8 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
+          const operatorHasPermission = isSuperadvisor || (operator && phase.departmentCodes.includes(operator.reparto));
+
           const phaseType = phase.type || 'production';
           
           let canStartPhase = false;
@@ -1034,13 +1022,13 @@ export default function ScanJobPage() {
             }
           }
           
-          const canStartWithScan = !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
+          const canStartWithScan = operatorHasPermission && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
           const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase;
 
-          const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress';
-          const canResumePhase = !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || !activeJobOrder.phases.some(p => p.id !== phase.id && p.status === 'in-progress'));
-          const canCompletePhase = phase.status === 'in-progress' || phase.status === 'paused';
-          const canScanMaterial = phase.requiresMaterialScan && !phase.materialReady;
+          const canPausePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'in-progress';
+          const canResumePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || !activeJobOrder.phases.some(p => p.id !== phase.id && p.status === 'in-progress'));
+          const canCompletePhase = operatorHasPermission && (phase.status === 'in-progress' || phase.status === 'paused');
+          const canScanMaterial = operatorHasPermission && phase.requiresMaterialScan && !phase.materialReady;
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1051,11 +1039,11 @@ export default function ScanJobPage() {
           const lastWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
 
           return (
-            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''}`}>
+            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''} ${!operatorHasPermission && 'opacity-60 bg-muted/30'}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center">
                   {phaseIcon}
-                  <span className="font-semibold">{phase.name} (Seq: {phase.sequence})</span>
+                  <span className={`font-semibold ${!operatorHasPermission && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
                 </div>
                 <div className="flex items-center space-x-2">
                    <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
@@ -1067,6 +1055,13 @@ export default function ScanJobPage() {
                   {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
                 </div>
               </div>
+              
+              {!operatorHasPermission && (
+                <p className="text-xs text-amber-600 dark:text-amber-500 font-semibold mt-2">
+                    Fase non di competenza del tuo reparto.
+                </p>
+              )}
+
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {phase.materialConsumption && (
@@ -1255,16 +1250,6 @@ export default function ScanJobPage() {
                             <span className="sr-only">Cerca</span>
                         </Button>
                     </div>
-                    {materialSearchResults.length > 0 && (
-                        <div className="border rounded-md max-h-32 overflow-y-auto">
-                            {materialSearchResults.map(material => (
-                                <button key={material.id} type="button" className="w-full text-left p-2 hover:bg-accent" onClick={() => handleMaterialCodeSubmit(material.code)}>
-                                    <p className="font-semibold">{material.code}</p>
-                                    <p className="text-sm text-muted-foreground">{material.description}</p>
-                                </button>
-                            ))}
-                        </div>
-                    )}
                      <Button variant="ghost" onClick={() => setMaterialScanStep('initial')}>Indietro</Button>
                 </div>
             )}
