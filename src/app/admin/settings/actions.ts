@@ -38,7 +38,7 @@ export async function updateDepartmentNames(formData: FormData): Promise<{ succe
     // Revalidate paths that might display department names
     revalidatePath('/admin/settings');
     revalidatePath('/admin/operator-management');
-    revalidatePath('/operator-data');
+    revalidatePath('/operator');
     revalidatePath('/scan-job');
     revalidatePath('/admin/data-management');
 

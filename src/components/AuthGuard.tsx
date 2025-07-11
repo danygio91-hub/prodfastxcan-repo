@@ -32,8 +32,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
 
     // If we have a user and their operator profile is loaded, check for privacy agreement.
     // If they haven't signed, and they are not on the page to do so, redirect them there.
-    if (operator && !operator.privacySigned && pathname !== '/operator-data') {
-      router.replace('/operator-data');
+    if (operator && !operator.privacySigned && pathname !== '/operator') {
+      router.replace('/operator');
       return;
     }
   }, [user, operator, loading, router, pathname]);
@@ -71,7 +71,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   
   // Another "hard gate" for privacy. If we are here, operator is loaded.
   // If privacy is not signed, we show a skeleton while the useEffect redirects.
-  if (!operator.privacySigned && pathname !== '/operator-data') {
+  if (!operator.privacySigned && pathname !== '/operator') {
        return (
         <AppShell>
             <div className="flex flex-col items-center justify-center h-full p-4 space-y-4">

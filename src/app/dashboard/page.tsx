@@ -72,7 +72,7 @@ export default function DashboardPage() {
               title="Dati Operatore"
               description="Visualizza e gestisci le informazioni dell'operatore."
               icon={Users}
-              href="/operator-data"
+              href="/operator"
             />
              <AlertDialog>
               <AlertDialogTrigger asChild>

@@ -364,7 +364,7 @@ export default function ScanJobPage() {
         }
       }
 
-      if (phaseType === 'production' && jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
+      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
         toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return;
       }
@@ -668,11 +668,12 @@ export default function ScanJobPage() {
                     openingWeight: sessionData.openingWeight,
                     lottoBobina: values.lottoBobina,
                 };
+                p.materialReady = true; // Mark phase as ready
             }
         });
         
         handleUpdateAndPersistJob(jobToUpdate);
-        toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e sessione creata.` });
+        toast({ title: "Sessione Materiale Avviata", description: `Materiale ${scannedMaterialForPhase.code} associato e fase pronta.` });
 
     } catch (error) {
         toast({ variant: 'destructive', title: 'Errore Sessione', description: error instanceof Error ? error.message : "Impossibile avviare la sessione." });
@@ -1028,7 +1029,8 @@ export default function ScanJobPage() {
           
           let canStartPhase = false;
           if (phaseType === 'preparation') {
-            canStartPhase = true;
+            const noOtherPrepPhaseActiveOrPausedBySameOperator = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type === 'preparation') && (p.status === 'in-progress' || p.status === 'paused') && p.workPeriods.some(wp => wp.operatorId === operator?.id && !wp.end));
+            canStartPhase = noOtherPrepPhaseActiveOrPausedBySameOperator;
           } else { // production or quality
             const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
             if (phase.sequence === 1) {
@@ -1452,6 +1454,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-
 

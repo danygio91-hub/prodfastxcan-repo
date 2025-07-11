@@ -59,15 +59,11 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         const template = allTemplatesMap.get(templateId);
         if (!template) return null;
 
-        // *** FIX: Preparation phases are ALWAYS ready by default ***
-        const isPreparation = template.type === 'preparation';
-        const materialIsReady = isPreparation || !(template.requiresMaterialScan);
-
         return {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: materialIsReady,
+            materialReady: !(template.requiresMaterialScan), // Material is ready if scan is NOT required.
             workPeriods: [],
             sequence: template.sequence,
             type: template.type,

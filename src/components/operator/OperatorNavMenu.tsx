@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -40,13 +41,6 @@ function OperatorNavMenu() {
       description: "Uscita registrata con successo.",
     });
   }, [toast]);
-
-  const navItems = [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/scan-job', label: 'Scansione Commessa', icon: ScanLine },
-      { href: '/operator-data', label: 'Dati Operatore', icon: Users },
-      { href: '/report-problem', label: 'Segnala Problema', icon: AlertTriangle },
-  ];
 
   return (
     <Card className="mb-6 p-2">
@@ -117,12 +111,12 @@ function OperatorNavMenu() {
               {/* Dati Operatore */}
               <Tooltip>
                   <TooltipTrigger asChild>
-                  <Link href="/operator-data" passHref>
+                  <Link href="/operator" passHref>
                       <Button
-                      variant={pathname === '/operator-data' ? 'default' : 'ghost'}
+                      variant={pathname === '/operator' ? 'default' : 'ghost'}
                       size="icon"
                       className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
-                      data-active={pathname === '/operator-data'}
+                      data-active={pathname === '/operator'}
                       aria-label="Dati Operatore"
                       >
                       <Users className="h-6 w-6" />
