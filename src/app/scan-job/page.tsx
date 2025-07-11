@@ -498,7 +498,6 @@ export default function ScanJobPage() {
     phaseToComplete.status = 'completed';
 
     const completedPhaseType = phaseToComplete.type || 'production';
-
     if (completedPhaseType === 'preparation' && (operator?.reparto === 'MAG' || operator?.role === 'superadvisor')) {
         const materialTypeForPhase = phaseToComplete.allowedMaterialTypes?.[0];
         const relevantSession = materialTypeForPhase ? getSessionForType(materialTypeForPhase) : undefined;
