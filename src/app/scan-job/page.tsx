@@ -494,15 +494,16 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      // Sblocco fase successiva
       const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
       if (nextPhase && nextPhase.status === 'pending') {
-          nextPhase.materialReady = true;
+        const allPrepPhasesForNext = jobToUpdate.phases.filter((p:JobPhase) => p.type === 'preparation');
+        if (allPrepPhasesForNext.every(p => p.status === 'completed')) {
+            nextPhase.materialReady = true;
+        }
       }
       
-      const sessionType = getMaterialCategoryFromPhase(phaseToComplete);
-      const relevantSession = sessionType ? getSessionForType(sessionType) : undefined;
-      
+      const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
+
       if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
           setJobToFinalize(jobToUpdate);
           setIsContinueOrCloseDialogOpen(true);
@@ -513,19 +514,11 @@ export default function ScanJobPage() {
       toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
 
-    function getMaterialCategoryFromPhase(phase: JobPhase): RawMaterialType | undefined {
-        if (!phase.allowedMaterialTypes || phase.allowedMaterialTypes.length === 0) {
-            return undefined;
-        }
-        return phase.allowedMaterialTypes[0];
-    }
-
-
   const handleContinueWithMaterial = () => {
     if (!jobToFinalize) return;
     const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
-    const sessionType = phaseThatTriggered ? getMaterialCategoryFromPhase(phaseThatTriggered) : undefined;
-    const relevantSession = sessionType ? getSessionForType(sessionType) : undefined;
+    
+    const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
 
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobOrder(null); // Clear current job to scan a new one
@@ -1297,7 +1290,7 @@ export default function ScanJobPage() {
                     <Label htmlFor="manualMaterialCode">Codice Materia Prima</Label>
                     <div className="flex items-center gap-2">
                         <Input id="manualMaterialCode" value={manualMaterialCode} onChange={(e) => setManualMaterialCode(e.target.value)} placeholder="Es. BOB-123" autoFocus autoComplete="off" />
-                        <Button onClick={() => handleMaterialCodeSubmit(manualMaterialCode)} disabled={!manualMaterialCode}>
+                        <Button onClick={() => handleMaterialCodeSubmit(manualMaterialCode)} disabled={!manualMaterialCode || isSearchingMaterial}>
                             {isSearchingMaterial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                             <span className="sr-only">Cerca</span>
                         </Button>
@@ -1410,7 +1403,6 @@ export default function ScanJobPage() {
     if (!jobToFinalize) return null;
     const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
     
-    // Find the session based on the specific materialId of the consumption
     const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
 
 

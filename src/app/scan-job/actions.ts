@@ -132,10 +132,10 @@ export async function closeMaterialSessionAndUpdateStock(
         }
         
         const materialData = materialDoc.data() as RawMaterial;
-        const newWeightKg = materialData.currentWeightKg - consumedWeight;
+        const newWeightKg = (materialData.currentWeightKg ?? 0) - consumedWeight;
         
         if (newWeightKg < 0) {
-           throw new Error(`Stock insufficiente. Peso disponibile: ${materialData.currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
+           throw new Error(`Stock insufficiente. Peso disponibile: ${(materialData.currentWeightKg ?? 0).toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
         // --- 3. ALL WRITES LAST ---
@@ -218,20 +218,21 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
         
         const material = materialDoc.data() as RawMaterial;
         let consumedWeight = 0;
-        let newStockUnits = material.currentStockUnits;
+        let newStockUnits = material.currentStockUnits ?? 0;
+        let currentWeightKg = material.currentWeightKg ?? 0;
 
         if (unit === 'kg') {
             consumedWeight = quantity;
-            if (material.currentWeightKg < consumedWeight) {
-                throw new Error(`Stock a peso insufficiente. Disponibile: ${material.currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
+            if (currentWeightKg < consumedWeight) {
+                throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
             }
             if (material.conversionFactor) {
                 const unitsConsumed = Math.round(consumedWeight / material.conversionFactor);
                 newStockUnits -= unitsConsumed;
             }
         } else { // unit is 'n'
-            if (material.currentStockUnits < quantity) {
-                throw new Error(`Stock a unità insufficiente. Disponibile: ${material.currentStockUnits}, Richiesto: ${quantity}.`);
+            if (newStockUnits < quantity) {
+                throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${quantity}.`);
             }
             newStockUnits -= quantity;
             if (material.conversionFactor) {
@@ -239,7 +240,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
             }
         }
 
-        const newWeightKg = material.currentWeightKg - consumedWeight;
+        const newWeightKg = currentWeightKg - consumedWeight;
         if (newWeightKg < 0) {
             throw new Error(`Stock a peso risultante negativo. Verificare il fattore di conversione.`);
         }
