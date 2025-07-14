@@ -11,31 +11,39 @@ import type { JobOrder } from '@/lib/mock-data';
 // at /src/app/admin/app-settings/page.tsx to resolve permission errors
 // by ensuring the database operation is authenticated with the user's session.
 
-async function deleteAllFromCollection(collectionName: string, batch: FirebaseFirestore.WriteBatch) {
+async function deleteAllFromCollection(collectionName: string) {
     const ref = collection(db, collectionName);
     const snapshot = await getDocs(ref);
-    let count = 0;
+    const batch = writeBatch(db);
     snapshot.docs.forEach(docSnap => {
         batch.delete(docSnap.ref);
-        count++;
     });
-    return count;
+    await batch.commit();
+    return snapshot.size;
 }
 
 
 export async function resetAllJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
+    const jobsBatch = writeBatch(db);
+    const jobsRef = collection(db, "jobOrders");
+    const jobsSnapshot = await getDocs(jobsRef);
+    jobsSnapshot.forEach(doc => jobsBatch.delete(doc.ref));
+    await jobsBatch.commit();
+    const jobsCount = jobsSnapshot.size;
 
-    const jobsCount = await deleteAllFromCollection("jobOrders", batch);
-    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals", batch);
+    const withdrawalsBatch = writeBatch(db);
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    const withdrawalsSnapshot = await getDocs(withdrawalsRef);
+    withdrawalsSnapshot.forEach(doc => withdrawalsBatch.delete(doc.ref));
+    await withdrawalsBatch.commit();
+    const withdrawalsCount = withdrawalsSnapshot.size;
 
-    if (jobsCount === 0) {
-      return { success: true, message: 'Nessuna commessa trovata. Il database è già pulito.' };
+
+    if (jobsCount === 0 && withdrawalsCount === 0) {
+      return { success: true, message: 'Nessuna commessa o prelievo trovato. Il database è già pulito.' };
     }
-
-    await batch.commit();
 
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
@@ -53,20 +61,16 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
 export async function resetAllRawMaterials(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-     const batch = writeBatch(db);
-
-    const materialsCount = await deleteAllFromCollection("rawMaterials", batch);
-    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals", batch);
+    const materialsCount = await deleteAllFromCollection("rawMaterials");
+    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals");
     
-    if (materialsCount === 0) {
-      return { success: true, message: 'Nessuna materia prima trovata. Il database è già pulito.' };
+    if (materialsCount === 0 && withdrawalsCount === 0) {
+      return { success: true, message: 'Nessuna materia prima o prelievo trovato. Il database è già pulito.' };
     }
-
-    await batch.commit();
-
+    
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/raw-material-scan');
-    revalidatePath('/admin/reports'); // Also revalidate reports as withdrawals are gone
+    revalidatePath('/admin/reports');
     
     return { success: true, message: `Reset completato. ${materialsCount} materie prime e ${withdrawalsCount} prelievi sono stati eliminati.` };
 
@@ -80,14 +84,12 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
 export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
-    const deletedCount = await deleteAllFromCollection("materialWithdrawals", batch);
+    const deletedCount = await deleteAllFromCollection("materialWithdrawals");
 
     if (deletedCount === 0) {
       return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
     }
 
-    await batch.commit();
     revalidatePath('/admin/reports');
     
     return { success: true, message: `Reset completato. ${deletedCount} report di prelievo sono stati eliminati.` };
