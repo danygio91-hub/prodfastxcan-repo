@@ -980,18 +980,16 @@ export default function ScanJobPage() {
                 <CardDescription>Reparto: {job.department}</CardDescription>
               </div>
             </div>
-            <AlertDialogTrigger asChild>
-                <Button 
-                    variant={job.isProblemReported ? "destructive" : "outline"} 
-                    size="icon"
-                    onClick={() => setIsProblemReportDialogOpen(true)}
-                    title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
-                    className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
-                >
-                    {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-                    <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
-                </Button>
-            </AlertDialogTrigger>
+            <Button 
+                variant={job.isProblemReported ? "destructive" : "outline"} 
+                size="icon"
+                onClick={() => setIsProblemReportDialogOpen(true)}
+                title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
+                className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
+            >
+                {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+                <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
+            </Button>
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
@@ -1468,30 +1466,31 @@ export default function ScanJobPage() {
       <AppShell>
         <div className="space-y-6">
           <OperatorNavMenu />
-          <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
+          
+            <Dialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
+                {step === 'initial' && renderScanArea()}
+                {step === 'scanning' && renderScanArea()}
+
+                {step === 'processing' && activeJobOrder && (
+                  <>
+                    {renderJobDetailsCard(activeJobOrder)}
+                    {renderPhasesManagement()}
+                  </>
+                )}
+
+                {step === 'finished' && activeJobOrder && renderFinishedView()}
             
-            {step === 'initial' && renderScanArea()}
-            {step === 'scanning' && renderScanArea()}
-
-            {step === 'processing' && activeJobOrder && (
-              <>
-                {renderJobDetailsCard(activeJobOrder)}
-                {renderPhasesManagement()}
-              </>
-            )}
-
-            {step === 'finished' && activeJobOrder && renderFinishedView()}
-
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Descrivi il problema riscontrato per questa commessa. La segnalazione bloccherà temporaneamente la lavorazione.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <ProblemReportForm onSuccess={handleJobProblemReported} showTitle={false} initialSeverity="medium" />
-            </AlertDialogContent>
-          </AlertDialog>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id}</DialogTitle>
+                    </DialogHeader>
+                    <ProblemReportForm 
+                        onSuccess={handleJobProblemReported} 
+                        onCancel={() => setIsProblemReportDialogOpen(false)}
+                        showTitle={false} 
+                    />
+                </DialogContent>
+            </Dialog>
           
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
