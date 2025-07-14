@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -238,14 +238,18 @@ export default function LoginForm() {
                                 Accesso Standard (QR)
                             </Button>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <Button onClick={() => handleQrLoginClick('/clock-in-out')} variant="secondary" className="h-20 flex-col gap-1">
+                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <Button onClick={() => handleQrLoginClick('/clock-in-out')} variant="secondary" className="h-20 flex-col gap-1 text-secondary-foreground">
                                     <Clock className="h-6 w-6" />
-                                    Timbratura Rapida
+                                    Timbratura
                                 </Button>
-                                <Button onClick={() => handleQrLoginClick('/scan-job')} variant="secondary" className="h-20 flex-col gap-1">
+                                <Button onClick={() => handleQrLoginClick('/scan-job')} className="h-20 flex-col gap-1 bg-green-600 text-white hover:bg-green-700">
                                     <ScanLine className="h-6 w-6" />
-                                    Scansione Commessa
+                                    Produzione
+                                </Button>
+                                 <Button onClick={() => handleQrLoginClick('/material-loading')} className="h-20 flex-col gap-1 bg-amber-500 text-white hover:bg-amber-600">
+                                    <PackagePlus className="h-6 w-6" />
+                                    Carico Merce
                                 </Button>
                             </div>
                             
