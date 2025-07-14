@@ -171,7 +171,7 @@ export default function RawMaterialManagementClientPage() {
               const index = prev.findIndex(m => m.id === result.savedMaterial!.id);
               if (index > -1) {
                   const newMaterials = [...prev];
-                  newMaterials[index] = result.savedMaterial!;
+                  newMaterials[index] = { ...newMaterials[index], ...result.savedMaterial! };
                   return newMaterials;
               } else {
                   return [...prev, result.savedMaterial!];
@@ -624,7 +624,7 @@ export default function RawMaterialManagementClientPage() {
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.stock ?? 0}</p>
+                                <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
                             </div>
                                 <div className="p-3 rounded-lg border bg-background">
                                 <Label>Fattore Conversione</Label>

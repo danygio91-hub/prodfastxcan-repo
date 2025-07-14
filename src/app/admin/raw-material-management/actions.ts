@@ -37,14 +37,14 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const materialsCol = collection(db, 'rawMaterials');
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
-    const data = doc.data();
-    const stock = data.batches?.reduce((acc: number, batch: RawMaterialBatch) => acc + batch.quantity, 0) || 0;
-    
+    const data = doc.data() as RawMaterial;
+    // The `stock` property is for display purposes on the client.
+    // It is calculated from `currentStockUnits` which is the source of truth from Firestore.
     return {
+      ...data,
       id: doc.id,
-      stock: stock,
-      ...data
-    } as RawMaterial;
+      stock: data.currentStockUnits || 0,
+    };
   });
   return list;
 }
@@ -105,6 +105,8 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
         id: newDocRef.id,
         ...materialData,
         stock: 0,
+        currentStockUnits: 0,
+        currentWeightKg: 0,
         batches: [],
     }
     await setDoc(newDocRef, fullMaterialData);
@@ -127,7 +129,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
-      const updatedMaterial = await runTransaction(db, async (transaction) => {
+      const finalMaterialState = await runTransaction(db, async (transaction) => {
           const docSnap = await transaction.get(materialRef);
           if (!docSnap.exists()) {
             throw new Error('Materia prima non trovata.');
@@ -145,16 +147,35 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 
           const updatedBatches = [...existingBatches, newBatch];
           
-          transaction.update(materialRef, { batches: updatedBatches });
+          // Recalculate total stock from all batches
+          const newStockUnits = updatedBatches.reduce((acc, b) => acc + b.quantity, 0);
+          
+          let newWeightKg = 0;
+          if (material.unitOfMeasure === 'kg') {
+              newWeightKg = newStockUnits;
+          } else if (material.conversionFactor && material.conversionFactor > 0) {
+              newWeightKg = newStockUnits * material.conversionFactor;
+          }
 
-          return { ...material, batches: updatedBatches };
+          transaction.update(materialRef, { 
+              batches: updatedBatches,
+              currentStockUnits: newStockUnits,
+              currentWeightKg: newWeightKg
+          });
+
+          // Return the full updated material object for the client
+          return { 
+              ...material, 
+              batches: updatedBatches, 
+              currentStockUnits: newStockUnits,
+              currentWeightKg: newWeightKg,
+              stock: newStockUnits // Add the derived stock property for UI update
+          };
       });
       
-      const finalStock = updatedMaterial.batches.reduce((acc, b) => acc + b.quantity, 0);
-
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: { ...updatedMaterial, stock: finalStock } };
+      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
@@ -267,6 +288,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             unitOfMeasure: unitOfMeasure,
             conversionFactor: conversionFactor,
             batches: stockUnits > 0 ? [initialBatch] : [],
+            currentStockUnits: stockUnits,
+            currentWeightKg: stockKg,
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;

@@ -118,9 +118,10 @@ export interface RawMaterial {
   };
   unitOfMeasure: 'n' | 'mt' | 'kg';
   conversionFactor?: number | null; // e.g. kg per unit (n or mt)
-  currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
-  currentWeightKg: number; // Stock always in KG, calculated or direct
+  currentStockUnits?: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
+  currentWeightKg?: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
+  stock?: number; // Derived field for display, calculated from batches
 }
 
 
@@ -185,4 +186,3 @@ export const initialWorkstations: Workstation[] = [
     { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
     { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
 ];
-
