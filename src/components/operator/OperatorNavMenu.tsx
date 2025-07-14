@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, Boxes } from 'lucide-react';
+import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,24 +86,24 @@ function OperatorNavMenu() {
                   </TooltipContent>
               </Tooltip>
               
-              {/* Scansione Materie Prime (Conditional) */}
+              {/* Carico Materiale (Conditional) */}
               {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
                  <Tooltip>
                     <TooltipTrigger asChild>
-                    <Link href="/raw-material-scan" passHref>
+                    <Link href="/material-loading" passHref>
                         <Button
-                        variant={pathname === '/raw-material-scan' ? 'default' : 'ghost'}
+                        variant={pathname === '/material-loading' ? 'default' : 'ghost'}
                         size="icon"
                         className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
-                        data-active={pathname === '/raw-material-scan'}
-                        aria-label="Scansione Materie Prime"
+                        data-active={pathname === '/material-loading'}
+                        aria-label="Carico Materiale"
                         >
-                        <Boxes className="h-6 w-6" />
+                        <PackagePlus className="h-6 w-6" />
                         </Button>
                     </Link>
                     </TooltipTrigger>
                     <TooltipContent>
-                    <p>Scansione Materie Prime</p>
+                    <p>Carico Materiale</p>
                     </TooltipContent>
                 </Tooltip>
               )}
