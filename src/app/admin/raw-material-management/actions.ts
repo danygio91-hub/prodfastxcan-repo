@@ -144,7 +144,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             date: new Date(date).toISOString(),
             ddt,
             quantity,
-            lotto: lotto || '', // Ensure lotto is at least an empty string
+            lotto: lotto || null, // Ensure lotto is at least an empty string
           };
 
           const updatedBatches = [...existingBatches, newBatch];
@@ -218,7 +218,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             updatedBatches[batchIndex] = {
                 ...updatedBatches[batchIndex],
                 ...newBatchData,
-                lotto: newBatchData.lotto || '',
+                lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
             };
             
