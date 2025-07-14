@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -533,6 +533,16 @@ export default function ScanJobPage() {
     toast({ title: "Fase Completata", description: `Ora puoi chiudere la sessione del materiale dalla barra in basso.`});
     setJobToFinalize(null);
     setIsContinueOrCloseDialogOpen(false);
+  };
+
+  const handleCompletePreparation = () => {
+    if (!activeJobOrder) return;
+    setActiveJobOrder(null);
+    toast({
+      title: "Preparazione Completata",
+      description: `La commessa ${activeJobOrder.id} è ora disponibile per la produzione.`,
+      action: <ThumbsUp className="text-primary" />
+    });
   };
 
   const handleConcludeOverallJob = () => {
@@ -1055,7 +1065,10 @@ export default function ScanJobPage() {
     const isJobBlockedByProblem = !!activeJobOrder.isProblemReported;
     
     const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
+    const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     const productionPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+    const hasProductionPhases = productionPhases.length > 0;
+    const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
@@ -1216,6 +1229,15 @@ export default function ScanJobPage() {
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(renderPhaseCard)}
             </div>
           </>
+        )}
+        
+        {allPreparationPhasesCompleted && hasProductionPhases && isMagazzinoOrSuperadvisor && (
+            <div className="pt-4">
+                <Button onClick={handleCompletePreparation} className="w-full" size="lg">
+                    <ThumbsUp className="mr-2 h-5 w-5" />
+                    Completa Preparazione e Libera Commessa
+                </Button>
+            </div>
         )}
         
         {productionPhases.length > 0 && (
