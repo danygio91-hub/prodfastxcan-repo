@@ -21,17 +21,30 @@ export const storeOperator = (operator: Operator | null) => {
 };
 
 /**
- * Attempts to sign in a user with Firebase Auth. The onAuthStateChanged listener
- * in AuthProvider is responsible for handling the result of this action.
+ * Attempts to sign in a user with Firebase Auth using their operator profile data.
+ * The onAuthStateChanged listener in AuthProvider is responsible for handling the result.
  */
 export async function login(username: string, password_used: string): Promise<void> {
     const lowerCaseUsername = username.trim().toLowerCase();
-    const emailForAuth = `${lowerCaseUsername}@${AUTH_EMAIL_DOMAIN}`;
 
-    // The onAuthStateChanged listener will handle finding the profile and linking the UID.
-    // This function's only job is to perform the authentication.
-    await signInWithEmailAndPassword(auth, emailForAuth, password_used);
+    // Find operator by normalized name first to get their full email
+    const q = query(collection(db, "operators"), where("nome_normalized", "==", lowerCaseUsername));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+        throw new Error("Nome utente non trovato.");
+    }
+
+    const operatorData = querySnapshot.docs[0].data() as Operator;
+
+    if (!operatorData.email) {
+        throw new Error("Profilo operatore incompleto, email mancante. Contattare l'amministratore.");
+    }
+    
+    // Use the exact email from the operator's profile for authentication.
+    await signInWithEmailAndPassword(auth, operatorData.email, password_used);
 }
+
 
 /**
  * Signs the user out of Firebase.
