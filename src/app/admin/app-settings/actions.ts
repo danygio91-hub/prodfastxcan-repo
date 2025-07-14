@@ -209,4 +209,16 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
   }
 }
 
-    
+export async function resetAllActiveSessions(uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    // This action doesn't need to modify the database.
+    // Its purpose is to trigger the force logout mechanism on the client.
+    // The client-side handler will then call triggerGlobalLogout().
+    return { success: true, message: 'Segnale di reset sessioni inviato. Tutti gli operatori verranno disconnessi per pulire il loro stato locale.' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Errore nel reset delle sessioni:", error);
+    return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
+  }
+}

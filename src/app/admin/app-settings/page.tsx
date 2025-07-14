@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -50,6 +50,7 @@ export default function AdminAppSettingsPage() {
   const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
   const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
   const [isResettingWork, startResetWorkTransition] = useTransition();
+  const [isResettingSessions, startResetSessionsTransition] = useTransition();
 
   const { toast } = useToast();
 
@@ -184,6 +185,22 @@ export default function AdminAppSettingsPage() {
         }
     });
   };
+  
+  const handleResetSessions = () => {
+    if (!user) return;
+    startResetSessionsTransition(async () => {
+        const result = await resetAllActiveSessions(user.uid);
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+        if (result.success) {
+          triggerGlobalLogout();
+          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti (escluso l\'admin) verranno disconnessi per resettare le loro sessioni attive.', variant: 'default' });
+        }
+    });
+  };
 
   return (
     <AdminAuthGuard>
@@ -309,6 +326,37 @@ export default function AdminAppSettingsPage() {
                       </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                       <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
+                              <h4 className="font-semibold">Reset Sessioni Attive</h4>
+                              <p className="text-sm text-muted-foreground">
+                                  Forza un logout per tutti gli operatori, cancellando le loro sessioni locali (es. banner materiale attivo).
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingSessions}>
+                                      {isResettingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <LogOut className="mr-2 h-4 w-4" />}
+                                      Resetta Sessioni
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione disconnetterà tutti gli operatori e pulirà il loro stato locale. Utile per risolvere sessioni bloccate.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetSessions} disabled={isResettingSessions} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                                          {isResettingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, resetta le sessioni
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
                       <div className="flex justify-between items-center p-4 border rounded-md">
                           <div>
                               <h4 className="font-semibold">Reset Tutte le Commesse</h4>
@@ -472,5 +520,3 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
-
-    
