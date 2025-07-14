@@ -4,7 +4,11 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
+import { format, parseISO, isPast } from 'date-fns';
+import { it } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
+
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
@@ -56,6 +60,10 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = jobOrder.phases.length > 0 ? (completedPhasesCount / jobOrder.phases.length) * 100 : 0;
+  
+  const deliveryDate = jobOrder.dataConsegnaFinale ? parseISO(jobOrder.dataConsegnaFinale) : null;
+  const isOverdue = deliveryDate && isPast(deliveryDate) && overallStatus !== 'Completata';
+
 
   return (
     <Card className="flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300">
@@ -70,11 +78,17 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
-        <div>
+        <div className="space-y-2">
           <p className="flex items-center gap-2 text-sm">
              <Package className="h-4 w-4 text-muted-foreground" />
             {jobOrder.details}
           </p>
+           {deliveryDate && (
+            <p className={cn("flex items-center gap-2 text-sm font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+              {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
+              <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
+            </p>
+           )}
         </div>
         { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
            <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>
