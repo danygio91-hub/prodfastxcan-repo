@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
@@ -76,7 +76,7 @@ export default function RawMaterialManagementClientPage() {
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
@@ -149,7 +149,7 @@ export default function RawMaterialManagementClientPage() {
         quantity: batch.quantity,
       });
     } else {
-      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined });
     }
     setIsBatchFormDialogOpen(true);
   };
@@ -578,7 +578,7 @@ export default function RawMaterialManagementClientPage() {
                         <FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>N° Lotto (Fornitore)</FormLabel> <FormControl><Input placeholder="Numero lotto opzionale" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità (in {(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità (in {(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button>
                             <Button type="submit">{editingBatch ? 'Salva Modifiche' : 'Aggiungi Lotto'}</Button>

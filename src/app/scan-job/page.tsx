@@ -133,7 +133,7 @@ export default function ScanJobPage() {
   
   const tubiWithdrawalForm = useForm<TubiWithdrawalFormValues>({
     resolver: zodResolver(tubiWithdrawalSchema),
-    defaultValues: { quantity: 0 },
+    defaultValues: { quantity: undefined },
   });
 
   const closingWeightForm = useForm<ClosingWeightFormValues>({
@@ -608,7 +608,7 @@ export default function ScanJobPage() {
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
     phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
-    tubiWithdrawalForm.reset();
+    tubiWithdrawalForm.reset({ quantity: undefined });
     setMaterialScanStep('initial');
     setIsMaterialScanDialogOpen(true);
   };
@@ -1349,7 +1349,7 @@ export default function ScanJobPage() {
                                 </FormControl><FormMessage /></FormItem>
                             )} />
                             <FormField control={tubiWithdrawalForm.control} name="quantity" render={({ field }) => (
-                                <FormItem><FormLabel>Quantità da Prelevare</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
+                                <FormItem><FormLabel>Quantità da Prelevare</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
                             )} />
                             <DialogFooter><Button type="submit" disabled={tubiWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
                         </form>

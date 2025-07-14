@@ -67,7 +67,7 @@ export default function MaterialLoadingPage() {
 
     const form = useForm<BatchFormValues>({
         resolver: zodResolver(batchFormSchema),
-        defaultValues: { materialId: '', lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
+        defaultValues: { materialId: '', lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined },
     });
 
     useEffect(() => {
@@ -102,7 +102,7 @@ export default function MaterialLoadingPage() {
             setStep('initial');
         } else {
             setScannedMaterial(result);
-            form.reset({ materialId: result.id, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
+            form.reset({ materialId: result.id, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined });
             setStep('form');
         }
     }, [stopCamera, toast, form]);
@@ -316,7 +316,7 @@ export default function MaterialLoadingPage() {
                                             </CardDescription>
                                         </CardHeader>
                                         <CardContent className="space-y-6">
-                                             <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> Quantità in Entrata ({scannedMaterial.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                             <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Package className="mr-2 h-4 w-4" /> Quantità in Entrata ({scannedMaterial.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
                                              <FormField control={form.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              <FormField control={form.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                              <FormField control={form.control} name="lotto" render={({ field }) => (
