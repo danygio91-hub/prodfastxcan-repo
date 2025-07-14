@@ -33,7 +33,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto } from './actions';
 import { getRawMaterialByCode } from '@/app/raw-material-scan/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -128,7 +128,7 @@ export default function ScanJobPage() {
 
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
-    defaultValues: { openingWeight: 0, lottoBobina: '' },
+    defaultValues: { openingWeight: undefined, lottoBobina: '' },
   });
   
   const tubiWithdrawalForm = useForm<TubiWithdrawalFormValues>({
@@ -597,7 +597,7 @@ export default function ScanJobPage() {
     setPhaseForMaterialScan(phase);
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
-    phaseMaterialForm.reset();
+    phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
     tubiWithdrawalForm.reset();
     setMaterialScanStep('initial');
     setIsMaterialScanDialogOpen(true);
@@ -742,6 +742,20 @@ export default function ScanJobPage() {
     updateAndClear();
   };
 
+  const handleLottoScanned = async (scannedValue: string) => {
+    phaseMaterialForm.setValue('lottoBobina', scannedValue);
+    toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
+    setIsLottoScanDialogOpen(false);
+    
+    if (scannedMaterialForPhase) {
+      const lastWeight = await findLastWeightForLotto(scannedMaterialForPhase.id, scannedValue);
+      if (lastWeight !== null) {
+        phaseMaterialForm.setValue('openingWeight', lastWeight);
+        toast({ title: "Peso Precedente Trovato", description: `Il peso di apertura è stato impostato a ${lastWeight} kg.` });
+      }
+    }
+  };
+
   useEffect(() => {
     if (!isLottoScanDialogOpen) {
       stopCamera();
@@ -773,10 +787,7 @@ export default function ScanJobPage() {
             }
             const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
             if (barcodes.length > 0) {
-                const scannedValue = barcodes[0].rawValue;
-                phaseMaterialForm.setValue('lottoBobina', scannedValue);
-                toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
-                setIsLottoScanDialogOpen(false);
+                handleLottoScanned(barcodes[0].rawValue);
             } else {
                 animationFrameId = requestAnimationFrame(detect);
             }
@@ -1326,7 +1337,7 @@ export default function ScanJobPage() {
                         <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
                             <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
                             <FormField control={phaseMaterialForm.control} name="openingWeight" render={({ field }) => (
-                                <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} /></FormControl><FormMessage /></FormItem>
+                                <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
                             )} />
                             {scannedMaterialForPhase.type === 'BOB' && (
                                 <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (

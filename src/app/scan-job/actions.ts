@@ -1,8 +1,9 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, RawMaterial } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
@@ -267,4 +268,28 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
      const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
      return { success: false, message: errorMessage };
   }
+}
+
+
+export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<number | null> {
+    const jobsRef = collection(db, "jobOrders");
+    const q = firestoreQuery(jobsRef, orderBy("overallEndTime", "desc"), limit(50));
+    
+    const querySnapshot = await getDocs(q);
+
+    for (const doc of querySnapshot.docs) {
+        const job = doc.data() as JobOrder;
+        for (const phase of (job.phases || [])) {
+            if (
+                phase.materialConsumption &&
+                phase.materialConsumption.materialId === materialId &&
+                phase.materialConsumption.lottoBobina === lotto &&
+                phase.materialConsumption.closingWeight !== undefined
+            ) {
+                return phase.materialConsumption.closingWeight;
+            }
+        }
+    }
+
+    return null;
 }
