@@ -144,7 +144,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             date: new Date(date).toISOString(),
             ddt,
             quantity,
-            lotto,
+            lotto: lotto || '', // Ensure lotto is at least an empty string
           };
 
           const updatedBatches = [...existingBatches, newBatch];
@@ -163,14 +163,14 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           transaction.update(materialRef, { 
               batches: updatedBatches,
               currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg
+              currentWeightKg: newWeightKg || 0, // Ensure weight is never undefined
           });
 
           return { 
               ...material, 
               batches: updatedBatches, 
               currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg,
+              currentWeightKg: newWeightKg || 0,
               stock: newStockUnits
           };
       });
@@ -218,6 +218,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             updatedBatches[batchIndex] = {
                 ...updatedBatches[batchIndex],
                 ...newBatchData,
+                lotto: newBatchData.lotto || '',
                 date: new Date(newBatchData.date).toISOString(),
             };
             
