@@ -32,12 +32,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const operatorRef = useRef(operator);
+  operatorRef.current = operator;
+
   const fullLogout = useCallback(async () => {
-    const currentOperatorId = operator?.id;
-    if (currentOperatorId && operator?.role !== 'admin' && operator?.role !== 'superadvisor') {
+    const currentOperatorId = operatorRef.current?.id;
+    if (currentOperatorId && operatorRef.current?.role !== 'admin' && operatorRef.current?.role !== 'superadvisor') {
       try {
-        const operatorRef = doc(db, "operators", currentOperatorId);
-        await updateDoc(operatorRef, { stato: 'inattivo' });
+        const operatorDocRef = doc(db, "operators", currentOperatorId);
+        await updateDoc(operatorDocRef, { stato: 'inattivo' });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
       }
@@ -55,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     storeOperator(null); // This clears the operator from storage
     
     router.replace('/');
-  }, [operator, router]);
+  }, [router]);
 
 
   const fetchOperatorProfile = useCallback(async (firebaseUser: User) => {
@@ -96,11 +99,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchOperatorProfile]);
 
   useEffect(() => {
-    // This effect handles forced logouts triggered by an admin reset.
     const handleForcedLogout = (event: MessageEvent) => {
-      if (event.data?.type === 'FORCE_LOGOUT' && event.data?.timestamp) {
-        fullLogout();
-      }
+        // IMPORTANT: Only logout if the current user is NOT an admin.
+        if (operatorRef.current?.role !== 'admin' && event.data?.type === 'FORCE_LOGOUT' && event.data?.timestamp) {
+            fullLogout();
+        }
     };
 
     const channel = new BroadcastChannel('auth_channel');
@@ -110,8 +113,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const forceLogoutTimestamp = localStorage.getItem(FORCE_LOGOUT_TIMESTAMP_KEY);
 
     if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > lastLoginTimestamp)) {
-      console.log("Forced logout triggered by admin reset.");
-      fullLogout();
+        // IMPORTANT: Only logout if the current user is NOT an admin.
+        if (operatorRef.current?.role !== 'admin') {
+            console.log("Forced logout triggered by admin reset.");
+            fullLogout();
+        }
     }
     
     return () => {
@@ -181,5 +187,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
-    
