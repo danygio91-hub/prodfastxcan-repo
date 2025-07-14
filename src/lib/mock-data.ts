@@ -100,6 +100,7 @@ export interface RawMaterialBatch {
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
   quantity: number; // The quantity in the material's primary unitOfMeasure
+  lotto?: string;
 }
 
 export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA';

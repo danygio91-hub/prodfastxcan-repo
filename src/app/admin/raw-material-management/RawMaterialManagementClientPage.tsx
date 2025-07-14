@@ -11,7 +11,7 @@ import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
-import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial } from './actions';
+import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
@@ -45,6 +45,8 @@ type RawMaterialFormValues = z.infer<typeof rawMaterialFormSchema>;
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
+  batchId: z.string().optional(),
+  lotto: z.string().optional(),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
   quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
@@ -57,10 +59,11 @@ export default function RawMaterialManagementClientPage() {
   const [materials, setMaterials] = useState<RawMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isAddBatchDialogOpen, setIsAddBatchDialogOpen] = useState(false);
+  const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
+  const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -73,7 +76,7 @@ export default function RawMaterialManagementClientPage() {
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
@@ -132,12 +135,25 @@ export default function RawMaterialManagementClientPage() {
     }
     setIsEditDialogOpen(true);
   };
-
-  const handleOpenAddBatchDialog = (material: RawMaterial) => {
+  
+  const handleOpenBatchDialog = (material: RawMaterial, batch: RawMaterialBatch | null = null) => {
     setSelectedMaterial(material);
-    batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
-    setIsAddBatchDialogOpen(true);
+    setEditingBatch(batch);
+    if (batch) {
+      batchForm.reset({
+        materialId: material.id,
+        batchId: batch.id,
+        lotto: batch.lotto || '',
+        date: format(parseISO(batch.date), 'yyyy-MM-dd'),
+        ddt: batch.ddt,
+        quantity: batch.quantity,
+      });
+    } else {
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
+    }
+    setIsBatchFormDialogOpen(true);
   };
+
 
   const handleOpenHistoryDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
@@ -147,6 +163,22 @@ export default function RawMaterialManagementClientPage() {
   const handleOpenDetailViewDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
     setIsDetailViewOpen(true);
+  };
+  
+  const handleLocalUpdate = (updatedMaterial: RawMaterial) => {
+    setMaterials(prev => {
+      const index = prev.findIndex(m => m.id === updatedMaterial.id);
+      if (index > -1) {
+          const newMaterials = [...prev];
+          newMaterials[index] = updatedMaterial;
+          return newMaterials;
+      }
+      return [...prev, updatedMaterial];
+    });
+    // Also update the selected material if it's being shown in a dialog
+    if (selectedMaterial && selectedMaterial.id === updatedMaterial.id) {
+        setSelectedMaterial(updatedMaterial);
+    }
   };
 
 
@@ -165,53 +197,34 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
 
-    if (result.success) {
-      if (result.savedMaterial) {
-          setMaterials(prev => {
-              const index = prev.findIndex(m => m.id === result.savedMaterial!.id);
-              if (index > -1) {
-                  const newMaterials = [...prev];
-                  newMaterials[index] = { ...newMaterials[index], ...result.savedMaterial! };
-                  return newMaterials;
-              } else {
-                  return [...prev, result.savedMaterial!];
-              }
-          });
-      } else {
-          fetchMaterials();
-      }
+    if (result.success && result.savedMaterial) {
+      handleLocalUpdate(result.savedMaterial);
       setIsEditDialogOpen(false);
     }
   };
 
-  const onAddBatchSubmit = async (values: BatchFormValues) => {
+  const onBatchSubmit = async (values: BatchFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
-        formData.append(key, String(value));
+      if (value) formData.append(key, String(value));
     });
-    const result = await addBatchToRawMaterial(formData);
+
+    const result = editingBatch
+      ? await updateBatchInRawMaterial(formData)
+      : await addBatchToRawMaterial(formData);
+      
     toast({
       title: result.success ? "Successo" : "Errore",
       description: result.message,
       variant: result.success ? "default" : "destructive",
     });
-      if (result.success) {
-        if (result.updatedMaterial) {
-            setMaterials(prev => {
-                const index = prev.findIndex(m => m.id === result.updatedMaterial!.id);
-                if (index > -1) {
-                    const newMaterials = [...prev];
-                    newMaterials[index] = result.updatedMaterial!;
-                    return newMaterials;
-                }
-                return prev;
-            });
-        } else {
-            fetchMaterials();
-        }
-        setIsAddBatchDialogOpen(false);
+
+    if (result.success && result.updatedMaterial) {
+      handleLocalUpdate(result.updatedMaterial);
+      setIsBatchFormDialogOpen(false);
     }
   };
+
 
   const handleDelete = async (id: string) => {
     const result = await deleteRawMaterial(id);
@@ -221,6 +234,18 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) fetchMaterials();
+  };
+
+  const handleDeleteBatch = async (materialId: string, batchId: string) => {
+    const result = await deleteBatchFromRawMaterial(materialId, batchId);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success && result.updatedMaterial) {
+      handleLocalUpdate(result.updatedMaterial);
+    }
   };
 
   const handleImportClick = () => {
@@ -417,7 +442,7 @@ export default function RawMaterialManagementClientPage() {
                                     <Edit className="mr-2 h-4 w-4" />
                                     <span>Modifica Dettagli</span>
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handleOpenAddBatchDialog(material)}>
+                                    <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material)}>
                                     <PackagePlus className="mr-2 h-4 w-4" />
                                     <span>Aggiungi Lotto</span>
                                     </DropdownMenuItem>
@@ -539,23 +564,24 @@ export default function RawMaterialManagementClientPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Add Batch Dialog */}
-        <Dialog open={isAddBatchDialogOpen} onOpenChange={setIsAddBatchDialogOpen}>
+        {/* Add/Edit Batch Dialog */}
+        <Dialog open={isBatchFormDialogOpen} onOpenChange={setIsBatchFormDialogOpen}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Aggiungi Lotto per: {selectedMaterial?.code}</DialogTitle>
+                    <DialogTitle>{editingBatch ? 'Modifica Lotto' : 'Aggiungi Lotto'} per: {selectedMaterial?.code}</DialogTitle>
                     <DialogDescription>
-                        Registra un nuovo lotto di merce in entrata per questa materia prima.
+                        {editingBatch ? 'Modifica i dettagli di questo lotto.' : 'Registra un nuovo lotto di merce in entrata.'}
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...batchForm}>
-                    <form onSubmit={batchForm.handleSubmit(onAddBatchSubmit)} className="space-y-4 py-4">
+                    <form onSubmit={batchForm.handleSubmit(onBatchSubmit)} className="space-y-4 py-4">
+                        <FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>N° Lotto (Fornitore)</FormLabel> <FormControl><Input placeholder="Numero lotto opzionale" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità (in {(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setIsAddBatchDialogOpen(false)}>Annulla</Button>
-                            <Button type="submit">Aggiungi Lotto</Button>
+                            <Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button>
+                            <Button type="submit">{editingBatch ? 'Salva Modifiche' : 'Aggiungi Lotto'}</Button>
                         </DialogFooter>
                     </form>
                 </Form>
@@ -564,11 +590,11 @@ export default function RawMaterialManagementClientPage() {
 
           {/* View History Dialog */}
         <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
-            <DialogContent className="sm:max-w-2xl">
+            <DialogContent className="sm:max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>Storico Lotti per: {selectedMaterial?.code}</DialogTitle>
                     <DialogDescription>
-                        Elenco di tutti i lotti di merce ricevuti per questa materia prima.
+                        Elenco di tutti i lotti di merce ricevuti. Puoi modificare o eliminare un lotto se necessario.
                     </DialogDescription>
                 </DialogHeader>
                   <ScrollArea className="max-h-[60vh]">
@@ -576,8 +602,10 @@ export default function RawMaterialManagementClientPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Data</TableHead>
+                          <TableHead>N° Lotto</TableHead>
                           <TableHead>DDT</TableHead>
                           <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</TableHead>
+                          <TableHead className="text-right">Azioni</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -585,13 +613,40 @@ export default function RawMaterialManagementClientPage() {
                             selectedMaterial.batches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(batch => (
                             <TableRow key={batch.id}>
                                 <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy', { locale: it })}</TableCell>
+                                <TableCell>{batch.lotto || 'N/D'}</TableCell>
                                 <TableCell>{batch.ddt}</TableCell>
                                 <TableCell>{batch.quantity}</TableCell>
+                                <TableCell className="text-right space-x-2">
+                                  <Button variant="outline" size="icon" onClick={() => { setIsHistoryDialogOpen(false); handleOpenBatchDialog(selectedMaterial, batch); }}>
+                                    <Edit className="h-4 w-4" />
+                                    <span className="sr-only">Modifica Lotto</span>
+                                  </Button>
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="destructive" size="icon">
+                                        <Trash2 className="h-4 w-4" />
+                                        <span className="sr-only">Elimina Lotto</span>
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Questa azione è irreversibile. Lo stock totale verrà ricalcolato.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => handleDeleteBatch(selectedMaterial.id, batch.id)}>Elimina</AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </TableCell>
                             </TableRow>
                             ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={3} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
+                            <TableCell colSpan={5} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
                           </TableRow>
                         )}
                       </TableBody>
