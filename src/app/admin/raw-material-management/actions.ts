@@ -65,7 +65,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
   const trimmedCode = data.code.trim();
   const conversionFactor = data.unitOfMeasure === 'kg' ? null : data.conversionFactor || null;
 
-  let materialData: Omit<RawMaterial, 'id' | 'batches' | 'stock'> & { code_normalized: string } = {
+  let materialData: Omit<RawMaterial, 'id' | 'batches' | 'stock' | 'currentStockUnits' | 'currentWeightKg'> & { code_normalized: string } = {
     code: trimmedCode,
     code_normalized: trimmedCode.toLowerCase(),
     type: data.type,
@@ -147,15 +147,22 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 
           const updatedBatches = [...existingBatches, newBatch];
           
-          // Recalculate total stock from all batches
-          const newStockUnits = updatedBatches.reduce((acc, b) => acc + b.quantity, 0);
+          // --- Corrected Stock Calculation ---
+          const currentStockUnits = material.currentStockUnits || 0;
+          const currentWeightKg = material.currentWeightKg || 0;
+
+          const newStockUnits = currentStockUnits + quantity;
           
-          let newWeightKg = 0;
+          let newWeightKg = currentWeightKg;
           if (material.unitOfMeasure === 'kg') {
               newWeightKg = newStockUnits;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg = newStockUnits * material.conversionFactor;
+              // Note: This logic assumes adding a batch adds to weight.
+              // For more complex scenarios, this might need adjustment.
+              // Here, we just add the converted weight of the new batch quantity.
+              newWeightKg += quantity * material.conversionFactor;
           }
+          // --- End of Correction ---
 
           transaction.update(materialRef, { 
               batches: updatedBatches,
