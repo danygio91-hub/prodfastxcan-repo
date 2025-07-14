@@ -11,22 +11,29 @@ import type { JobOrder } from '@/lib/mock-data';
 // at /src/app/admin/app-settings/page.tsx to resolve permission errors
 // by ensuring the database operation is authenticated with the user's session.
 
+async function deleteAllFromCollection(collectionName: string, batch: FirebaseFirestore.WriteBatch) {
+    const ref = collection(db, collectionName);
+    const snapshot = await getDocs(ref);
+    let count = 0;
+    snapshot.docs.forEach(docSnap => {
+        batch.delete(docSnap.ref);
+        count++;
+    });
+    return count;
+}
+
+
 export async function resetAllJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobOrdersRef = collection(db, "jobOrders");
-    
-    const querySnapshot = await getDocs(jobOrdersRef);
-    if (querySnapshot.empty) {
+    const batch = writeBatch(db);
+
+    const jobsCount = await deleteAllFromCollection("jobOrders", batch);
+    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals", batch);
+
+    if (jobsCount === 0) {
       return { success: true, message: 'Nessuna commessa trovata. Il database è già pulito.' };
     }
-
-    const batch = writeBatch(db);
-    let deletedCount = 0;
-    querySnapshot.docs.forEach(docSnap => {
-      batch.delete(docSnap.ref);
-      deletedCount++;
-    });
 
     await batch.commit();
 
@@ -34,7 +41,7 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/reports');
     
-    return { success: true, message: `Reset completato. ${deletedCount} commesse sono state eliminate.` };
+    return { success: true, message: `Reset completato. ${jobsCount} commesse e ${withdrawalsCount} prelievi sono stati eliminati.` };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -46,26 +53,22 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
 export async function resetAllRawMaterials(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const rawMaterialsRef = collection(db, "rawMaterials");
+     const batch = writeBatch(db);
+
+    const materialsCount = await deleteAllFromCollection("rawMaterials", batch);
+    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals", batch);
     
-    const querySnapshot = await getDocs(rawMaterialsRef);
-    if (querySnapshot.empty) {
+    if (materialsCount === 0) {
       return { success: true, message: 'Nessuna materia prima trovata. Il database è già pulito.' };
     }
-
-    const batch = writeBatch(db);
-    let deletedCount = 0;
-    querySnapshot.docs.forEach(docSnap => {
-      batch.delete(docSnap.ref);
-      deletedCount++;
-    });
 
     await batch.commit();
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/raw-material-scan');
+    revalidatePath('/admin/reports'); // Also revalidate reports as withdrawals are gone
     
-    return { success: true, message: `Reset completato. ${deletedCount} materie prime sono state eliminate.` };
+    return { success: true, message: `Reset completato. ${materialsCount} materie prime e ${withdrawalsCount} prelievi sono stati eliminati.` };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -77,22 +80,14 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
 export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const withdrawalsRef = collection(db, "materialWithdrawals");
-    
-    const querySnapshot = await getDocs(withdrawalsRef);
-    if (querySnapshot.empty) {
+    const batch = writeBatch(db);
+    const deletedCount = await deleteAllFromCollection("materialWithdrawals", batch);
+
+    if (deletedCount === 0) {
       return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
     }
 
-    const batch = writeBatch(db);
-    let deletedCount = 0;
-    querySnapshot.docs.forEach(docSnap => {
-      batch.delete(docSnap.ref);
-      deletedCount++;
-    });
-
     await batch.commit();
-
     revalidatePath('/admin/reports');
     
     return { success: true, message: `Reset completato. ${deletedCount} report di prelievo sono stati eliminati.` };
@@ -131,7 +126,7 @@ export async function resetAllPrivacySignatures(uid: string): Promise<{ success:
     await batch.commit();
 
     revalidatePath('/admin/operator-management');
-    revalidatePath('/operator-data');
+    revalidatePath('/operator');
     
     return { success: true, message: `Reset completato. ${updatedCount} firme della privacy sono state annullate.` };
 
@@ -213,3 +208,5 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
     return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
   }
 }
+
+    

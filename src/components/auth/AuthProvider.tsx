@@ -10,6 +10,11 @@ import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
+const ACTIVE_JOB_STORAGE_KEY = 'prodtime_tracker_active_job';
+const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_sessions';
+const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
+const FORCE_LOGOUT_TIMESTAMP_KEY = 'force_logout_timestamp';
+
 interface AuthContextType {
   user: User | null;
   operator: Operator | null;
@@ -26,6 +31,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
+
+  const fullLogout = useCallback(async () => {
+    const currentOperatorId = operator?.id;
+    if (currentOperatorId && operator?.role !== 'admin' && operator?.role !== 'superadvisor') {
+      try {
+        const operatorRef = doc(db, "operators", currentOperatorId);
+        await updateDoc(operatorRef, { stato: 'inattivo' });
+      } catch (e) {
+        console.error("Could not set operator status to inactive on logout", e);
+      }
+    }
+    
+    await firebaseLogout();
+    
+    // Clear all app-related local storage
+    localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
+    localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+    localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
+    
+    setUser(null);
+    setOperator(null);
+    storeOperator(null); // This clears the operator from storage
+    
+    router.replace('/');
+  }, [operator, router]);
+
 
   const fetchOperatorProfile = useCallback(async (firebaseUser: User) => {
     // Strategy 1: Find by UID (most efficient and secure)
@@ -64,6 +95,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchOperatorProfile]);
 
+  useEffect(() => {
+    // This effect handles forced logouts triggered by an admin reset.
+    const handleForcedLogout = (event: MessageEvent) => {
+      if (event.data?.type === 'FORCE_LOGOUT' && event.data?.timestamp) {
+        fullLogout();
+      }
+    };
+
+    const channel = new BroadcastChannel('auth_channel');
+    channel.addEventListener('message', handleForcedLogout);
+
+    const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
+    const forceLogoutTimestamp = localStorage.getItem(FORCE_LOGOUT_TIMESTAMP_KEY);
+
+    if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > lastLoginTimestamp)) {
+      console.log("Forced logout triggered by admin reset.");
+      fullLogout();
+    }
+    
+    return () => {
+      channel.removeEventListener('message', handleForcedLogout);
+      channel.close();
+    }
+  }, [fullLogout]);
 
   // Effect to handle fetching auth state from Firebase
   useEffect(() => {
@@ -79,12 +134,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(firebaseUser);
           setOperator(operatorProfile);
           storeOperator(operatorProfile);
+          localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());
         } else {
           console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
-          await firebaseLogout();
-          setUser(null);
-          setOperator(null);
-          storeOperator(null);
+          await fullLogout();
         }
       } else {
         setUser(null);
@@ -95,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchOperatorProfile]);
+  }, [fetchOperatorProfile, fullLogout]);
 
   // Effect to handle routing based on auth state
   useEffect(() => {
@@ -114,33 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, operator, loading, pathname, router]);
 
-
-  const operatorRef = useRef(operator);
-  operatorRef.current = operator;
-
-  const logout = useCallback(async () => {
-    const currentOperator = operatorRef.current;
-    
-    // Clear local state before async operations
-    setUser(null);
-    setOperator(null);
-    storeOperator(null);
-
-    if (currentOperator && currentOperator.role !== 'admin' && currentOperator.role !== 'superadvisor') {
-      try {
-        const operatorRef = doc(db, "operators", currentOperator.id);
-        await updateDoc(operatorRef, { stato: 'inattivo' });
-      } catch (e) {
-        console.error("Could not set operator status to inactive on logout", e);
-      }
-    }
-    
-    await firebaseLogout();
-    router.push('/');
-  }, [router]);
-
   return (
-    <AuthContext.Provider value={{ user, operator, loading, logout, refetchOperator }}>
+    <AuthContext.Provider value={{ user, operator, loading, logout: fullLogout, refetchOperator }}>
       {children}
     </AuthContext.Provider>
   );
@@ -153,3 +181,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+    

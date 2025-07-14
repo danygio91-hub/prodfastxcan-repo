@@ -30,6 +30,18 @@ import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, res
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
+// Helper function to trigger a global logout for all clients
+function triggerGlobalLogout() {
+  const timestamp = Date.now().toString();
+  localStorage.setItem('force_logout_timestamp', timestamp);
+  
+  // Use a BroadcastChannel to notify other tabs of the same origin
+  const channel = new BroadcastChannel('auth_channel');
+  channel.postMessage({ type: 'FORCE_LOGOUT', timestamp });
+  channel.close();
+}
+
+
 export default function AdminAppSettingsPage() {
   const { user } = useAuth();
   const [isPending, startTransition] = useTransition();
@@ -110,6 +122,10 @@ export default function AdminAppSettingsPage() {
             description: result.message,
             variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+          triggerGlobalLogout();
+          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+        }
     });
   };
 
@@ -122,6 +138,10 @@ export default function AdminAppSettingsPage() {
             description: result.message,
             variant: result.success ? "default" : "destructive",
         });
+         if (result.success) {
+          triggerGlobalLogout();
+          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+        }
     });
   };
   
@@ -158,6 +178,10 @@ export default function AdminAppSettingsPage() {
             description: result.message,
             variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+          triggerGlobalLogout();
+          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+        }
     });
   };
 
@@ -289,7 +313,7 @@ export default function AdminAppSettingsPage() {
                           <div>
                               <h4 className="font-semibold">Reset Tutte le Commesse</h4>
                               <p className="text-sm text-muted-foreground">
-                                  Elimina tutte le commesse (pianificate, in produzione, completate).
+                                  Elimina TUTTE le commesse, i prelievi e resetta lo stato degli operatori.
                               </p>
                           </div>
                           <AlertDialog>
@@ -303,7 +327,7 @@ export default function AdminAppSettingsPage() {
                                   <AlertDialogHeader>
                                       <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminate TUTTE le commesse dal sistema.
+                                          Questa azione è irreversibile. Verranno eliminate TUTTE le commesse e i prelievi.
                                       </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
@@ -351,7 +375,7 @@ export default function AdminAppSettingsPage() {
                           <div>
                               <h4 className="font-semibold">Reset Materie Prime</h4>
                               <p className="text-sm text-muted-foreground">
-                                  Elimina tutta l'anagrafica delle materie prime e i relativi lotti.
+                                  Elimina tutta l'anagrafica delle materie prime, i lotti e i prelievi.
                               </p>
                           </div>
                           <AlertDialog>
@@ -365,7 +389,7 @@ export default function AdminAppSettingsPage() {
                                   <AlertDialogHeader>
                                       <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminate TUTTE le materie prime dal sistema.
+                                          Questa azione è irreversibile. Verranno eliminate TUTTE le materie prime e i prelievi dal sistema.
                                       </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
@@ -448,3 +472,5 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
+
+    
