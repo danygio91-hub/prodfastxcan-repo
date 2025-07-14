@@ -208,7 +208,7 @@ export default function MaterialLoadingPage() {
                     {step === 'initial' && (
                          <Card>
                             <CardHeader>
-                                <CardTitle className="flex items-center gap-3"><Boxes className="h-7 w-7 text-primary" /> Carico Materia Prima</CardTitle>
+                                <CardTitle className="flex items-center gap-3"><Boxes className="h-7 w-7 text-primary" /> Carico e Verifica Materia Prima</CardTitle>
                                 <CardDescription>Avvia la scansione o inserisci un codice per registrare una materia prima in ingresso.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
