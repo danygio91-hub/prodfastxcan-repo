@@ -62,8 +62,8 @@ export default function DashboardPage() {
             />
             {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
               <DashboardItem
-                title="Carico Materiale"
-                description="Registra l'ingresso a magazzino di una nuova materia prima."
+                title="Carico e Verifica Materia Prima"
+                description="Registra l'ingresso e verifica stato materia prima."
                 icon={PackagePlus}
                 href="/material-loading"
               />
