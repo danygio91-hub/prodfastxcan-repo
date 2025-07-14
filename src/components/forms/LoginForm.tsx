@@ -316,8 +316,8 @@ export default function LoginForm() {
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">
                                     <Button type="submit" className="w-full" disabled={isLoading || authLoading}>
-                                        {isLoading || authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                                        {isLoading || authLoading ? "Verifica..." : "Accedi"}
+                                        {(isLoading || authLoading) ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                                        {(isLoading || authLoading) ? "Verifica..." : "Accedi"}
                                     </Button>
                                     <Button variant="link" size="sm" onClick={() => setStep('initial')}>Torna all'accesso rapido</Button>
                                 </CardFooter>
