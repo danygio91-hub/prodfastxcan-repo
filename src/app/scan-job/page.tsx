@@ -34,7 +34,7 @@ import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto } from './actions';
-import { getRawMaterialByCode } from '@/app/raw-material-scan/actions';
+import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
