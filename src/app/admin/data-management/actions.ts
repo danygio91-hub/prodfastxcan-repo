@@ -99,12 +99,10 @@ export async function processAndValidateImport(data: any[]): Promise<{
     message: string;
     newJobs: JobOrder[];
     jobsToUpdate: JobOrder[];
-    newProductionJobs: JobOrder[];
     skippedCount: number;
 }> {
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
-    const newProductionJobs: JobOrder[] = [];
     let skippedCount = 0;
 
     // Fetch all work cycles once to create a lookup map
@@ -156,7 +154,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
         }
         
-
         if (docSnap.exists()) {
             // We only update planned jobs. Production jobs are not updated via import.
             const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
@@ -169,20 +166,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
                     qta: validData.qta ?? existingJob.qta,
                     cliente: validData.cliente ?? existingJob.cliente,
                     numeroODL: validData.numeroODL ?? existingJob.numeroODL,
+                    numeroODLInterno: odlToAssign ?? existingJob.numeroODLInterno,
                     details: validData.details ?? existingJob.details,
                     department: validData.department ?? existingJob.department,
                     dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
                     workCycleId: workCycleId ?? existingJob.workCycleId,
                     phases: phases.length > 0 ? phases : existingJob.phases,
+                    status: 'planned', // Always ensure status is planned on update from import
                 };
-                 if (odlToAssign) {
-                    updatedJob.status = 'production';
-                    updatedJob.numeroODLInterno = odlToAssign;
-                    updatedJob.odlCreationDate = new Date();
-                    newProductionJobs.push(updatedJob);
-                } else {
-                    jobsToUpdate.push(updatedJob);
-                }
+                jobsToUpdate.push(updatedJob);
             } else {
                 skippedCount++; // Skip updating jobs already in production
             }
@@ -194,35 +186,24 @@ export async function processAndValidateImport(data: any[]): Promise<{
             const department = validData.department || "Reparto Generico";
             const newJob: JobOrder = {
                 id: sanitizedId,
-                status: 'planned',
+                status: 'planned', // Always import as planned
                 postazioneLavoro: 'Da Assegnare',
                 phases: phases,
                 cliente: validData.cliente || "N/D",
                 ordinePF: validData.ordinePF,
                 numeroODL: validData.numeroODL || "N/D",
+                numeroODLInterno: odlToAssign,
                 details: validData.details || "N/D",
                 qta: validData.qta,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
                 workCycleId: workCycleId || '',
             };
-
-            if (odlToAssign && phases.length > 0) {
-                newJob.status = 'production';
-                newJob.numeroODLInterno = odlToAssign;
-                newJob.odlCreationDate = new Date();
-                newProductionJobs.push(newJob);
-            } else {
-                if (odlToAssign && phases.length === 0) {
-                     skippedCount++; // Cannot create ODL without a cycle
-                } else {
-                     newJobs.push(newJob);
-                }
-            }
+            newJobs.push(newJob);
         }
     }
     
-    let message = `Analisi completata. Trovate ${newJobs.length} nuove commesse pianificate, ${newProductionJobs.length} nuove commesse in produzione e ${jobsToUpdate.length} da aggiornare.`;
+    let message = `Analisi completata. Trovate ${newJobs.length} nuove commesse pianificate e ${jobsToUpdate.length} da aggiornare.`;
     if (skippedCount > 0) {
         message += ` ${skippedCount} righe sono state ignorate.`;
     }
@@ -232,34 +213,27 @@ export async function processAndValidateImport(data: any[]): Promise<{
         message: message,
         newJobs, 
         jobsToUpdate, 
-        newProductionJobs,
         skippedCount
     };
 }
 
 
-export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[], newProductionJobs: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
+export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
     const batch = writeBatch(db);
     let newCount = data.newJobs.length;
     let updatedCount = data.jobsToUpdate.length;
-    let newProdCount = data.newProductionJobs.length;
 
     data.newJobs.forEach(job => {
         const docRef = doc(db, "jobOrders", job.id);
         batch.set(docRef, job);
     });
     
-    data.newProductionJobs.forEach(job => {
-        const docRef = doc(db, "jobOrders", job.id);
-        batch.set(docRef, job);
-    });
-
     data.jobsToUpdate.forEach(job => {
         const docRef = doc(db, "jobOrders", job.id);
         batch.set(docRef, job, { merge: true });
     });
     
-    if(newCount > 0 || updatedCount > 0 || newProdCount > 0) {
+    if(newCount > 0 || updatedCount > 0) {
         await batch.commit();
     }
 
@@ -267,7 +241,7 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     revalidatePath('/admin/production-console');
     return {
         success: true,
-        message: `Importazione completata. ${newCount} pianificate, ${newProdCount} in prod., ${updatedCount} aggiornate.`
+        message: `Importazione completata. ${newCount} pianificate create, ${updatedCount} aggiornate.`
     };
 }
 
@@ -315,6 +289,20 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
+    
+    const jobSnap = await getDoc(jobRef);
+     if (!jobSnap.exists() || jobSnap.data().status !== 'planned') {
+        throw new Error(`Commessa ${jobId} non trovata o non è in stato 'pianificata'.`);
+    }
+    const jobData = jobSnap.data() as JobOrder;
+
+    // Use existing ODL if present
+    if (jobData.numeroODLInterno) {
+        await updateDoc(jobRef, { status: 'production', odlCreationDate: Timestamp.fromDate(now) });
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
+        return { success: true, message: `Commessa ${jobId} avviata con ODL esistente #${jobData.numeroODLInterno}.` };
+    }
 
     // If a manual ODL number is provided, perform a pre-transaction check for uniqueness.
     if (manualOdlNumberStr && manualOdlNumberStr.trim() !== '') {
@@ -332,15 +320,15 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
     }
 
     const newOdlData = await runTransaction(db, async (transaction) => {
-      // 1. Get the current job data
-      const docSnap = await transaction.get(jobRef);
-      if (!docSnap.exists() || docSnap.data().status !== 'planned') {
+      // Re-fetch inside transaction
+      const freshDocSnap = await transaction.get(jobRef);
+      if (!freshDocSnap.exists() || freshDocSnap.data().status !== 'planned') {
         throw new Error(`Commessa ${jobId} non trovata o non è in stato 'pianificata'.`);
       }
+      const freshJobData = freshDocSnap.data() as JobOrder;
 
       // 2. Validate it has a work cycle
-      const jobData = docSnap.data() as JobOrder;
-      if (!jobData.phases || jobData.phases.length === 0) {
+      if (!freshJobData.phases || freshJobData.phases.length === 0) {
         throw new Error(`La commessa ${jobId} non ha un ciclo di lavorazione associato. Impossibile creare ODL.`);
       }
 
@@ -394,6 +382,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   }
 
   let createdCount = 0;
+  let startedCount = 0;
   let failedCount = 0;
   let noCycleCount = 0;
 
@@ -417,17 +406,25 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
             continue;
           }
           
-          currentCounter++;
-          const newOdlId = `${currentCounter}/${shortYear}`;
-          
-          transaction.update(docSnap.ref, { 
+          if (jobData.numeroODLInterno) {
+            // Job has an ODL, just move it to production
+            transaction.update(docSnap.ref, {
               status: 'production' as const,
               odlCreationDate: Timestamp.fromDate(now),
-              numeroODLInterno: newOdlId,
-              odlCounter: currentCounter
-          });
-          createdCount++;
-
+            });
+            startedCount++;
+          } else {
+            // Job needs a new ODL
+            currentCounter++;
+            const newOdlId = `${currentCounter}/${shortYear}`;
+            transaction.update(docSnap.ref, { 
+                status: 'production' as const,
+                odlCreationDate: Timestamp.fromDate(now),
+                numeroODLInterno: newOdlId,
+                odlCounter: currentCounter
+            });
+            createdCount++;
+          }
         } else {
           failedCount++;
         }
@@ -443,20 +440,22 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
       return { success: false, message: `Operazione fallita a causa di un errore di sistema: ${errorMessage}` };
   }
 
-  if (createdCount > 0) {
+  const totalSuccess = createdCount + startedCount;
+  if (totalSuccess > 0) {
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
   }
 
   let messageParts: string[] = [];
-  if (createdCount > 0) messageParts.push(`${createdCount} ODL creati con successo.`);
+  if (startedCount > 0) messageParts.push(`${startedCount} commesse avviate.`);
+  if (createdCount > 0) messageParts.push(`${createdCount} ODL creati e avviati.`);
   if (failedCount > 0) messageParts.push(`${failedCount} commesse non valide.`);
-  if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse senza ciclo di lavorazione.`);
+  if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse senza ciclo.`);
   
   const message = messageParts.length > 0 ? messageParts.join(' ') : 'Nessuna operazione eseguita.';
 
-  if (createdCount === 0) {
-      return { success: false, message: `Nessun ODL creato. ${message}` };
+  if (totalSuccess === 0) {
+      return { success: false, message: `Nessun ODL avviato. ${message}` };
   }
 
   return { success: true, message: message.trim() };

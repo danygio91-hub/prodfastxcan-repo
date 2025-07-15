@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge } from 'lucide-react';
+import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle } from 'lucide-react';
 import { type JobOrder, type Reparto, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -59,7 +59,7 @@ export default function DataManagementClientPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
-  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[], newProductionJobs: JobOrder[] } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -110,6 +110,7 @@ export default function DataManagementClientPage() {
     const dataToExport = plannedJobOrders.map(job => ({
         'Cliente': job.cliente,
         'Ordine PF': job.ordinePF,
+        'N° ODL': job.numeroODLInterno,
         'Ordine Nr Est': job.numeroODL,
         'Codice': job.details,
         'Qta': job.qta,
@@ -309,7 +310,6 @@ export default function DataManagementClientPage() {
                     }
                 } else if (typeof rawDate === 'string') {
                     // Handle various string date formats
-                    const dateString = String(rawDate).trim();
                     const formatsToTry = [
                         'dd/MM/yyyy', 'd/M/yyyy', 
                         'dd-MM-yyyy', 'd-M-yyyy', 
@@ -347,10 +347,10 @@ export default function DataManagementClientPage() {
         
         if (result.success) {
             if (result.jobsToUpdate.length > 0) {
-                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate, newProductionJobs: result.newProductionJobs });
+                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
             } 
-            else if (result.newJobs.length > 0 || result.newProductionJobs.length > 0) {
-                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [], newProductionJobs: result.newProductionJobs });
+            else if (result.newJobs.length > 0) {
+                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
                 toast({
                     title: "Importazione Completata",
                     description: commitResult.message,
@@ -377,9 +377,8 @@ export default function DataManagementClientPage() {
     const dataToCommit = {
         newJobs: pendingImport.newJobs,
         jobsToUpdate: overwrite ? pendingImport.jobsToUpdate : [],
-        newProductionJobs: pendingImport.newProductionJobs,
     };
-    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0 && dataToCommit.newProductionJobs.length === 0) {
+    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0) {
         toast({ title: "Nessuna Azione", description: "Nessuna commessa da importare o aggiornare."});
     } else {
         const result = await commitImportedJobOrders(dataToCommit);
@@ -469,20 +468,20 @@ export default function DataManagementClientPage() {
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button variant="outline" size="sm">
-                                        <FileText className="mr-2 h-4 w-4" />
-                                        Crea ODL Selezionate ({selectedRows.length})
+                                        <PlayCircle className="mr-2 h-4 w-4" />
+                                        Avvia ODL Selezionate ({selectedRows.length})
                                     </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
-                                    <AlertDialogTitle>Conferma Creazione ODL</AlertDialogTitle>
+                                    <AlertDialogTitle>Conferma Avvio ODL</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        Verrà creato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
+                                        Verrà creato o utilizzato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
                                     </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                     <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Crea</AlertDialogAction>
+                                    <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Avvia</AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -546,6 +545,7 @@ export default function DataManagementClientPage() {
                             </TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Ordine PF</TableHead>
+                            <TableHead>N° ODL</TableHead>
                             <TableHead>Ordine Nr Est</TableHead>
                             <TableHead>Codice</TableHead>
                             <TableHead>Qta</TableHead>
@@ -567,6 +567,7 @@ export default function DataManagementClientPage() {
                             </TableCell>
                             <TableCell>{job.cliente}</TableCell>
                             <TableCell className="font-medium">{job.ordinePF}</TableCell>
+                            <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
                             <TableCell>{job.numeroODL}</TableCell>
                             <TableCell>{job.details}</TableCell>
                             <TableCell>{job.qta}</TableCell>
@@ -579,8 +580,8 @@ export default function DataManagementClientPage() {
                             </TableCell>
                             <TableCell>
                                 <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
-                                <FileText className="mr-2 h-4 w-4" />
-                                Crea ODL
+                                <PlayCircle className="mr-2 h-4 w-4" />
+                                {job.numeroODLInterno ? 'Avvia ODL' : 'Crea ODL'}
                                 </Button>
                             </TableCell>
                             </TableRow>
@@ -760,30 +761,35 @@ export default function DataManagementClientPage() {
         <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Crea Ordine di Lavoro (ODL)</DialogTitle>
+                    <DialogTitle>{jobToProcess?.numeroODLInterno ? 'Avvia Ordine di Lavoro (ODL)' : 'Crea Ordine di Lavoro (ODL)'}</DialogTitle>
                     <DialogDescription>
-                        Crea un ODL per la commessa <span className="font-bold">{jobToProcess?.id}</span>.
-                        Lascia il campo vuoto per generare un numero automatico, oppure inserisci un numero per forzarlo.
+                        Stai per avviare la commessa <span className="font-bold">{jobToProcess?.id}</span>.
+                        {jobToProcess?.numeroODLInterno 
+                            ? ` Verrà utilizzato l'ODL N° ${jobToProcess.numeroODLInterno}.` 
+                            : ' Lascia il campo vuoto per generare un numero automatico, oppure inserisci un numero per forzarlo.'
+                        }
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(onCreateOdlSubmit)} className="space-y-4 py-4">
-                        <FormField
-                            control={form.control}
-                            name="manualOdlNumber"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Numero ODL Manuale (Opzionale)</FormLabel>
-                                    <FormControl>
-                                        <Input type="number" placeholder="Es. 150" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                        {!jobToProcess?.numeroODLInterno && (
+                          <FormField
+                              control={form.control}
+                              name="manualOdlNumber"
+                              render={({ field }) => (
+                                  <FormItem>
+                                      <FormLabel>Numero ODL Manuale (Opzionale)</FormLabel>
+                                      <FormControl>
+                                          <Input type="number" placeholder="Es. 150" {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                  </FormItem>
+                              )}
+                          />
+                        )}
                         <DialogFooter>
                            <Button type="button" variant="outline" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button>
-                           <Button type="submit">Conferma e Crea ODL</Button>
+                           <Button type="submit">Conferma e Avvia</Button>
                         </DialogFooter>
                     </form>
                 </Form>
