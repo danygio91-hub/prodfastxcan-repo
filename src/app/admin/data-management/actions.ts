@@ -99,10 +99,12 @@ export async function processAndValidateImport(data: any[]): Promise<{
     message: string;
     newJobs: JobOrder[];
     jobsToUpdate: JobOrder[];
+    newProductionJobs: JobOrder[];
     skippedCount: number;
 }> {
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
+    const newProductionJobs: JobOrder[] = [];
     let skippedCount = 0;
 
     // Fetch all work cycles once to create a lookup map
@@ -116,13 +118,18 @@ export async function processAndValidateImport(data: any[]): Promise<{
       cliente: z.coerce.string().optional(),
       ordinePF: z.coerce.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
       numeroODL: z.coerce.string().optional(),
+      numeroODLInternoImport: z.any().optional(),
       details: z.coerce.string().optional(),
       qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
       dataConsegnaFinale: z.string().optional(),
       department: z.coerce.string().optional(),
-      workCycleName: z.coerce.string().optional(), // Changed from workCycleId
+      workCycleName: z.coerce.string().optional(),
     });
 
+    const now = new Date();
+    const year = now.getFullYear();
+    const shortYear = year.toString().slice(-2);
+    
     for (const row of data) {
         const validated = importSchema.safeParse(row);
         if (!validated.success) {
@@ -136,28 +143,49 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const jobRef = doc(db, "jobOrders", sanitizedId);
         const docSnap = await getDoc(jobRef);
         
-        // Find work cycle by name and get its ID to create phases
         const workCycle = validData.workCycleName ? workCyclesMap.get(validData.workCycleName.trim()) : undefined;
         const workCycleId = workCycle?.id;
         const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
 
+        let odlToAssign: string | undefined = undefined;
+        if (validData.numeroODLInternoImport) {
+            const odlString = String(validData.numeroODLInternoImport);
+            const match = odlString.match(/\d+/); // Extract first sequence of digits
+            if (match) {
+                 odlToAssign = `${match[0]}/${shortYear}`;
+            }
+        }
+        
+
         if (docSnap.exists()) {
+            // We only update planned jobs. Production jobs are not updated via import.
             const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
-            const updatedJob: JobOrder = {
-                ...existingJob,
-                ...validData,
-                id: sanitizedId,
-                ordinePF: validData.ordinePF, // Keep original user-facing ID
-                qta: validData.qta ?? existingJob.qta,
-                cliente: validData.cliente ?? existingJob.cliente,
-                numeroODL: validData.numeroODL ?? existingJob.numeroODL,
-                details: validData.details ?? existingJob.details,
-                department: validData.department ?? existingJob.department,
-                dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
-                workCycleId: workCycleId ?? existingJob.workCycleId, // Use found ID
-                phases: phases.length > 0 ? phases : existingJob.phases,
-            };
-            jobsToUpdate.push(updatedJob);
+            if (existingJob.status === 'planned') {
+                const updatedJob: JobOrder = {
+                    ...existingJob,
+                    ...validData,
+                    id: sanitizedId,
+                    ordinePF: validData.ordinePF,
+                    qta: validData.qta ?? existingJob.qta,
+                    cliente: validData.cliente ?? existingJob.cliente,
+                    numeroODL: validData.numeroODL ?? existingJob.numeroODL,
+                    details: validData.details ?? existingJob.details,
+                    department: validData.department ?? existingJob.department,
+                    dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
+                    workCycleId: workCycleId ?? existingJob.workCycleId,
+                    phases: phases.length > 0 ? phases : existingJob.phases,
+                };
+                 if (odlToAssign) {
+                    updatedJob.status = 'production';
+                    updatedJob.numeroODLInterno = odlToAssign;
+                    updatedJob.odlCreationDate = new Date();
+                    newProductionJobs.push(updatedJob);
+                } else {
+                    jobsToUpdate.push(updatedJob);
+                }
+            } else {
+                skippedCount++; // Skip updating jobs already in production
+            }
         } else {
             if (validData.qta === undefined) {
                 skippedCount++;
@@ -170,21 +198,33 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 postazioneLavoro: 'Da Assegnare',
                 phases: phases,
                 cliente: validData.cliente || "N/D",
-                ordinePF: validData.ordinePF, // Keep original user-facing ID
+                ordinePF: validData.ordinePF,
                 numeroODL: validData.numeroODL || "N/D",
                 details: validData.details || "N/D",
                 qta: validData.qta,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
-                workCycleId: workCycleId || '', // Use found ID
+                workCycleId: workCycleId || '',
             };
-            newJobs.push(newJob);
+
+            if (odlToAssign && phases.length > 0) {
+                newJob.status = 'production';
+                newJob.numeroODLInterno = odlToAssign;
+                newJob.odlCreationDate = new Date();
+                newProductionJobs.push(newJob);
+            } else {
+                if (odlToAssign && phases.length === 0) {
+                     skippedCount++; // Cannot create ODL without a cycle
+                } else {
+                     newJobs.push(newJob);
+                }
+            }
         }
     }
     
-    let message = `Analisi completata. Trovate ${newJobs.length} nuove commesse e ${jobsToUpdate.length} da aggiornare.`;
+    let message = `Analisi completata. Trovate ${newJobs.length} nuove commesse pianificate, ${newProductionJobs.length} nuove commesse in produzione e ${jobsToUpdate.length} da aggiornare.`;
     if (skippedCount > 0) {
-        message += ` ${skippedCount} righe sono state ignorate per dati mancanti o non validi.`;
+        message += ` ${skippedCount} righe sono state ignorate.`;
     }
 
     return { 
@@ -192,34 +232,42 @@ export async function processAndValidateImport(data: any[]): Promise<{
         message: message,
         newJobs, 
         jobsToUpdate, 
+        newProductionJobs,
         skippedCount
     };
 }
 
 
-export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
+export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[], newProductionJobs: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
     const batch = writeBatch(db);
     let newCount = data.newJobs.length;
     let updatedCount = data.jobsToUpdate.length;
+    let newProdCount = data.newProductionJobs.length;
 
     data.newJobs.forEach(job => {
+        const docRef = doc(db, "jobOrders", job.id);
+        batch.set(docRef, job);
+    });
+    
+    data.newProductionJobs.forEach(job => {
         const docRef = doc(db, "jobOrders", job.id);
         batch.set(docRef, job);
     });
 
     data.jobsToUpdate.forEach(job => {
         const docRef = doc(db, "jobOrders", job.id);
-        batch.set(docRef, job, { merge: true }); // Use merge to update existing documents
+        batch.set(docRef, job, { merge: true });
     });
     
-    if(newCount > 0 || updatedCount > 0) {
+    if(newCount > 0 || updatedCount > 0 || newProdCount > 0) {
         await batch.commit();
     }
 
     revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
     return {
         success: true,
-        message: `Importazione completata. ${newCount} commesse aggiunte, ${updatedCount} aggiornate.`
+        message: `Importazione completata. ${newCount} pianificate, ${newProdCount} in prod., ${updatedCount} aggiornate.`
     };
 }
 

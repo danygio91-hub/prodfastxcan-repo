@@ -59,7 +59,7 @@ export default function DataManagementClientPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
-  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[], newProductionJobs: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -266,6 +266,7 @@ export default function DataManagementClientPage() {
           'cliente': 'cliente',
           'ordine pf': 'ordinePF',
           'ordine nr est': 'numeroODL',
+          'n° odl': 'numeroODLInternoImport',
           'codice': 'details',
           'qta': 'qta',
           'data consegna': 'dataConsegnaFinale',
@@ -346,10 +347,10 @@ export default function DataManagementClientPage() {
         
         if (result.success) {
             if (result.jobsToUpdate.length > 0) {
-                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate, newProductionJobs: result.newProductionJobs });
             } 
-            else if (result.newJobs.length > 0) {
-                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
+            else if (result.newJobs.length > 0 || result.newProductionJobs.length > 0) {
+                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [], newProductionJobs: result.newProductionJobs });
                 toast({
                     title: "Importazione Completata",
                     description: commitResult.message,
@@ -376,8 +377,9 @@ export default function DataManagementClientPage() {
     const dataToCommit = {
         newJobs: pendingImport.newJobs,
         jobsToUpdate: overwrite ? pendingImport.jobsToUpdate : [],
+        newProductionJobs: pendingImport.newProductionJobs,
     };
-    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0) {
+    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0 && dataToCommit.newProductionJobs.length === 0) {
         toast({ title: "Nessuna Azione", description: "Nessuna commessa da importare o aggiornare."});
     } else {
         const result = await commitImportedJobOrders(dataToCommit);
