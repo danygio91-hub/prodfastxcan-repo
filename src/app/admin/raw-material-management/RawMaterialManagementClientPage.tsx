@@ -420,7 +420,8 @@ export default function RawMaterialManagementClientPage() {
                         <TableHead>Codice</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Descrizione</TableHead>
-                        <TableHead>Stock (Unità)</TableHead>
+                        <TableHead>Stock</TableHead>
+                        <TableHead>Unità Misura</TableHead>
                         <TableHead>Stock (KG)</TableHead>
                         <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
@@ -432,7 +433,8 @@ export default function RawMaterialManagementClientPage() {
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.currentStockUnits} {material.unitOfMeasure}</TableCell>
+                            <TableCell>{material.currentStockUnits}</TableCell>
+                            <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
                             <TableCell className="text-right">
                                 <DropdownMenu>
@@ -487,7 +489,7 @@ export default function RawMaterialManagementClientPage() {
                         ))
                     ) : (
                         <TableRow>
-                        <TableCell colSpan={6} className="text-center h-24">
+                        <TableCell colSpan={7} className="text-center h-24">
                             {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
                         </TableCell>
                         </TableRow>
@@ -709,5 +711,6 @@ export default function RawMaterialManagementClientPage() {
       </div>
   );
 }
+
 
 
