@@ -23,7 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
@@ -52,12 +52,9 @@ const StatusBadge = ({ status }: { status: StatoOperatore }) => (
   </Badge>
 );
 
-interface OperatorManagementClientPageProps {
-  initialOperators: Operator[];
-}
-
-export default function OperatorManagementClientPage({ initialOperators }: OperatorManagementClientPageProps) {
-  const [operators, setOperators] = useState<Operator[]>(initialOperators);
+export default function OperatorManagementClientPage() {
+  const [operators, setOperators] = useState<Operator[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const { toast } = useToast();
@@ -86,9 +83,24 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
   }, [watchedRole, form]);
 
   const fetchOperators = async () => {
-    const data = await getOperators();
-    setOperators(data);
+    setIsLoading(true);
+    try {
+      const data = await getOperators();
+      setOperators(data);
+    } catch(error) {
+       toast({
+        variant: "destructive",
+        title: "Errore di Caricamento",
+        description: "Impossibile caricare gli operatori.",
+       });
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchOperators();
+  }, []);
 
   const handleOpenDialog = (operator: Operator | null = null) => {
     setEditingOperator(operator);
@@ -163,16 +175,23 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
     XLSX.writeFile(wb, "elenco_operatori.xlsx");
   };
 
+  const renderLoading = () => (
+    <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-4 text-muted-foreground">Caricamento operatori...</p>
+    </div>
+  );
+
   return (
       <div className="space-y-6">
         <AdminNavMenu />
 
         <div className="flex justify-end gap-2">
-          <Button onClick={handleExport} variant="outline" disabled={operators.length === 0}>
+          <Button onClick={handleExport} variant="outline" disabled={isLoading || operators.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               Esporta Operatori
           </Button>
-          <Button onClick={() => handleOpenDialog()}>
+          <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
             <PlusCircle className="mr-2 h-4 w-4" />
             Aggiungi Operatore
           </Button>
@@ -189,82 +208,84 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Reparto</TableHead>
-                    <TableHead>Ruolo</TableHead>
-                    <TableHead>Stato</TableHead>
-                    <TableHead>Privacy</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {operators.length > 0 ? (
-                    operators.map((op) => (
-                      <TableRow key={op.id}>
-                        <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
-                        <TableCell>{op.email}</TableCell>
-                        <TableCell>{op.reparto}</TableCell>
-                        <TableCell className="capitalize">{op.role}</TableCell>
-                        <TableCell><StatusBadge status={op.stato} /></TableCell>
-                        <TableCell>
-                            <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                  <div className="flex items-center justify-center">
-                                  {op.privacySigned ? (
-                                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                                  ) : (
-                                      <ShieldAlert className="h-5 w-5 text-yellow-500" />
-                                  )}
-                                  </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{op.privacySigned ? 'Informativa Firmata' : 'Informativa Non Firmata'}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="icon" onClick={() => handleOpenDialog(op)}>
-                            <Edit className="h-4 w-4" />
-                            <span className="sr-only">Modifica</span>
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="icon">
-                                <Trash2 className="h-4 w-4" />
-                                <span className="sr-only">Elimina</span>
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Questa azione non può essere annullata. L'operatore verrà eliminato definitivamente.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDelete(op.id)}>Continua</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
+            {isLoading ? renderLoading() : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Reparto</TableHead>
+                      <TableHead>Ruolo</TableHead>
+                      <TableHead>Stato</TableHead>
+                      <TableHead>Privacy</TableHead>
+                      <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {operators.length > 0 ? (
+                      operators.map((op) => (
+                        <TableRow key={op.id}>
+                          <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
+                          <TableCell>{op.email}</TableCell>
+                          <TableCell>{op.reparto}</TableCell>
+                          <TableCell className="capitalize">{op.role}</TableCell>
+                          <TableCell><StatusBadge status={op.stato} /></TableCell>
+                          <TableCell>
+                              <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center justify-center">
+                                    {op.privacySigned ? (
+                                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                        <ShieldAlert className="h-5 w-5 text-yellow-500" />
+                                    )}
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{op.privacySigned ? 'Informativa Firmata' : 'Informativa Non Firmata'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </TableCell>
+                          <TableCell className="text-right space-x-2">
+                            <Button variant="outline" size="icon" onClick={() => handleOpenDialog(op)}>
+                              <Edit className="h-4 w-4" />
+                              <span className="sr-only">Modifica</span>
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="icon">
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Elimina</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Questa azione non può essere annullata. L'operatore verrà eliminato definitivamente.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDelete(op.id)}>Continua</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
 

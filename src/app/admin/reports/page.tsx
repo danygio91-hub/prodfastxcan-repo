@@ -11,11 +11,7 @@ export default async function AdminReportsPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
-        <ReportsClientPage
-          initialJobsReport={[]}
-          initialOperatorsReport={[]}
-          initialWithdrawalsReport={[]}
-        />
+        <ReportsClientPage />
       </AppShell>
     </AdminAuthGuard>
   );

@@ -1,5 +1,4 @@
 
-import { getOperators } from './actions';
 import OperatorManagementClientPage from './OperatorManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -7,12 +6,12 @@ import AppShell from '@/components/layout/AppShell';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminOperatorManagementPage() {
-  const operators = await getOperators();
-
+  // Data fetching is now handled on the client-side
+  // to improve navigation performance. The client component will show a loading state.
   return (
     <AdminAuthGuard>
       <AppShell>
-        <OperatorManagementClientPage initialOperators={operators} />
+        <OperatorManagementClientPage />
       </AppShell>
     </AdminAuthGuard>
   );

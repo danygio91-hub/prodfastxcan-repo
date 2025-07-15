@@ -54,17 +54,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   );
 }
 
-interface ReportsClientPageProps {
-  initialJobsReport: JobsReport;
-  initialOperatorsReport: OperatorsReport;
-  initialWithdrawalsReport: MaterialWithdrawal[];
-}
-
-export default function ReportsClientPage({
-  initialJobsReport,
-  initialOperatorsReport,
-  initialWithdrawalsReport,
-}: ReportsClientPageProps) {
+export default function ReportsClientPage() {
   const [jobsReport, setJobsReport] = useState<JobsReport>([]);
   const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>([]);
   const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>([]);
