@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -291,6 +292,7 @@ export default function RawMaterialManagementClientPage() {
             'larghezza': 'larghezza',
             'tipologia': 'tipologia',
             'stock': 'stock',
+            'peso (kg)': 'stock', // Use 'stock' as the target for Peso (Kg) as well
             'unita misura': 'unitOfMeasure',
             'fattore conversione': 'conversionFactor',
         };
@@ -301,7 +303,14 @@ export default function RawMaterialManagementClientPage() {
                 const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, ' ');
                 const targetKey = headerMapping[normalizedKey];
                 if (targetKey && row[key] !== null && row[key] !== undefined && row[key] !== '') {
-                  normalizedRow[targetKey] = row[key];
+                  // Prioritize 'stock' if both 'stock' and 'peso (kg)' map to it and are present.
+                  if (targetKey === 'stock') {
+                    if (normalizedKey === 'stock' || !normalizedRow['stock']) {
+                       normalizedRow[targetKey] = row[key];
+                    }
+                  } else {
+                    normalizedRow[targetKey] = row[key];
+                  }
                 }
             }
             return normalizedRow;
@@ -696,3 +705,4 @@ export default function RawMaterialManagementClientPage() {
       </div>
   );
 }
+
