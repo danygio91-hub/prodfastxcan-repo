@@ -68,11 +68,13 @@ export async function getJobsReport() {
         }
 
         for (const chunk of chunks) {
-            const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
-            const operatorsSnapshot = await getDocs(operatorsQuery);
-            operatorsSnapshot.forEach(doc => {
-                operatorsMap.set(doc.id, doc.data() as Operator);
-            });
+            if (chunk.length > 0) { // Ensure chunk is not empty
+                const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
+                const operatorsSnapshot = await getDocs(operatorsQuery);
+                operatorsSnapshot.forEach(doc => {
+                    operatorsMap.set(doc.data().id, doc.data() as Operator);
+                });
+            }
         }
     }
 
@@ -188,11 +190,13 @@ export async function getJobDetailReport(jobId: string) {
             chunks.push(operatorIds.slice(i, i + 30));
         }
         for (const chunk of chunks) {
-            const operatorsQuery = query(collection(db, "operators"), where('id', 'in', chunk));
-            const operatorsSnapshot = await getDocs(operatorsQuery);
-            operatorsSnapshot.forEach(doc => {
-                operatorsMap.set(doc.id, doc.data() as Operator);
-            });
+             if (chunk.length > 0) {
+                const operatorsQuery = query(collection(db, "operators"), where('id', 'in', chunk));
+                const operatorsSnapshot = await getDocs(operatorsQuery);
+                operatorsSnapshot.forEach(doc => {
+                    operatorsMap.set(doc.data().id, doc.data() as Operator);
+                });
+            }
         }
     }
 
@@ -331,8 +335,8 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     // Fetch operators to enrich the report
     const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
     if (operatorIds.length > 0) {
-        const operatorsSnapshot = await getDocs(collection(db, "operators"));
-        const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.id, doc.data() as Operator]));
+        const operatorsSnapshot = await getDocs(query(collection(db, "operators"), where("id", "in", operatorIds)));
+        const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.data().id, doc.data() as Operator]));
         withdrawals.forEach(w => {
             w.operatorName = operatorsMap.get(w.operatorId)?.nome || 'Sconosciuto';
         });
