@@ -318,7 +318,7 @@ export default function DataManagementClientPage() {
                         'MM-dd-yyyy', 'M-d-yyyy',
                     ];
                     for (const fmt of formatsToTry) {
-                        const tempDate = parse(dateString, fmt, new Date());
+                        const tempDate = parse(rawDate, fmt, new Date());
                         if (isValid(tempDate)) {
                             parsedDate = tempDate;
                             break;
