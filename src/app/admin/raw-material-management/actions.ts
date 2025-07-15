@@ -326,7 +326,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       filo_el: z.coerce.string().optional(),
       larghezza: z.coerce.string().optional(),
       tipologia: z.coerce.string().optional(),
-      unitOfMeasure: z.enum(['n', 'mt', 'kg']).optional(),
+      unitOfMeasure: z.enum(['n', 'mt', 'kg', 'm']).optional(),
       conversionFactor: z.coerce.number().optional().nullable(),
       stock: z.coerce.number().min(0).optional(),
     });
