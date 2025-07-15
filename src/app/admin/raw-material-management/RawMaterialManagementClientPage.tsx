@@ -341,7 +341,7 @@ export default function RawMaterialManagementClientPage() {
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
-        'Stock': m.stock,
+        'Stock': m.currentStockUnits,
         'Unita Misura': m.unitOfMeasure,
         'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
@@ -420,8 +420,8 @@ export default function RawMaterialManagementClientPage() {
                         <TableHead>Codice</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Descrizione</TableHead>
-                        <TableHead>Unità Misura</TableHead>
-                        <TableHead>Stock</TableHead>
+                        <TableHead>Stock (Unità)</TableHead>
+                        <TableHead>Stock (KG)</TableHead>
                         <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                     </TableHeader>
@@ -432,8 +432,8 @@ export default function RawMaterialManagementClientPage() {
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.unitOfMeasure}</TableCell>
-                            <TableCell>{material.stock}</TableCell>
+                            <TableCell>{material.currentStockUnits} {material.unitOfMeasure}</TableCell>
+                            <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
                             <TableCell className="text-right">
                                 <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -690,7 +690,11 @@ export default function RawMaterialManagementClientPage() {
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
                                 <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
                             </div>
-                                <div className="p-3 rounded-lg border bg-background">
+                            <div className="p-3 rounded-lg border bg-background">
+                                <Label>Stock Calcolato (KG)</Label>
+                                <p className="text-2xl font-bold">{selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
+                            </div>
+                            <div className="p-3 rounded-lg border bg-background col-span-2">
                                 <Label>Fattore Conversione</Label>
                                 <p className="text-2xl font-bold">{selectedMaterial.conversionFactor ?? 'N/A'}</p>
                             </div>
@@ -705,4 +709,5 @@ export default function RawMaterialManagementClientPage() {
       </div>
   );
 }
+
 
