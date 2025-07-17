@@ -92,7 +92,7 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
       return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
     }
 
-    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal);
+    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal & { consumedUnits?: number });
     const deletedCount = withdrawals.length;
 
     await runTransaction(db, async (transaction) => {
@@ -103,11 +103,7 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
         const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
         
         update.consumedWeight += withdrawal.consumedWeight || 0;
-        
-        const withdrawalAsAny = withdrawal as any;
-        if (typeof withdrawalAsAny.consumedUnits === 'number') {
-            update.consumedUnits += withdrawalAsAny.consumedUnits;
-        }
+        update.consumedUnits += withdrawal.consumedUnits || 0;
 
         materialUpdates.set(withdrawal.materialId, update);
       }
@@ -124,18 +120,14 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
           const updates = materialUpdates.get(materialDoc.id)!;
 
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
-          
-          if (updates.consumedUnits > 0) {
-            const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
-            transaction.update(materialDoc.ref, { 
-              currentWeightKg: newWeight,
-              currentStockUnits: newUnits
-            });
-          } else {
-             transaction.update(materialDoc.ref, { 
-              currentWeightKg: newWeight
-            });
-          }
+          const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+          // Always restore both. If unitOfMeasure is kg, they should be the same. 
+          // If a withdrawal didn't have consumedUnits, it adds 0, which is safe.
+          transaction.update(materialDoc.ref, { 
+            currentWeightKg: newWeight,
+            currentStockUnits: materialData.unitOfMeasure === 'kg' ? newWeight : newUnits,
+          });
         }
       }
       
