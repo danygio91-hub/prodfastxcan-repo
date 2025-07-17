@@ -344,21 +344,16 @@ export default function ScanJobPage() {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
       }
-
-      if (phaseType === 'production') {
-        if (phaseToStart.sequence === 1) {
-          const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-          if (!allPrepPhases.every((p: JobPhase) => p.status === 'completed')) {
-            toast({ variant: "destructive", title: "Errore di Sequenza", description: "È necessario completare tutte le fasi di preparazione prima di iniziare la produzione." });
-            return;
+      
+      const sortedPhases = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+      const currentPhaseIndex = sortedPhases.findIndex(p => p.id === phaseToStart.id);
+      const prevPhase = sortedPhases[currentPhaseIndex - 1];
+      
+      if (phaseType === 'production' || phaseType === 'quality') {
+          if (currentPhaseIndex > 0 && (!prevPhase || prevPhase.status !== 'completed')) {
+             toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhase?.name || 'precedente'}" prima di avviare questa.` });
+             return;
           }
-        } else {
-          const prevPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToStart.sequence - 1);
-          if (!prevPhase || prevPhase.status !== 'completed') {
-            toast({ variant: "destructive", title: "Errore di Sequenza", description: "Completare la fase di produzione precedente prima di avviare questa." });
-            return;
-          }
-        }
       }
 
       if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
@@ -494,7 +489,10 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToComplete.sequence + 1);
+      const sortedPhases = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+      const currentPhaseIndex = sortedPhases.findIndex(p => p.id === phaseToComplete.id);
+      const nextPhase = sortedPhases[currentPhaseIndex + 1];
+
       if (nextPhase && nextPhase.status === 'pending') {
         const allPrepPhasesForNext = jobToUpdate.phases.filter((p:JobPhase) => p.type === 'preparation');
         if (allPrepPhasesForNext.every(p => p.status === 'completed')) {
@@ -539,7 +537,7 @@ export default function ScanJobPage() {
     if (!activeJobOrder || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
+    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence > 0);
 
     if (firstProductionPhase) {
         firstProductionPhase.materialReady = true;
@@ -1090,13 +1088,12 @@ export default function ScanJobPage() {
     const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
-    const firstProductionPhase = productionAndQualityPhases.find(p => p.sequence === 1);
+    const firstProductionPhase = activeJobOrder.phases.find(p => p.sequence > 0);
     
     const showReleaseButton = allPreparationPhasesCompleted && 
-                              hasProductionOrQualityPhases && 
-                              isMagazzinoOrSuperadvisor && 
                               firstProductionPhase && 
-                              !firstProductionPhase.materialReady;
+                              !firstProductionPhase.materialReady &&
+                              isMagazzinoOrSuperadvisor;
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
@@ -1108,13 +1105,16 @@ export default function ScanJobPage() {
           if (phaseType === 'preparation') {
             canStartPhase = true;
           } else { // production or quality
+            const sortedPhasesInJob = [...activeJobOrder.phases].sort((a,b) => a.sequence - b.sequence);
+            const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
+            const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
+            
             const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
-            if (phase.sequence === 1) {
-              const allPrepPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
-              canStartPhase = (allPrepPhases.length === 0 || allPrepPhases.every(p => p.status === 'completed')) && noOtherProductionPhaseActiveOrPaused;
+
+            if (currentPhaseIndex === 0 || !prevPhaseInJob) { // First phase of the entire job
+                 canStartPhase = noOtherProductionPhaseActiveOrPaused;
             } else {
-              const prevPhase = activeJobOrder.phases.find(p => p.sequence === phase.sequence - 1);
-              canStartPhase = !!prevPhase && prevPhase.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
+                 canStartPhase = prevPhaseInJob.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
             }
           }
           
@@ -1532,6 +1532,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
