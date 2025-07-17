@@ -536,7 +536,7 @@ export default function ScanJobPage() {
   };
 
   const handleCompletePreparation = () => {
-    if (!activeJobOrder) return;
+    if (!activeJobOrder || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
     const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
@@ -560,7 +560,9 @@ export default function ScanJobPage() {
       action: <ThumbsUp className="text-primary" />
     });
     
-    setActiveJobOrder(null);
+    if (operator.role !== 'superadvisor') {
+      setActiveJobOrder(null);
+    }
   };
 
   const handleConcludeOverallJob = () => {
@@ -1089,7 +1091,12 @@ export default function ScanJobPage() {
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
     const firstProductionPhase = productionAndQualityPhases.find(p => p.sequence === 1);
-    const showReleaseButton = allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && firstProductionPhase && !firstProductionPhase.materialReady;
+    
+    const showReleaseButton = allPreparationPhasesCompleted && 
+                              hasProductionOrQualityPhases && 
+                              isMagazzinoOrSuperadvisor && 
+                              firstProductionPhase && 
+                              !firstProductionPhase.materialReady;
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
@@ -1525,5 +1532,6 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
