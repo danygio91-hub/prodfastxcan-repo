@@ -63,10 +63,8 @@ export default function RawMaterialManagementClientPage() {
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
   
-  const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
 
-  const [isConfirmDeleteBatchDialogOpen, setIsConfirmDeleteBatchDialogOpen] = useState(false);
   const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
 
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
@@ -83,7 +81,7 @@ export default function RawMaterialManagementClientPage() {
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
@@ -156,7 +154,7 @@ export default function RawMaterialManagementClientPage() {
         quantity: batch.quantity,
       });
     } else {
-      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: undefined });
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
     }
     setIsBatchFormDialogOpen(true);
   };
@@ -172,21 +170,20 @@ export default function RawMaterialManagementClientPage() {
     setIsDetailViewOpen(true);
   };
   
-  const handleLocalUpdate = (updatedMaterial: RawMaterial) => {
+  const handleLocalUpdate = useCallback((updatedMaterial: RawMaterial) => {
     setMaterials(prev => {
-      const index = prev.findIndex(m => m.id === updatedMaterial.id);
-      if (index > -1) {
-          const newMaterials = [...prev];
-          newMaterials[index] = updatedMaterial;
-          return newMaterials;
-      }
-      return [...prev, updatedMaterial];
+        const index = prev.findIndex(m => m.id === updatedMaterial.id);
+        if (index > -1) {
+            const newMaterials = [...prev];
+            newMaterials[index] = updatedMaterial;
+            return newMaterials;
+        }
+        return [...prev, updatedMaterial];
     });
-    // Also update the selected material if it's being shown in a dialog
-    if (selectedMaterial && selectedMaterial.id === updatedMaterial.id) {
+    if (selectedMaterial?.id === updatedMaterial.id) {
         setSelectedMaterial(updatedMaterial);
     }
-  };
+  }, [selectedMaterial]);
 
 
   // --- Form Submissions ---
@@ -232,11 +229,6 @@ export default function RawMaterialManagementClientPage() {
     }
   };
 
-  const handleOpenDeleteDialog = (material: RawMaterial) => {
-    setMaterialToDelete(material);
-    setIsConfirmDeleteDialogOpen(true);
-  };
-
   const handleDelete = async () => {
     if (!materialToDelete) return;
     const result = await deleteRawMaterial(materialToDelete.id);
@@ -246,15 +238,9 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchMaterials();
+        setMaterials(prev => prev.filter(m => m.id !== materialToDelete.id));
     }
     setMaterialToDelete(null);
-    setIsConfirmDeleteDialogOpen(false);
-  };
-
-  const handleOpenDeleteBatchDialog = (materialId: string, batchId: string) => {
-    setBatchToDelete({ materialId, batchId });
-    setIsConfirmDeleteBatchDialogOpen(true);
   };
 
   const handleDeleteBatch = async () => {
@@ -270,7 +256,6 @@ export default function RawMaterialManagementClientPage() {
       handleLocalUpdate(result.updatedMaterial);
     }
     setBatchToDelete(null);
-    setIsConfirmDeleteBatchDialogOpen(false);
   };
 
   const handleImportClick = () => {
@@ -465,28 +450,28 @@ export default function RawMaterialManagementClientPage() {
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="ghost" size="icon">
                                     <MoreVertical className="h-4 w-4" />
-                                    <span className="sr-only">Apri menu</span>
+                                    <span className="sr-only">Apri menu per {material.code}</span>
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                     <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
-                                    <Eye className="mr-2 h-4 w-4" />
-                                    <span>Vedi Dettaglio Stock</span>
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        <span>Vedi Dettaglio Stock</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
-                                    <Edit className="mr-2 h-4 w-4" />
-                                    <span>Modifica Dettagli</span>
+                                        <Edit className="mr-2 h-4 w-4" />
+                                        <span>Modifica Dettagli</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material)}>
-                                    <PackagePlus className="mr-2 h-4 w-4" />
-                                    <span>Aggiungi Lotto</span>
+                                        <PackagePlus className="mr-2 h-4 w-4" />
+                                        <span>Aggiungi Lotto</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
-                                    <History className="mr-2 h-4 w-4" />
-                                    <span>Vedi Storico Lotti</span>
+                                        <History className="mr-2 h-4 w-4" />
+                                        <span>Vedi Storico Lotti</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => handleOpenDeleteDialog(material)} className="text-destructive">
+                                    <DropdownMenuItem onSelect={() => setMaterialToDelete(material)} className="text-destructive">
                                         <Trash2 className="mr-2 h-4 w-4" />
                                         <span>Elimina</span>
                                     </DropdownMenuItem>
@@ -584,7 +569,7 @@ export default function RawMaterialManagementClientPage() {
         </Dialog>
         
         {/* Delete Confirmation Dialog */}
-        <AlertDialog open={isConfirmDeleteDialogOpen} onOpenChange={setIsConfirmDeleteDialogOpen}>
+        <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
@@ -659,7 +644,7 @@ export default function RawMaterialManagementClientPage() {
                                     <Edit className="h-4 w-4" />
                                     <span className="sr-only">Modifica Lotto</span>
                                   </Button>
-                                  <Button variant="destructive" size="icon" onClick={() => handleOpenDeleteBatchDialog(selectedMaterial!.id, batch.id)}>
+                                  <Button variant="destructive" size="icon" onClick={() => setBatchToDelete({ materialId: selectedMaterial!.id, batchId: batch.id })}>
                                     <Trash2 className="h-4 w-4" />
                                     <span className="sr-only">Elimina Lotto</span>
                                   </Button>
@@ -683,7 +668,7 @@ export default function RawMaterialManagementClientPage() {
         </Dialog>
 
         {/* Delete Batch Confirmation Dialog */}
-        <AlertDialog open={isConfirmDeleteBatchDialogOpen} onOpenChange={setIsConfirmDeleteBatchDialogOpen}>
+        <AlertDialog open={!!batchToDelete} onOpenChange={(open) => !open && setBatchToDelete(null)}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
