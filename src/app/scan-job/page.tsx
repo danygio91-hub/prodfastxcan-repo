@@ -342,7 +342,7 @@ export default function ScanJobPage() {
       const phaseType = phaseToStart.type || 'production';
 
       if (phaseType === 'production' && !phaseToStart.materialReady) {
-        toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
+        toast({ variant: "destructive", title: "Errore Materiale", description: `Questa fase non è ancora pronta. Completare la fase precedente o la preparazione.` });
         return;
       }
       
@@ -761,18 +761,22 @@ export default function ScanJobPage() {
       }
   };
 
-  const handleLottoScanned = async (scannedValue: string) => {
-    phaseMaterialForm.setValue('lottoBobina', scannedValue);
-    toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
-    setIsLottoScanDialogOpen(false);
-    
-    if (scannedMaterialForPhase) {
-      const lastWeight = await findLastWeightForLotto(scannedMaterialForPhase.id, scannedValue);
+  const handleLottoChange = useCallback(async (lotto: string) => {
+    if (lotto && scannedMaterialForPhase) {
+      const lastWeight = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
       if (lastWeight !== null) {
         phaseMaterialForm.setValue('openingWeight', lastWeight);
         toast({ title: "Peso Precedente Trovato", description: `Il peso di apertura è stato impostato a ${lastWeight} kg.` });
       }
     }
+  }, [scannedMaterialForPhase, phaseMaterialForm, toast]);
+
+
+  const handleLottoScanned = (scannedValue: string) => {
+    phaseMaterialForm.setValue('lottoBobina', scannedValue, { shouldDirty: true });
+    handleLottoChange(scannedValue);
+    toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
+    setIsLottoScanDialogOpen(false);
   };
 
   useEffect(() => {
@@ -821,7 +825,7 @@ export default function ScanJobPage() {
 
     startCameraAndScan();
     return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
-  }, [isLottoScanDialogOpen, stopCamera, phaseMaterialForm, toast]);
+  }, [isLottoScanDialogOpen, stopCamera, handleLottoScanned, toast]);
 
 
   useEffect(() => {
@@ -1052,7 +1056,6 @@ export default function ScanJobPage() {
     
     const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
     
-    const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
     const firstProductionPhase = activeJobOrder.phases.find(p => p.type === 'production');
@@ -1381,7 +1384,7 @@ export default function ScanJobPage() {
                                     <FormItem>
                                         <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
                                         <div className="flex gap-2">
-                                            <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} /></FormControl>
+                                            <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
                                             <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
                                         </div><FormMessage />
                                     </FormItem>
@@ -1519,6 +1522,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 

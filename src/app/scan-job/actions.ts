@@ -272,24 +272,67 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
 
 
 export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<number | null> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, orderBy("overallEndTime", "desc"), limit(50));
-    
-    const querySnapshot = await getDocs(q);
+    if (!materialId || !lotto) return null;
 
-    for (const doc of querySnapshot.docs) {
-        const job = doc.data() as JobOrder;
+    // Search active material sessions first for the most up-to-date value.
+    // This part is client-side logic, but we can imagine a server-side cache if needed.
+    // For this server action, we'll focus on Firestore.
+
+    const jobsRef = collection(db, "jobOrders");
+    // We can't order by a nested field's timestamp directly.
+    // We'll search recent jobs by `overallEndTime` as a proxy for recency.
+    // A null `overallEndTime` means the job might still be active, so we should check those too.
+    
+    // First, check recently completed jobs
+    const completedJobsQuery = firestoreQuery(
+        jobsRef, 
+        where("status", "==", "completed"), 
+        orderBy("overallEndTime", "desc"), 
+        limit(50)
+    );
+    const completedSnapshot = await getDocs(completedJobsQuery);
+    
+    // Then, check active/suspended jobs (which won't have an overallEndTime yet)
+    const activeJobsQuery = firestoreQuery(
+        jobsRef,
+        where("status", "in", ["production", "suspended"]),
+        limit(50) // Limit to avoid scanning too many documents
+    );
+    const activeSnapshot = await getDocs(activeJobsQuery);
+    
+    const allDocs = [...completedSnapshot.docs, ...activeSnapshot.docs];
+
+    // Deduplicate documents based on their ID, keeping the one from the completed query if a job is in both
+    const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.id, doc])).values());
+
+    let latestTimestamp: Date | null = null;
+    let lastWeight: number | null = null;
+
+    for (const doc of uniqueDocs) {
+        const job = convertTimestampsToDates(doc.data()) as JobOrder;
         for (const phase of (job.phases || [])) {
+            // Find the last work period end time for this phase to sort by recency
+            const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
+                if (wp.end && wp.end > (latest ?? new Date(0))) {
+                    return wp.end;
+                }
+                return latest;
+            }, null as Date | null);
+
             if (
                 phase.materialConsumption &&
                 phase.materialConsumption.materialId === materialId &&
                 phase.materialConsumption.lottoBobina === lotto &&
-                phase.materialConsumption.closingWeight !== undefined
+                phase.materialConsumption.closingWeight !== undefined &&
+                lastWorkPeriodEnd
             ) {
-                return phase.materialConsumption.closingWeight;
+                if (!latestTimestamp || lastWorkPeriodEnd > latestTimestamp) {
+                    latestTimestamp = lastWorkPeriodEnd;
+                    lastWeight = phase.materialConsumption.closingWeight;
+                }
             }
         }
     }
-
-    return null;
+    
+    return lastWeight;
 }
