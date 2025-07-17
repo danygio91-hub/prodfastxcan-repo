@@ -62,6 +62,8 @@ export default function RawMaterialManagementClientPage() {
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
+  const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -225,15 +227,24 @@ export default function RawMaterialManagementClientPage() {
     }
   };
 
+  const handleOpenDeleteDialog = (material: RawMaterial) => {
+    setMaterialToDelete(material);
+    setIsConfirmDeleteDialogOpen(true);
+  };
 
-  const handleDelete = async (id: string) => {
-    const result = await deleteRawMaterial(id);
+  const handleDelete = async () => {
+    if (!materialToDelete) return;
+    const result = await deleteRawMaterial(materialToDelete.id);
     toast({
       title: result.success ? "Successo" : "Errore",
       description: result.message,
       variant: result.success ? "default" : "destructive",
     });
-    if (result.success) fetchMaterials();
+    if (result.success) {
+        fetchMaterials();
+    }
+    setMaterialToDelete(null);
+    setIsConfirmDeleteDialogOpen(false);
   };
 
   const handleDeleteBatch = async (materialId: string, batchId: string) => {
@@ -461,26 +472,10 @@ export default function RawMaterialManagementClientPage() {
                                     <span>Vedi Storico Lotti</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            <span>Elimina</span>
-                                        </DropdownMenuItem>
-                                    </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Questa azione non può essere annullata. La materia prima e tutto il suo storico verranno eliminati.
-                                        </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleDelete(material.id)}>Continua</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                    </AlertDialog>
+                                    <DropdownMenuItem onSelect={() => handleOpenDeleteDialog(material)} className="text-destructive">
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>Elimina</span>
+                                    </DropdownMenuItem>
                                 </DropdownMenuContent>
                                 </DropdownMenu>
                             </TableCell>
@@ -573,6 +568,25 @@ export default function RawMaterialManagementClientPage() {
             </Form>
           </DialogContent>
         </Dialog>
+        
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={isConfirmDeleteDialogOpen} onOpenChange={setIsConfirmDeleteDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Questa azione non può essere annullata. La materia prima
+                        <span className="font-bold"> {materialToDelete?.code} </span>
+                        e tutto il suo storico verranno eliminati.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setMaterialToDelete(null)}>Annulla</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete}>Continua</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
 
         {/* Add/Edit Batch Dialog */}
         <Dialog open={isBatchFormDialogOpen} onOpenChange={setIsBatchFormDialogOpen}>
@@ -684,7 +698,7 @@ export default function RawMaterialManagementClientPage() {
                             <div className="space-y-1"><Label>Sezione</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.sezione || 'N/D'}</p></div>
                             <div className="space-y-1"><Label>Filo El.</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.filo_el || 'N/D'}</p></div>
                             <div className="space-y-1"><Label>Larghezza</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.larghezza || 'N/D'}</p></div>
-                            <div className="space-y-1 col-span-2"><Label>Tipologia</Label><p className="p-2 bg-muted rounded-md">{selectedMaterial.details.tipologia || 'N/D'}</p></div>
+                            <div className="p-2 bg-muted rounded-md col-span-2"><Label>Tipologia</Label><p>{selectedMaterial.details.tipologia || 'N/D'}</p></div>
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
