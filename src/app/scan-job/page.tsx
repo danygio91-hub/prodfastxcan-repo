@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto } from './actions';
@@ -345,13 +346,13 @@ export default function ScanJobPage() {
         return;
       }
       
-      const sortedPhases = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-      const currentPhaseIndex = sortedPhases.findIndex(p => p.id === phaseToStart.id);
-      const prevPhase = sortedPhases[currentPhaseIndex - 1];
+      const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+      const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
+      const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
       
       if (phaseType === 'production' || phaseType === 'quality') {
-          if (currentPhaseIndex > 0 && (!prevPhase || prevPhase.status !== 'completed')) {
-             toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhase?.name || 'precedente'}" prima di avviare questa.` });
+          if (currentPhaseIndex > 0 && (!prevPhaseInJob || prevPhaseInJob.status !== 'completed')) {
+             toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhaseInJob?.name || 'precedente'}" prima di avviare questa.` });
              return;
           }
       }
@@ -489,15 +490,12 @@ export default function ScanJobPage() {
       }
       phaseToComplete.status = 'completed';
 
-      const sortedPhases = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-      const currentPhaseIndex = sortedPhases.findIndex(p => p.id === phaseToComplete.id);
-      const nextPhase = sortedPhases[currentPhaseIndex + 1];
+      const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+      const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToComplete.id);
+      const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
 
-      if (nextPhase && nextPhase.status === 'pending') {
-        const allPrepPhasesForNext = jobToUpdate.phases.filter((p:JobPhase) => p.type === 'preparation');
-        if (allPrepPhasesForNext.every(p => p.status === 'completed')) {
-            nextPhase.materialReady = true;
-        }
+      if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+          nextPhaseInJob.materialReady = true;
       }
       
       const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
@@ -511,6 +509,35 @@ export default function ScanJobPage() {
       handleUpdateAndPersistJob(jobToUpdate);
       toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
+  
+  const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed') => {
+    if (!activeJobOrder || !operator) return;
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+
+    if (!phaseToUpdate || phaseToUpdate.type !== 'quality') return;
+
+    phaseToUpdate.status = 'completed';
+    phaseToUpdate.qualityResult = result;
+
+    if (result === 'passed') {
+        const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+        const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToUpdate.id);
+        const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
+
+        if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+            nextPhaseInJob.materialReady = true;
+        }
+        toast({ title: "Collaudo Superato", description: `La fase "${phaseToUpdate.name}" è stata approvata.`, action: <CheckCircle className="text-green-500"/> });
+    } else {
+        jobToUpdate.isProblemReported = true; // Flag the job as having a problem
+        toast({ variant: "destructive", title: "Collaudo Fallito", description: `La fase "${phaseToUpdate.name}" non ha superato il controllo. La commessa è bloccata.` });
+    }
+    
+    handleUpdateAndPersistJob(jobToUpdate);
+  };
+
 
   const handleContinueWithMaterial = () => {
     if (!jobToFinalize) return;
@@ -537,7 +564,7 @@ export default function ScanJobPage() {
     if (!activeJobOrder || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence > 0);
+    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production');
 
     if (firstProductionPhase) {
         firstProductionPhase.materialReady = true;
@@ -558,6 +585,7 @@ export default function ScanJobPage() {
       action: <ThumbsUp className="text-primary" />
     });
     
+    // Only exit the job view if you are not a superadvisor
     if (operator.role !== 'superadvisor') {
       setActiveJobOrder(null);
     }
@@ -1027,7 +1055,7 @@ export default function ScanJobPage() {
     const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
-    const firstProductionPhase = activeJobOrder.phases.find(p => p.sequence > 0);
+    const firstProductionPhase = activeJobOrder.phases.find(p => p.type === 'production');
     
     const showReleaseButton = allPreparationPhasesCompleted && 
                               firstProductionPhase && 
@@ -1040,36 +1068,36 @@ export default function ScanJobPage() {
 
           const phaseType = phase.type || 'production';
           
-          let canStartPhase = false;
-          if (phaseType === 'preparation') {
-            canStartPhase = true;
-          } else { // production or quality
-            const sortedPhasesInJob = [...activeJobOrder.phases].sort((a,b) => a.sequence - b.sequence);
-            const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
-            const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
-            
-            const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
+          const sortedPhasesInJob = [...activeJobOrder.phases].sort((a,b) => a.sequence - b.sequence);
+          const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
+          const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
+          const isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
 
-            if (currentPhaseIndex === 0 || !prevPhaseInJob) { // First phase of the entire job
-                 canStartPhase = noOtherProductionPhaseActiveOrPaused;
-            } else {
-                 canStartPhase = prevPhaseInJob.status === 'completed' && noOtherProductionPhaseActiveOrPaused;
-            }
-          }
+          const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
+
+          const canPerformAction = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherProductionPhaseActiveOrPaused;
           
           const canScanMaterial = operatorHasPermission && phase.requiresMaterialScan && !phase.materialReady;
 
-          const canStartWithScan = operatorHasPermission && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && canStartPhase;
-          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !canStartPhase;
+          const canStartWithScan = canPerformAction && phaseType !== 'quality';
+          
+          const canPerformQualityCheck = canPerformAction && phaseType === 'quality';
+
+          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !isPreviousPhaseCompleted;
 
           const canPausePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'in-progress';
           const canResumePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'paused' && (phaseType === 'preparation' || !activeJobOrder.phases.some(p => p.id !== phase.id && p.status === 'in-progress'));
-          const canCompletePhase = operatorHasPermission && (phase.status === 'in-progress' || phase.status === 'paused');
+          const canCompletePhase = operatorHasPermission && phaseType !== 'quality' && (phase.status === 'in-progress' || phase.status === 'paused');
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
           if (phase.status === 'paused') phaseIcon = <PausePhaseIcon className="mr-2 h-5 w-5 text-orange-500" />;
-          if (phase.status === 'completed') phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
+          if (phase.status === 'completed') {
+            phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
+            if (phase.qualityResult === 'failed') {
+               phaseIcon = <ThumbsDown className="mr-2 h-5 w-5 text-destructive" />;
+            }
+          }
           
           const workPeriodsForPhase = phase.workPeriods || [];
           const lastWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
@@ -1098,6 +1126,13 @@ export default function ScanJobPage() {
                 </p>
               )}
 
+              {phase.qualityResult && (
+                  <div className="mt-2">
+                      <Badge variant={phase.qualityResult === 'passed' ? 'default' : 'destructive'}>
+                          Esito: {phase.qualityResult === 'passed' ? 'Superato' : 'Fallito'}
+                      </Badge>
+                  </div>
+              )}
 
               <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                 {phase.materialConsumption && (
@@ -1114,7 +1149,7 @@ export default function ScanJobPage() {
                 {phase.status === 'paused' && lastWorkPeriod?.end && (
                   <p>Messa in pausa il: {format(new Date(lastWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
-                 <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>
+                 {phase.type !== 'quality' && <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>}
               </div>
               
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1127,6 +1162,19 @@ export default function ScanJobPage() {
                      <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
+                )}
+                 {canPerformQualityCheck && (
+                    <div className="flex gap-2">
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleQualityPhaseResult(phase.id, 'passed')}>
+                            <ThumbsUp className="h-4 w-4" /> <span className="sr-only">OK</span>
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => handleQualityPhaseResult(phase.id, 'failed')}>
+                            <ThumbsDown className="h-4 w-4" /> <span className="sr-only">NON OK</span>
+                        </Button>
+                         <Button size="sm" variant="outline" className="border-yellow-500 text-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" onClick={() => setIsProblemReportDialogOpen(true)}>
+                            <AlertTriangle className="h-4 w-4" /> <span className="sr-only">PROBLEMA</span>
+                        </Button>
+                    </div>
                 )}
                 {canForceStart && (
                     <AlertDialog>
@@ -1471,6 +1519,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
