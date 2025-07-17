@@ -537,7 +537,23 @@ export default function ScanJobPage() {
 
   const handleCompletePreparation = () => {
     if (!activeJobOrder) return;
-    setActiveJobOrder(null);
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
+
+    if (firstProductionPhase) {
+        firstProductionPhase.materialReady = true;
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Nessuna Fase di Produzione",
+            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione definite."
+        });
+        return;
+    }
+
+    handleUpdateAndPersistJob(jobToUpdate);
+
     toast({
       title: "Preparazione Completata",
       description: `La commessa ${activeJobOrder.id} è ora disponibile per la produzione.`,
@@ -1065,7 +1081,6 @@ export default function ScanJobPage() {
     const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     
-    // Combine production and quality phases for sequential processing
     const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
     const isAnyProductionStarted = productionAndQualityPhases.some(p => p.status !== 'pending');
     
@@ -1506,3 +1521,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
