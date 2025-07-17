@@ -733,43 +733,6 @@ export default function ScanJobPage() {
       }
   };
 
-  const handleAbandonJob = () => {
-    if (!activeJobOrder) return;
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-    
-    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-    if (activePhase) {
-      const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
-      if (lastWorkPeriod && !lastWorkPeriod.end) {
-        lastWorkPeriod.end = new Date();
-      }
-      activePhase.status = 'paused';
-    }
-    
-    jobToUpdate.status = 'suspended';
-
-    const updateAndClear = async () => {
-      const result = await updateJob(jobToUpdate);
-      if (result.success) {
-        toast({
-          title: "Commessa Abbandonata",
-          description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
-        });
-        setActiveJobOrder(null);
-        // Do NOT clear material session here
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Errore",
-          description: "Impossibile abbandonare la commessa. Riprova.",
-        });
-      }
-    };
-    
-    updateAndClear();
-  };
-
   const handleLottoScanned = async (scannedValue: string) => {
     phaseMaterialForm.setValue('lottoBobina', scannedValue);
     toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
@@ -1048,30 +1011,6 @@ export default function ScanJobPage() {
                 </div>
             </div>
         </CardContent>
-        <CardFooter className="pt-4">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="w-full" disabled={isPending}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Abbandona Commessa
-                </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Sei sicuro di voler abbandonare?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        La commessa verrà messa in stato "sospesa" e dovrai scansionarla di nuovo per riprenderla. Qualsiasi fase attiva verrà messa in pausa.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleAbandonJob} className="bg-destructive hover:bg-destructive/90">
-                        Sì, abbandona
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </CardFooter>
       </Card>
     );
   }
@@ -1532,6 +1471,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 

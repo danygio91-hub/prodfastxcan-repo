@@ -4,9 +4,13 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useActiveJob } from '@/contexts/ActiveJobProvider';
+import { useToast } from '@/hooks/use-toast';
+import { updateJob } from '@/app/scan-job/actions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,11 +29,48 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 export default function Header() {
   const { operator, logout } = useAuth();
+  const { activeJob, setActiveJob } = useActiveJob();
+  const pathname = usePathname();
+  const { toast } = useToast();
+  
   const operatorName = operator ? operator.nome : null;
 
   const handleRefresh = () => {
     window.location.reload();
   };
+
+  const handleAbandonJob = async () => {
+    if (!activeJob) return;
+
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    
+    const activePhase = jobToUpdate.phases.find((p: any) => p.status === 'in-progress');
+    if (activePhase) {
+      const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
+      if (lastWorkPeriod && !lastWorkPeriod.end) {
+        lastWorkPeriod.end = new Date();
+      }
+      activePhase.status = 'paused';
+    }
+    
+    jobToUpdate.status = 'suspended';
+
+    const result = await updateJob(jobToUpdate);
+    if (result.success) {
+      toast({
+        title: "Commessa Abbandonata",
+        description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
+      });
+      setActiveJob(null);
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Errore",
+        description: "Impossibile abbandonare la commessa. Riprova.",
+      });
+    }
+  };
+
 
   const getInitials = (name: string | null) => {
     if (!name) return 'OP';
@@ -42,6 +83,8 @@ export default function Header() {
   const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
   const displayInitials = getInitials(avatarName);
 
+  const showAbandonButton = pathname === '/scan-job' && activeJob;
+
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -50,6 +93,18 @@ export default function Header() {
         </Link>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
+            {showAbandonButton && (
+                 <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button variant="destructive" size="icon" onClick={handleAbandonJob} aria-label="Esci dalla commessa">
+                            <LogOut className="h-5 w-5" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>Esci dalla commessa</p>
+                    </TooltipContent>
+                </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button variant="ghost" size="icon" onClick={handleRefresh} aria-label="Aggiorna pagina">
