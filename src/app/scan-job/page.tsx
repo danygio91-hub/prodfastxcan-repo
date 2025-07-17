@@ -1067,6 +1067,7 @@ export default function ScanJobPage() {
     
     // Combine production and quality phases for sequential processing
     const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
+    const isAnyProductionStarted = productionAndQualityPhases.some(p => p.status !== 'pending');
     
     const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
@@ -1232,7 +1233,7 @@ export default function ScanJobPage() {
           </>
         )}
         
-        {allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && (
+        {allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && !isAnyProductionStarted && (
             <div className="pt-4">
                 <Button onClick={handleCompletePreparation} className="w-full" size="lg">
                     <ThumbsUp className="mr-2 h-5 w-5" />
