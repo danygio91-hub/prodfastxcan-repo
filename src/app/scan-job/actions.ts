@@ -274,61 +274,47 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
 export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<number | null> {
     if (!materialId || !lotto) return null;
 
-    // Search active material sessions first for the most up-to-date value.
-    // This part is client-side logic, but we can imagine a server-side cache if needed.
-    // For this server action, we'll focus on Firestore.
-
+    // This query is much more efficient. It directly searches for phases that have used
+    // the specific material and lotto combination, and orders them by the last work period's
+    // end time to find the most recent usage.
     const jobsRef = collection(db, "jobOrders");
-    // We can't order by a nested field's timestamp directly.
-    // We'll search recent jobs by `overallEndTime` as a proxy for recency.
-    // A null `overallEndTime` means the job might still be active, so we should check those too.
-    
-    // First, check recently completed jobs
-    const completedJobsQuery = firestoreQuery(
-        jobsRef, 
-        where("status", "==", "completed"), 
-        orderBy("overallEndTime", "desc"), 
-        limit(50)
-    );
-    const completedSnapshot = await getDocs(completedJobsQuery);
-    
-    // Then, check active/suspended jobs (which won't have an overallEndTime yet)
-    const activeJobsQuery = firestoreQuery(
+    const q = firestoreQuery(
         jobsRef,
-        where("status", "in", ["production", "suspended"]),
-        limit(50) // Limit to avoid scanning too many documents
+        where("phases.materialConsumption.materialId", "==", materialId),
+        where("phases.materialConsumption.lottoBobina", "==", lotto)
+        // We cannot order by a nested timestamp, so we fetch all relevant docs and sort in memory.
     );
-    const activeSnapshot = await getDocs(activeJobsQuery);
-    
-    const allDocs = [...completedSnapshot.docs, ...activeSnapshot.docs];
 
-    // Deduplicate documents based on their ID, keeping the one from the completed query if a job is in both
-    const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.id, doc])).values());
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+        return null;
+    }
 
     let latestTimestamp: Date | null = null;
     let lastWeight: number | null = null;
 
-    for (const doc of uniqueDocs) {
+    for (const doc of snapshot.docs) {
         const job = convertTimestampsToDates(doc.data()) as JobOrder;
         for (const phase of (job.phases || [])) {
-            // Find the last work period end time for this phase to sort by recency
-            const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
-                if (wp.end && wp.end > (latest ?? new Date(0))) {
-                    return wp.end;
-                }
-                return latest;
-            }, null as Date | null);
-
             if (
                 phase.materialConsumption &&
                 phase.materialConsumption.materialId === materialId &&
                 phase.materialConsumption.lottoBobina === lotto &&
-                phase.materialConsumption.closingWeight !== undefined &&
-                lastWorkPeriodEnd
+                phase.materialConsumption.closingWeight !== undefined
             ) {
-                if (!latestTimestamp || lastWorkPeriodEnd > latestTimestamp) {
-                    latestTimestamp = lastWorkPeriodEnd;
-                    lastWeight = phase.materialConsumption.closingWeight;
+                 // Find the last work period end time for this phase to determine recency
+                const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
+                    if (wp.end && (!latest || wp.end > latest)) {
+                        return wp.end;
+                    }
+                    return latest;
+                }, null as Date | null);
+                
+                if (lastWorkPeriodEnd) {
+                    if (!latestTimestamp || lastWorkPeriodEnd > latestTimestamp) {
+                        latestTimestamp = lastWorkPeriodEnd;
+                        lastWeight = phase.materialConsumption.closingWeight;
+                    }
                 }
             }
         }
@@ -336,3 +322,4 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     
     return lastWeight;
 }
+
