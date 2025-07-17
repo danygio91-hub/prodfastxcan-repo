@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 import * as z from 'zod';
 
@@ -71,11 +71,28 @@ export async function verifyAndGetJobOrder(scannedData: {
   }
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
-  jobCopy.phases = (jobCopy.phases || []).map(p => ({
-    ...p,
-    workPeriods: p.workPeriods || [], 
-    workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-  }));
+  
+  // Refined phase initialization logic
+  const preparationPhases = (jobCopy.phases || []).filter(p => p.type === 'preparation');
+  const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan);
+  
+  jobCopy.phases = (jobCopy.phases || []).map(p => {
+    let materialReady = false;
+    if (p.type === 'preparation') {
+      materialReady = !p.requiresMaterialScan;
+    } else { // production or quality
+      const isFirstProdPhase = p.sequence > 0 && !(jobCopy.phases || []).some(other => other.sequence > 0 && other.sequence < p.sequence);
+      materialReady = isFirstProdPhase && !hasPrepPhaseRequiringScan;
+    }
+    
+    return {
+      ...p,
+      materialReady: p.materialReady || materialReady, // Preserve existing readiness
+      workPeriods: p.workPeriods || [], 
+      workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+    };
+  });
+  
   jobCopy.isProblemReported = jobCopy.isProblemReported || false;
 
   return jobCopy;
@@ -305,7 +322,7 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
                  // Find the last work period end time for this phase to determine recency
                 const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
                     if (wp.end && (!latest || wp.end > latest)) {
-                        return wp.end;
+                        return new Date(wp.end);
                     }
                     return latest;
                 }, null as Date | null);
@@ -322,5 +339,6 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     
     return lastWeight;
 }
+
 
 
