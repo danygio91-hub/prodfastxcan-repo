@@ -1084,10 +1084,12 @@ export default function ScanJobPage() {
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     
     const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
-    const isAnyProductionOrQualityStarted = productionAndQualityPhases.some(p => p.status !== 'pending');
     
     const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
+
+    const firstProductionPhase = productionAndQualityPhases.find(p => p.sequence === 1);
+    const showReleaseButton = allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && firstProductionPhase && !firstProductionPhase.materialReady;
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
@@ -1250,7 +1252,7 @@ export default function ScanJobPage() {
           </>
         )}
         
-        {allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && !isAnyProductionOrQualityStarted && (
+        {showReleaseButton && (
             <div className="pt-4">
                 <Button onClick={handleCompletePreparation} className="w-full" size="lg">
                     <ThumbsUp className="mr-2 h-5 w-5" />
@@ -1523,4 +1525,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
