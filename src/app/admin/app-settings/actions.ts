@@ -92,7 +92,7 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
       return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
     }
 
-    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal & { consumedUnits?: number });
+    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal);
     const deletedCount = withdrawals.length;
 
     await runTransaction(db, async (transaction) => {
@@ -103,13 +103,19 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
         const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
         
         update.consumedWeight += withdrawal.consumedWeight || 0;
-        update.consumedUnits += withdrawal.consumedUnits || 0;
+        // Safely access consumedUnits
+        if (typeof withdrawal.consumedUnits === 'number') {
+          update.consumedUnits += withdrawal.consumedUnits;
+        }
 
         materialUpdates.set(withdrawal.materialId, update);
       }
 
       // Read all material documents
-      const materialRefs = Array.from(materialUpdates.keys()).map(id => doc(db, 'rawMaterials', id));
+      const materialIds = Array.from(materialUpdates.keys());
+      if (materialIds.length === 0) return;
+      
+      const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
       const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
       // Apply updates
@@ -121,12 +127,10 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
 
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
-
-          // Always restore both. If unitOfMeasure is kg, they should be the same. 
-          // If a withdrawal didn't have consumedUnits, it adds 0, which is safe.
+          
           transaction.update(materialDoc.ref, { 
             currentWeightKg: newWeight,
-            currentStockUnits: materialData.unitOfMeasure === 'kg' ? newWeight : newUnits,
+            currentStockUnits: newUnits,
           });
         }
       }
