@@ -348,9 +348,10 @@ export default function ScanJobPage() {
       
       const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
       const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
-      const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
       
+      // Check for production/quality phases if they follow a sequence
       if (phaseType === 'production' || phaseType === 'quality') {
+          const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
           if (currentPhaseIndex > 0 && (!prevPhaseInJob || prevPhaseInJob.status !== 'completed')) {
              toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhaseInJob?.name || 'precedente'}" prima di avviare questa.` });
              return;
@@ -585,7 +586,6 @@ export default function ScanJobPage() {
       action: <ThumbsUp className="text-primary" />
     });
     
-    // Only exit the job view if you are not a superadvisor
     if (operator.role !== 'superadvisor') {
       setActiveJobOrder(null);
     }
@@ -1073,14 +1073,16 @@ export default function ScanJobPage() {
           
           const sortedPhasesInJob = [...activeJobOrder.phases].sort((a,b) => a.sequence - b.sequence);
           const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
-          const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
-          const isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
+          
+          let isPreviousPhaseCompleted = true;
+          if (phaseType === 'production' || phaseType === 'quality') {
+            const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
+            isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
+          }
 
           const noOtherProductionPhaseActiveOrPaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.type !== 'preparation') && (p.status === 'in-progress' || p.status === 'paused'));
-
           const canPerformAction = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady && isPreviousPhaseCompleted && noOtherProductionPhaseActiveOrPaused;
-          
-          const canScanMaterial = operatorHasPermission && phase.requiresMaterialScan && !phase.materialReady;
+          const canScanMaterial = operatorHasPermission && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
 
           const canStartWithScan = canPerformAction && phaseType !== 'quality';
           
@@ -1522,6 +1524,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
