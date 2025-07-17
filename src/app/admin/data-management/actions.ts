@@ -63,10 +63,10 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: !(template.requiresMaterialScan),
+            materialReady: !(template.requiresMaterialScan), // Initial state, will be refined below
             workPeriods: [],
             sequence: template.sequence,
-            type: template.type || 'production', // Ensure type is always defined
+            type: template.type || 'production',
             requiresMaterialScan: template.requiresMaterialScan,
             allowedMaterialTypes: template.allowedMaterialTypes || [],
             departmentCodes: template.departmentCodes || [],
@@ -74,8 +74,32 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             qualityResult: null,
         };
     }).filter((p): p is JobPhase => p !== null);
+    
+    const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
 
-    return phases.sort((a, b) => a.sequence - b.sequence);
+    // Refine materialReady logic for sequential phases
+    const preparationPhases = sortedPhases.filter(p => p.type === 'preparation');
+    const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan);
+
+    sortedPhases.forEach(phase => {
+        if (phase.type === 'production' || phase.type === 'quality') {
+            // If it's the first production/quality phase (seq 1 or lowest positive seq)
+            const isFirstProdPhase = phase.sequence > 0 && !sortedPhases.some(p => p.sequence > 0 && p.sequence < phase.sequence);
+            
+            if (isFirstProdPhase) {
+                // The first production phase is only ready if NO prep phase requires a scan.
+                phase.materialReady = !hasPrepPhaseRequiringScan;
+            } else {
+                // Subsequent production/quality phases are NOT ready by default.
+                // They become ready when the previous phase is completed.
+                 phase.materialReady = !(phase.requiresMaterialScan);
+            }
+        }
+        // Preparation phases keep their original logic: ready if no scan needed.
+    });
+
+
+    return sortedPhases;
 }
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
@@ -559,3 +583,4 @@ export async function updateJobOrderCycle(jobId: string, workCycleId: string): P
         return { success: false, message: errorMessage };
     }
 }
+
