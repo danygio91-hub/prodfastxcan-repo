@@ -2,10 +2,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, query, where, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder } from '@/lib/mock-data';
+import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 
 // The seedDatabase function was moved to the client component
 // at /src/app/admin/app-settings/page.tsx to resolve permission errors
@@ -84,15 +84,67 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
 export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const deletedCount = await deleteAllFromCollection("materialWithdrawals");
-
-    if (deletedCount === 0) {
+    
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    const withdrawalsSnapshot = await getDocs(withdrawalsRef);
+    
+    if (withdrawalsSnapshot.empty) {
       return { success: true, message: 'Nessun prelievo trovato. Il database è già pulito.' };
     }
 
+    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal);
+    const deletedCount = withdrawals.length;
+
+    await runTransaction(db, async (transaction) => {
+      // Group withdrawals by materialId to reduce reads
+      const materialUpdates = new Map<string, { consumedWeight: number, consumedUnits: number }>();
+
+      for (const withdrawal of withdrawals) {
+        const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
+        update.consumedWeight += withdrawal.consumedWeight || 0;
+        update.consumedUnits += (withdrawal as any).consumedUnits || 0; // consumedUnits may not exist on all
+        materialUpdates.set(withdrawal.materialId, update);
+      }
+
+      // Read all material documents
+      const materialRefs = Array.from(materialUpdates.keys()).map(id => doc(db, 'rawMaterials', id));
+      const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+
+      // Apply updates
+      for (let i = 0; i < materialDocs.length; i++) {
+        const materialDoc = materialDocs[i];
+        if (materialDoc.exists()) {
+          const materialData = materialDoc.data() as RawMaterial;
+          const updates = materialUpdates.get(materialDoc.id)!;
+
+          const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+          const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+          // If consumedUnits was 0 (e.g. for BOB/TRECCIA), we should only update weight
+          // because the units are not tracked for them.
+          if (updates.consumedUnits > 0) {
+            transaction.update(materialDoc.ref, { 
+              currentWeightKg: newWeight,
+              currentStockUnits: newUnits
+            });
+          } else {
+             transaction.update(materialDoc.ref, { 
+              currentWeightKg: newWeight
+            });
+          }
+        }
+      }
+      
+      // Delete all withdrawals
+      for (const withdrawalDoc of withdrawalsSnapshot.docs) {
+        transaction.delete(withdrawalDoc.ref);
+      }
+    });
+
     revalidatePath('/admin/reports');
+    revalidatePath('/admin/raw-material-management');
     
-    return { success: true, message: `Reset completato. ${deletedCount} report di prelievo sono stati eliminati.` };
+    return { success: true, message: `Reset completato. ${deletedCount} report di prelievo sono stati eliminati e lo stock è stato ripristinato.` };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
