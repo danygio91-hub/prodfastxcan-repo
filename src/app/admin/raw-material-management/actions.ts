@@ -145,7 +145,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             date: new Date(date).toISOString(),
             ddt,
             quantity,
-            lotto: lotto || null, // Ensure lotto is at least an empty string
+            lotto: lotto || null,
           };
 
           const updatedBatches = [...existingBatches, newBatch];
@@ -158,16 +158,17 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           if (material.unitOfMeasure === 'kg') {
               newWeightKg = newStockUnits;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += quantity * material.conversionFactor;
+              newWeightKg = newStockUnits * material.conversionFactor;
           }
 
           transaction.update(materialRef, { 
               batches: updatedBatches,
               currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg || 0, // Ensure weight is never undefined
+              currentWeightKg: newWeightKg || 0,
           });
 
           return { 
+              id: docSnap.id, // Ensure the ID is returned
               ...material, 
               batches: updatedBatches, 
               currentStockUnits: newStockUnits,
@@ -231,8 +232,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             } else if (material.conversionFactor && material.conversionFactor > 0) {
                 newWeightKg = newStockUnits * material.conversionFactor;
             } else {
-                // Cannot calculate weight without a factor, sum up individual weights if they existed
-                 newWeightKg = material.currentWeightKg || 0; // Fallback to avoid wiping data
+                 newWeightKg = material.currentWeightKg || 0;
             }
 
             transaction.update(materialRef, {
@@ -242,6 +242,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             });
 
             return {
+                id: docSnap.id, // Ensure the ID is returned
                 ...material,
                 batches: updatedBatches,
                 currentStockUnits: newStockUnits,
@@ -291,6 +292,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             });
 
              return {
+                id: docSnap.id, // Ensure the ID is returned
                 ...material,
                 batches: updatedBatches,
                 currentStockUnits: newStockUnits,
@@ -418,7 +420,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         };
         batch.set(newDocRef, newMaterial);
         addedCount++;
-        existingCodes.add(normalizedCode); // Add to set to prevent duplicates within the same file
+        existingCodes.add(normalizedCode);
     }
 
     if (addedCount > 0) {
