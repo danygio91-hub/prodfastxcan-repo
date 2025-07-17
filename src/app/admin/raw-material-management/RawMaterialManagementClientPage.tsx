@@ -62,8 +62,13 @@ export default function RawMaterialManagementClientPage() {
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
+  
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
+
+  const [isConfirmDeleteBatchDialogOpen, setIsConfirmDeleteBatchDialogOpen] = useState(false);
+  const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
+
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -247,7 +252,14 @@ export default function RawMaterialManagementClientPage() {
     setIsConfirmDeleteDialogOpen(false);
   };
 
-  const handleDeleteBatch = async (materialId: string, batchId: string) => {
+  const handleOpenDeleteBatchDialog = (materialId: string, batchId: string) => {
+    setBatchToDelete({ materialId, batchId });
+    setIsConfirmDeleteBatchDialogOpen(true);
+  };
+
+  const handleDeleteBatch = async () => {
+    if (!batchToDelete) return;
+    const { materialId, batchId } = batchToDelete;
     const result = await deleteBatchFromRawMaterial(materialId, batchId);
     toast({
       title: result.success ? "Successo" : "Errore",
@@ -257,6 +269,8 @@ export default function RawMaterialManagementClientPage() {
     if (result.success && result.updatedMaterial) {
       handleLocalUpdate(result.updatedMaterial);
     }
+    setBatchToDelete(null);
+    setIsConfirmDeleteBatchDialogOpen(false);
   };
 
   const handleImportClick = () => {
@@ -645,26 +659,10 @@ export default function RawMaterialManagementClientPage() {
                                     <Edit className="h-4 w-4" />
                                     <span className="sr-only">Modifica Lotto</span>
                                   </Button>
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button variant="destructive" size="icon">
-                                        <Trash2 className="h-4 w-4" />
-                                        <span className="sr-only">Elimina Lotto</span>
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                          Questa azione è irreversibile. Lo stock totale verrà ricalcolato.
-                                        </AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleDeleteBatch(selectedMaterial.id, batch.id)}>Elimina</AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
+                                  <Button variant="destructive" size="icon" onClick={() => handleOpenDeleteBatchDialog(selectedMaterial!.id, batch.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                    <span className="sr-only">Elimina Lotto</span>
+                                  </Button>
                                 </TableCell>
                             </TableRow>
                             ))
@@ -683,6 +681,22 @@ export default function RawMaterialManagementClientPage() {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+
+        {/* Delete Batch Confirmation Dialog */}
+        <AlertDialog open={isConfirmDeleteBatchDialogOpen} onOpenChange={setIsConfirmDeleteBatchDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Questa azione è irreversibile. Lo stock totale verrà ricalcolato.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDeleteBatch}>Elimina</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
          {/* Detail View Dialog */}
         <Dialog open={isDetailViewOpen} onOpenChange={setIsDetailViewOpen}>
