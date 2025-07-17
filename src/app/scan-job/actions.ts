@@ -227,7 +227,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
             if (currentWeightKg < consumedWeight) {
                 throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
             }
-            if (material.conversionFactor) {
+            if (material.conversionFactor && material.conversionFactor > 0) {
                 const unitsConsumed = Math.round(consumedWeight / material.conversionFactor);
                 newStockUnits -= unitsConsumed;
             }
@@ -236,7 +236,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
                 throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${quantity}.`);
             }
             newStockUnits -= quantity;
-            if (material.conversionFactor) {
+            if (material.conversionFactor && material.conversionFactor > 0) {
                 consumedWeight = quantity * material.conversionFactor;
             }
         }
@@ -322,4 +322,5 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     
     return lastWeight;
 }
+
 
