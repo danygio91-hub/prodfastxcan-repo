@@ -379,5 +379,5 @@ export async function deleteAllWithdrawals(): Promise<{ success: boolean; messag
 
     await batch.commit();
     revalidatePath('/admin/reports');
-    return { success: true, message: `Tutti i ${deletedCount} prelievi sono stati eliminati.` };
+    return { success: true, message: `Tutte le ${deletedCount} prelievi sono stati eliminati.` };
 }
