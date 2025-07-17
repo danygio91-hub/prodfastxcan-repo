@@ -43,6 +43,7 @@ import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
 import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle, getWorkCycles } from './actions';
 import { getDepartmentMap } from '@/app/admin/settings/actions';
+import { cn } from '@/lib/utils';
 
 const odlFormSchema = z.object({
     manualOdlNumber: z.string().optional(),
@@ -467,7 +468,7 @@ export default function DataManagementClientPage() {
                         <>
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                    <Button variant="outline" size="sm">
+                                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white">
                                         <PlayCircle className="mr-2 h-4 w-4" />
                                         Avvia ODL Selezionate ({selectedRows.length})
                                     </Button>
