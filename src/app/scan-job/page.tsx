@@ -1064,8 +1064,11 @@ export default function ScanJobPage() {
     
     const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
-    const productionPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
-    const hasProductionPhases = productionPhases.length > 0;
+    
+    // Combine production and quality phases for sequential processing
+    const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
+    
+    const hasProductionOrQualityPhases = productionAndQualityPhases.length > 0;
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
     const renderPhaseCard = (phase: JobPhase) => {
@@ -1229,7 +1232,7 @@ export default function ScanJobPage() {
           </>
         )}
         
-        {allPreparationPhasesCompleted && hasProductionPhases && isMagazzinoOrSuperadvisor && (
+        {allPreparationPhasesCompleted && hasProductionOrQualityPhases && isMagazzinoOrSuperadvisor && (
             <div className="pt-4">
                 <Button onClick={handleCompletePreparation} className="w-full" size="lg">
                     <ThumbsUp className="mr-2 h-5 w-5" />
@@ -1238,14 +1241,14 @@ export default function ScanJobPage() {
             </div>
         )}
         
-        {productionPhases.length > 0 && (
+        {productionAndQualityPhases.length > 0 && (
           <>
             <div className="flex items-center gap-2 pt-4">
-              <span className="text-sm font-semibold text-muted-foreground">Fasi Produzione</span>
+              <span className="text-sm font-semibold text-muted-foreground">Fasi Produzione e Qualità</span>
               <Separator className="flex-1" />
             </div>
              <div className="space-y-4">
-                {productionPhases.sort((a,b) => a.sequence - b.sequence).map(renderPhaseCard)}
+                {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(renderPhaseCard)}
             </div>
           </>
         )}
