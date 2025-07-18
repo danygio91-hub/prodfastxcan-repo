@@ -163,16 +163,9 @@ export default function ScanJobPage() {
   }, [isJobLoading, activeJobOrder, activeSessions, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder) => {
-    const result = await updateJob(updatedJob);
-    if (!result.success) {
-        toast({
-            variant: "destructive",
-            title: "Errore di Sincronizzazione",
-            description: result.message || "Impossibile salvare lo stato della commessa.",
-        });
-        // The real-time listener will eventually correct the state, but this toast informs the user of failure.
-    }
-  }, [toast]);
+    await updateJob(updatedJob);
+    // The real-time listener in ActiveJobProvider will handle UI updates.
+  }, []);
   
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -1541,3 +1534,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
