@@ -27,7 +27,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, Badge } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -509,33 +509,12 @@ export default function RawMaterialManagementClientPage() {
                                         <span>Vedi Storico Movimenti</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <AlertDialogTrigger asChild>
-                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                                          <Trash2 className="mr-2 h-4 w-4" />
-                                          <span>Elimina</span>
-                                      </DropdownMenuItem>
-                                    </AlertDialogTrigger>
+                                    <DropdownMenuItem onSelect={() => setMaterialToDelete(material)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>Elimina</span>
+                                    </DropdownMenuItem>
                                 </DropdownMenuContent>
                                 </DropdownMenu>
-                                <AlertDialog>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                Questa azione non può essere annullata. La materia prima
-                                                <span className="font-bold"> {material.code} </span>
-                                                e tutto il suo storico verranno eliminati.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => {
-                                              setMaterialToDelete(material);
-                                              handleDelete();
-                                            }}>Continua</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
                             </TableCell>
                         </TableRow>
                         ))
@@ -640,7 +619,7 @@ export default function RawMaterialManagementClientPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setMaterialToDelete(null)}>Annulla</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete}>Continua</AlertDialogAction>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Continua</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
@@ -733,7 +712,7 @@ export default function RawMaterialManagementClientPage() {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteBatch}>Elimina</AlertDialogAction>
+                    <AlertDialogAction onClick={handleDeleteBatch} className="bg-destructive hover:bg-destructive/90">Elimina</AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
