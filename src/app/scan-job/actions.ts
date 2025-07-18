@@ -72,39 +72,35 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
-  // Refined phase initialization logic
+  // --- Refined Phase Initialization Logic ---
   const preparationPhases = (jobCopy.phases || []).filter(p => p.type === 'preparation');
-  const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan);
+  const allPrepPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
   
   jobCopy.phases = (jobCopy.phases || []).map(p => {
     let materialReady = false;
     
+    // Rule 1: A preparation phase is ready ONLY if it doesn't need a material scan OR if it already has a material consumption record.
     if (p.type === 'preparation') {
-        // A prep phase is ready ONLY if it doesn't need a material scan OR if it already has a material consumption record.
         materialReady = !p.requiresMaterialScan || !!p.materialConsumption;
     } 
-    else { // For 'production' or 'quality' phases
-        // A prod/quality phase is ready if it's the first one AND no prep phase required a scan in the first place.
-        const allPrepPhasesCompleted = preparationPhases.every(prep => prep.status === 'completed');
-        
-        // This is complex. Let's simplify. The logic to unlock prod phase is now when all prep phases are completed.
-        // We will handle that in the `handleCompletePhase` and `handleCompletePreparation` functions.
-        // For now, we only set the initial state.
+    // Rule 2: A production or quality phase is ready ONLY if ALL preparation phases are completed.
+    else {
+        // If there are no preparation phases, the first production phase is ready by default.
         const isFirstProductionPhase = !jobCopy.phases.some(other => 
             (other.type === 'production' || other.type === 'quality') && other.sequence < p.sequence
         );
         
-        // A prod phase is ready at the start ONLY if there are no prep phases at all.
-        if (isFirstProductionPhase && preparationPhases.length === 0) {
+        if (preparationPhases.length === 0 && isFirstProductionPhase) {
            materialReady = true;
         } else {
-           materialReady = false;
+           materialReady = allPrepPhasesCompleted;
         }
     }
     
     return {
       ...p,
-      materialReady: p.materialReady || materialReady, // Preserve existing readiness from DB
+      // Preserve existing readiness if it was already true, otherwise apply the new logic.
+      materialReady: p.materialReady || materialReady, 
       workPeriods: p.workPeriods || [], 
       workstationScannedAndVerified: p.workstationScannedAndVerified || false,
     };
@@ -366,3 +362,6 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
 
 
 
+
+
+    
