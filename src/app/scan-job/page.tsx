@@ -488,44 +488,47 @@ export default function ScanJobPage() {
   };
 
   const handleCompletePhase = (phaseId: string) => {
-      if (!activeJobOrder || !operator) return;
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
-      const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    if (!activeJobOrder || !operator) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
-      if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
-          toast({ variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." });
-          return;
-      }
-      
-      if (phaseToComplete.status === 'in-progress') {
-          const lastWorkPeriod = phaseToComplete.workPeriods[phaseToComplete.workPeriods.length - 1];
-          if (lastWorkPeriod && !lastWorkPeriod.end) {
-              lastWorkPeriod.end = new Date();
-          }
-      }
-      phaseToComplete.status = 'completed';
+    if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
+        toast({ variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." });
+        return;
+    }
 
-      const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-      const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToComplete.id);
-      
-      // If a production phase is completed, unlock the next one (redundant now but safe)
-      if (phaseToComplete.type !== 'preparation') {
-          const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-          if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
-              nextPhaseInJob.materialReady = true;
-          }
-      }
-      
-      const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
+    if (phaseToComplete.status === 'in-progress') {
+        const lastWorkPeriod = phaseToComplete.workPeriods[phaseToComplete.workPeriods.length - 1];
+        if (lastWorkPeriod && !lastWorkPeriod.end) {
+            lastWorkPeriod.end = new Date();
+        }
+    }
+    phaseToComplete.status = 'completed';
 
-      if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
-          setJobToFinalize(jobToUpdate);
-          setIsContinueOrCloseDialogOpen(true);
-          return;
-      }
-      
-      handleUpdateAndPersistJob(jobToUpdate);
-      toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
+    // Check if ALL preparation phases are now completed to unlock the first production phase.
+    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => p.type === 'preparation');
+    const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
+
+    if (allPreparationPhasesCompleted) {
+        const firstProductionPhase = jobToUpdate.phases
+            .filter((p: JobPhase) => p.type === 'production')
+            .sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence)[0];
+        
+        if (firstProductionPhase && firstProductionPhase.status === 'pending') {
+            firstProductionPhase.materialReady = true;
+        }
+    }
+    
+    const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
+
+    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
+        setJobToFinalize(jobToUpdate);
+        setIsContinueOrCloseDialogOpen(true);
+        return;
+    }
+
+    handleUpdateAndPersistJob(jobToUpdate);
+    toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
   
   const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed') => {

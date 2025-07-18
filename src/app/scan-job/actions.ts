@@ -72,26 +72,23 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
-  // --- Refined Phase Initialization Logic ---
-  const allPreparationPhases = (jobCopy.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+  const allPreparationPhases = (jobCopy.phases || []).filter(p => p.type === 'preparation');
   const allPreparationPhasesCompleted = allPreparationPhases.length > 0 && allPreparationPhases.every(p => p.status === 'completed');
   
   jobCopy.phases = (jobCopy.phases || []).map(p => {
-    let materialReady = false;
-    
-    // Rule 1: A preparation phase is ready ONLY if it doesn't need a material scan OR if it already has a material consumption record.
+    let materialReady = p.materialReady || false; // Preserve existing state
+
     if (p.type === 'preparation') {
+        // A prep phase is ready if it doesn't need a scan OR if it already has material.
         materialReady = !p.requiresMaterialScan || !!p.materialConsumption;
-    } 
-    // Rule 2: A production or quality phase is ready ONLY if ALL preparation phases are completed.
-    else {
+    } else { // For production/quality phases
+        // Production phases are ready only when all prep phases are done.
         materialReady = allPreparationPhasesCompleted;
     }
     
     return {
       ...p,
-      // Preserve existing readiness if it was already true, otherwise apply the new logic.
-      materialReady: p.materialReady || materialReady, 
+      materialReady: materialReady,
       workPeriods: p.workPeriods || [], 
       workstationScannedAndVerified: p.workstationScannedAndVerified || false,
     };
@@ -350,3 +347,4 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
 
 
     
+
