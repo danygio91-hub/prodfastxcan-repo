@@ -78,11 +78,16 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   jobCopy.phases = (jobCopy.phases || []).map(p => {
     let materialReady = false;
+    // A prep phase is ready if it doesn't need a material scan.
     if (p.type === 'preparation') {
-      materialReady = !p.requiresMaterialScan;
-    } else { // production or quality
-      const isFirstProdPhase = p.sequence > 0 && !(jobCopy.phases || []).some(other => other.sequence > 0 && other.sequence < p.sequence);
-      materialReady = isFirstProdPhase && !hasPrepPhaseRequiringScan;
+        materialReady = !p.requiresMaterialScan;
+    } 
+    // A production phase is ready if it's the first one and no preceding prep phase requires a scan.
+    else {
+        const isFirstProductionPhase = !jobCopy.phases.some(other => 
+            (other.type === 'production' || other.type === 'quality') && other.sequence < p.sequence
+        );
+        materialReady = isFirstProductionPhase && !hasPrepPhaseRequiringScan;
     }
     
     return {
@@ -169,6 +174,7 @@ export async function closeMaterialSessionAndUpdateStock(
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
+            consumedUnits: undefined, // Consumed units are not tracked for weight-based sessions
             operatorId: operatorId,
             withdrawalDate: Timestamp.now(),
         });
@@ -236,33 +242,28 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
         
         const material = materialDoc.data() as RawMaterial;
         let consumedWeight = 0;
+        let unitsConsumed = 0;
         let newStockUnits = material.currentStockUnits ?? 0;
         let currentWeightKg = material.currentWeightKg ?? 0;
 
         if (unit === 'kg') {
             consumedWeight = quantity;
-            if (currentWeightKg < consumedWeight) {
-                throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
-            }
-            if (material.conversionFactor && material.conversionFactor > 0) {
-                const unitsConsumed = Math.round(consumedWeight / material.conversionFactor);
-                newStockUnits -= unitsConsumed;
-            }
+            unitsConsumed = material.conversionFactor && material.conversionFactor > 0 ? Math.round(consumedWeight / material.conversionFactor) : 0;
         } else { // unit is 'n'
-            if (newStockUnits < quantity) {
-                throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${quantity}.`);
-            }
-            newStockUnits -= quantity;
-            if (material.conversionFactor && material.conversionFactor > 0) {
-                consumedWeight = quantity * material.conversionFactor;
-            }
+            unitsConsumed = quantity;
+            consumedWeight = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
         }
 
-        const newWeightKg = currentWeightKg - consumedWeight;
-        if (newWeightKg < 0) {
-            throw new Error(`Stock a peso risultante negativo. Verificare il fattore di conversione.`);
+        if (newStockUnits < unitsConsumed) {
+            throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${unitsConsumed}.`);
+        }
+        if (currentWeightKg < consumedWeight) {
+             throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
+        newStockUnits -= unitsConsumed;
+        const newWeightKg = currentWeightKg - consumedWeight;
+
         transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
         
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
@@ -271,8 +272,8 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
             jobOrderPFs: [jobOrderPF],
             materialId,
             materialCode: material.code,
-            consumedWeight: consumedWeight,
-            consumedUnits: unit === 'n' ? quantity : undefined,
+            consumedWeight,
+            consumedUnits: unitsConsumed,
             operatorId,
             withdrawalDate: Timestamp.now(),
         });
@@ -280,7 +281,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: `Prelievo di ${quantity} ${unit} registrato con successo.` };
+    return { success: true, message: `Prelievo registrato con successo.` };
   } catch (error) {
      const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
      return { success: false, message: errorMessage };
@@ -296,10 +297,10 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     // end time to find the most recent usage.
     const jobsRef = collection(db, "jobOrders");
     const q = firestoreQuery(
-        jobsRef,
-        where("phases.materialConsumption.materialId", "==", materialId),
-        where("phases.materialConsumption.lottoBobina", "==", lotto)
-        // We cannot order by a nested timestamp, so we fetch all relevant docs and sort in memory.
+        jobsRef
+        // Firestore doesn't support querying array members directly like this.
+        // We need to fetch all jobs and filter in memory. This is inefficient but necessary
+        // with the current data model.
     );
 
     const snapshot = await getDocs(q);
@@ -307,38 +308,47 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
         return null;
     }
 
-    let latestTimestamp: Date | null = null;
-    let lastWeight: number | null = null;
+    // Collect all relevant consumptions with their completion times
+    const consumptions: { closingWeight: number; completedAt: Date }[] = [];
 
     for (const doc of snapshot.docs) {
         const job = convertTimestampsToDates(doc.data()) as JobOrder;
         for (const phase of (job.phases || [])) {
             if (
+                phase.status === 'completed' &&
                 phase.materialConsumption &&
                 phase.materialConsumption.materialId === materialId &&
                 phase.materialConsumption.lottoBobina === lotto &&
-                phase.materialConsumption.closingWeight !== undefined
+                phase.materialConsumption.closingWeight !== undefined &&
+                phase.materialConsumption.closingWeight !== null
             ) {
                  // Find the last work period end time for this phase to determine recency
                 const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
-                    if (wp.end && (!latest || wp.end > latest)) {
+                    if (wp.end && (!latest || new Date(wp.end) > latest)) {
                         return new Date(wp.end);
                     }
                     return latest;
                 }, null as Date | null);
                 
                 if (lastWorkPeriodEnd) {
-                    if (!latestTimestamp || lastWorkPeriodEnd > latestTimestamp) {
-                        latestTimestamp = lastWorkPeriodEnd;
-                        lastWeight = phase.materialConsumption.closingWeight;
-                    }
+                    consumptions.push({
+                        closingWeight: phase.materialConsumption.closingWeight,
+                        completedAt: lastWorkPeriodEnd,
+                    });
                 }
             }
         }
     }
     
-    return lastWeight;
+    // If no consumptions were found, return null
+    if (consumptions.length === 0) {
+        return null;
+    }
+
+    // Sort consumptions by completion date, descending
+    consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
+
+    // The first item is the most recent one
+    return consumptions[0].closingWeight;
 }
-
-
 

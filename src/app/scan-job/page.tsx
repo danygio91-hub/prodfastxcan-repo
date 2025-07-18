@@ -367,7 +367,7 @@ export default function ScanJobPage() {
       phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
-      // Unlock next phase
+      // Unlock next phase upon start
       const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
       if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
           nextPhaseInJob.materialReady = true;
@@ -1545,14 +1545,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
