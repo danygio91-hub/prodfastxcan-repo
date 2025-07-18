@@ -29,7 +29,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 export default function Header() {
   const { operator, logout } = useAuth();
-  const { activeJob, setActiveJob } = useActiveJob();
+  const { activeJob, setActiveJobId } = useActiveJob();
   const pathname = usePathname();
   const { toast } = useToast();
   
@@ -61,7 +61,7 @@ export default function Header() {
         title: "Commessa Abbandonata",
         description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
       });
-      setActiveJob(null);
+      setActiveJobId(null);
     } else {
       toast({
         variant: "destructive",
