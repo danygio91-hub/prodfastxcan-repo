@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useTransition, useMemo } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { DateRange } from "react-day-picker"
@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +29,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2 } from 'lucide-react';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search } from 'lucide-react';
 import { getJobsReport, getOperatorsReport, getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
@@ -69,6 +70,7 @@ export default function ReportsClientPage() {
 
   const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
 
   const fetchWithdrawals = React.useCallback(async () => {
@@ -100,9 +102,22 @@ export default function ReportsClientPage() {
     fetchWithdrawals();
   }, [date, isLoading, fetchWithdrawals]);
   
+  const filteredWithdrawals = useMemo(() => {
+    if (!searchTerm) {
+        return withdrawalsReport;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return withdrawalsReport.filter(w =>
+        w.jobOrderPFs.join(', ').toLowerCase().includes(lowercasedFilter) ||
+        w.materialCode.toLowerCase().includes(lowercasedFilter) ||
+        (w.operatorName || '').toLowerCase().includes(lowercasedFilter)
+    );
+  }, [withdrawalsReport, searchTerm]);
+
+
   const handleSelectAllWithdrawals = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedWithdrawals(withdrawalsReport.map(w => w.id));
+      setSelectedWithdrawals(filteredWithdrawals.map(w => w.id));
     } else {
       setSelectedWithdrawals([]);
     }
@@ -165,7 +180,7 @@ export default function ReportsClientPage() {
   };
 
   const handleExportWithdrawals = () => {
-    const dataToExport = withdrawalsReport.map(w => ({
+    const dataToExport = filteredWithdrawals.map(w => ({
       'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
       'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
@@ -346,13 +361,22 @@ export default function ReportsClientPage() {
                               <CardDescription>Elenco degli scarichi di materiale per commessa.</CardDescription>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
+                            <div className="relative w-full sm:w-auto">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Cerca per commessa, materiale..."
+                                    className="pl-9 w-full sm:w-64"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
                               <Popover>
                                 <PopoverTrigger asChild>
                                     <Button
                                     id="date"
                                     variant={"outline"}
                                     className={cn(
-                                        "w-[260px] justify-start text-left font-normal",
+                                        "w-full sm:w-[260px] justify-start text-left font-normal",
                                         !date && "text-muted-foreground"
                                     )}
                                     >
@@ -383,7 +407,7 @@ export default function ReportsClientPage() {
                                     />
                                 </PopoverContent>
                             </Popover>
-                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
+                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || filteredWithdrawals.length === 0}>
                                 <Download className="mr-2 h-4 w-4" />
                                 Esporta Excel
                             </Button>
@@ -438,10 +462,10 @@ export default function ReportsClientPage() {
                                   <TableRow>
                                        <TableHead padding="checkbox">
                                           <Checkbox
-                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === withdrawalsReport.length}
+                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === filteredWithdrawals.length}
                                             onCheckedChange={handleSelectAllWithdrawals}
                                             aria-label="Seleziona tutti"
-                                            indeterminate={selectedWithdrawals.length > 0 && selectedWithdrawals.length < withdrawalsReport.length}
+                                            indeterminate={selectedWithdrawals.length > 0 && selectedWithdrawals.length < filteredWithdrawals.length}
                                           />
                                       </TableHead>
                                       <TableHead>Commessa/e</TableHead>
@@ -453,8 +477,8 @@ export default function ReportsClientPage() {
                               </TableHeader>
                               <TableBody>
                                   {isPendingWithdrawals ? renderLoadingRow(6) : 
-                                   withdrawalsReport.length > 0 ? (
-                                      withdrawalsReport.map((w) => (
+                                   filteredWithdrawals.length > 0 ? (
+                                      filteredWithdrawals.map((w) => (
                                           <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
                                                <TableCell padding="checkbox">
                                                   <Checkbox
@@ -472,7 +496,7 @@ export default function ReportsClientPage() {
                                       ))
                                   ) : (
                                       <TableRow>
-                                          <TableCell colSpan={6} className="h-24 text-center">Nessun prelievo trovato nel periodo selezionato.</TableCell>
+                                          <TableCell colSpan={6} className="h-24 text-center">Nessun prelievo trovato per i filtri selezionati.</TableCell>
                                       </TableRow>
                                   )}
                               </TableBody>
