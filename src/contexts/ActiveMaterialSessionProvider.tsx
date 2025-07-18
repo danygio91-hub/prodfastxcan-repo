@@ -2,8 +2,6 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import type { ActiveMaterialSessionData, MaterialSessionCategory, RawMaterialType } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 
@@ -47,9 +45,9 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
             const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
             const storedSessions = localStorage.getItem(storageKey);
             if (storedSessions) {
-                // The session is the source of truth from the operator's browser.
-                // We no longer validate against the originator job, as it might be completed.
-                // The session must persist until manually closed by the operator.
+                // A session should persist until manually closed by the operator.
+                // We no longer validate against the originator job's status, as it might
+                // have been completed by another operator while this session needed to remain active.
                 const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
                 setActiveSessions(parsedSessions);
             } else {

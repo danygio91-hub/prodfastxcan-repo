@@ -99,9 +99,9 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob: activeJobOrder, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  const { activeJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
-  const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
+  const [step, setStep] = useState<'initial' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -145,12 +145,12 @@ export default function ScanJobPage() {
 
   useEffect(() => {
     if (!isJobLoading) {
-      if (activeJobOrder) {
-        if (activeJobOrder.status === 'completed') {
+      if (activeJob) {
+        if (activeJob.status === 'completed') {
           setStep('finished');
         } else {
-          if (activeSessions.length > 0 && !activeSessions.every(s => s.associatedJobs.some(j => j.jobId === activeJobOrder.id))) {
-              addJobToSession({ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF });
+          if (activeSessions.length > 0 && !activeSessions.every(s => s.associatedJobs.some(j => j.jobId === activeJob.id))) {
+              addJobToSession({ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF });
           }
           setStep('processing');
         }
@@ -160,11 +160,12 @@ export default function ScanJobPage() {
     } else {
       setStep('loading');
     }
-  }, [isJobLoading, activeJobOrder, activeSessions, addJobToSession]);
+  }, [isJobLoading, activeJob, activeSessions, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder) => {
+    // Calling updateJob will save to Firestore.
+    // The real-time listener in ActiveJobProvider will then automatically update the state.
     await updateJob(updatedJob);
-    // The real-time listener in ActiveJobProvider will handle UI updates.
   }, []);
   
   const stopCamera = useCallback(() => {
@@ -199,11 +200,11 @@ export default function ScanJobPage() {
         }))
     };
     
+    handleUpdateAndPersistJob(jobWithStartTime);
+    
     // Set the active job ID, which triggers the real-time listener
     setActiveJobId(jobWithStartTime.id); 
     
-    handleUpdateAndPersistJob(jobWithStartTime);
-    setStep('processing');
     toast({
       title: isResuming ? "Lavorazione Ripresa" : "Lavorazione Avviata",
       description: `Lavoro ${isResuming ? 'ripreso' : 'iniziato'} per commessa ${jobToStart.id}.`,
@@ -213,6 +214,7 @@ export default function ScanJobPage() {
 
 
   const handleScannedData = useCallback(async (data: string) => {
+    stopCamera();
     const parts = data.split('@');
     if (parts.length !== 3) {
         toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
@@ -236,7 +238,7 @@ export default function ScanJobPage() {
         toast({ title: "Commessa Verificata!", description: `Pronto per iniziare la lavorazione per ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
         handleStartOverallJob(result);
     }
-  }, [toast, handleStartOverallJob]);
+  }, [toast, handleStartOverallJob, stopCamera]);
 
   useEffect(() => {
     if (step !== 'scanning') {
@@ -270,7 +272,6 @@ export default function ScanJobPage() {
                 }
                 const barcodes = await barcodeDetector.detect(videoRef.current);
                 if (barcodes.length > 0) {
-                    stopCamera();
                     const scannedData = barcodes[0].rawValue;
                     handleScannedData(scannedData);
                 } else {
@@ -296,8 +297,8 @@ export default function ScanJobPage() {
   }, [step, stopCamera, toast, handleScannedData]);
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
-    if (activeJobOrder) {
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    if (activeJob) {
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phase.id);
       if (phaseToUpdate) {
           phaseToUpdate.workstationScannedAndVerified = false;
@@ -310,9 +311,9 @@ export default function ScanJobPage() {
 
   const handlePhaseScanResult = (scannedId: string) => {
       setIsPhaseScanDialogOpen(false);
-      if (!activeJobOrder || !operator || !phaseForPhaseScan) return;
+      if (!activeJob || !operator || !phaseForPhaseScan) return;
 
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForPhaseScan.id);
 
       if (!phaseToStart || scannedId !== phaseToStart.name) {
@@ -369,12 +370,12 @@ export default function ScanJobPage() {
   };
 
   const handleForceStartPhase = (phaseId: string) => {
-    if (!activeJobOrder || !operator || operator.role !== 'superadvisor') {
+    if (!activeJob || !operator || operator.role !== 'superadvisor') {
         toast({ variant: 'destructive', title: 'Permesso Negato', description: "Solo un supervisore può forzare l'avvio di una fase." });
         return;
     }
 
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (!phaseToStart) {
@@ -418,8 +419,8 @@ export default function ScanJobPage() {
 
 
   const handlePausePhase = (phaseId: string) => {
-    if (!activeJobOrder) return;
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    if (!activeJob) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (jobToUpdate.isProblemReported) {
@@ -442,8 +443,8 @@ export default function ScanJobPage() {
   };
 
   const handleResumePhase = (phaseId: string) => {
-    if (!activeJobOrder || !operator) return;
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    if (!activeJob || !operator) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (jobToUpdate.isProblemReported) {
@@ -469,8 +470,8 @@ export default function ScanJobPage() {
   };
 
   const handleCompletePhase = (phaseId: string) => {
-    if (!activeJobOrder || !operator) return;
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    if (!activeJob || !operator) return;
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
@@ -509,9 +510,9 @@ export default function ScanJobPage() {
   };
   
   const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed') => {
-    if (!activeJobOrder || !operator) return;
+    if (!activeJob || !operator) return;
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (!phaseToUpdate || phaseToUpdate.type !== 'quality') return;
@@ -560,9 +561,9 @@ export default function ScanJobPage() {
   };
 
   const handleCompletePreparation = () => {
-    if (!activeJobOrder || !operator) return;
+    if (!activeJob || !operator) return;
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production');
 
     if (firstProductionPhase) {
@@ -580,7 +581,7 @@ export default function ScanJobPage() {
 
     toast({
       title: "Preparazione Completata",
-      description: `La commessa ${activeJobOrder.id} è ora disponibile per la produzione.`,
+      description: `La commessa ${activeJob.id} è ora disponibile per la produzione.`,
       action: <ThumbsUp className="text-primary" />
     });
     
@@ -590,8 +591,8 @@ export default function ScanJobPage() {
   };
 
   const handleConcludeOverallJob = () => {
-    if (!activeJobOrder) return;
-    if (activeJobOrder.isProblemReported) {
+    if (!activeJob) return;
+    if (activeJob.isProblemReported) {
       toast({
         variant: "destructive",
         title: "Lavorazione Bloccata",
@@ -600,7 +601,7 @@ export default function ScanJobPage() {
       return;
     }
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     jobToUpdate.overallEndTime = new Date();
     jobToUpdate.status = 'completed';
 
@@ -610,14 +611,13 @@ export default function ScanJobPage() {
       description: `Lavorazione per commessa ${jobToUpdate.id} terminata con successo.`,
       action: <PowerOff className="text-primary" />
     });
-    setStep('finished');
   };
 
-  const allPhasesCompleted = activeJobOrder?.phases.every(phase => phase.status === 'completed');
+  const allPhasesCompleted = activeJob?.phases.every(phase => phase.status === 'completed');
 
   const handleJobProblemReported = () => {
-    if (activeJobOrder) {
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    if (activeJob) {
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       jobToUpdate.isProblemReported = true;
       
       const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
@@ -634,7 +634,7 @@ export default function ScanJobPage() {
       toast({
         variant: "destructive",
         title: "Problema Segnalato per Commessa",
-        description: `La commessa ${activeJobOrder.id} è stata bloccata. Risolvere il problema prima di continuare.`,
+        description: `La commessa ${activeJob.id} è stata bloccata. Risolvere il problema prima di continuare.`,
       });
     }
     setIsProblemReportDialogOpen(false);
@@ -693,17 +693,17 @@ export default function ScanJobPage() {
   }, [stopCamera, toast, phaseForMaterialScan]);
 
   const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
-    if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase) return;
+    if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase) return;
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
 
     try {
         const sessionData = {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
             openingWeight: values.openingWeight,
-            originatorJobId: activeJobOrder.id,
-            associatedJobs: [{ jobId: activeJobOrder.id, jobOrderPF: activeJobOrder.ordinePF }],
+            originatorJobId: activeJob.id,
+            associatedJobs: [{ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }],
         };
         startSession(sessionData, scannedMaterialForPhase.type);
         
@@ -730,13 +730,13 @@ export default function ScanJobPage() {
   };
   
   const onTubiWithdrawalSubmit = async (values: TubiWithdrawalFormValues) => {
-      if (!activeJobOrder || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
+      if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
 
       const formData = new FormData();
       formData.append('materialId', scannedMaterialForPhase.id);
       formData.append('operatorId', operator.id);
-      formData.append('jobId', activeJobOrder.id);
-      formData.append('jobOrderPF', activeJobOrder.ordinePF);
+      formData.append('jobId', activeJob.id);
+      formData.append('jobOrderPF', activeJob.ordinePF);
       formData.append('quantity', String(values.quantity));
       formData.append('unit', values.unit);
       
@@ -749,7 +749,7 @@ export default function ScanJobPage() {
       });
 
       if (result.success) {
-          const jobToUpdate = JSON.parse(JSON.stringify(activeJobOrder));
+          const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
           const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
           if(phaseToUpdate) {
             phaseToUpdate.materialReady = true;
@@ -942,36 +942,23 @@ export default function ScanJobPage() {
         </div>
       </CardHeader>
       <CardContent className="flex flex-col items-center justify-center space-y-6">
-        {step === 'scanning' ? (
-          <div className="relative flex items-center justify-center w-full max-w-xs aspect-square bg-black rounded-lg overflow-hidden">
-            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-2/3 h-2/3 relative">
-                    <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                    <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                    <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                    <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                </div>
-            </div>
+        <div className="relative flex items-center justify-center w-full max-w-xs aspect-square bg-black rounded-lg overflow-hidden">
+          <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-2/3 h-2/3 relative">
+                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+              </div>
           </div>
-        ) : (
-          <>
-            {cameraError && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Errore Fotocamera</AlertTitle>
-                <AlertDescription>{cameraError}</AlertDescription>
-              </Alert>
-            )}
-            <Button
-              onClick={() => setStep('scanning')}
-              disabled={step === 'scanning'}
-              className="w-full max-w-xs"
-            >
-              <QrCode className="mr-2 h-5 w-5" />
-              Scansiona QR Code Commessa
-            </Button>
-          </>
+        </div>
+        {cameraError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Errore Fotocamera</AlertTitle>
+            <AlertDescription>{cameraError}</AlertDescription>
+          </Alert>
         )}
       </CardContent>
     </Card>
@@ -1046,17 +1033,17 @@ export default function ScanJobPage() {
   }
 
   const renderPhasesManagement = () => {
-    if (!activeJobOrder) return null;
-    const isJobBlockedByProblem = !!activeJobOrder.isProblemReported;
+    if (!activeJob) return null;
+    const isJobBlockedByProblem = !!activeJob.isProblemReported;
     
-    const preparationPhases = (activeJobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+    const preparationPhases = (activeJob.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     
-    const productionAndQualityPhases = (activeJobOrder.phases || []).filter(p => p.type === 'production' || p.type === 'quality');
+    const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality');
     
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
-    const firstProductionPhase = (activeJobOrder.phases || []).find(p => p.type === 'production');
+    const firstProductionPhase = (activeJob.phases || []).find(p => p.type === 'production');
     
     const showReleaseButton = allPreparationPhasesCompleted && 
                               firstProductionPhase && 
@@ -1072,7 +1059,7 @@ export default function ScanJobPage() {
 
           const phaseType = phase.type || 'production';
           
-          const sortedPhasesInJob = [...activeJobOrder.phases].sort((a,b) => a.sequence - b.sequence);
+          const sortedPhasesInJob = [...activeJob.phases].sort((a,b) => a.sequence - b.sequence);
           const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
           
           let isPreviousPhaseCompleted = true;
@@ -1081,7 +1068,7 @@ export default function ScanJobPage() {
             isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
           }
 
-          const activePhase = activeJobOrder.phases.find(p => p.status === 'in-progress');
+          const activePhase = activeJob.phases.find(p => p.status === 'in-progress');
           const noOtherPhaseActive = !activePhase || activePhase.id === phase.id;
 
           const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
@@ -1239,7 +1226,7 @@ export default function ScanJobPage() {
       <CardHeader>
         <CardTitle className="font-headline flex items-center">
           <ListChecks className="mr-3 h-7 w-7 text-primary" />
-          Fasi di Lavorazione Commessa: {activeJobOrder?.id}
+          Fasi di Lavorazione Commessa: {activeJob?.id}
         </CardTitle>
         <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
         {isJobBlockedByProblem && (
@@ -1283,7 +1270,7 @@ export default function ScanJobPage() {
         )}
 
 
-        {allPhasesCompleted && !activeJobOrder?.overallEndTime && (
+        {allPhasesCompleted && !activeJob?.overallEndTime && (
           <Button 
             onClick={handleConcludeOverallJob} 
             className="w-full mt-4 bg-primary text-primary-foreground"
@@ -1292,8 +1279,8 @@ export default function ScanJobPage() {
             <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
           </Button>
         )}
-         {activeJobOrder?.overallEndTime && (
-          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJobOrder.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
+         {activeJob?.overallEndTime && (
+          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJob.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
         )}
       </CardContent>
     </Card>
@@ -1303,7 +1290,7 @@ export default function ScanJobPage() {
     <Card>
       <CardHeader>
         <CardTitle>Lavorazione Completata</CardTitle>
-        <CardDescription>La commessa {activeJobOrder?.id} è stata conclusa con successo.</CardDescription>
+        <CardDescription>La commessa {activeJob?.id} è stata conclusa con successo.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
         <CheckCircle className="h-16 w-16 text-green-500"/>
@@ -1500,21 +1487,21 @@ export default function ScanJobPage() {
           <OperatorNavMenu />
           
             <Dialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
-                {step === 'initial' && renderScanArea()}
+                {step === 'initial' && <div className="mt-8">{renderScanArea()}</div>}
                 {step === 'scanning' && renderScanArea()}
 
-                {step === 'processing' && activeJobOrder && (
+                {step === 'processing' && activeJob && (
                   <>
-                    {renderJobDetailsCard(activeJobOrder)}
+                    {renderJobDetailsCard(activeJob)}
                     {renderPhasesManagement()}
                   </>
                 )}
 
-                {step === 'finished' && activeJobOrder && renderFinishedView()}
+                {step === 'finished' && activeJob && renderFinishedView()}
             
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Segnala Problema per Commessa: {activeJobOrder?.id}</DialogTitle>
+                        <DialogTitle>Segnala Problema per Commessa: {activeJob?.id}</DialogTitle>
                     </DialogHeader>
                     <ProblemReportForm 
                         onSuccess={handleJobProblemReported} 
@@ -1534,4 +1521,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-

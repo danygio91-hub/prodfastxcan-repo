@@ -73,17 +73,18 @@ export async function verifyAndGetJobOrder(scannedData: {
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
   // This logic is critical for multi-operator scenarios.
-  // We determine phase readiness based on its own state and dependencies, not on other phases' active work.
+  // We determine phase readiness based on its own state and dependencies.
   const allPreparationPhasesCompleted = (jobCopy.phases || [])
       .filter(p => p.type === 'preparation')
       .every(p => p.status === 'completed');
 
   jobCopy.phases = (jobCopy.phases || []).map(p => {
-    let materialReady = false; // Default to not ready
+    let materialReady = false; 
 
     if (p.type === 'preparation') {
-        // A prep phase is ready if it doesn't need a scan OR if it already has material associated.
-        materialReady = !p.requiresMaterialScan || !!p.materialConsumption;
+        // A prep phase is ready if it doesn't need a scan, or if material has been associated already.
+        // It's considered "associated" if it's been consumed OR if work periods exist (meaning it was started).
+        materialReady = !p.requiresMaterialScan || !!p.materialConsumption || (p.workPeriods && p.workPeriods.length > 0);
     } else { // For production/quality phases
         // A production/quality phase is ready only if ALL preparation phases are completed.
         materialReady = allPreparationPhasesCompleted;
@@ -338,11 +339,14 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
         const material = materialSnap.data() as RawMaterial;
         const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
         if (specificBatch) {
-            // Find if this specific batch has been used AT ALL.
-            const allWithdrawals = await getDocs(collection(db, "materialWithdrawals"));
-            const hasBeenUsed = allWithdrawals.docs.some(doc => {
-                 const withdrawal = doc.data();
-                 return withdrawal.materialId === materialId && withdrawal.lottoBobina === lotto;
+            // Check if this batch has been used AT ALL by looking at materialConsumption in jobs
+            const querySnapshot = await getDocs(collection(db, "jobOrders"));
+            const hasBeenUsed = querySnapshot.docs.some(doc => {
+                 const job = doc.data() as JobOrder;
+                 return (job.phases || []).some(phase => 
+                    phase.materialConsumption?.materialId === materialId &&
+                    phase.materialConsumption?.lottoBobina === lotto
+                );
             });
             // If it has never been used, return its initial quantity.
             if (!hasBeenUsed) {
