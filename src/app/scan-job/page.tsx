@@ -1315,7 +1315,7 @@ export default function ScanJobPage() {
 
   const renderMaterialScanDialog = () => (
     <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
             <DialogHeader>
                 <DialogTitle>Scansiona Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
             </DialogHeader>
@@ -1531,6 +1531,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
