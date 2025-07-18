@@ -4,14 +4,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { JobOrder } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
 
-const ACTIVE_JOB_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_';
+const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
 
 interface ActiveJobContextType {
   activeJob: JobOrder | null;
-  setActiveJob: (job: JobOrder | null) => void;
+  setActiveJobId: (jobId: string | null) => void;
   isLoading: boolean;
 }
 
@@ -19,79 +19,87 @@ const ActiveJobContext = createContext<ActiveJobContextType | undefined>(undefin
 
 export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [activeJob, setActiveJobState] = useState<JobOrder | null>(null);
+  const [activeJobId, setActiveJobIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
+  // Effect to load the active job ID from local storage when the operator logs in
   useEffect(() => {
-    const validateActiveJob = async () => {
-        if (authLoading) return; // Wait for auth to be ready
-        if (!operator) {
-            // No operator logged in, so no active job to load
-            setActiveJobState(null);
-            setIsLoading(false);
-            return;
-        }
+    if (authLoading) return;
+    if (!operator) {
+      setActiveJobIdState(null);
+      setActiveJobState(null);
+      setIsLoading(false);
+      return;
+    }
 
-        try {
-            const storageKey = `${ACTIVE_JOB_STORAGE_KEY_PREFIX}${operator.id}`;
-            const storedJob = localStorage.getItem(storageKey);
-            if (storedJob) {
-                const parsedJob: JobOrder = JSON.parse(storedJob, (key, value) => {
-                    if (['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate'].includes(key) && value) {
-                        return new Date(value);
-                    }
-                    return value;
-                });
-
-                // Verify the job still exists in Firestore and is in a workable state
-                const jobRef = doc(db, "jobOrders", parsedJob.id);
-                const docSnap = await getDoc(jobRef);
-
-                if (docSnap.exists() && (docSnap.data().status === 'production' || docSnap.data().status === 'suspended')) {
-                    // Job is valid, update state with the one from localStorage (it might have live progress)
-                    setActiveJobState(parsedJob);
-                } else {
-                    // Job has been deleted or is completed, clear it from local state
-                    localStorage.removeItem(storageKey);
-                    setActiveJobState(null);
-                }
-            } else {
-                // No job in storage for this operator
-                setActiveJobState(null);
-            }
-        } catch (error) {
-            console.error("Failed to load or validate active job from localStorage", error);
-            if (operator) {
-                localStorage.removeItem(`${ACTIVE_JOB_STORAGE_KEY_PREFIX}${operator.id}`);
-            }
-            setActiveJobState(null);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    validateActiveJob();
+    const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
+    const storedJobId = localStorage.getItem(storageKey);
+    setActiveJobIdState(storedJobId);
   }, [operator, authLoading]);
 
-  const setActiveJob = useCallback((job: JobOrder | null) => {
-    // This function can only be called when an operator is logged in
+
+  // Effect to listen for real-time updates on the active job
+  useEffect(() => {
+    if (!activeJobId) {
+        setActiveJobState(null);
+        setIsLoading(false);
+        return;
+    }
+    
+    setIsLoading(true);
+    const jobRef = doc(db, "jobOrders", activeJobId);
+
+    const unsubscribe = onSnapshot(jobRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            const jobWithDates: JobOrder = JSON.parse(JSON.stringify(data), (key, value) => {
+                 if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate') && value && value.seconds !== undefined) {
+                    return new Date(value.seconds * 1000);
+                 }
+                 return value;
+            });
+            
+            // If the job is no longer in a workable state, clear it.
+            if (jobWithDates.status !== 'production' && jobWithDates.status !== 'suspended') {
+                 setActiveJobId(null); // This will also clear the local storage
+                 setActiveJobState(null);
+            } else {
+                 setActiveJobState(jobWithDates);
+            }
+        } else {
+            // Document was deleted or doesn't exist.
+            setActiveJobId(null);
+            setActiveJobState(null);
+        }
+        setIsLoading(false);
+    }, (error) => {
+        console.error("Error listening to active job:", error);
+        setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [activeJobId]);
+
+
+  const setActiveJobId = useCallback((jobId: string | null) => {
     if (!operator) return; 
 
-    setActiveJobState(job);
+    setActiveJobIdState(jobId);
     try {
-      const storageKey = `${ACTIVE_JOB_STORAGE_KEY_PREFIX}${operator.id}`;
-      if (job) {
-        localStorage.setItem(storageKey, JSON.stringify(job));
+      const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
+      if (jobId) {
+        localStorage.setItem(storageKey, jobId);
       } else {
         localStorage.removeItem(storageKey);
       }
     } catch (error) {
-      console.error("Failed to save active job to localStorage", error);
+      console.error("Failed to save active job ID to localStorage", error);
     }
   }, [operator]);
 
   return (
-    <ActiveJobContext.Provider value={{ activeJob, setActiveJob, isLoading }}>
+    <ActiveJobContext.Provider value={{ activeJob, setActiveJobId, isLoading }}>
       {children}
     </ActiveJobContext.Provider>
   );

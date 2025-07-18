@@ -10,8 +10,9 @@ import { Briefcase, Package2, Loader2 } from 'lucide-react';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
-import { getProductionJobOrders } from '@/app/admin/data-management/actions';
 import { useToast } from '@/hooks/use-toast';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
@@ -20,8 +21,8 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   if (jobOrder.status === 'completed') return 'Completata';
 
   // Check phases
-  const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
-  const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+  const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+  const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
   
   const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
   const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
@@ -54,24 +55,42 @@ export default function ProductionConsoleClientPage() {
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
   const { toast } = useToast();
 
-  const fetchData = useCallback(async () => {
+  useEffect(() => {
     setIsLoading(true);
-    try {
-        setJobOrders(await getProductionJobOrders());
-    } catch (error) {
+    const jobsRef = collection(db, "jobOrders");
+    const q = query(jobsRef, where("status", "in", ["production", "suspended"]));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const jobs: JobOrder[] = [];
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            // Firestore Timestamps to JS Dates
+            const jobWithDates: JobOrder = JSON.parse(JSON.stringify(data), (key, value) => {
+                if (key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate') {
+                    if (value && typeof value === 'object' && value.seconds !== undefined) {
+                        return new Date(value.seconds * 1000);
+                    }
+                }
+                return value;
+            });
+            jobs.push(jobWithDates as JobOrder);
+        });
+        setJobOrders(jobs);
+        setIsLoading(false);
+    }, (error) => {
+        console.error("Error fetching realtime job orders:", error);
         toast({
             variant: "destructive",
-            title: "Errore di Caricamento",
-            description: "Impossibile caricare i dati della console di produzione.",
+            title: "Errore di Sincronizzazione",
+            description: "Impossibile caricare i dati della console in tempo reale.",
         });
-    } finally {
         setIsLoading(false);
-    }
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, [toast]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   const filteredJobs = useMemo(() => {
     if (activeFilter === 'all') {

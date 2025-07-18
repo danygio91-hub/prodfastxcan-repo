@@ -99,7 +99,7 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob: activeJobOrder, setActiveJob: setActiveJobOrder, isLoading: isJobLoading } = useActiveJob();
+  const { activeJob: activeJobOrder, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
@@ -162,12 +162,7 @@ export default function ScanJobPage() {
     }
   }, [isJobLoading, activeJobOrder, activeSessions, addJobToSession]);
 
-  const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder | null) => {
-    startTransition(() => {
-      setActiveJobOrder(updatedJob); // Update context immediately for responsive UI
-    });
-    if (updatedJob === null) return;
-
+  const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder) => {
     const result = await updateJob(updatedJob);
     if (!result.success) {
         toast({
@@ -175,9 +170,9 @@ export default function ScanJobPage() {
             title: "Errore di Sincronizzazione",
             description: result.message || "Impossibile salvare lo stato della commessa.",
         });
-        // Optionally revert state here if sync fails
+        // The real-time listener will eventually correct the state, but this toast informs the user of failure.
     }
-  }, [setActiveJobOrder, toast, startTransition]);
+  }, [toast]);
   
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -204,13 +199,16 @@ export default function ScanJobPage() {
         ...jobToStart,
         status: 'production' as const,
         overallStartTime: jobToStart.overallStartTime || new Date(),
-        phases: jobToStart.phases.map(p => ({
+        phases: (jobToStart.phases || []).map(p => ({
             ...p,
-            status: p.status,
             workPeriods: p.workPeriods || [], 
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
     };
+    
+    // Set the active job ID, which triggers the real-time listener
+    setActiveJobId(jobWithStartTime.id); 
+    
     handleUpdateAndPersistJob(jobWithStartTime);
     setStep('processing');
     toast({
@@ -218,7 +216,7 @@ export default function ScanJobPage() {
       description: `Lavoro ${isResuming ? 'ripreso' : 'iniziato'} per commessa ${jobToStart.id}.`,
       action: <PlayCircle className="text-primary" />,
     });
-  }, [handleUpdateAndPersistJob, toast]);
+  }, [handleUpdateAndPersistJob, toast, setActiveJobId]);
 
 
   const handleScannedData = useCallback(async (data: string) => {
@@ -311,7 +309,7 @@ export default function ScanJobPage() {
       if (phaseToUpdate) {
           phaseToUpdate.workstationScannedAndVerified = false;
       }
-      setActiveJobOrder(jobToUpdate);
+      handleUpdateAndPersistJob(jobToUpdate);
     }
     setPhaseForPhaseScan(phase);
     setIsPhaseScanDialogOpen(true);
@@ -358,20 +356,15 @@ export default function ScanJobPage() {
           }
       }
 
-      if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseToStart.id && (p.status === 'in-progress' || p.status === 'paused'))) {
-        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di avviarne una nuova." });
+      const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+      if (activePhase) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva. Completare o riprendere la fase corrente prima di avviarne una nuova." });
         return;
       }
       
       phaseToStart.status = 'in-progress';
       phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-
-      // Unlock next phase upon start
-      const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-      if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && phaseToStart.type === 'production') {
-          nextPhaseInJob.materialReady = true;
-      }
 
       handleUpdateAndPersistJob(jobToUpdate);
       
@@ -410,9 +403,10 @@ export default function ScanJobPage() {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
     }
-
-    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && (p.status === 'in-progress' || p.status === 'paused'))) {
-        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva o in pausa. Completare o riprendere la fase corrente prima di forzarne una nuova." });
+    
+    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+    if (activePhase) {
+        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva. Completare o riprendere la fase corrente prima di forzarne una nuova." });
         return;
     }
 
@@ -420,14 +414,6 @@ export default function ScanJobPage() {
     phaseToStart.workstationScannedAndVerified = true; // Forced start implies verification
     phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
-    // Unlock next phase
-    const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-    const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
-    const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-    if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && phaseToStart.type === 'production') {
-        nextPhaseInJob.materialReady = true;
-    }
-
     handleUpdateAndPersistJob(jobToUpdate);
     
     toast({
@@ -475,7 +461,9 @@ export default function ScanJobPage() {
       toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
       return;
     }
-    if (jobToUpdate.phases.some((p: JobPhase) => p.id !== phaseId && p.status === 'in-progress')) {
+    
+    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+    if (activePhase) {
        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
       return;
     }
@@ -504,18 +492,15 @@ export default function ScanJobPage() {
         }
     }
     phaseToComplete.status = 'completed';
-
-    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => p.type === 'preparation');
+    
+    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
     const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
 
     if (allPreparationPhasesCompleted) {
-      const firstProductionPhase = jobToUpdate.phases
-        .filter((p: JobPhase) => p.type === 'production')
-        .sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence)[0];
-      
-      if (firstProductionPhase && firstProductionPhase.status === 'pending') {
-          firstProductionPhase.materialReady = true;
-      }
+        const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type || 'production') === 'production' && p.status === 'pending');
+        if (firstProductionPhase) {
+            firstProductionPhase.materialReady = true;
+        }
     }
     
     const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
@@ -561,13 +546,14 @@ export default function ScanJobPage() {
 
   const handleContinueWithMaterial = () => {
     if (!jobToFinalize) return;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
     
-    const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
-
     handleUpdateAndPersistJob(jobToFinalize);
-    setActiveJobOrder(null); // Clear current job to scan a new one
+    setActiveJobId(null); // Clear current job to scan a new one
+    
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
+    const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
     toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
+    
     setJobToFinalize(null);
     setIsContinueOrCloseDialogOpen(false);
   };
@@ -606,7 +592,7 @@ export default function ScanJobPage() {
     });
     
     if (operator.role !== 'superadvisor') {
-      setActiveJobOrder(null);
+      setActiveJobId(null);
     }
   };
 
@@ -662,7 +648,7 @@ export default function ScanJobPage() {
   };
 
   const resetForNewScan = () => {
-    setActiveJobOrder(null);
+    setActiveJobId(null);
     activeSessions.forEach(s => closeSession(s.materialId));
     setPhaseForPhaseScan(null);
     setStep('initial');
@@ -1070,14 +1056,14 @@ export default function ScanJobPage() {
     if (!activeJobOrder) return null;
     const isJobBlockedByProblem = !!activeJobOrder.isProblemReported;
     
-    const preparationPhases = activeJobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
+    const preparationPhases = (activeJobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     
-    const productionAndQualityPhases = activeJobOrder.phases.filter(p => p.type === 'production' || p.type === 'quality');
+    const productionAndQualityPhases = (activeJobOrder.phases || []).filter(p => p.type === 'production' || p.type === 'quality');
     
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
-    const firstProductionPhase = activeJobOrder.phases.find(p => p.type === 'production');
+    const firstProductionPhase = (activeJobOrder.phases || []).find(p => p.type === 'production');
     
     const showReleaseButton = allPreparationPhasesCompleted && 
                               firstProductionPhase && 
@@ -1102,7 +1088,8 @@ export default function ScanJobPage() {
             isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
           }
 
-          const noOtherPhaseActive = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress'));
+          const activePhase = activeJobOrder.phases.find(p => p.status === 'in-progress');
+          const noOtherPhaseActive = !activePhase || activePhase.id === phase.id;
 
           const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
           

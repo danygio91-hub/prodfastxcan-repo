@@ -14,12 +14,12 @@ import { Play, Pause, Check, Activity } from 'lucide-react';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 
 export default function ActiveJobStatusBar() {
-  const { activeJob, setActiveJob, isLoading } = useActiveJob();
+  const { activeJob, isLoading } = useActiveJob();
   const { operator } = useAuth();
   const { toast } = useToast();
 
   const handleUpdateJob = async (updatedJob: JobOrder) => {
-    setActiveJob(updatedJob);
+    // Optimistic update is no longer needed due to real-time listener
     const result = await updateJob(updatedJob);
     if (!result.success) {
       toast({
@@ -27,7 +27,7 @@ export default function ActiveJobStatusBar() {
         title: "Errore di Sincronizzazione",
         description: result.message,
       });
-      // Potentially revert state if sync fails
+      // The real-time listener will eventually correct the state, but this informs the user of failure.
     }
   };
 
@@ -81,23 +81,14 @@ export default function ActiveJobStatusBar() {
     }
     phaseToUpdate.status = 'completed';
     
-    const completedPhaseType = phaseToUpdate.type || 'production';
-    if (completedPhaseType === 'preparation') {
-      const allPrepPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-      if (allPrepPhases.every((p: JobPhase) => p.status === 'completed')) {
+    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
+    if (allPreparationPhases.every((p: JobPhase) => p.status === 'completed')) {
         const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
         if (firstProductionPhase) {
           firstProductionPhase.materialReady = true;
-          toast({ title: "Materiale Pronto", description: `Materiale per la fase "${firstProductionPhase.name}" ora disponibile.`});
-        }
-      }
-    } else {
-        const nextPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === phaseToUpdate.sequence + 1);
-        if (nextPhase && nextPhase.status === 'pending') {
-            nextPhase.materialReady = true;
         }
     }
-
+    
     toast({ title: "Fase Completata", description: `Fase "${phaseToUpdate.name}" completata.` });
     
     // Check if all phases are now completed to conclude the job
@@ -106,7 +97,6 @@ export default function ActiveJobStatusBar() {
         jobToUpdate.status = 'completed';
         jobToUpdate.overallEndTime = new Date();
         toast({ title: "Commessa Completata!", description: `Tutte le fasi per ${jobToUpdate.id} sono terminate.` });
-        // The job will be cleared from the status bar on the next render because its status is 'completed'
     }
     
     handleUpdateJob(jobToUpdate);
