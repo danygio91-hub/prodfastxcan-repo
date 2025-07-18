@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 import * as z from 'zod';
 
@@ -72,17 +72,20 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
-  const allPreparationPhases = (jobCopy.phases || []).filter(p => p.type === 'preparation');
-  const allPreparationPhasesCompleted = allPreparationPhases.length > 0 && allPreparationPhases.every(p => p.status === 'completed');
-  
+  // This logic is critical for multi-operator scenarios.
+  // We determine phase readiness based on its own state and dependencies, not on other phases' active work.
+  const allPreparationPhasesCompleted = (jobCopy.phases || [])
+      .filter(p => p.type === 'preparation')
+      .every(p => p.status === 'completed');
+
   jobCopy.phases = (jobCopy.phases || []).map(p => {
-    let materialReady = p.materialReady || false; // Preserve existing state
+    let materialReady = false; // Default to not ready
 
     if (p.type === 'preparation') {
-        // A prep phase is ready if it doesn't need a scan OR if it already has material.
+        // A prep phase is ready if it doesn't need a scan OR if it already has material associated.
         materialReady = !p.requiresMaterialScan || !!p.materialConsumption;
     } else { // For production/quality phases
-        // Production phases are ready only when all prep phases are done.
+        // A production/quality phase is ready only if ALL preparation phases are completed.
         materialReady = allPreparationPhasesCompleted;
     }
     
@@ -288,63 +291,66 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
 export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<number | null> {
     if (!materialId || !lotto) return null;
 
-    // This is a robust but potentially expensive query if the number of jobs is very large.
-    // For this application's scale, it is acceptable.
-    // It finds all usages of a specific lotto and returns the closing weight of the most recent one.
-
+    // --- STRATEGY 1: Find the last usage (closing weight) of this lot ---
     const jobsRef = collection(db, "jobOrders");
     const snapshot = await getDocs(jobsRef);
-
-    if (snapshot.empty) {
-        return null;
-    }
-
-    // Collect all consumptions of this specific lotto with their completion times
     const consumptions: { closingWeight: number; completedAt: Date }[] = [];
 
-    for (const doc of snapshot.docs) {
-        const job = convertTimestampsToDates(doc.data()) as JobOrder;
-        for (const phase of (job.phases || [])) {
-            if (
-                phase.materialConsumption &&
-                phase.materialConsumption.materialId === materialId &&
-                phase.materialConsumption.lottoBobina === lotto &&
-                phase.materialConsumption.closingWeight !== undefined &&
-                phase.materialConsumption.closingWeight !== null
-            ) {
-                // Find the end time of the last work period for this phase to determine recency
-                const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
-                    if (wp.end && (!latest || new Date(wp.end) > latest)) {
-                        return new Date(wp.end);
+    if (!snapshot.empty) {
+        for (const doc of snapshot.docs) {
+            const job = convertTimestampsToDates(doc.data()) as JobOrder;
+            for (const phase of (job.phases || [])) {
+                if (
+                    phase.materialConsumption &&
+                    phase.materialConsumption.materialId === materialId &&
+                    phase.materialConsumption.lottoBobina === lotto &&
+                    phase.materialConsumption.closingWeight !== undefined &&
+                    phase.materialConsumption.closingWeight !== null
+                ) {
+                    const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
+                        if (wp.end && (!latest || new Date(wp.end) > latest)) {
+                            return new Date(wp.end);
+                        }
+                        return latest;
+                    }, null as Date | null);
+                    
+                    if (lastWorkPeriodEnd) {
+                        consumptions.push({
+                            closingWeight: phase.materialConsumption.closingWeight,
+                            completedAt: lastWorkPeriodEnd,
+                        });
                     }
-                    return latest;
-                }, null as Date | null);
-                
-                if (lastWorkPeriodEnd) {
-                    consumptions.push({
-                        closingWeight: phase.materialConsumption.closingWeight,
-                        completedAt: lastWorkPeriodEnd,
-                    });
                 }
             }
         }
     }
     
-    // If no consumptions were found for this lotto, return null
-    if (consumptions.length === 0) {
-        return null;
+    if (consumptions.length > 0) {
+        consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
+        return consumptions[0].closingWeight;
     }
 
-    // Sort consumptions by completion date, descending, to find the most recent one
-    consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
+    // --- STRATEGY 2: If no usage found, find its initial loading quantity ---
+    const materialRef = doc(db, "rawMaterials", materialId);
+    const materialSnap = await getDoc(materialRef);
 
-    // The first item is the most recent one
-    return consumptions[0].closingWeight;
+    if (materialSnap.exists()) {
+        const material = materialSnap.data() as RawMaterial;
+        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
+        if (specificBatch) {
+            // Find if this specific batch has been used AT ALL.
+            const allWithdrawals = await getDocs(collection(db, "materialWithdrawals"));
+            const hasBeenUsed = allWithdrawals.docs.some(doc => {
+                 const withdrawal = doc.data();
+                 return withdrawal.materialId === materialId && withdrawal.lottoBobina === lotto;
+            });
+            // If it has never been used, return its initial quantity.
+            if (!hasBeenUsed) {
+                 return specificBatch.quantity;
+            }
+        }
+    }
+
+    // If neither strategy finds a weight, return null.
+    return null;
 }
-
-
-
-
-
-    
-
