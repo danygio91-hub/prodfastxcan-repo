@@ -174,7 +174,7 @@ export async function closeMaterialSessionAndUpdateStock(
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
-            consumedUnits: undefined, // Consumed units are not tracked for weight-based sessions
+            consumedUnits: null, // Set to null for weight-based sessions to avoid Firestore 'undefined' error
             operatorId: operatorId,
             withdrawalDate: Timestamp.now(),
         });
@@ -351,4 +351,5 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     // The first item is the most recent one
     return consumptions[0].closingWeight;
 }
+
 
