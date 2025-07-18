@@ -11,13 +11,11 @@ const withPWA = require('next-pwa')({
 const nextConfig = {
   /* config options here */
   experimental: {
-    // This allows the Next.js dev server to accept requests from the
-    // Firebase Studio environment.
-    // NOTE: This key is deprecated in recent Next.js versions and has been moved.
-    // Keeping the object for potential future experimental flags.
+    // This object is kept for potential future experimental flags.
   },
-  // allowedDevOrigins has been promoted from 'experimental' to a top-level key
-  allowedDevOrigins: ["http://localhost:3000", "*.cloudworkstations.dev"],
+  // This allows the Next.js dev server to accept requests from the
+  // Firebase Studio environment. It's now a top-level key.
+  allowedDevOrigins: ["*.cloudworkstations.dev"],
   images: {
     remotePatterns: [
       {
