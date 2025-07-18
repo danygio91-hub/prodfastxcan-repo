@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -369,7 +369,7 @@ export default function ScanJobPage() {
 
       // Unlock next phase upon start
       const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-      if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+      if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && phaseToStart.type === 'production') {
           nextPhaseInJob.materialReady = true;
       }
 
@@ -424,7 +424,7 @@ export default function ScanJobPage() {
     const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
     const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-    if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+    if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && phaseToStart.type === 'production') {
         nextPhaseInJob.materialReady = true;
     }
 
@@ -505,18 +505,17 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
 
-    // Check if ALL preparation phases are now completed to unlock the first production phase.
     const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => p.type === 'preparation');
     const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
 
     if (allPreparationPhasesCompleted) {
-        const firstProductionPhase = jobToUpdate.phases
-            .filter((p: JobPhase) => p.type === 'production')
-            .sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence)[0];
-        
-        if (firstProductionPhase && firstProductionPhase.status === 'pending') {
-            firstProductionPhase.materialReady = true;
-        }
+      const firstProductionPhase = jobToUpdate.phases
+        .filter((p: JobPhase) => p.type === 'production')
+        .sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence)[0];
+      
+      if (firstProductionPhase && firstProductionPhase.status === 'pending') {
+          firstProductionPhase.materialReady = true;
+      }
     }
     
     const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
@@ -1087,7 +1086,10 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
-          const operatorHasPermission = isSuperadvisor || (operator && phase.departmentCodes && phase.departmentCodes.includes(operator.reparto));
+          const operatorHasPermissionForDepartment = operator && phase.departmentCodes && phase.departmentCodes.includes(operator.reparto);
+
+          const lastWorkPeriod = (phase.workPeriods || []).slice(-1)[0];
+          const isPhaseOwner = lastWorkPeriod && !lastWorkPeriod.end && lastWorkPeriod.operatorId === operator?.id;
 
           const phaseType = phase.type || 'production';
           
@@ -1095,28 +1097,25 @@ export default function ScanJobPage() {
           const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phase.id);
           
           let isPreviousPhaseCompleted = true;
-          // For non-preparation phases, check if the previous phase in sequence is complete.
           if (phaseType !== 'preparation') {
             const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
             isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
           }
 
           const noOtherPhaseActive = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'in-progress'));
-          const noOtherPhasePaused = !activeJobOrder.phases.some(p => p.id !== phase.id && (p.status === 'paused'));
 
-          const canScanMaterial = operatorHasPermission && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
-
-          const canPerformAction = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady;
+          const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
           
-          const canStartWithScan = canPerformAction && phaseType !== 'quality' && noOtherPhaseActive && noOtherPhasePaused;
-
+          const canPerformAction = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady;
+          
+          const canStartWithScan = canPerformAction && phaseType !== 'quality' && noOtherPhaseActive;
           const canPerformQualityCheck = canPerformAction && phaseType === 'quality' && isPreviousPhaseCompleted;
-
           const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !isPreviousPhaseCompleted;
 
-          const canPausePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'in-progress';
-          const canResumePhase = operatorHasPermission && !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActive;
-          const canCompletePhase = operatorHasPermission && phaseType !== 'quality' && (phase.status === 'in-progress' || phase.status === 'paused');
+          const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
+          const canResumePhase = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActive;
+          const canCompletePhase = phaseType !== 'quality' && (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
+
 
           let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
           if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
@@ -1129,14 +1128,14 @@ export default function ScanJobPage() {
           }
           
           const workPeriodsForPhase = phase.workPeriods || [];
-          const lastWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
+          const lastActiveWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
 
           return (
-            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''} ${!operatorHasPermission && 'opacity-60 bg-muted/30'}`}>
+            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''} ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center">
                   {phaseIcon}
-                  <span className={`font-semibold ${!operatorHasPermission && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
+                  <span className={`font-semibold ${!operatorHasPermissionForDepartment && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
                 </div>
                 <div className="flex items-center space-x-2">
                    <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
@@ -1149,11 +1148,18 @@ export default function ScanJobPage() {
                 </div>
               </div>
               
-              {!operatorHasPermission && (
+              {!operatorHasPermissionForDepartment && (
                 <p className="text-xs text-amber-600 dark:text-amber-500 font-semibold mt-2">
                     Fase non di competenza del tuo reparto.
                 </p>
               )}
+              {phase.status === 'in-progress' && isPhaseOwner && (
+                <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">
+                  <UserCheck className="h-4 w-4" />
+                  Stai lavorando a questa fase.
+                </p>
+              )}
+
 
               {phase.qualityResult && (
                   <div className="mt-2">
@@ -1172,23 +1178,23 @@ export default function ScanJobPage() {
                         {phase.materialConsumption.lottoBobina && ` - Lotto: ${phase.materialConsumption.lottoBobina}`}
                     </p>
                 )}
-                {lastWorkPeriod?.start && (
-                  <p>Ultimo avvio: {format(new Date(lastWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
+                {lastActiveWorkPeriod?.start && (
+                  <p>Ultimo avvio: {format(new Date(lastActiveWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
-                {phase.status === 'paused' && lastWorkPeriod?.end && (
-                  <p>Messa in pausa il: {format(new Date(lastWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
+                {phase.status === 'paused' && lastActiveWorkPeriod?.end && (
+                  <p>Messa in pausa il: {format(new Date(lastActiveWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
                  {phase.type !== 'quality' && <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(workPeriodsForPhase)}</p>}
               </div>
               
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
-                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
+                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
                         <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
                     </Button>
                 )}
                  {canStartWithScan && (
-                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
+                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
                 )}
@@ -1208,7 +1214,7 @@ export default function ScanJobPage() {
                 {canForceStart && (
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
+                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
                                 <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
                             </Button>
                         </AlertDialogTrigger>
@@ -1229,17 +1235,17 @@ export default function ScanJobPage() {
                     </AlertDialog>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending}>
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending || !operatorHasPermission}>
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending || !operatorHasPermission}>
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
