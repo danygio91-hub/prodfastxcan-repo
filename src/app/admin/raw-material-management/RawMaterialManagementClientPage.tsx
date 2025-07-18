@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -10,8 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-import { type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
-import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial } from './actions';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal } from '@/lib/mock-data';
+import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
@@ -26,7 +27,18 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, Badge } from 'lucide-react';
+import { Badge as UiBadge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+
+type Movement = {
+  type: 'Carico' | 'Scarico';
+  date: string; // ISO String
+  description: string;
+  quantity: number; // Positive for income, negative for outcome
+  unit: string;
+  id: string; // Batch or Withdrawal ID
+};
 
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
@@ -68,6 +80,7 @@ export default function RawMaterialManagementClientPage() {
   const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
 
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
+  const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -160,10 +173,35 @@ export default function RawMaterialManagementClientPage() {
   };
 
 
-  const handleOpenHistoryDialog = (material: RawMaterial) => {
+  const handleOpenHistoryDialog = async (material: RawMaterial) => {
     setSelectedMaterial(material);
     setIsHistoryDialogOpen(true);
-  };
+
+    const withdrawals = await getMaterialWithdrawalsForMaterial(material.id);
+    const batches = material.batches || [];
+    
+    const combinedMovements: Movement[] = [
+        ...batches.map(b => ({
+            type: 'Carico' as const,
+            date: b.date,
+            description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+            quantity: b.quantity,
+            unit: material.unitOfMeasure.toUpperCase(),
+            id: b.id
+        })),
+        ...withdrawals.map(w => ({
+            type: 'Scarico' as const,
+            date: w.withdrawalDate.toISOString(),
+            description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+            quantity: -w.consumedWeight,
+            unit: 'KG',
+            id: w.id
+        }))
+    ];
+
+    combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    setMaterialMovements(combinedMovements);
+};
   
   const handleOpenDetailViewDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
@@ -468,15 +506,36 @@ export default function RawMaterialManagementClientPage() {
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
                                         <History className="mr-2 h-4 w-4" />
-                                        <span>Vedi Storico Lotti</span>
+                                        <span>Vedi Storico Movimenti</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => setMaterialToDelete(material)} className="text-destructive">
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        <span>Elimina</span>
-                                    </DropdownMenuItem>
+                                    <AlertDialogTrigger asChild>
+                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          <span>Elimina</span>
+                                      </DropdownMenuItem>
+                                    </AlertDialogTrigger>
                                 </DropdownMenuContent>
                                 </DropdownMenu>
+                                <AlertDialog>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Questa azione non può essere annullata. La materia prima
+                                                <span className="font-bold"> {material.code} </span>
+                                                e tutto il suo storico verranno eliminati.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => {
+                                              setMaterialToDelete(material);
+                                              handleDelete();
+                                            }}>Continua</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
                             </TableCell>
                         </TableRow>
                         ))
@@ -615,9 +674,9 @@ export default function RawMaterialManagementClientPage() {
         <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
             <DialogContent className="sm:max-w-4xl">
                 <DialogHeader>
-                    <DialogTitle>Storico Lotti per: {selectedMaterial?.code}</DialogTitle>
+                    <DialogTitle>Storico Movimenti per: {selectedMaterial?.code}</DialogTitle>
                     <DialogDescription>
-                        Elenco di tutti i lotti di merce ricevuti. Puoi modificare o eliminare un lotto se necessario.
+                        Elenco di tutti i carichi e scarichi registrati per questo materiale.
                     </DialogDescription>
                 </DialogHeader>
                   <ScrollArea className="max-h-[60vh]">
@@ -625,35 +684,31 @@ export default function RawMaterialManagementClientPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Data</TableHead>
-                          <TableHead>N° Lotto</TableHead>
-                          <TableHead>DDT</TableHead>
-                          <TableHead>Quantità ({(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</TableHead>
-                          <TableHead className="text-right">Azioni</TableHead>
+                          <TableHead>Tipo</TableHead>
+                          <TableHead>Descrizione</TableHead>
+                          <TableHead className="text-right">Quantità</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {selectedMaterial?.batches && selectedMaterial.batches.length > 0 ? (
-                            selectedMaterial.batches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(batch => (
-                            <TableRow key={batch.id}>
-                                <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy', { locale: it })}</TableCell>
-                                <TableCell>{batch.lotto || 'N/D'}</TableCell>
-                                <TableCell>{batch.ddt}</TableCell>
-                                <TableCell>{batch.quantity}</TableCell>
-                                <TableCell className="text-right space-x-2">
-                                  <Button variant="outline" size="icon" onClick={() => { setIsHistoryDialogOpen(false); handleOpenBatchDialog(selectedMaterial, batch); }}>
-                                    <Edit className="h-4 w-4" />
-                                    <span className="sr-only">Modifica Lotto</span>
-                                  </Button>
-                                  <Button variant="destructive" size="icon" onClick={() => setBatchToDelete({ materialId: selectedMaterial!.id, batchId: batch.id })}>
-                                    <Trash2 className="h-4 w-4" />
-                                    <span className="sr-only">Elimina Lotto</span>
-                                  </Button>
+                        {materialMovements.length > 0 ? (
+                            materialMovements.map(mov => (
+                            <TableRow key={mov.id}>
+                                <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                <TableCell>
+                                    <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
+                                      {mov.type === 'Carico' ? <ArrowUpCircle className="mr-2 h-4 w-4"/> : <ArrowDownCircle className="mr-2 h-4 w-4"/>}
+                                      {mov.type}
+                                    </UiBadge>
+                                </TableCell>
+                                <TableCell>{mov.description}</TableCell>
+                                <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
+                                  {mov.quantity.toFixed(2)} {mov.unit}
                                 </TableCell>
                             </TableRow>
                             ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={5} className="h-24 text-center">Nessuno storico lotti per questo materiale.</TableCell>
+                            <TableCell colSpan={5} className="h-24 text-center">Nessuno storico movimenti per questo materiale.</TableCell>
                           </TableRow>
                         )}
                       </TableBody>

@@ -6,8 +6,27 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal } from '@/lib/mock-data';
 import { format } from 'date-fns';
+
+// Helper to convert Firestore Timestamps to Dates in nested objects
+function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
+    }
+    if (obj.toDate && typeof obj.toDate === 'function') {
+        return obj.toDate();
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => convertTimestampsToDates(item));
+    }
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+        newObj[key] = convertTimestampsToDates(obj[key]);
+    }
+    return newObj;
+}
+
 
 // --- Schemas ---
 const rawMaterialFormSchema = z.object({
@@ -434,4 +453,12 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     
     revalidatePath('/admin/raw-material-management');
     return { success: true, message };
+}
+
+export async function getMaterialWithdrawalsForMaterial(materialId: string): Promise<MaterialWithdrawal[]> {
+  const withdrawalsRef = collection(db, "materialWithdrawals");
+  const q = query(withdrawalsRef, where("materialId", "==", materialId));
+  const snapshot = await getDocs(q);
+  const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
+  return withdrawals;
 }

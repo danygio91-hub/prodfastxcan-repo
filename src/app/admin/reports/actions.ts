@@ -1,9 +1,10 @@
 
+
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -350,15 +351,65 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
   if (ids.length === 0) {
     return { success: false, message: 'Nessun ID fornito.' };
   }
-  const batch = writeBatch(db);
-  ids.forEach(id => {
-    const docRef = doc(db, "materialWithdrawals", id);
-    batch.delete(docRef);
-  });
+  
+  try {
+    const withdrawalsRef = collection(db, "materialWithdrawals");
+    const q = query(withdrawalsRef, where("__name__", "in", ids));
+    const withdrawalsSnapshot = await getDocs(q);
+    
+    if (withdrawalsSnapshot.empty) {
+      return { success: false, message: 'Nessun prelievo valido da eliminare.' };
+    }
 
-  await batch.commit();
-  revalidatePath('/admin/reports');
-  return { success: true, message: `${ids.length} prelievi eliminati con successo.` };
+    const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal);
+
+    await runTransaction(db, async (transaction) => {
+        const materialUpdates = new Map<string, { consumedWeight: number; consumedUnits: number }>();
+        
+        for (const withdrawal of withdrawals) {
+            const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
+            update.consumedWeight += withdrawal.consumedWeight || 0;
+            if (typeof withdrawal.consumedUnits === 'number') {
+                update.consumedUnits += withdrawal.consumedUnits;
+            }
+            materialUpdates.set(withdrawal.materialId, update);
+        }
+
+        const materialIds = Array.from(materialUpdates.keys());
+        if (materialIds.length === 0) return;
+
+        const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
+        const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+        
+        for (let i = 0; i < materialDocs.length; i++) {
+            const materialDoc = materialDocs[i];
+            if (materialDoc.exists()) {
+                const materialData = materialDoc.data() as RawMaterial;
+                const updates = materialUpdates.get(materialDoc.id)!;
+                
+                const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+                const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+                transaction.update(materialDoc.ref, { 
+                    currentWeightKg: newWeight,
+                    currentStockUnits: newUnits,
+                });
+            }
+        }
+        
+        for (const withdrawalDoc of withdrawalsSnapshot.docs) {
+            transaction.delete(withdrawalDoc.ref);
+        }
+    });
+
+    revalidatePath('/admin/reports');
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: `${withdrawals.length} prelievi eliminati e stock ripristinato.` };
+  
+  } catch(error) {
+    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'eliminazione dei prelievi.";
+    return { success: false, message: errorMessage };
+  }
 }
 
 export async function deleteAllWithdrawals(): Promise<{ success: boolean; message: string }> {
@@ -369,15 +420,6 @@ export async function deleteAllWithdrawals(): Promise<{ success: boolean; messag
     if (querySnapshot.empty) {
         return { success: true, message: 'Nessun prelievo da eliminare.' };
     }
-
-    const batch = writeBatch(db);
-    let deletedCount = 0;
-    querySnapshot.docs.forEach(docSnap => {
-        batch.delete(docSnap.ref);
-        deletedCount++;
-    });
-
-    await batch.commit();
-    revalidatePath('/admin/reports');
-    return { success: true, message: `Tutte le ${deletedCount} prelievi sono stati eliminati.` };
+    const idsToDelete = querySnapshot.docs.map(doc => doc.id);
+    return await deleteSelectedWithdrawals(idsToDelete);
 }
