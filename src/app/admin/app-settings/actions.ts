@@ -113,7 +113,13 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
 
       // Read all material documents
       const materialIds = Array.from(materialUpdates.keys());
-      if (materialIds.length === 0) return;
+      if (materialIds.length === 0) {
+        // If there are no materials to update, we still need to delete the withdrawals.
+        for (const withdrawalDoc of withdrawalsSnapshot.docs) {
+          transaction.delete(withdrawalDoc.ref);
+        }
+        return;
+      }
       
       const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
       const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
