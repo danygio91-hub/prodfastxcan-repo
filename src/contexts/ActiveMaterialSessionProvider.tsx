@@ -35,7 +35,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const { operator, loading: authLoading } = useAuth();
 
   useEffect(() => {
-    const validateActiveSessions = async () => {
+    const loadActiveSessions = () => {
         if (authLoading) return;
         if (!operator) {
             setActiveSessions([]);
@@ -47,24 +47,16 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
             const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
             const storedSessions = localStorage.getItem(storageKey);
             if (storedSessions) {
+                // The session is the source of truth from the operator's browser.
+                // We no longer validate against the originator job, as it might be completed.
+                // The session must persist until manually closed by the operator.
                 const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
-                const validSessions: ActiveMaterialSessionData[] = [];
-
-                for (const session of parsedSessions) {
-                    if (session.originatorJobId) {
-                        const jobRef = doc(db, "jobOrders", session.originatorJobId);
-                        const docSnap = await getDoc(jobRef);
-                        if (docSnap.exists()) {
-                            validSessions.push(session);
-                        }
-                    }
-                }
-                setActiveSessions(validSessions);
+                setActiveSessions(parsedSessions);
             } else {
                 setActiveSessions([]);
             }
         } catch (error) {
-            console.error("Failed to load or validate active material sessions from localStorage", error);
+            console.error("Failed to load active material sessions from localStorage", error);
              if (operator) {
                 localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`);
             }
@@ -73,7 +65,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
             setIsLoading(false);
         }
     };
-    validateActiveSessions();
+    loadActiveSessions();
   }, [operator, authLoading]);
 
   const persistSessions = (sessions: ActiveMaterialSessionData[]) => {
