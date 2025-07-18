@@ -10,8 +10,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
-const ACTIVE_JOB_STORAGE_KEY = 'prodtime_tracker_active_job';
-const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_sessions';
+const ACTIVE_JOB_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_';
+const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
 const FORCE_LOGOUT_TIMESTAMP_KEY = 'force_logout_timestamp';
 
@@ -36,10 +36,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   operatorRef.current = operator;
 
   const fullLogout = useCallback(async () => {
-    const currentOperatorId = operatorRef.current?.id;
-    if (currentOperatorId && operatorRef.current?.role !== 'admin' && operatorRef.current?.role !== 'superadvisor') {
+    const currentOperator = operatorRef.current;
+    if (currentOperator?.id && currentOperator?.role !== 'admin' && currentOperator?.role !== 'superadvisor') {
       try {
-        const operatorDocRef = doc(db, "operators", currentOperatorId);
+        const operatorDocRef = doc(db, "operators", currentOperator.id);
         await updateDoc(operatorDocRef, { stato: 'inattivo' });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
@@ -48,9 +48,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
-    // Clear all app-related local storage
-    localStorage.removeItem(ACTIVE_JOB_STORAGE_KEY);
-    localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+    // Clear all app-related local storage for this specific operator
+    if (currentOperator?.id) {
+        localStorage.removeItem(`${ACTIVE_JOB_STORAGE_KEY_PREFIX}${currentOperator.id}`);
+        localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
+    }
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
     
     setUser(null);

@@ -5,8 +5,9 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import { db } from '@/lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import type { ActiveMaterialSessionData, MaterialSessionCategory, RawMaterialType } from '@/lib/mock-data';
+import { useAuth } from '@/components/auth/AuthProvider';
 
-const ACTIVE_MATERIAL_SESSION_KEY = 'prodtime_tracker_active_material_sessions'; // Pluralized
+const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 
 interface ActiveMaterialSessionContextType {
   activeSessions: ActiveMaterialSessionData[];
@@ -31,11 +32,20 @@ function getMaterialCategory(type: RawMaterialType): MaterialSessionCategory {
 export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNode }) => {
   const [activeSessions, setActiveSessions] = useState<ActiveMaterialSessionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { operator, loading: authLoading } = useAuth();
 
   useEffect(() => {
     const validateActiveSessions = async () => {
+        if (authLoading) return;
+        if (!operator) {
+            setActiveSessions([]);
+            setIsLoading(false);
+            return;
+        }
+
         try {
-            const storedSessions = localStorage.getItem(ACTIVE_MATERIAL_SESSION_KEY);
+            const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
+            const storedSessions = localStorage.getItem(storageKey);
             if (storedSessions) {
                 const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
                 const validSessions: ActiveMaterialSessionData[] = [];
@@ -50,24 +60,30 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
                     }
                 }
                 setActiveSessions(validSessions);
+            } else {
+                setActiveSessions([]);
             }
         } catch (error) {
             console.error("Failed to load or validate active material sessions from localStorage", error);
-            localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+             if (operator) {
+                localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`);
+            }
             setActiveSessions([]);
         } finally {
             setIsLoading(false);
         }
     };
     validateActiveSessions();
-  }, []);
+  }, [operator, authLoading]);
 
   const persistSessions = (sessions: ActiveMaterialSessionData[]) => {
+    if (!operator) return;
+    const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
     try {
         if (sessions.length > 0) {
-            localStorage.setItem(ACTIVE_MATERIAL_SESSION_KEY, JSON.stringify(sessions));
+            localStorage.setItem(storageKey, JSON.stringify(sessions));
         } else {
-            localStorage.removeItem(ACTIVE_MATERIAL_SESSION_KEY);
+            localStorage.removeItem(storageKey);
         }
     } catch (error) {
         console.error("Failed to save active material sessions to localStorage", error);
@@ -89,7 +105,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, []);
+  }, [operator]);
 
   const addJobToSession = useCallback((job: { jobId: string; jobOrderPF: string }) => {
     setActiveSessions(prevSessions => {
@@ -107,7 +123,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, []);
+  }, [operator]);
 
   const closeSession = useCallback((materialId: string) => {
     setActiveSessions(prevSessions => {
@@ -115,7 +131,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, []);
+  }, [operator]);
 
   const getSessionForType = useCallback((type: RawMaterialType): ActiveMaterialSessionData | undefined => {
     const category = getMaterialCategory(type);
