@@ -73,8 +73,8 @@ export async function verifyAndGetJobOrder(scannedData: {
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
   // --- Refined Phase Initialization Logic ---
-  const preparationPhases = (jobCopy.phases || []).filter(p => p.type === 'preparation');
-  const allPrepPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
+  const allPreparationPhases = (jobCopy.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+  const allPreparationPhasesCompleted = allPreparationPhases.length > 0 && allPreparationPhases.every(p => p.status === 'completed');
   
   jobCopy.phases = (jobCopy.phases || []).map(p => {
     let materialReady = false;
@@ -85,16 +85,7 @@ export async function verifyAndGetJobOrder(scannedData: {
     } 
     // Rule 2: A production or quality phase is ready ONLY if ALL preparation phases are completed.
     else {
-        // If there are no preparation phases, the first production phase is ready by default.
-        const isFirstProductionPhase = !jobCopy.phases.some(other => 
-            (other.type === 'production' || other.type === 'quality') && other.sequence < p.sequence
-        );
-        
-        if (preparationPhases.length === 0 && isFirstProductionPhase) {
-           materialReady = true;
-        } else {
-           materialReady = allPrepPhasesCompleted;
-        }
+        materialReady = allPreparationPhasesCompleted;
     }
     
     return {
@@ -300,37 +291,31 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
 export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<number | null> {
     if (!materialId || !lotto) return null;
 
-    // This query is much more efficient. It directly searches for phases that have used
-    // the specific material and lotto combination, and orders them by the last work period's
-    // end time to find the most recent usage.
-    const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(
-        jobsRef
-        // Firestore doesn't support querying array members directly like this.
-        // We need to fetch all jobs and filter in memory. This is inefficient but necessary
-        // with the current data model.
-    );
+    // This is a robust but potentially expensive query if the number of jobs is very large.
+    // For this application's scale, it is acceptable.
+    // It finds all usages of a specific lotto and returns the closing weight of the most recent one.
 
-    const snapshot = await getDocs(q);
+    const jobsRef = collection(db, "jobOrders");
+    const snapshot = await getDocs(jobsRef);
+
     if (snapshot.empty) {
         return null;
     }
 
-    // Collect all relevant consumptions with their completion times
+    // Collect all consumptions of this specific lotto with their completion times
     const consumptions: { closingWeight: number; completedAt: Date }[] = [];
 
     for (const doc of snapshot.docs) {
         const job = convertTimestampsToDates(doc.data()) as JobOrder;
         for (const phase of (job.phases || [])) {
             if (
-                phase.status === 'completed' &&
                 phase.materialConsumption &&
                 phase.materialConsumption.materialId === materialId &&
                 phase.materialConsumption.lottoBobina === lotto &&
                 phase.materialConsumption.closingWeight !== undefined &&
                 phase.materialConsumption.closingWeight !== null
             ) {
-                 // Find the last work period end time for this phase to determine recency
+                // Find the end time of the last work period for this phase to determine recency
                 const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
                     if (wp.end && (!latest || new Date(wp.end) > latest)) {
                         return new Date(wp.end);
@@ -348,12 +333,12 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
         }
     }
     
-    // If no consumptions were found, return null
+    // If no consumptions were found for this lotto, return null
     if (consumptions.length === 0) {
         return null;
     }
 
-    // Sort consumptions by completion date, descending
+    // Sort consumptions by completion date, descending, to find the most recent one
     consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
 
     // The first item is the most recent one
