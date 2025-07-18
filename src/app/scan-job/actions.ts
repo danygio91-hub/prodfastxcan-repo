@@ -78,21 +78,33 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   jobCopy.phases = (jobCopy.phases || []).map(p => {
     let materialReady = false;
-    // A prep phase is ready if it doesn't need a material scan.
+    
     if (p.type === 'preparation') {
-        materialReady = !p.requiresMaterialScan;
+        // A prep phase is ready ONLY if it doesn't need a material scan OR if it already has a material consumption record.
+        materialReady = !p.requiresMaterialScan || !!p.materialConsumption;
     } 
-    // A production phase is ready if it's the first one and no preceding prep phase requires a scan.
-    else {
+    else { // For 'production' or 'quality' phases
+        // A prod/quality phase is ready if it's the first one AND no prep phase required a scan in the first place.
+        const allPrepPhasesCompleted = preparationPhases.every(prep => prep.status === 'completed');
+        
+        // This is complex. Let's simplify. The logic to unlock prod phase is now when all prep phases are completed.
+        // We will handle that in the `handleCompletePhase` and `handleCompletePreparation` functions.
+        // For now, we only set the initial state.
         const isFirstProductionPhase = !jobCopy.phases.some(other => 
             (other.type === 'production' || other.type === 'quality') && other.sequence < p.sequence
         );
-        materialReady = isFirstProductionPhase && !hasPrepPhaseRequiringScan;
+        
+        // A prod phase is ready at the start ONLY if there are no prep phases at all.
+        if (isFirstProductionPhase && preparationPhases.length === 0) {
+           materialReady = true;
+        } else {
+           materialReady = false;
+        }
     }
     
     return {
       ...p,
-      materialReady: p.materialReady || materialReady, // Preserve existing readiness
+      materialReady: p.materialReady || materialReady, // Preserve existing readiness from DB
       workPeriods: p.workPeriods || [], 
       workstationScannedAndVerified: p.workstationScannedAndVerified || false,
     };
@@ -351,5 +363,6 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     // The first item is the most recent one
     return consumptions[0].closingWeight;
 }
+
 
 
