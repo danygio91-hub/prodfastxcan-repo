@@ -102,10 +102,10 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
       for (const withdrawal of withdrawals) {
         const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
         
-        update.consumedWeight += withdrawal.consumedWeight || 0;
-        // Safely access consumedUnits
-        if (typeof withdrawal.consumedUnits === 'number') {
-          update.consumedUnits += withdrawal.consumedUnits;
+        update.consumedWeight += (withdrawal.consumedWeight as number) || 0;
+        
+        if (typeof (withdrawal as any).consumedUnits === 'number') {
+            update.consumedUnits += (withdrawal as any).consumedUnits;
         }
 
         materialUpdates.set(withdrawal.materialId, update);
@@ -126,7 +126,12 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
           const updates = materialUpdates.get(materialDoc.id)!;
 
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
-          const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+          let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+          // If the material is measured in KG, its unit stock is its weight stock.
+          if (materialData.unitOfMeasure === 'kg') {
+            newUnits = newWeight;
+          }
           
           transaction.update(materialDoc.ref, { 
             currentWeightKg: newWeight,
