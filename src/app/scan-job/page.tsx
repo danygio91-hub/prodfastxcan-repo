@@ -367,6 +367,12 @@ export default function ScanJobPage() {
       phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
 
+      // Unlock next phase
+      const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
+      if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+          nextPhaseInJob.materialReady = true;
+      }
+
       handleUpdateAndPersistJob(jobToUpdate);
       
       toast({
@@ -413,6 +419,14 @@ export default function ScanJobPage() {
     phaseToStart.status = 'in-progress';
     phaseToStart.workstationScannedAndVerified = true; // Forced start implies verification
     phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+    
+    // Unlock next phase
+    const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
+    const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
+    const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
+    if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+        nextPhaseInJob.materialReady = true;
+    }
 
     handleUpdateAndPersistJob(jobToUpdate);
     
@@ -494,7 +508,7 @@ export default function ScanJobPage() {
       const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
       const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToComplete.id);
       
-      // If a production phase is completed, unlock the next one
+      // If a production phase is completed, unlock the next one (redundant now but safe)
       if (phaseToComplete.type !== 'preparation') {
           const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
           if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
@@ -1531,6 +1545,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
