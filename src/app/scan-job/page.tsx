@@ -489,13 +489,14 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
+    // Check if ALL preparation phases are now completed to unlock the first production phase
     const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
     const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
 
     if (allPreparationPhasesCompleted) {
         const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
         const firstProductionPhase = sortedPhases.find((p: JobPhase) => (p.type || 'production') === 'production');
-
+        
         if (firstProductionPhase) {
             firstProductionPhase.materialReady = true;
         }
