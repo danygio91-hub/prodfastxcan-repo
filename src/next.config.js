@@ -9,11 +9,10 @@ const withPWA = require('next-pwa')({
 });
 
 const nextConfig = {
+  /* config options here */
   // This allows the Next.js dev server to accept requests from the
   // Firebase Studio environment.
-  experimental: {
-    allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
-  },
+  allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
   images: {
     remotePatterns: [
       {
