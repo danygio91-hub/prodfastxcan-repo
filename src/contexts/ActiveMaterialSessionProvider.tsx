@@ -32,43 +32,41 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
+  // Effect to load/clear sessions based on authentication state
   useEffect(() => {
-    // This effect is now solely responsible for loading sessions from localStorage
-    // when the authenticated operator changes.
-    const loadActiveSessions = () => {
-        if (authLoading) return;
-        
-        if (operator?.id) {
-            try {
-                const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-                const storedSessions = localStorage.getItem(storageKey);
-                if (storedSessions) {
-                    const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
-                    setActiveSessions(parsedSessions);
-                } else {
-                    // If nothing is in storage for this user, ensure the state is empty.
-                    setActiveSessions([]);
-                }
-            } catch (error) {
-                console.error("Failed to load active material sessions from localStorage", error);
-                if (operator?.id) {
-                    localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`);
-                }
-                setActiveSessions([]);
-            } finally {
-                setIsLoading(false);
-            }
+    // Wait until authentication status is resolved
+    if (authLoading) {
+      return;
+    }
+
+    if (operator?.id) {
+      // Operator is logged in, load their sessions
+      setIsLoading(true);
+      try {
+        const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
+        const storedSessions = localStorage.getItem(storageKey);
+        if (storedSessions) {
+          const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
+          setActiveSessions(parsedSessions);
         } else {
-            // No operator logged in, clear sessions and finish loading.
-            setActiveSessions([]);
-            setIsLoading(false);
+          setActiveSessions([]); // No sessions found for this operator
         }
-    };
-    loadActiveSessions();
+      } catch (error) {
+        console.error("Failed to load material sessions from localStorage:", error);
+        setActiveSessions([]); // Clear state on error
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // No operator is logged in, clear all sessions
+      setActiveSessions([]);
+      setIsLoading(false);
+    }
   }, [operator, authLoading]);
 
-  const persistSessions = (sessions: ActiveMaterialSessionData[]) => {
-    if (!operator) return;
+
+  const persistSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
+    if (!operator?.id) return;
     const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
     try {
         if (sessions.length > 0) {
@@ -79,7 +77,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     } catch (error) {
         console.error("Failed to save active material sessions to localStorage", error);
     }
-  }
+  }, [operator]);
 
   const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
     const category = getMaterialCategory(type);
@@ -87,7 +85,6 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     setActiveSessions(prevSessions => {
         const categoryExists = prevSessions.some(s => s.category === category);
         if (categoryExists) {
-            // This should be caught earlier in the UI, but as a safeguard:
             throw new Error(`Una sessione per la categoria '${category}' è già attiva.`);
         }
         
@@ -96,7 +93,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, [operator]);
+  }, [persistSessions]);
 
   const addJobToSession = useCallback((job: { jobId: string; jobOrderPF: string }) => {
     setActiveSessions(prevSessions => {
@@ -114,7 +111,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, [operator]);
+  }, [persistSessions]);
 
   const closeSession = useCallback((materialId: string) => {
     setActiveSessions(prevSessions => {
@@ -122,7 +119,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, [operator]);
+  }, [persistSessions]);
 
   const getSessionForType = useCallback((type: RawMaterialType): ActiveMaterialSessionData | undefined => {
     const category = getMaterialCategory(type);
