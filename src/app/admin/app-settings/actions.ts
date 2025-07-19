@@ -131,7 +131,7 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
           const materialData = materialDoc.data() as RawMaterial;
           const updates = materialUpdates.get(materialDoc.id)!;
 
-          const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+          let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
 
           // If the material is measured in KG, its unit stock is its weight stock.
