@@ -32,36 +32,34 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
-  // Effect to load/clear sessions based on authentication state
+  // This effect handles loading sessions from localStorage when an operator logs in,
+  // and clearing them when they log out.
   useEffect(() => {
-    // Wait until authentication status is resolved
     if (authLoading) {
+      setIsLoading(true);
       return;
     }
 
     if (operator?.id) {
-      // Operator is logged in, load their sessions
-      setIsLoading(true);
+      // An operator is present, load their sessions.
       try {
         const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
         const storedSessions = localStorage.getItem(storageKey);
         if (storedSessions) {
-          const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
-          setActiveSessions(parsedSessions);
+          setActiveSessions(JSON.parse(storedSessions));
         } else {
-          setActiveSessions([]); // No sessions found for this operator
+          setActiveSessions([]); // No saved sessions for this user.
         }
       } catch (error) {
         console.error("Failed to load material sessions from localStorage:", error);
-        setActiveSessions([]); // Clear state on error
-      } finally {
-        setIsLoading(false);
+        setActiveSessions([]); // Reset on error
       }
     } else {
-      // No operator is logged in, clear all sessions
+      // No operator is logged in, ensure sessions are cleared.
       setActiveSessions([]);
-      setIsLoading(false);
     }
+    
+    setIsLoading(false);
   }, [operator, authLoading]);
 
 
