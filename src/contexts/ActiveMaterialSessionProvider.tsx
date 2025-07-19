@@ -33,33 +33,34 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const { operator, loading: authLoading } = useAuth();
 
   useEffect(() => {
+    // This effect is now solely responsible for loading sessions from localStorage
+    // when the authenticated operator changes.
     const loadActiveSessions = () => {
         if (authLoading) return;
-        if (!operator) {
-            setActiveSessions([]);
-            setIsLoading(false);
-            return;
-        }
-
-        try {
-            const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-            const storedSessions = localStorage.getItem(storageKey);
-            if (storedSessions) {
-                // A session should persist until manually closed by the operator.
-                // We no longer validate against the originator job's status, as it might
-                // have been completed by another operator while this session needed to remain active.
-                const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
-                setActiveSessions(parsedSessions);
-            } else {
+        
+        if (operator?.id) {
+            try {
+                const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
+                const storedSessions = localStorage.getItem(storageKey);
+                if (storedSessions) {
+                    const parsedSessions: ActiveMaterialSessionData[] = JSON.parse(storedSessions);
+                    setActiveSessions(parsedSessions);
+                } else {
+                    // If nothing is in storage for this user, ensure the state is empty.
+                    setActiveSessions([]);
+                }
+            } catch (error) {
+                console.error("Failed to load active material sessions from localStorage", error);
+                if (operator?.id) {
+                    localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`);
+                }
                 setActiveSessions([]);
+            } finally {
+                setIsLoading(false);
             }
-        } catch (error) {
-            console.error("Failed to load active material sessions from localStorage", error);
-             if (operator) {
-                localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`);
-            }
+        } else {
+            // No operator logged in, clear sessions and finish loading.
             setActiveSessions([]);
-        } finally {
             setIsLoading(false);
         }
     };
