@@ -101,7 +101,7 @@ export default function ScanJobPage() {
   const { operator } = useAuth();
   const { activeJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
-  const [step, setStep] = useState<'initial' | 'processing' | 'finished' | 'loading'>('loading');
+  const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -110,6 +110,8 @@ export default function ScanJobPage() {
   const phaseScanVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
   
@@ -935,6 +937,32 @@ export default function ScanJobPage() {
     )
   }
 
+  const renderInitialView = () => (
+     <Card>
+        <CardHeader>
+            <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" /> Scansione Commessa</CardTitle>
+            <CardDescription>Avvia la scansione o inserisci un codice per iniziare una lavorazione.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+            {cameraError && (
+                <Alert variant="destructive" className="mb-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Errore Fotocamera</AlertTitle>
+                    <AlertDescription>{cameraError}</AlertDescription>
+                </Alert>
+            )}
+            <Button onClick={() => setStep('scanning')} className="w-full" size="lg">
+                <QrCode className="mr-2 h-5 w-5" />
+                Avvia Scansione
+            </Button>
+            <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
+                <Keyboard className="mr-2 h-5 w-5" />
+                Inserisci Codice Manualmente
+            </Button>
+        </CardContent>
+    </Card>
+  );
+
   const renderScanArea = () => (
     <Card>
       <CardHeader>
@@ -1492,8 +1520,38 @@ export default function ScanJobPage() {
           <OperatorNavMenu />
           
             <Dialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
-                {step === 'initial' && <div className="mt-8">{renderScanArea()}</div>}
+                {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
                 {step === 'scanning' && renderScanArea()}
+                 {step === 'manual_input' && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Inserimento Manuale</CardTitle>
+                                <CardDescription>Digita il codice della commessa (Ordine PF) da avviare.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="relative">
+                                    <Label htmlFor="manualCode">Ordine PF</Label>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <Input
+                                            id="manualCode"
+                                            value={manualCode}
+                                            onChange={(e) => setManualCode(e.target.value)}
+                                            placeholder="Es. Comm-123/24"
+                                            autoFocus
+                                            autoComplete="off"
+                                        />
+                                        <Button onClick={() => handleScannedData(manualCode)} disabled={!manualCode || isSearching}>
+                                            {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                            <span className="sr-only">Cerca</span>
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardContent>
+                            <CardFooter className="flex-col gap-4">
+                                <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
+                            </CardFooter>
+                        </Card>
+                    )}
 
                 {step === 'processing' && activeJob && (
                   <>
