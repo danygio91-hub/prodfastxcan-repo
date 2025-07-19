@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useTransition } from 'react';
@@ -10,8 +11,6 @@ import { useToast } from '@/hooks/use-toast';
 import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
 import { getWorkCycles, saveWorkCycle, deleteWorkCycle, getWorkPhaseTemplates, deleteSelectedWorkCycles } from './actions';
 
-import AdminAuthGuard from '@/components/AdminAuthGuard';
-import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,9 +33,10 @@ const workCycleSchema = z.object({
 
 type WorkCycleFormValues = z.infer<typeof workCycleSchema>;
 
-export default function AdminWorkCycleManagementPage() {
+export default function WorkCycleManagementClientPage() {
   const [cycles, setCycles] = useState<WorkCycle[]>([]);
   const [phaseTemplates, setPhaseTemplates] = useState<WorkPhaseTemplate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCycle, setEditingCycle] = useState<WorkCycle | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -49,8 +49,10 @@ export default function AdminWorkCycleManagementPage() {
   });
 
   const fetchCycles = async () => {
+    setIsLoading(true);
     const data = await getWorkCycles();
     setCycles(data);
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -135,10 +137,19 @@ export default function AdminWorkCycleManagementPage() {
   const handleSelectRow = (id: string) => {
     setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
   };
+  
+  const renderLoading = () => (
+      <TableRow>
+          <TableCell colSpan={5} className="h-24 text-center">
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Caricamento cicli...</span>
+              </div>
+          </TableCell>
+      </TableRow>
+  );
 
   return (
-    <AdminAuthGuard>
-      <AppShell>
         <div className="space-y-6">
           <AdminNavMenu />
           <div className="flex justify-between items-center">
@@ -174,7 +185,7 @@ export default function AdminWorkCycleManagementPage() {
                         </AlertDialogContent>
                       </AlertDialog>
                 )}
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
                     <PlusCircle className="mr-2 h-4 w-4" />
                     Nuovo Ciclo
                 </Button>
@@ -193,10 +204,11 @@ export default function AdminWorkCycleManagementPage() {
                     <TableRow>
                        <TableHead padding="checkbox">
                          <Checkbox
-                            checked={selectedRows.length > 0 && selectedRows.length === cycles.length}
+                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === cycles.length}
                             onCheckedChange={handleSelectAll}
                             indeterminate={selectedRows.length > 0 && selectedRows.length < cycles.length}
                             aria-label="Seleziona tutti"
+                            disabled={isLoading}
                           />
                       </TableHead>
                       <TableHead>Nome Ciclo</TableHead>
@@ -206,7 +218,7 @@ export default function AdminWorkCycleManagementPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {cycles.length > 0 ? (
+                    {isLoading ? renderLoading() : cycles.length > 0 ? (
                       cycles.map((cycle) => (
                         <TableRow key={cycle.id} data-state={selectedRows.includes(cycle.id) && "selected"}>
                            <TableCell padding="checkbox">
@@ -257,7 +269,7 @@ export default function AdminWorkCycleManagementPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
+        
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
@@ -330,7 +342,6 @@ export default function AdminWorkCycleManagementPage() {
             </Form>
           </DialogContent>
         </Dialog>
-      </AppShell>
-    </AdminAuthGuard>
+      </div>
   );
 }

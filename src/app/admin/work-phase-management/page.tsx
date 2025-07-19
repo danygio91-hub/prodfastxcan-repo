@@ -12,8 +12,6 @@ import * as XLSX from 'xlsx';
 import { type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
 
-import AdminAuthGuard from '@/components/AdminAuthGuard';
-import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -40,8 +38,9 @@ const workPhaseSchema = z.object({
 
 type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
 
-export default function AdminWorkPhaseManagementPage() {
+export default function WorkPhaseManagementClientPage() {
   const [phases, setPhases] = useState<WorkPhaseTemplate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
@@ -56,9 +55,11 @@ export default function AdminWorkPhaseManagementPage() {
   });
   
   const fetchPhases = async () => {
+    setIsLoading(true);
     const data = await getWorkPhaseTemplates();
     setPhases(data);
     setIsOrderChanged(false); // Reset change tracker
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -191,10 +192,19 @@ export default function AdminWorkPhaseManagementPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Fasi Lavorazione");
     XLSX.writeFile(wb, "fasi_lavorazione.xlsx");
   };
+  
+  const renderLoading = () => (
+      <TableRow>
+          <TableCell colSpan={8} className="h-24 text-center">
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Caricamento fasi...</span>
+              </div>
+          </TableCell>
+      </TableRow>
+  );
 
   return (
-    <AdminAuthGuard>
-      <AppShell>
         <div className="space-y-6">
           <AdminNavMenu />
           <div className="flex justify-between items-center">
@@ -208,11 +218,11 @@ export default function AdminWorkPhaseManagementPage() {
                 </p>
             </header>
             <div className="flex items-center gap-2">
-                <Button onClick={handleExport} variant="outline" disabled={phases.length === 0}>
+                <Button onClick={handleExport} variant="outline" disabled={isLoading || phases.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
                     Esporta
                 </Button>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Aggiungi
                 </Button>
@@ -265,10 +275,11 @@ export default function AdminWorkPhaseManagementPage() {
                     <TableRow>
                       <TableHead padding="checkbox">
                          <Checkbox
-                            checked={selectedRows.length > 0 && selectedRows.length === phases.length}
+                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === phases.length}
                             onCheckedChange={handleSelectAll}
                             indeterminate={selectedRows.length > 0 && selectedRows.length < phases.length}
                             aria-label="Seleziona tutte"
+                            disabled={isLoading}
                           />
                       </TableHead>
                       <TableHead className="w-[100px]">Sequenza</TableHead>
@@ -281,7 +292,7 @@ export default function AdminWorkPhaseManagementPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {phases.length > 0 ? (
+                    {isLoading ? renderLoading() : phases.length > 0 ? (
                       phases.map((phase) => (
                         <TableRow key={phase.id} data-state={selectedRows.includes(phase.id) && "selected"}>
                           <TableCell padding="checkbox">
@@ -352,7 +363,7 @@ export default function AdminWorkPhaseManagementPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
+        
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
@@ -483,7 +494,6 @@ export default function AdminWorkPhaseManagementPage() {
             </Form>
           </DialogContent>
         </Dialog>
-      </AppShell>
-    </AdminAuthGuard>
+      </div>
   );
 }

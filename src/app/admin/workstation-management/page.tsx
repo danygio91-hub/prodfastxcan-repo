@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -11,8 +12,6 @@ import * as XLSX from 'xlsx';
 import { type Workstation, type Reparto, reparti } from '@/lib/mock-data';
 import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartmentMap } from './actions';
 
-import AdminAuthGuard from '@/components/AdminAuthGuard';
-import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +21,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Computer, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
+import { Computer, PlusCircle, Edit, Trash2, Download, Loader2 } from 'lucide-react';
 
 const workstationSchema = z.object({
   id: z.string().optional(),
@@ -32,8 +31,9 @@ const workstationSchema = z.object({
 
 type WorkstationFormValues = z.infer<typeof workstationSchema>;
 
-export default function AdminWorkstationManagementPage() {
+export default function WorkstationManagementClientPage() {
   const [workstations, setWorkstations] = useState<Workstation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingWorkstation, setEditingWorkstation] = useState<Workstation | null>(null);
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
@@ -45,8 +45,10 @@ export default function AdminWorkstationManagementPage() {
   });
 
   const fetchWorkstations = async () => {
+    setIsLoading(true);
     const data = await getWorkstations();
     setWorkstations(data);
+    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -111,9 +113,18 @@ export default function AdminWorkstationManagementPage() {
     XLSX.writeFile(wb, "postazioni_lavoro.xlsx");
   };
 
+  const renderLoading = () => (
+      <TableRow>
+          <TableCell colSpan={3} className="h-24 text-center">
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Caricamento postazioni...</span>
+              </div>
+          </TableCell>
+      </TableRow>
+  );
+
   return (
-    <AdminAuthGuard>
-      <AppShell>
         <div className="space-y-6">
           <AdminNavMenu />
           <div className="flex justify-between items-center">
@@ -127,11 +138,11 @@ export default function AdminWorkstationManagementPage() {
                 </p>
             </header>
             <div className="flex items-center gap-2">
-                <Button onClick={handleExport} variant="outline" disabled={workstations.length === 0}>
+                <Button onClick={handleExport} variant="outline" disabled={isLoading || workstations.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
                     Esporta Postazioni
                 </Button>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Aggiungi Postazione
                 </Button>
@@ -154,7 +165,7 @@ export default function AdminWorkstationManagementPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {workstations.length > 0 ? (
+                    {isLoading ? renderLoading() : workstations.length > 0 ? (
                       workstations.map((ws) => (
                         <TableRow key={ws.id}>
                           <TableCell className="font-medium">{ws.name}</TableCell>
@@ -195,8 +206,7 @@ export default function AdminWorkstationManagementPage() {
               </div>
             </CardContent>
           </Card>
-        </div>
-
+        
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
             <DialogHeader>
@@ -238,7 +248,6 @@ export default function AdminWorkstationManagementPage() {
             </Form>
           </DialogContent>
         </Dialog>
-      </AppShell>
-    </AdminAuthGuard>
+      </div>
   );
 }
