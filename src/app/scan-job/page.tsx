@@ -260,7 +260,9 @@ export default function ScanJobPage() {
             const video = videoRef.current;
             if (video) {
                 video.srcObject = stream;
-                await video.play();
+                video.onloadedmetadata = () => {
+                   video.play().catch(e => console.error("Video play failed:", e));
+                };
             }
 
             const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
@@ -491,7 +493,9 @@ export default function ScanJobPage() {
     const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
 
     if (allPreparationPhasesCompleted) {
-        const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type || 'production') === 'production' && p.status === 'pending');
+        const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+        const firstProductionPhase = sortedPhases.find((p: JobPhase) => (p.type || 'production') === 'production');
+
         if (firstProductionPhase) {
             firstProductionPhase.materialReady = true;
         }
