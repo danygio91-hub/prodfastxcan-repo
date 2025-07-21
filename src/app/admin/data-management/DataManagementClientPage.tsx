@@ -590,24 +590,20 @@ export default function DataManagementClientPage() {
                             </TableCell>
                             <TableCell>{job.department}</TableCell>
                             <TableCell>
-                                {job.workCycleId ? (
-                                    workCyclesMap.get(job.workCycleId)
-                                ) : (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="link" className="p-0 h-auto text-destructive hover:underline">
-                                                N/D
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent>
-                                            {workCycles.map((cycle) => (
-                                                <DropdownMenuItem key={cycle.id} onSelect={() => handleAssignCycle(job.id, cycle.id)}>
-                                                    {cycle.name}
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                )}
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="link" className={cn("p-0 h-auto hover:underline", !job.workCycleId && "text-destructive")}>
+                                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        {workCycles.map((cycle) => (
+                                            <DropdownMenuItem key={cycle.id} onSelect={() => handleAssignCycle(job.id, cycle.id)}>
+                                                {cycle.name}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
                             </TableCell>
                             <TableCell>
                                 <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
@@ -829,3 +825,5 @@ export default function DataManagementClientPage() {
       </div>
   );
 }
+
+    
