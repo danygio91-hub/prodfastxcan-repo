@@ -31,30 +31,32 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
+  // This effect loads sessions from localStorage when an operator logs in.
+  // It's the key to making sessions persistent across logins.
   useEffect(() => {
-    setIsLoading(true);
-    if (!authLoading) {
-      if (operator?.id) {
+    if (authLoading) {
+        setIsLoading(true);
+        return;
+    }
+    if (operator?.id) {
         try {
-          const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-          const storedSessions = localStorage.getItem(storageKey);
-          if (storedSessions) {
-            setActiveSessions(JSON.parse(storedSessions));
-          } else {
-            setActiveSessions([]); 
-          }
+            const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
+            const storedSessions = localStorage.getItem(storageKey);
+            if (storedSessions) {
+                setActiveSessions(JSON.parse(storedSessions));
+            } else {
+                setActiveSessions([]);
+            }
         } catch (error) {
-          console.error("Failed to load material sessions from localStorage:", error);
-          setActiveSessions([]);
+            console.error("Failed to load material sessions from localStorage:", error);
+            setActiveSessions([]);
         }
-      } else {
-        // Clear sessions if no operator is logged in
+    } else {
+        // If there's no operator, clear the sessions.
         setActiveSessions([]);
-      }
     }
     setIsLoading(false);
   }, [operator, authLoading]);
-
 
   const persistSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
     if (!operator?.id) return;
