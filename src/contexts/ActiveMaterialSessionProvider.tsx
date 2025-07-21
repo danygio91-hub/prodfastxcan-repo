@@ -22,7 +22,6 @@ function getMaterialCategory(type: RawMaterialType): MaterialSessionCategory {
   if (type === 'BOB' || type === 'PF3V0') return 'TRECCIA';
   if (type === 'TUBI') return 'TUBI';
   if (type === 'GUAINA') return 'GUAINA';
-  // Fallback for safety, though should ideally not be reached with proper checks
   console.warn(`Unknown material type received for session category: ${type}`);
   return 'TRECCIA';
 }
@@ -32,33 +31,27 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
-  // This effect handles loading sessions from localStorage when an operator logs in,
-  // and clearing them when they log out.
   useEffect(() => {
-    if (authLoading) {
-      setIsLoading(true);
-      return;
-    }
-
-    if (operator?.id) {
-      // An operator is present, load their sessions.
-      try {
-        const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-        const storedSessions = localStorage.getItem(storageKey);
-        if (storedSessions) {
-          setActiveSessions(JSON.parse(storedSessions));
-        } else {
-          setActiveSessions([]); // No saved sessions for this user.
+    setIsLoading(true);
+    if (!authLoading) {
+      if (operator?.id) {
+        try {
+          const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
+          const storedSessions = localStorage.getItem(storageKey);
+          if (storedSessions) {
+            setActiveSessions(JSON.parse(storedSessions));
+          } else {
+            setActiveSessions([]); 
+          }
+        } catch (error) {
+          console.error("Failed to load material sessions from localStorage:", error);
+          setActiveSessions([]);
         }
-      } catch (error) {
-        console.error("Failed to load material sessions from localStorage:", error);
-        setActiveSessions([]); // Reset on error
+      } else {
+        // Clear sessions if no operator is logged in
+        setActiveSessions([]);
       }
-    } else {
-      // No operator is logged in, ensure sessions are cleared.
-      setActiveSessions([]);
     }
-    
     setIsLoading(false);
   }, [operator, authLoading]);
 

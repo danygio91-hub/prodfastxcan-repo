@@ -1070,30 +1070,30 @@ export default function ScanJobPage() {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <Label htmlFor="ordinePF" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine PF</Label>
-                    <p id="ordinePF" className="mt-1 p-2 bg-input rounded-md text-foreground font-medium">{job.ordinePF}</p>
+                    <Label htmlFor="ordinePF" className="text-sm text-muted-foreground">Ordine PF</Label>
+                    <p id="ordinePF" className="font-medium">{job.ordinePF}</p>
                 </div>
                 <div>
-                    <Label htmlFor="ordineNrEst" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />Ordine Nr Est</Label>
-                    <p id="ordineNrEst" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.numeroODL}</p>
-                </div>
-                <div>
-                    <Label htmlFor="numeroODLInterno" className="flex items-center text-sm text-muted-foreground"><ClipboardList className="mr-2 h-4 w-4 text-primary" />N° ODL</Label>
-                    <p id="numeroODLInterno" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.numeroODLInterno || 'N/D'}</p>
-                </div>
-                <div>
-                    <Label htmlFor="dataConsegnaFinale" className="flex items-center text-sm text-muted-foreground"><CalendarDays className="mr-2 h-4 w-4 text-primary" />Data Consegna</Label>
-                    <p id="dataConsegnaFinale" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.dataConsegnaFinale || 'N/D'}</p>
-                </div>
-                <div>
-                    <Label htmlFor="codiceArticolo" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Codice Articolo</Label>
-                    <p id="codiceArticolo" className="mt-1 p-2 bg-input rounded-md text-foreground">{job.details}</p>
+                    <Label htmlFor="ordineNrEst" className="text-sm text-muted-foreground">Ordine Nr Est</Label>
+                    <p id="ordineNrEst">{job.numeroODL}</p>
                 </div>
                  <div>
-                    <Label htmlFor="qta" className="flex items-center text-sm text-muted-foreground"><Package className="mr-2 h-4 w-4 text-primary" />Qta</Label>
-                    <p id="qta" className="mt-1 p-2 bg-input rounded-md text-foreground font-bold">{job.qta}</p>
+                    <Label htmlFor="numeroODLInterno" className="text-sm text-muted-foreground">N° ODL</Label>
+                    <p id="numeroODLInterno">{job.numeroODLInterno || 'N/D'}</p>
+                </div>
+                <div>
+                    <Label htmlFor="dataConsegnaFinale" className="text-sm text-muted-foreground">Data Consegna</Label>
+                    <p id="dataConsegnaFinale">{job.dataConsegnaFinale || 'N/D'}</p>
+                </div>
+                <div className="md:col-span-2">
+                    <Label htmlFor="codiceArticolo" className="text-sm text-muted-foreground">Codice Articolo</Label>
+                    <p id="codiceArticolo">{job.details}</p>
+                </div>
+                 <div>
+                    <Label htmlFor="qta" className="text-sm text-muted-foreground">Qta</Label>
+                    <p id="qta" className="font-bold text-lg">{job.qta}</p>
                 </div>
             </div>
         </CardContent>
@@ -1555,7 +1555,7 @@ export default function ScanJobPage() {
   return (
     <AuthGuard>
       <AppShell>
-        <div className="space-y-6">
+        <div className="space-y-6 max-w-4xl mx-auto">
           <OperatorNavMenu />
           
             <Dialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
@@ -1593,10 +1593,10 @@ export default function ScanJobPage() {
                     )}
 
                 {step === 'processing' && activeJob && (
-                  <>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {renderJobDetailsCard(activeJob)}
                     {renderPhasesManagement()}
-                  </>
+                  </div>
                 )}
 
                 {step === 'finished' && activeJob && renderFinishedView()}

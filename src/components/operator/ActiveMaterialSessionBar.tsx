@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from 'react';
@@ -67,19 +66,19 @@ function SessionBar({ session }: { session: ActiveMaterialSessionData }) {
 
     return (
         <>
-            <Card className="p-3 shadow-2xl w-full max-w-lg pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 bg-secondary/95 backdrop-blur-sm">
+            <Card className="p-3 shadow-2xl w-full max-w-lg pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 bg-destructive/90 backdrop-blur-sm border-destructive/50">
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate text-secondary-foreground flex items-center gap-2">
-                            <Boxes className="h-4 w-4 text-primary" />
+                        <p className="text-sm font-semibold truncate text-destructive-foreground flex items-center gap-2">
+                            <Boxes className="h-4 w-4" />
                             Sessione {session.category} Attiva
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
+                        <p className="text-xs text-destructive-foreground/80 truncate">
                             Materiale: {session.materialCode} (Aperto: {session.openingWeight} kg)
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button variant="destructive" size="sm" className="h-9" onClick={handleOpenDialog}>
+                        <Button variant="destructive" size="sm" className="h-9 bg-white text-destructive hover:bg-white/90" onClick={handleOpenDialog}>
                             <X className="mr-2 h-4 w-4" />
                             Chiudi Sessione
                         </Button>
@@ -130,14 +129,14 @@ function SessionBar({ session }: { session: ActiveMaterialSessionData }) {
 
 
 export default function ActiveMaterialSessionBar() {
-  const { activeSessions } = useActiveMaterialSession();
+  const { activeSessions, isLoading } = useActiveMaterialSession();
   
-  if (!activeSessions || activeSessions.length === 0) {
+  if (isLoading || !activeSessions || activeSessions.length === 0) {
     return null;
   }
 
   return (
-    <div className="fixed bottom-[70px] left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none flex flex-col-reverse items-center gap-2">
+    <div className="fixed bottom-[70px] left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none flex flex-col-reverse items-start gap-2">
       {activeSessions.map((session) => (
         <SessionBar key={session.materialId} session={session} />
       ))}
