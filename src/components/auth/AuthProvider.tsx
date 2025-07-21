@@ -48,10 +48,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
-    // Clear all app-related local storage for this specific operator
+    // Clear only app-related local storage that should not persist across logins (like active job)
+    // IMPORTANT: DO NOT clear the material session here. It must persist.
     if (currentOperator?.id) {
         localStorage.removeItem(`${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${currentOperator.id}`);
-        localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
     }
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
     

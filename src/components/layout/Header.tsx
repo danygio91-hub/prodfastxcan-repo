@@ -11,6 +11,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
 import { updateJob } from '@/app/scan-job/actions';
+import ActiveMaterialSessionBar from '@/components/operator/ActiveMaterialSessionBar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -144,6 +145,7 @@ export default function Header() {
           </DropdownMenu>
         </div>
       </div>
+      {operator && operator.role !== 'admin' && <ActiveMaterialSessionBar />}
     </header>
   );
 }

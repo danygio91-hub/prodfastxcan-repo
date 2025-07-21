@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from 'react';
@@ -15,6 +16,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from '@/components/ui/input';
 import { closeMaterialSessionAndUpdateStock } from '@/app/scan-job/actions';
 import { Boxes, Weight, Send, Loader2, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const closingWeightSchema = z.object({
   closingWeight: z.coerce.number().min(0, "Il peso non può essere negativo."),
@@ -22,7 +24,7 @@ const closingWeightSchema = z.object({
 
 type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
 
-function SessionBar({ session }: { session: ActiveMaterialSessionData }) {
+function SessionCard({ session }: { session: ActiveMaterialSessionData }) {
     const { closeSession } = useActiveMaterialSession();
     const { operator } = useAuth();
     const { toast } = useToast();
@@ -66,10 +68,13 @@ function SessionBar({ session }: { session: ActiveMaterialSessionData }) {
 
     return (
         <>
-            <Card className="p-3 shadow-2xl w-full max-w-lg pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 bg-destructive/90 backdrop-blur-sm border-destructive/50">
+            <Card className={cn(
+                "w-full p-2.5 shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-300",
+                "bg-destructive/90 text-destructive-foreground border-destructive/50"
+            )}>
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate text-destructive-foreground flex items-center gap-2">
+                        <p className="text-sm font-semibold truncate flex items-center gap-2">
                             <Boxes className="h-4 w-4" />
                             Sessione {session.category} Attiva
                         </p>
@@ -78,7 +83,7 @@ function SessionBar({ session }: { session: ActiveMaterialSessionData }) {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button variant="destructive" size="sm" className="h-9 bg-white text-destructive hover:bg-white/90" onClick={handleOpenDialog}>
+                        <Button variant="destructive" size="sm" className="h-8 bg-white text-destructive hover:bg-white/90" onClick={handleOpenDialog}>
                             <X className="mr-2 h-4 w-4" />
                             Chiudi Sessione
                         </Button>
@@ -136,10 +141,12 @@ export default function ActiveMaterialSessionBar() {
   }
 
   return (
-    <div className="fixed bottom-[70px] left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none flex flex-col-reverse items-start gap-2">
-      {activeSessions.map((session) => (
-        <SessionBar key={session.materialId} session={session} />
-      ))}
+    <div className="absolute top-16 left-0 right-0 z-30 container mx-auto px-4 pt-2">
+      <div className="flex flex-col gap-2">
+        {activeSessions.map((session) => (
+          <SessionCard key={session.materialId} session={session} />
+        ))}
+      </div>
     </div>
   );
 }
