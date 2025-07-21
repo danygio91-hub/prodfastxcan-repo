@@ -69,8 +69,8 @@ function SessionCard({ session }: { session: ActiveMaterialSessionData }) {
     return (
         <>
             <Card className={cn(
-                "w-full p-2.5 shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-300",
-                "bg-destructive/90 text-destructive-foreground border-destructive/50"
+                "w-full max-w-xs p-3 shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-300",
+                "bg-destructive text-destructive-foreground border-destructive/50"
             )}>
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -79,15 +79,13 @@ function SessionCard({ session }: { session: ActiveMaterialSessionData }) {
                             Sessione {session.category} Attiva
                         </p>
                         <p className="text-xs text-destructive-foreground/80 truncate">
-                            Materiale: {session.materialCode} (Aperto: {session.openingWeight} kg)
+                            {session.materialCode} (Aperto: {session.openingWeight} kg)
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Button variant="destructive" size="sm" className="h-8 bg-white text-destructive hover:bg-white/90" onClick={handleOpenDialog}>
-                            <X className="mr-2 h-4 w-4" />
-                            Chiudi Sessione
-                        </Button>
-                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hover:bg-destructive-foreground/10" onClick={handleOpenDialog}>
+                       <X className="h-5 w-5" />
+                       <span className="sr-only">Chiudi Sessione</span>
+                    </Button>
                 </div>
             </Card>
 
@@ -141,7 +139,7 @@ export default function ActiveMaterialSessionBar() {
   }
 
   return (
-    <div className="absolute top-16 left-0 right-0 z-30 container mx-auto px-4 pt-2">
+    <div className="fixed top-20 right-4 z-50">
       <div className="flex flex-col gap-2">
         {activeSessions.map((session) => (
           <SessionCard key={session.materialId} session={session} />
