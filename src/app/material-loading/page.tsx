@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Keyboard, Package, Barcode } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Keyboard, Package, Barcode, PlayCircle } from 'lucide-react';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -54,6 +54,11 @@ export default function MaterialLoadingPage() {
     const [isSearching, setIsSearching] = useState(false);
     const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
     
+    // Simulator State
+    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+    const [simulatorInput, setSimulatorInput] = useState('');
+    const [simulatorTarget, setSimulatorTarget] = useState<'material' | 'lotto' | null>(null);
+
     const videoRef = useRef<HTMLVideoElement>(null);
     const lottoVideoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -195,6 +200,28 @@ export default function MaterialLoadingPage() {
         setStep('initial');
     };
 
+    const handleOpenSimulator = (target: 'material' | 'lotto') => {
+        setSimulatorTarget(target);
+        setSimulatorInput('');
+        setIsSimulatorOpen(true);
+    };
+
+    const handleSimulatorSubmit = () => {
+        if (!simulatorTarget) return;
+
+        switch (simulatorTarget) {
+            case 'material':
+                handleCodeSubmit(simulatorInput);
+                break;
+            case 'lotto':
+                handleLottoScannedData(simulatorInput);
+                break;
+        }
+
+        setIsSimulatorOpen(false);
+        setSimulatorInput('');
+    };
+
     if (authLoading || !operator) {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
@@ -226,6 +253,10 @@ export default function MaterialLoadingPage() {
                                 <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
                                     <Keyboard className="mr-2 h-5 w-5" />
                                     Inserisci Codice Manualmente
+                                </Button>
+                                <Button onClick={() => handleOpenSimulator('material')} variant="secondary" size="sm" className="w-full">
+                                    <PlayCircle className="mr-2 h-4 w-4" />
+                                    Simula Scansione Materiale (Test)
                                 </Button>
                             </CardContent>
                         </Card>
@@ -328,6 +359,10 @@ export default function MaterialLoadingPage() {
                                                             <QrCode className="h-4 w-4" />
                                                             <span className="sr-only">Scansiona lotto</span>
                                                         </Button>
+                                                        <Button type="button" variant="secondary" size="icon" onClick={() => handleOpenSimulator('lotto')}>
+                                                            <PlayCircle className="h-4 w-4" />
+                                                            <span className="sr-only">Simula lotto</span>
+                                                        </Button>
                                                     </div><FormMessage />
                                                 </FormItem>
                                             )} />
@@ -365,6 +400,31 @@ export default function MaterialLoadingPage() {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+                
+                <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Simulatore Scansione QR</DialogTitle>
+                            <DialogDescription>
+                                Incolla il contenuto del QR code che vuoi simulare.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <Label htmlFor="simulator-input">Contenuto QR Code</Label>
+                            <Input 
+                                id="simulator-input"
+                                value={simulatorInput}
+                                onChange={(e) => setSimulatorInput(e.target.value)}
+                                placeholder={simulatorTarget === 'material' ? 'Codice materiale...' : 'Codice lotto...'}
+                                autoFocus
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
+                            <Button onClick={handleSimulatorSubmit}>Simula Scansione</Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>

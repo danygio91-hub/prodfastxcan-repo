@@ -16,9 +16,11 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, PlayCircle } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -60,6 +62,10 @@ export default function LoginForm() {
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
     const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+    // QR Simulator State
+    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+    const [simulatorInput, setSimulatorInput] = useState('');
 
     // Effect to handle PWA install prompt
     useEffect(() => {
@@ -110,6 +116,20 @@ export default function LoginForm() {
             setStep('manual_login');
         }
     }, [toast]);
+
+    const handleScannedData = useCallback(async (data: string) => {
+        const [username, password] = data.split('@');
+        if (username && password) {
+             performLogin(username, password);
+        } else {
+            toast({
+                variant: 'destructive',
+                title: 'Dati QR non Validi',
+                description: 'Il formato del QR code per il login non è corretto.',
+            });
+            setStep('initial');
+        }
+    }, [performLogin, toast]);
     
     const handleQrLoginClick = (targetPath: string | null) => {
       if (targetPath) {
@@ -162,18 +182,12 @@ export default function LoginForm() {
                     const barcodes = await barcodeDetector.detect(videoRef.current);
                     if (barcodes.length > 0) {
                         const scannedData = barcodes[0].rawValue;
-                        const [username, password] = scannedData.split('@');
-                        
-                        if (username && password) {
-                            if (streamRef.current) {
-                                streamRef.current.getTracks().forEach(track => track.stop());
-                                streamRef.current = null;
-                            }
-                            toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
-                            performLogin(username, password);
-                        } else {
-                           animationFrameId = requestAnimationFrame(detect);
+                        if (streamRef.current) {
+                            streamRef.current.getTracks().forEach(track => track.stop());
+                            streamRef.current = null;
                         }
+                        toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
+                        handleScannedData(scannedData);
                     } else {
                         animationFrameId = requestAnimationFrame(detect);
                     }
@@ -198,7 +212,7 @@ export default function LoginForm() {
                 localStream.getTracks().forEach(track => track.stop());
             }
         };
-    }, [step, performLogin, toast]);
+    }, [step, handleScannedData, toast]);
 
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
@@ -220,6 +234,13 @@ export default function LoginForm() {
             toast({ title: "Installazione Avviata", description: "L'app verrà aggiunta alla tua schermata principale." });
         }
         setInstallPrompt(null);
+    };
+
+    const handleSimulatorSubmit = () => {
+        localStorage.removeItem('login_redirect_path');
+        handleScannedData(simulatorInput);
+        setIsSimulatorOpen(false);
+        setSimulatorInput('');
     };
 
     const renderStep = () => {
@@ -262,6 +283,11 @@ export default function LoginForm() {
                             <Button onClick={() => setStep('manual_login')} variant="outline">
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
+                            </Button>
+
+                             <Button onClick={() => setIsSimulatorOpen(true)} variant="secondary" size="sm">
+                                <PlayCircle className="mr-2 h-4 w-4" />
+                                Simula Scansione QR (Test)
                             </Button>
                         </CardContent>
                         {installPrompt && (
@@ -340,10 +366,37 @@ export default function LoginForm() {
     };
 
     return (
-        <Card className="w-full max-w-md shadow-xl border-border/50 bg-card overflow-hidden">
-            <AnimatePresence mode="wait">
-                {renderStep()}
-            </AnimatePresence>
-        </Card>
+        <>
+            <Card className="w-full max-w-md shadow-xl border-border/50 bg-card overflow-hidden">
+                <AnimatePresence mode="wait">
+                    {renderStep()}
+                </AnimatePresence>
+            </Card>
+
+            <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Simulatore Scansione QR</DialogTitle>
+                        <DialogDescription>
+                            Incolla il contenuto del QR code per il login (formato: username@password).
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <Label htmlFor="simulator-input">Contenuto QR Code</Label>
+                        <Input 
+                            id="simulator-input"
+                            value={simulatorInput}
+                            onChange={(e) => setSimulatorInput(e.target.value)}
+                            placeholder="username@password"
+                            autoFocus
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
+                        <Button onClick={handleSimulatorSubmit}>Simula e Accedi</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
