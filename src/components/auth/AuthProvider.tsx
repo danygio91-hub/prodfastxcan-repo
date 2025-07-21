@@ -164,9 +164,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (user && operator && pathname === '/') {
       const redirectPath = localStorage.getItem('login_redirect_path');
-      localStorage.removeItem('login_redirect_path');
-
+      
       if (redirectPath) {
+        // Immediately remove to prevent re-use
+        localStorage.removeItem('login_redirect_path'); 
         router.replace(redirectPath);
       } else {
         const isOperator = operator.role === 'operator' || operator.role === 'superadvisor';
@@ -174,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [user, operator, loading, pathname, router]);
+
 
   return (
     <AuthContext.Provider value={{ user, operator, loading, logout: fullLogout, refetchOperator }}>
