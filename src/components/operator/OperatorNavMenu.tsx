@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus } from 'lucide-react';
+import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -86,8 +86,9 @@ function OperatorNavMenu() {
                   </TooltipContent>
               </Tooltip>
               
-              {/* Carico Materiale (Conditional) */}
+              {/* Carico Materiale & Verifica Materiale (Conditional) */}
               {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
+                <>
                  <Tooltip>
                     <TooltipTrigger asChild>
                     <Link href="/material-loading" passHref>
@@ -96,16 +97,35 @@ function OperatorNavMenu() {
                         size="icon"
                         className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
                         data-active={pathname === '/material-loading'}
-                        aria-label="Carico Materiale"
+                        aria-label="Carico Merce"
                         >
                         <PackagePlus className="h-6 w-6" />
                         </Button>
                     </Link>
                     </TooltipTrigger>
                     <TooltipContent>
-                    <p>Carico Materiale</p>
+                    <p>Carico Merce</p>
                     </TooltipContent>
                 </Tooltip>
+                 <Tooltip>
+                    <TooltipTrigger asChild>
+                    <Link href="/material-check" passHref>
+                        <Button
+                        variant={pathname === '/material-check' ? 'default' : 'ghost'}
+                        size="icon"
+                        className="h-12 w-12 text-muted-foreground data-[active=true]:text-inherit"
+                        data-active={pathname === '/material-check'}
+                        aria-label="Verifica Materiale"
+                        >
+                        <SearchCheck className="h-6 w-6" />
+                        </Button>
+                    </Link>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                    <p>Verifica Materiale</p>
+                    </TooltipContent>
+                </Tooltip>
+                </>
               )}
 
               {/* Dati Operatore */}

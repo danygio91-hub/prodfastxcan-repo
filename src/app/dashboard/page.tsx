@@ -4,7 +4,7 @@
 import React from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Users, ScanLine, AlertTriangle, Clock, PackagePlus } from 'lucide-react';
+import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import {
@@ -61,12 +61,20 @@ export default function DashboardPage() {
               href="/scan-job"
             />
             {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
-              <DashboardItem
-                title="Carico e Verifica Materia Prima"
-                description="Registra l'ingresso e verifica stato materia prima."
-                icon={PackagePlus}
-                href="/material-loading"
-              />
+              <>
+                 <DashboardItem
+                  title="Carico Merce"
+                  description="Modalità inventario per registrare rapidamente materiale in ingresso."
+                  icon={PackagePlus}
+                  href="/material-loading"
+                />
+                 <DashboardItem
+                  title="Verifica Materiale"
+                  description="Cerca un materiale per vederne i dettagli e lo stock attuale."
+                  icon={SearchCheck}
+                  href="/material-check"
+                />
+              </>
             )}
             <DashboardItem
               title="Dati Operatore"
