@@ -31,8 +31,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
 
-  // This effect loads sessions from localStorage when an operator logs in.
-  // It's the key to making sessions persistent across logins.
+  // Effect to load sessions from localStorage when the operator logs in or changes
   useEffect(() => {
     if (authLoading) {
         setIsLoading(true);
@@ -52,7 +51,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
             setActiveSessions([]);
         }
     } else {
-        // If there's no operator, clear the sessions.
+        // If there's no operator, clear the sessions for this instance
         setActiveSessions([]);
     }
     setIsLoading(false);
