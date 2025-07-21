@@ -75,9 +75,9 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     const category = getMaterialCategory(type);
     
     setActiveSessions(prevSessions => {
-        const categoryExists = prevSessions.some(s => s.category === category);
-        if (categoryExists) {
-            throw new Error(`Una sessione per la categoria '${category}' è già attiva.`);
+        const materialExists = prevSessions.some(s => s.materialId === sessionData.materialId);
+        if (materialExists) {
+            throw new Error(`Una sessione per il materiale con codice '${sessionData.materialCode}' è già attiva.`);
         }
         
         const newSession: ActiveMaterialSessionData = { ...sessionData, category };

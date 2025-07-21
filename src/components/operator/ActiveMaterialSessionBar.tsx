@@ -10,13 +10,23 @@ import { useActiveMaterialSession, type ActiveMaterialSessionData } from '@/cont
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetFooter,
+  SheetClose,
+} from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
 import { closeMaterialSessionAndUpdateStock } from '@/app/scan-job/actions';
-import { Boxes, Weight, Send, Loader2, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Boxes, Weight, Send, Loader2, X, AlertTriangle } from 'lucide-react';
+import { Badge } from '../ui/badge';
+import { ScrollArea } from '../ui/scroll-area';
 
 const closingWeightSchema = z.object({
   closingWeight: z.coerce.number().min(0, "Il peso non può essere negativo."),
@@ -24,21 +34,21 @@ const closingWeightSchema = z.object({
 
 type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
 
-function SessionCard({ session }: { session: ActiveMaterialSessionData }) {
+function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: ActiveMaterialSessionData; isOpen: boolean; onOpenChange: (open: boolean) => void; }) {
     const { closeSession } = useActiveMaterialSession();
     const { operator } = useAuth();
     const { toast } = useToast();
-    const [isClosingDialogOpen, setIsClosingDialogOpen] = useState(false);
 
     const form = useForm<ClosingWeightFormValues>({
         resolver: zodResolver(closingWeightSchema),
         defaultValues: { closingWeight: 0 },
     });
     
-    const handleOpenDialog = () => {
+    React.useEffect(() => {
+      if (isOpen) {
         form.reset({ closingWeight: session.openingWeight });
-        setIsClosingDialogOpen(true);
-    };
+      }
+    }, [isOpen, session, form]);
 
     const handleCloseSessionSubmit = async (values: ClosingWeightFormValues) => {
         if (!operator) return;
@@ -62,89 +72,127 @@ function SessionCard({ session }: { session: ActiveMaterialSessionData }) {
 
         if (result.success) {
             closeSession(session.materialId);
-            setIsClosingDialogOpen(false);
+            onOpenChange(false);
         }
     };
 
     return (
-        <>
-            <Card className={cn(
-                "w-full max-w-xs p-3 shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-300",
-                "bg-destructive text-destructive-foreground border-destructive/50"
-            )}>
-                <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate flex items-center gap-2">
-                            <Boxes className="h-4 w-4" />
-                            Sessione {session.category} Attiva
-                        </p>
-                        <p className="text-xs text-destructive-foreground/80 truncate">
-                            {session.materialCode} (Aperto: {session.openingWeight} kg)
-                        </p>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 hover:bg-destructive-foreground/10" onClick={handleOpenDialog}>
-                       <X className="h-5 w-5" />
-                       <span className="sr-only">Chiudi Sessione</span>
+       <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Chiudi Sessione Materiale</DialogTitle>
+                <DialogDescription>
+                Inserisci il peso finale per il materiale <span className="font-bold">{session.materialCode}</span>.
+                Il consumo totale verrà scaricato dal magazzino e associato a tutte le commesse lavorate.
+                <br/>
+                Peso di apertura: <span className="font-bold">{session.openingWeight} kg</span>.
+                </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+                <form onSubmit={form.handleSubmit(handleCloseSessionSubmit)} className="space-y-4">
+                <FormField
+                    control={form.control}
+                    name="closingWeight"
+                    render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Finale (KG)</FormLabel>
+                        <FormControl>
+                        <Input type="number" step="0.01" autoFocus {...field} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )}
+                />
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
+                    <Button type="submit" disabled={form.formState.isSubmitting}>
+                    {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                    Conferma e Scarica
                     </Button>
-                </div>
-            </Card>
-
-            <Dialog open={isClosingDialogOpen} onOpenChange={setIsClosingDialogOpen}>
-                <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Chiudi Sessione Materiale</DialogTitle>
-                    <DialogDescription>
-                    Inserisci il peso finale per il materiale <span className="font-bold">{session.materialCode}</span>.
-                    Il consumo totale verrà scaricato dal magazzino e associato a tutte le commesse lavorate.
-                    <br/>
-                    Peso di apertura: <span className="font-bold">{session.openingWeight} kg</span>.
-                    </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleCloseSessionSubmit)} className="space-y-4">
-                    <FormField
-                        control={form.control}
-                        name="closingWeight"
-                        render={({ field }) => (
-                        <FormItem>
-                            <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Finale (KG)</FormLabel>
-                            <FormControl>
-                            <Input type="number" step="0.01" autoFocus {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                        )}
-                    />
-                    <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setIsClosingDialogOpen(false)}>Annulla</Button>
-                        <Button type="submit" disabled={form.formState.isSubmitting}>
-                        {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
-                        Conferma e Scarica
-                        </Button>
-                    </DialogFooter>
-                    </form>
-                </Form>
-                </DialogContent>
-            </Dialog>
-        </>
+                </DialogFooter>
+                </form>
+            </Form>
+            </DialogContent>
+        </Dialog>
     );
 }
 
-
 export default function ActiveMaterialSessionBar() {
   const { activeSessions, isLoading } = useActiveMaterialSession();
+  const [closingSession, setClosingSession] = useState<ActiveMaterialSessionData | null>(null);
   
   if (isLoading || !activeSessions || activeSessions.length === 0) {
     return null;
   }
 
   return (
-    <div className="fixed top-20 right-4 z-50">
-      <div className="flex flex-col gap-2">
-        {activeSessions.map((session) => (
-          <SessionCard key={session.materialId} session={session} />
-        ))}
-      </div>
-    </div>
+    <>
+      <Sheet>
+        <SheetTrigger asChild>
+            <Button
+              variant="destructive"
+              className="fixed top-20 right-4 z-50 h-12 w-12 rounded-full shadow-lg animate-in fade-in-0 zoom-in-95"
+            >
+              <div className="relative">
+                <Boxes className="h-6 w-6" />
+                 <Badge variant="secondary" className="absolute -top-2 -right-3 h-5 w-5 justify-center p-0 rounded-full">
+                  {activeSessions.length}
+                </Badge>
+              </div>
+            </Button>
+        </SheetTrigger>
+        <SheetContent>
+            <SheetHeader>
+                <SheetTitle className="flex items-center gap-2"><AlertTriangle className="text-destructive"/> Sessioni Materiale Attive</SheetTitle>
+                <SheetDescription>
+                   Queste sessioni rimarranno attive finché non verranno chiuse manualmente.
+                </SheetDescription>
+            </SheetHeader>
+            <ScrollArea className="h-[calc(100vh-150px)] pr-4">
+                <div className="grid gap-4 py-4">
+                {activeSessions.map((session) => (
+                    <div key={session.materialId} className="p-4 border rounded-lg space-y-3">
+                        <div>
+                            <p className="font-semibold text-sm">{session.materialCode} <Badge variant="outline">{session.category}</Badge></p>
+                            <p className="text-xs text-muted-foreground">Aperto con: {session.openingWeight} kg</p>
+                        </div>
+                         <div className="text-xs text-muted-foreground">
+                            <p className="font-medium text-foreground">Commesse Associate:</p>
+                            <ul className="list-disc pl-4">
+                               {session.associatedJobs.map(j => <li key={j.jobId}>{j.jobOrderPF}</li>)}
+                            </ul>
+                        </div>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => setClosingSession(session)}
+                        >
+                            <X className="mr-2 h-4 w-4" /> Chiudi Sessione
+                        </Button>
+                    </div>
+                ))}
+                </div>
+            </ScrollArea>
+            <SheetFooter>
+                <SheetClose asChild>
+                    <Button variant="outline">Chiudi</Button>
+                </SheetClose>
+            </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {closingSession && (
+          <SessionClosureDialog
+              session={closingSession}
+              isOpen={!!closingSession}
+              onOpenChange={(open) => {
+                  if (!open) {
+                      setClosingSession(null);
+                  }
+              }}
+          />
+      )}
+    </>
   );
 }
