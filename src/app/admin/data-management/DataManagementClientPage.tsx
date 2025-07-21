@@ -29,6 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -412,6 +413,18 @@ export default function DataManagementClientPage() {
     }
   };
   
+  const handleAssignCycle = async (jobId: string, cycleId: string) => {
+    const result = await updateJobOrderCycle(jobId, cycleId);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      fetchData();
+    }
+  };
+
   const renderLoading = () => (
     <div className="flex items-center justify-center h-64">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -577,7 +590,24 @@ export default function DataManagementClientPage() {
                             </TableCell>
                             <TableCell>{job.department}</TableCell>
                             <TableCell>
-                                {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
+                                {job.workCycleId ? (
+                                    workCyclesMap.get(job.workCycleId)
+                                ) : (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="link" className="p-0 h-auto text-destructive hover:underline">
+                                                N/D
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent>
+                                            {workCycles.map((cycle) => (
+                                                <DropdownMenuItem key={cycle.id} onSelect={() => handleAssignCycle(job.id, cycle.id)}>
+                                                    {cycle.name}
+                                                </DropdownMenuItem>
+                                            ))}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
                             </TableCell>
                             <TableCell>
                                 <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
