@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { NonConformityReport, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
 
@@ -89,7 +89,7 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
 
         revalidatePath('/admin/non-conformity-reports');
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: `Carico approvato. Stock aggiornato con ${name}.` };
+        return { success: true, message: `Carico approvato. Stock aggiornato.` };
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'approvazione." };
     }
@@ -111,5 +111,26 @@ export async function confirmReturn(reportId: string): Promise<{ success: boolea
         return { success: true, message: `Reso confermato. Il materiale non verrà caricato a magazzino.` };
     } catch (error) {
          return { success: false, message: error instanceof Error ? error.message : "Errore durante la conferma del reso." };
+    }
+}
+
+
+export async function deleteNonConformityReports(reportIds: string[]): Promise<{ success: boolean, message: string }> {
+    if (!reportIds || reportIds.length === 0) {
+        return { success: false, message: 'Nessuna segnalazione selezionata per l\'eliminazione.' };
+    }
+
+    try {
+        const batch = writeBatch(db);
+        reportIds.forEach(id => {
+            const reportRef = doc(db, 'nonConformityReports', id);
+            batch.delete(reportRef);
+        });
+
+        await batch.commit();
+        revalidatePath('/admin/non-conformity-reports');
+        return { success: true, message: `${reportIds.length} segnalazioni sono state eliminate con successo.` };
+    } catch (error) {
+        return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione delle segnalazioni." };
     }
 }

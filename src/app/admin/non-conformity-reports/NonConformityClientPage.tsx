@@ -8,6 +8,7 @@ import { it } from 'date-fns/locale';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,14 +24,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2 } from 'lucide-react';
-import { getNonConformityReports, approveNonConformity, confirmReturn } from './actions';
+import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2, Trash2 } from 'lucide-react';
+import { getNonConformityReports, approveNonConformity, confirmReturn, deleteNonConformityReports } from './actions';
 import type { NonConformityReport } from '@/lib/mock-data';
 
 export default function NonConformityClientPage() {
     const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isPending, startTransition] = useTransition();
+    const [selectedRows, setSelectedRows] = useState<string[]>([]);
     const { toast } = useToast();
 
     const fetchReports = async () => {
@@ -71,18 +73,76 @@ export default function NonConformityClientPage() {
             }
         });
     };
+    
+    const handleDeleteSelected = () => {
+        startTransition(async () => {
+            const result = await deleteNonConformityReports(selectedRows);
+            toast({
+                title: result.success ? "Operazione Completata" : "Errore",
+                description: result.message,
+                variant: result.success ? "default" : "destructive",
+            });
+            if (result.success) {
+                setSelectedRows([]);
+                fetchReports();
+            }
+        });
+    }
+
+    const handleSelectAll = (checked: boolean | 'indeterminate') => {
+        setSelectedRows(checked === true ? incomingReports.map(r => r.id) : []);
+    };
+    
+    const handleSelectRow = (id: string) => {
+        setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
+    };
 
     const renderIncomingReports = () => (
         <Card>
             <CardHeader>
-                <CardTitle>Segnalazioni da Carico Merce</CardTitle>
-                <CardDescription>Elenco delle non conformità segnalate dagli operatori in fase di carico merce. Gestisci ogni segnalazione per procedere.</CardDescription>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div>
+                        <CardTitle>Segnalazioni da Carico Merce</CardTitle>
+                        <CardDescription>Elenco delle non conformità segnalate. Gestisci ogni segnalazione per procedere.</CardDescription>
+                    </div>
+                     {selectedRows.length > 0 && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" disabled={isPending}>
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Elimina Selezionate ({selectedRows.length})
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Stai per eliminare {selectedRows.length} segnalazioni. Questa operazione è irreversibile.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
+                </div>
             </CardHeader>
             <CardContent>
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead padding="checkbox">
+                                    <Checkbox
+                                        checked={selectedRows.length > 0 && selectedRows.length === incomingReports.length}
+                                        onCheckedChange={handleSelectAll}
+                                        indeterminate={selectedRows.length > 0 && selectedRows.length < incomingReports.length}
+                                        aria-label="Seleziona tutte"
+                                        disabled={isLoading}
+                                    />
+                                </TableHead>
                                 <TableHead>Data</TableHead>
                                 <TableHead>Stato</TableHead>
                                 <TableHead>Materiale</TableHead>
@@ -96,13 +156,20 @@ export default function NonConformityClientPage() {
                         <TableBody>
                             {isLoading ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-24 text-center">
+                                    <TableCell colSpan={9} className="h-24 text-center">
                                         <Loader2 className="mx-auto h-6 w-6 animate-spin" />
                                     </TableCell>
                                 </TableRow>
                             ) : incomingReports.length > 0 ? (
                                 incomingReports.map((report) => (
-                                    <TableRow key={report.id}>
+                                    <TableRow key={report.id} data-state={selectedRows.includes(report.id) && "selected"}>
+                                         <TableCell padding="checkbox">
+                                            <Checkbox
+                                                checked={selectedRows.includes(report.id)}
+                                                onCheckedChange={() => handleSelectRow(report.id)}
+                                                aria-label={`Seleziona report ${report.id}`}
+                                            />
+                                        </TableCell>
                                         <TableCell>{format(new Date(report.reportDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                                         <TableCell>
                                             <Badge variant={report.status === 'pending' ? 'destructive' : (report.status === 'approved' ? 'default' : 'secondary')}>
@@ -162,7 +229,7 @@ export default function NonConformityClientPage() {
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-24 text-center">
+                                    <TableCell colSpan={9} className="h-24 text-center">
                                         Nessuna segnalazione di non conformità in ingresso trovata.
                                     </TableCell>
                                 </TableRow>
