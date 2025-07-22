@@ -164,8 +164,22 @@ export interface NonConformityReport {
     notes?: string;
     operatorId: string;
     operatorName: string;
+    reportDate: Date | string; // Allow string for serialized dates
+    status: 'pending' | 'approved' | 'returned';
+}
+
+export interface ProductionProblemReport {
+    id: string;
+    jobId: string;
+    jobOrderPF: string;
+    phaseId: string;
+    phaseName: string;
+    problemType: 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
+    notes?: string;
+    operatorId: string;
+    operatorName: string;
     reportDate: Date;
-    status: 'pending' | 'reviewed' | 'resolved';
+    status: 'open' | 'resolved';
 }
 
 
