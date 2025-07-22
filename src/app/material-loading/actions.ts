@@ -37,11 +37,11 @@ export async function getRawMaterialByCode(code: string): Promise<RawMaterial | 
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
-  batchId: z.string().optional(), // Not used for new batches, but good for consistency
-  lotto: z.string().optional(),
+  lotto: z.string().min(1, "Il lotto è obbligatorio."),
   date: z.string().min(1, "La data è obbligatoria."),
-  ddt: z.string().min(1, "Il DDT è obbligatorio."),
+  ddt: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  unit: z.enum(['n', 'kg', 'mt']),
 });
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
@@ -52,7 +52,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantity, lotto } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, unit } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   
@@ -69,23 +69,30 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
-            ddt,
-            quantity,
+            ddt: ddt || 'CARICO_RAPIDO',
+            quantity: quantity,
             lotto: lotto || undefined,
           };
 
           const updatedBatches = [...existingBatches, newBatch];
           
           const currentStockUnits = material.currentStockUnits || 0;
-          const currentWeightKg = material.currentWeightKg || 0;
-          const newStockUnits = currentStockUnits + quantity;
           
-          let newWeightKg = currentWeightKg;
-          if (material.unitOfMeasure === 'kg') {
-              newWeightKg = newStockUnits;
-          } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg = newStockUnits * material.conversionFactor;
+          let unitsToAdd = 0;
+          if (unit === 'kg') {
+              unitsToAdd = material.conversionFactor ? Math.round(quantity / material.conversionFactor) : 0;
+          } else { // 'n' or 'mt'
+              unitsToAdd = quantity;
           }
+          const newStockUnits = currentStockUnits + unitsToAdd;
+          
+          let weightKgToAdd = 0;
+          if (unit === 'kg') {
+              weightKgToAdd = quantity;
+          } else { // 'n' or 'mt'
+              weightKgToAdd = material.conversionFactor ? quantity * material.conversionFactor : 0;
+          }
+          const newWeightKg = (material.currentWeightKg || 0) + weightKgToAdd;
 
           transaction.update(materialRef, { 
               batches: updatedBatches,

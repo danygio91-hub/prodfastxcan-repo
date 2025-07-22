@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity } from './actions';
@@ -38,6 +39,7 @@ const batchFormSchema = z.object({
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  unit: z.enum(['n', 'mt', 'kg']),
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
@@ -54,7 +56,7 @@ export default function MaterialLoadingPage() {
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_weight' | 'saving' | 'success'>('scan_material');
+    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success'>('scan_material');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
@@ -96,6 +98,7 @@ export default function MaterialLoadingPage() {
         } else {
             setScannedMaterial(result);
             form.setValue('materialId', result.id);
+            form.setValue('unit', result.unitOfMeasure);
             setStep('scan_lotto');
         }
     }, [stopCamera, toast, form]);
@@ -160,7 +163,7 @@ export default function MaterialLoadingPage() {
         return cleanup;
     }, [isScanning, step, startScan, handleMaterialScanned, handleLottoScanned]);
 
-    async function onWeightSubmit(values: BatchFormValues) {
+    async function onQuantitySubmit(values: BatchFormValues) {
         setStep('saving');
         const formData = new FormData();
         Object.entries(values).forEach(([key, value]) => {
@@ -177,7 +180,7 @@ export default function MaterialLoadingPage() {
         if (result.success) {
             setStep('success');
         } else {
-            setStep('enter_weight'); // Go back to allow correction
+            setStep('enter_quantity'); // Go back to allow correction
         }
     };
     
@@ -247,7 +250,7 @@ export default function MaterialLoadingPage() {
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
                                 {['Materiale', 'Lotto', 'Convalida', 'Carico'].map((title, index) => {
-                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_weight'];
+                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity'];
                                     const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
@@ -296,7 +299,7 @@ export default function MaterialLoadingPage() {
                                             <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
                                             <p className="text-muted-foreground">Il materiale ricevuto è conforme?</p>
                                             <div className="flex justify-center gap-4 pt-4">
-                                                <Button onClick={() => setStep('enter_weight')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
+                                                <Button onClick={() => setStep('enter_quantity')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
                                                     <ThumbsUp className="h-8 w-8" />
                                                     OK
                                                 </Button>
@@ -367,13 +370,24 @@ export default function MaterialLoadingPage() {
                                             )}
                                         </div>
                                      )}
-                                     {step === 'enter_weight' && (
+                                     {step === 'enter_quantity' && (
                                         <div>
                                             <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci la Quantità</h3>
                                              <Form {...form}>
-                                                <form onSubmit={form.handleSubmit(onWeightSubmit)} className="space-y-6 text-left">
+                                                <form onSubmit={form.handleSubmit(onQuantitySubmit)} className="space-y-6 text-left">
                                                     <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
-                                                    <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità in Entrata ({scannedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl> <FormMessage /> </FormItem> )} />
+                                                    
+                                                     <FormField control={form.control} name="unit" render={({ field }) => (
+                                                        <FormItem className="space-y-3"><FormLabel>Carico per unità o peso?</FormLabel>
+                                                        <FormControl>
+                                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
+                                                                <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
+                                                                <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
+                                                            </RadioGroup>
+                                                        </FormControl><FormMessage /></FormItem>
+                                                    )} />
+                                                    
+                                                    <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità in Entrata ({form.watch('unit').toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl> <FormMessage /> </FormItem> )} />
                                                     <Button type="submit" className="w-full">Registra Carico</Button>
                                                 </form>
                                             </Form>
