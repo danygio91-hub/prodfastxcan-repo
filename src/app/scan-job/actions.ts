@@ -82,9 +82,8 @@ export async function verifyAndGetJobOrder(scannedData: {
     let materialReady = false; 
 
     if (p.type === 'preparation') {
-        // A prep phase is ready if it doesn't need a scan, or if material has been associated already.
-        // It's considered "associated" if it's been consumed OR if work periods exist (meaning it was started).
-        materialReady = !p.requiresMaterialScan || !!p.materialConsumption || (p.workPeriods && p.workPeriods.length > 0);
+        // A prep phase is ready if it doesn't need a scan, or if at least one material is associated.
+        materialReady = !p.requiresMaterialScan || (p.materialConsumptions && p.materialConsumptions.length > 0);
     } else { // For production/quality phases
         // A production/quality phase is ready only if ALL preparation phases are completed.
         materialReady = allPreparationPhasesCompleted;
@@ -94,6 +93,7 @@ export async function verifyAndGetJobOrder(scannedData: {
       ...p,
       materialReady: materialReady,
       workPeriods: p.workPeriods || [], 
+      materialConsumptions: p.materialConsumptions || [],
       workstationScannedAndVerified: p.workstationScannedAndVerified || false,
     };
   });
@@ -179,22 +179,23 @@ export async function closeMaterialSessionAndUpdateStock(
             withdrawalDate: Timestamp.now(),
         });
 
-        // 3c. Update all associated job orders to record the closing weight
+        // 3c. Update all associated job orders to record the closing weight for the correct consumption
         for (const jobDoc of jobDocs) {
             if (jobDoc.exists()) {
                 const jobData = jobDoc.data() as JobOrder;
                 const updatedPhases = jobData.phases.map(p => {
-                    // Match the specific material consumption instance that hasn't been closed yet
-                    if (p.materialConsumption?.materialId === sessionData.materialId && p.materialConsumption.openingWeight === sessionData.openingWeight && p.materialConsumption.closingWeight === undefined) {
-                        return {
-                            ...p,
-                            materialConsumption: {
-                                ...p.materialConsumption,
-                                closingWeight: closingWeight,
-                            }
-                        };
-                    }
-                    return p;
+                     const updatedConsumptions = (p.materialConsumptions || []).map(mc => {
+                        if (
+                          mc.materialId === sessionData.materialId &&
+                          mc.openingWeight === sessionData.openingWeight &&
+                          mc.closingWeight === undefined // Only close sessions that are open
+                        ) {
+                          return { ...mc, closingWeight };
+                        }
+                        return mc;
+                      });
+
+                      return { ...p, materialConsumptions: updatedConsumptions };
                 });
                 transaction.update(jobDoc.ref, { phases: updatedPhases });
             }
@@ -301,26 +302,27 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
         for (const doc of snapshot.docs) {
             const job = convertTimestampsToDates(doc.data()) as JobOrder;
             for (const phase of (job.phases || [])) {
-                if (
-                    phase.materialConsumption &&
-                    phase.materialConsumption.materialId === materialId &&
-                    phase.materialConsumption.lottoBobina === lotto &&
-                    phase.materialConsumption.closingWeight !== undefined &&
-                    phase.materialConsumption.closingWeight !== null
-                ) {
-                    const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
-                        if (wp.end && (!latest || new Date(wp.end) > latest)) {
-                            return new Date(wp.end);
-                        }
-                        return latest;
-                    }, null as Date | null);
-                    
-                    if (lastWorkPeriodEnd) {
-                        consumptions.push({
-                            closingWeight: phase.materialConsumption.closingWeight,
-                            completedAt: lastWorkPeriodEnd,
-                        });
-                    }
+                for (const consumption of (phase.materialConsumptions || [])) {
+                  if (
+                      consumption.materialId === materialId &&
+                      consumption.lottoBobina === lotto &&
+                      consumption.closingWeight !== undefined &&
+                      consumption.closingWeight !== null
+                  ) {
+                      const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
+                          if (wp.end && (!latest || new Date(wp.end) > latest)) {
+                              return new Date(wp.end);
+                          }
+                          return latest;
+                      }, null as Date | null);
+                      
+                      if (lastWorkPeriodEnd) {
+                          consumptions.push({
+                              closingWeight: consumption.closingWeight,
+                              completedAt: lastWorkPeriodEnd,
+                          });
+                      }
+                  }
                 }
             }
         }
@@ -344,8 +346,7 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
             const hasBeenUsed = querySnapshot.docs.some(doc => {
                  const job = doc.data() as JobOrder;
                  return (job.phases || []).some(phase => 
-                    phase.materialConsumption?.materialId === materialId &&
-                    phase.materialConsumption?.lottoBobina === lotto
+                    (phase.materialConsumptions || []).some(mc => mc.materialId === materialId && mc.lottoBobina === lotto)
                 );
             });
             // If it has never been used, return its initial quantity.

@@ -27,7 +27,7 @@ export interface JobPhase {
   workstationScannedAndVerified?: boolean;
   type?: 'preparation' | 'production' | 'quality';
   requiresMaterialScan?: boolean;
-  materialConsumption?: MaterialConsumption | null;
+  materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
   departmentCodes: Reparto[];

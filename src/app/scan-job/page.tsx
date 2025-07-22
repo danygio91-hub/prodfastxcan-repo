@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -203,6 +203,7 @@ export default function ScanJobPage() {
         phases: (jobToStart.phases || []).map(p => ({
             ...p,
             workPeriods: p.workPeriods || [], 
+            materialConsumptions: p.materialConsumptions || [],
             workstationScannedAndVerified: p.workstationScannedAndVerified || false,
         }))
     };
@@ -509,7 +510,7 @@ export default function ScanJobPage() {
         }
     }
     
-    const relevantSession = activeSessions.find(s => s.materialId === phaseToComplete.materialConsumption?.materialId);
+    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
 
     if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
         setJobToFinalize(jobToUpdate);
@@ -556,8 +557,8 @@ export default function ScanJobPage() {
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobId(null); // Clear current job to scan a new one
     
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
-    const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions.some(mc => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions.some(mc => mc.materialId === s.materialId));
     toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
     
     setJobToFinalize(null);
@@ -722,12 +723,15 @@ export default function ScanJobPage() {
         const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
 
         if (phaseToUpdate) {
-            phaseToUpdate.materialConsumption = {
+            if (!phaseToUpdate.materialConsumptions) {
+              phaseToUpdate.materialConsumptions = [];
+            }
+            phaseToUpdate.materialConsumptions.push({
                 materialId: sessionData.materialId,
                 materialCode: sessionData.materialCode,
                 openingWeight: sessionData.openingWeight,
                 lottoBobina: values.lottoBobina,
-            };
+            });
             phaseToUpdate.materialReady = true; 
         }
         
@@ -1140,7 +1144,7 @@ export default function ScanJobPage() {
           const activePhase = activeJob.phases.find(p => p.status === 'in-progress');
           const noOtherPhaseActive = !activePhase || activePhase.id === phase.id;
 
-          const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan && !phase.materialReady;
+          const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan;
           
           const canPerformAction = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady;
           
@@ -1205,15 +1209,16 @@ export default function ScanJobPage() {
                   </div>
               )}
 
-              <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                {phase.materialConsumption && (
-                    <p className="font-semibold text-primary">
-                        Materiale: {phase.materialConsumption.materialCode} 
-                        (Aperto: {phase.materialConsumption.openingWeight} kg) 
-                        {phase.materialConsumption.closingWeight !== undefined ? ` (Chiuso: ${phase.materialConsumption.closingWeight} kg)`: ''}
-                        {phase.materialConsumption.lottoBobina && ` - Lotto: ${phase.materialConsumption.lottoBobina}`}
+              <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                {(phase.materialConsumptions || []).map((mc, index) => (
+                    <p key={index} className="font-semibold text-primary/90 text-xs bg-primary/10 p-2 rounded-md">
+                        Materiale: {mc.materialCode} 
+                        {mc.openingWeight !== undefined && ` (Aperto: ${mc.openingWeight} kg)`}
+                        {mc.closingWeight !== undefined && ` (Chiuso: ${mc.closingWeight} kg)`}
+                        {mc.pcs !== undefined && ` (Pezzi: ${mc.pcs})`}
+                        {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}
                     </p>
-                )}
+                ))}
                 {lastActiveWorkPeriod?.start && (
                   <p>Ultimo avvio: {format(new Date(lastActiveWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
                 )}
@@ -1226,7 +1231,7 @@ export default function ScanJobPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
                     <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
-                        <Boxes className="mr-2 h-4 w-4" /> Scansiona Materiale
+                        <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                     </Button>
                 )}
                  {canStartWithScan && (
@@ -1376,7 +1381,7 @@ export default function ScanJobPage() {
     <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
         <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
             <DialogHeader>
-                <DialogTitle>Scansiona Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
+                <DialogTitle>Aggiungi Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
             </DialogHeader>
 
             {materialScanStep === 'initial' && (
@@ -1523,9 +1528,8 @@ export default function ScanJobPage() {
 
   const renderContinueOrCloseDialog = () => {
     if (!jobToFinalize) return null;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumption && p.materialConsumption.closingWeight === undefined);
-    
-    const relevantSession = activeSessions.find(s => s.materialId === phaseThatTriggered?.materialConsumption?.materialId);
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions.some(mc => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions.some(mc => mc.materialId === s.materialId));
 
 
     return (
