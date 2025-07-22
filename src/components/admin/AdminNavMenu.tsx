@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -5,7 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes } from 'lucide-react';
+import { LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
 
@@ -15,6 +16,7 @@ const navItems = [
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
+  { href: '/admin/non-conformity-reports', label: 'Non Conformità', icon: ShieldAlert },
   { href: '/admin/settings', label: 'Configurazione Azienda', icon: Building2 },
   { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
 ];

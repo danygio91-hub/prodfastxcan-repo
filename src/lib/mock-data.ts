@@ -155,6 +155,19 @@ export interface ActiveMaterialSessionData {
     category: MaterialSessionCategory;
 }
 
+export interface NonConformityReport {
+    id: string;
+    materialId: string;
+    materialCode: string;
+    lotto: string;
+    reason: string;
+    notes?: string;
+    operatorId: string;
+    operatorName: string;
+    reportDate: Date;
+    status: 'pending' | 'reviewed' | 'resolved';
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];

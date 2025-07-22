@@ -20,7 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode, addBatchToRawMaterial } from './actions';
+import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare } from 'lucide-react';
 
@@ -173,26 +173,32 @@ export default function MaterialLoadingPage() {
         }
     };
     
-    const handleNonConformityReport = (reason: string) => {
-        // In a real app, this would send a report to the backend.
-        // For now, we'll just log it and show a toast.
-        console.log({
-            type: 'NON_CONFORMITY_REPORT',
-            material: scannedMaterial?.code,
+    const handleNonConformityReport = async (reason: string) => {
+        if (!scannedMaterial || !scannedLotto || !operator) return;
+
+        const result = await reportNonConformity({
+            materialId: scannedMaterial.id,
+            materialCode: scannedMaterial.code,
             lotto: scannedLotto,
             reason: reason,
             notes: ncNotes,
-            operator: operator?.id,
-            timestamp: new Date().toISOString()
+            operatorId: operator.id,
+            operatorName: operator.nome,
         });
 
-        toast({
-            title: "Segnalazione Inviata",
-            description: `NC per ${reason} registrata. Puoi procedere al carico.`,
-            variant: "destructive"
-        });
-        
-        setShowNCReport(false);
+        if (result.success) {
+            toast({
+                title: "Segnalazione Inviata",
+                description: `La NC è stata registrata e il materiale è in attesa di revisione.`,
+            });
+            resetFlow(); // Reset the flow, preventing stock loading
+        } else {
+             toast({
+                variant: "destructive",
+                title: "Errore Segnalazione",
+                description: result.message,
+            });
+        }
     };
 
     const resetFlow = () => {
@@ -378,5 +384,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-
-    

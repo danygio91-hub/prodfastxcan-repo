@@ -1,9 +1,9 @@
 
 'use server';
 
-import { collection, doc, getDoc, getDocs, query, where, runTransaction } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, runTransaction, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, NonConformityReport } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 
@@ -109,4 +109,37 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
+}
+
+
+const ncReportSchema = z.object({
+    materialId: z.string(),
+    materialCode: z.string(),
+    lotto: z.string(),
+    reason: z.string(),
+    notes: z.string().optional(),
+    operatorId: z.string(),
+    operatorName: z.string(),
+});
+
+export async function reportNonConformity(data: z.infer<typeof ncReportSchema>): Promise<{ success: boolean; message: string; }> {
+    const validated = ncReportSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, message: 'Dati per la segnalazione non validi.' };
+    }
+    
+    try {
+        const ncCollectionRef = collection(db, "nonConformityReports");
+        const reportData: Omit<NonConformityReport, 'id'> = {
+            ...validated.data,
+            reportDate: Timestamp.now(),
+            status: 'pending',
+        }
+        await addDoc(ncCollectionRef, reportData);
+        
+        revalidatePath('/admin/non-conformity-reports');
+        return { success: true, message: 'Segnalazione inviata con successo.' };
+    } catch (error) {
+        return { success: false, message: "Impossibile salvare la segnalazione di non conformità." };
+    }
 }
