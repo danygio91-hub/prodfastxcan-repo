@@ -34,6 +34,16 @@ import { useAuth } from '@/components/auth/AuthProvider';
 function triggerGlobalLogout() {
   const timestamp = Date.now().toString();
   localStorage.setItem('force_logout_timestamp', timestamp);
+
+  // Clear all material session keys from localStorage
+  Object.keys(localStorage).forEach(key => {
+    if (key.startsWith('prodtime_tracker_active_material_sessions_')) {
+      localStorage.removeItem(key);
+    }
+     if (key.startsWith('prodtime_tracker_active_job_id_')) {
+      localStorage.removeItem(key);
+    }
+  });
   
   // Use a BroadcastChannel to notify other tabs of the same origin
   const channel = new BroadcastChannel('auth_channel');
@@ -330,7 +340,7 @@ export default function AdminAppSettingsPage() {
                           <div>
                               <h4 className="font-semibold">Reset Sessioni Attive</h4>
                               <p className="text-sm text-muted-foreground">
-                                  Forza un logout per tutti gli operatori, cancellando le loro sessioni locali (es. banner materiale attivo).
+                                  Forza un logout per tutti gli operatori, cancellando le loro sessioni locali (es. commesse e materiali attivi).
                               </p>
                           </div>
                           <AlertDialog>
