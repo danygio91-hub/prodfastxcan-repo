@@ -153,7 +153,7 @@ export default function ActiveMaterialSessionBar() {
                 {activeSessions.map((session) => (
                     <div key={session.materialId} className="p-4 border rounded-lg space-y-3">
                         <div>
-                            <p className="font-semibold text-sm">{session.materialCode} <Badge variant="outline">{session.category}</Badge></p>
+                            <div className="font-semibold text-sm flex items-center gap-2">{session.materialCode} <Badge variant="outline">{session.category}</Badge></div>
                             <p className="text-xs text-muted-foreground">Aperto con: {session.openingWeight} kg</p>
                         </div>
                          <div className="text-xs text-muted-foreground">
