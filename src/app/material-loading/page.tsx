@@ -22,7 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare } from 'lucide-react';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -47,10 +47,12 @@ export default function MaterialLoadingPage() {
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'enter_weight' | 'saving' | 'success'>('scan_material');
+    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_weight' | 'saving' | 'success'>('scan_material');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
+    const [showNCReport, setShowNCReport] = useState(false);
+    const [ncNotes, setNcNotes] = useState('');
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -94,7 +96,7 @@ export default function MaterialLoadingPage() {
         stopCamera();
         setScannedLotto(code.trim());
         form.setValue('lotto', code.trim());
-        setStep('enter_weight');
+        setStep('validate');
     };
 
     const startScan = useCallback((onScan: (data: string) => void) => {
@@ -171,9 +173,33 @@ export default function MaterialLoadingPage() {
         }
     };
     
+    const handleNonConformityReport = (reason: string) => {
+        // In a real app, this would send a report to the backend.
+        // For now, we'll just log it and show a toast.
+        console.log({
+            type: 'NON_CONFORMITY_REPORT',
+            material: scannedMaterial?.code,
+            lotto: scannedLotto,
+            reason: reason,
+            notes: ncNotes,
+            operator: operator?.id,
+            timestamp: new Date().toISOString()
+        });
+
+        toast({
+            title: "Segnalazione Inviata",
+            description: `NC per ${reason} registrata. Puoi procedere al carico.`,
+            variant: "destructive"
+        });
+        
+        setShowNCReport(false);
+    };
+
     const resetFlow = () => {
         setScannedMaterial(null);
         setScannedLotto(null);
+        setShowNCReport(false);
+        setNcNotes('');
         form.reset({ date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_RAPIDO' });
         setStep('scan_material');
     };
@@ -205,13 +231,14 @@ export default function MaterialLoadingPage() {
                         
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
-                                {['Materiale', 'Lotto', 'Peso'].map((title, index) => {
-                                    const stepIndex = ['scan_material', 'scan_lotto', 'enter_weight'].indexOf(step);
+                                {['Materiale', 'Lotto', 'Convalida', 'Carico'].map((title, index) => {
+                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_weight'];
+                                    const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
 
                                     return (
-                                        <li key={title} className={`flex items-center ${index < 2 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
+                                        <li key={title} className={`flex items-center ${index < 3 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
                                             <span className={`flex items-center justify-center w-10 h-10 ${isActive || isCompleted ? 'bg-primary/20' : 'bg-muted'} rounded-full lg:h-12 lg:w-12 dark:bg-gray-800 shrink-0`}>
                                                 {isCompleted ? <Check className="w-5 h-5 text-primary" /> : <span className={`${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{index + 1}</span>}
                                             </span>
@@ -249,9 +276,44 @@ export default function MaterialLoadingPage() {
                                             <Button onClick={() => setIsScanning(true)} size="lg"><Barcode className="mr-2 h-5 w-5"/>Avvia Scansione Lotto</Button>
                                         </div>
                                      )}
+                                     {step === 'validate' && (
+                                         <div className="text-center space-y-4">
+                                            <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
+                                            <p className="text-muted-foreground">Il materiale ricevuto è conforme?</p>
+                                            <div className="flex justify-center gap-4 pt-4">
+                                                <Button onClick={() => setStep('enter_weight')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
+                                                    <ThumbsUp className="h-8 w-8" />
+                                                    OK
+                                                </Button>
+                                                <Button onClick={() => setShowNCReport(true)} variant="destructive" className="h-24 w-32 flex-col gap-2 text-lg">
+                                                    <ThumbsDown className="h-8 w-8" />
+                                                    NC
+                                                </Button>
+                                            </div>
+                                            
+                                            {showNCReport && (
+                                                <Card className="mt-6 text-left p-4 border-destructive">
+                                                    <CardHeader className="p-2">
+                                                        <CardTitle className="text-base">Segnala Non Conformità</CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent className="p-2 space-y-4">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Codifica Errata')}>Codifica Errata</Button>
+                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Dimensioni Errate')}>Dimensioni Errate</Button>
+                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Altro')}>Altro</Button>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <Label htmlFor="nc-notes">Note (opzionale)</Label>
+                                                            <Input id="nc-notes" value={ncNotes} onChange={(e) => setNcNotes(e.target.value)} placeholder="Aggiungi dettagli..." />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )}
+                                        </div>
+                                     )}
                                      {step === 'enter_weight' && (
                                         <div>
-                                            <h3 className="text-xl font-semibold text-center mb-4">3. Inserisci il Peso</h3>
+                                            <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci il Peso</h3>
                                              <Form {...form}>
                                                 <form onSubmit={form.handleSubmit(onWeightSubmit)} className="space-y-6 text-left">
                                                     <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
