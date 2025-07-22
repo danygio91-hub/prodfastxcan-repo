@@ -87,6 +87,7 @@ export default function NonConformityClientPage() {
                                 <TableHead>Stato</TableHead>
                                 <TableHead>Materiale</TableHead>
                                 <TableHead>Lotto</TableHead>
+                                <TableHead>Q.tà</TableHead>
                                 <TableHead>Motivo</TableHead>
                                 <TableHead>Operatore</TableHead>
                                 <TableHead className="text-right">Azioni</TableHead>
@@ -95,7 +96,7 @@ export default function NonConformityClientPage() {
                         <TableBody>
                             {isLoading ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="h-24 text-center">
+                                    <TableCell colSpan={8} className="h-24 text-center">
                                         <Loader2 className="mx-auto h-6 w-6 animate-spin" />
                                     </TableCell>
                                 </TableRow>
@@ -110,6 +111,7 @@ export default function NonConformityClientPage() {
                                         </TableCell>
                                         <TableCell className="font-medium">{report.materialCode}</TableCell>
                                         <TableCell>{report.lotto}</TableCell>
+                                        <TableCell>{report.quantity}</TableCell>
                                         <TableCell>{report.reason}{report.notes && <span className="text-muted-foreground italic"> - {report.notes}</span>}</TableCell>
                                         <TableCell>{report.operatorName}</TableCell>
                                         <TableCell className="text-right space-x-2">
@@ -125,7 +127,7 @@ export default function NonConformityClientPage() {
                                                             <AlertDialogHeader>
                                                                 <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
                                                                 <AlertDialogDescription>
-                                                                    Approvare il carico per il lotto {report.lotto}? Il materiale verrà aggiunto allo stock.
+                                                                    Approvare il carico di {report.quantity} unità per il lotto {report.lotto}? Il materiale verrà aggiunto allo stock.
                                                                 </AlertDialogDescription>
                                                             </AlertDialogHeader>
                                                             <AlertDialogFooter>
@@ -160,7 +162,7 @@ export default function NonConformityClientPage() {
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="h-24 text-center">
+                                    <TableCell colSpan={8} className="h-24 text-center">
                                         Nessuna segnalazione di non conformità in ingresso trovata.
                                     </TableCell>
                                 </TableRow>
@@ -223,4 +225,3 @@ export default function NonConformityClientPage() {
         </div>
     );
 }
-

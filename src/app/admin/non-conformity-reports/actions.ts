@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { NonConformityReport, RawMaterial } from '@/lib/mock-data';
+import type { NonConformityReport, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
 
 // Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {
@@ -54,17 +54,42 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
                 throw new Error("Materia prima associata non trovata. Impossibile caricarla.");
             }
             
-            // This part is a placeholder for the actual logic to load the material.
-            // Since we don't have the quantity from the original form,
-            // we will just mark the report as approved.
-            // A more robust implementation would require storing the pending batch info
-            // within the NC report itself. For now, we focus on status change.
+            const material = materialSnap.data() as RawMaterial;
+            const existingBatches = material.batches || [];
+            
+            const newBatch: RawMaterialBatch = {
+                id: `batch-nc-${report.id}`,
+                date: new Date(report.reportDate).toISOString(),
+                ddt: `NC-APPROVATA`,
+                quantity: report.quantity,
+                lotto: report.lotto,
+            };
 
+            const updatedBatches = [...existingBatches, newBatch];
+            
+            const newStockUnits = (material.currentStockUnits || 0) + report.quantity;
+            let newWeightKg = material.currentWeightKg || 0;
+
+            if (material.unitOfMeasure === 'kg') {
+                newWeightKg = newStockUnits;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                newWeightKg = newStockUnits * material.conversionFactor;
+            }
+
+            // Update material stock
+            transaction.update(materialRef, { 
+                batches: updatedBatches,
+                currentStockUnits: newStockUnits,
+                currentWeightKg: newWeightKg,
+            });
+            
+            // Update report status
             transaction.update(reportRef, { status: 'approved' });
         });
 
         revalidatePath('/admin/non-conformity-reports');
-        return { success: true, message: `Carico approvato. La segnalazione è stata aggiornata.` };
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: `Carico approvato. Stock aggiornato con ${name}.` };
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'approvazione." };
     }

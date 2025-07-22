@@ -116,6 +116,7 @@ const ncReportSchema = z.object({
     materialId: z.string(),
     materialCode: z.string(),
     lotto: z.string(),
+    quantity: z.coerce.number().positive("La quantità è obbligatoria."),
     reason: z.string(),
     notes: z.string().optional(),
     operatorId: z.string(),

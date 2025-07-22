@@ -133,6 +133,7 @@ export interface MaterialWithdrawal {
   materialId: string;
   materialCode: string;
   consumedWeight: number;
+  consumedUnits?: number | null;
   operatorId: string;
   operatorName?: string;
   withdrawalDate: Date;
@@ -160,6 +161,7 @@ export interface NonConformityReport {
     materialId: string;
     materialCode: string;
     lotto: string;
+    quantity: number; // The quantity of the NC material
     reason: string;
     notes?: string;
     operatorId: string;

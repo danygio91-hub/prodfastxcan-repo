@@ -41,6 +41,13 @@ const batchFormSchema = z.object({
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
+const ncReportFormSchema = z.object({
+    quantity: z.coerce.number().positive("La quantità è obbligatoria."),
+    reason: z.string(),
+    notes: z.string().optional(),
+});
+type NcReportFormValues = z.infer<typeof ncReportFormSchema>;
+
 
 export default function MaterialLoadingPage() {
     const { operator, loading: authLoading } = useAuth();
@@ -52,7 +59,6 @@ export default function MaterialLoadingPage() {
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [showNCReport, setShowNCReport] = useState(false);
-    const [ncNotes, setNcNotes] = useState('');
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -72,6 +78,8 @@ export default function MaterialLoadingPage() {
         defaultValues: { date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_RAPIDO' },
     });
     
+    const ncForm = useForm<NcReportFormValues>();
+
     const stopCamera = useCallback(() => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());
@@ -173,15 +181,16 @@ export default function MaterialLoadingPage() {
         }
     };
     
-    const handleNonConformityReport = async (reason: string) => {
+    const handleNonConformityReport = async (values: NcReportFormValues) => {
         if (!scannedMaterial || !scannedLotto || !operator) return;
 
         const result = await reportNonConformity({
             materialId: scannedMaterial.id,
             materialCode: scannedMaterial.code,
             lotto: scannedLotto,
-            reason: reason,
-            notes: ncNotes,
+            quantity: values.quantity,
+            reason: values.reason,
+            notes: values.notes,
             operatorId: operator.id,
             operatorName: operator.nome,
         });
@@ -191,7 +200,7 @@ export default function MaterialLoadingPage() {
                 title: "Segnalazione Inviata",
                 description: `La NC è stata registrata e il materiale è in attesa di revisione.`,
             });
-            resetFlow(); // Reset the flow, preventing stock loading
+            resetFlow();
         } else {
              toast({
                 variant: "destructive",
@@ -205,7 +214,7 @@ export default function MaterialLoadingPage() {
         setScannedMaterial(null);
         setScannedLotto(null);
         setShowNCReport(false);
-        setNcNotes('');
+        ncForm.reset();
         form.reset({ date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_RAPIDO' });
         setStep('scan_material');
     };
@@ -299,27 +308,68 @@ export default function MaterialLoadingPage() {
                                             
                                             {showNCReport && (
                                                 <Card className="mt-6 text-left p-4 border-destructive">
+                                                <Form {...ncForm}>
+                                                  <form onSubmit={ncForm.handleSubmit(handleNonConformityReport)} className="space-y-4">
                                                     <CardHeader className="p-2">
-                                                        <CardTitle className="text-base">Segnala Non Conformità</CardTitle>
+                                                      <CardTitle className="text-base">Segnala Non Conformità</CardTitle>
+                                                      <CardDescription>Specifica il problema e la quantità.</CardDescription>
                                                     </CardHeader>
                                                     <CardContent className="p-2 space-y-4">
-                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Codifica Errata')}>Codifica Errata</Button>
-                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Dimensioni Errate')}>Dimensioni Errate</Button>
-                                                            <Button type="button" variant="outline" onClick={() => handleNonConformityReport('Altro')}>Altro</Button>
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <Label htmlFor="nc-notes">Note (opzionale)</Label>
-                                                            <Input id="nc-notes" value={ncNotes} onChange={(e) => setNcNotes(e.target.value)} placeholder="Aggiungi dettagli..." />
-                                                        </div>
+                                                      <FormField
+                                                          control={ncForm.control}
+                                                          name="reason"
+                                                          render={({ field }) => (
+                                                              <FormItem>
+                                                                  <FormLabel>Motivo della Non Conformità</FormLabel>
+                                                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                      <Button type="button" variant={field.value === 'Codifica Errata' ? 'default' : 'outline'} onClick={() => field.onChange('Codifica Errata')}>Codifica Errata</Button>
+                                                                      <Button type="button" variant={field.value === 'Dimensioni Errate' ? 'default' : 'outline'} onClick={() => field.onChange('Dimensioni Errate')}>Dimensioni Errate</Button>
+                                                                      <Button type="button" variant={field.value === 'Altro' ? 'default' : 'outline'} onClick={() => field.onChange('Altro')}>Altro</Button>
+                                                                  </div>
+                                                                  <FormMessage />
+                                                              </FormItem>
+                                                          )}
+                                                      />
+
+                                                      <FormField
+                                                          control={ncForm.control}
+                                                          name="quantity"
+                                                          render={({ field }) => (
+                                                              <FormItem>
+                                                                  <FormLabel>Quantità NC ({scannedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                                                                  <FormControl><Input type="number" step="any" placeholder="Es. 10.5" {...field} value={field.value ?? ''} /></FormControl>
+                                                                  <FormMessage />
+                                                              </FormItem>
+                                                          )}
+                                                      />
+
+                                                      <FormField
+                                                          control={ncForm.control}
+                                                          name="notes"
+                                                          render={({ field }) => (
+                                                              <FormItem>
+                                                                  <FormLabel>Note Aggiuntive (Opzionale)</FormLabel>
+                                                                  <FormControl><Input placeholder="Aggiungi dettagli..." {...field} /></FormControl>
+                                                                  <FormMessage />
+                                                              </FormItem>
+                                                          )}
+                                                      />
                                                     </CardContent>
-                                                </Card>
+                                                    <CardFooter className="p-2">
+                                                      <Button type="submit" className="w-full" variant="destructive" disabled={ncForm.formState.isSubmitting}>
+                                                        {ncForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                                                        Invia Segnalazione
+                                                      </Button>
+                                                    </CardFooter>
+                                                  </form>
+                                                </Form>
+                                              </Card>
                                             )}
                                         </div>
                                      )}
                                      {step === 'enter_weight' && (
                                         <div>
-                                            <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci il Peso</h3>
+                                            <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci la Quantità</h3>
                                              <Form {...form}>
                                                 <form onSubmit={form.handleSubmit(onWeightSubmit)} className="space-y-6 text-left">
                                                     <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
