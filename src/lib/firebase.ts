@@ -21,7 +21,7 @@ let app;
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
 } else {
-  app = getApps()[0];
+  app = getApp();
 }
 
 const db = getFirestore(app);
