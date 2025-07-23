@@ -8,7 +8,7 @@ import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, GitMerge, ShieldAlert } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert } from 'lucide-react';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
