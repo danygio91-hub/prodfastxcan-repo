@@ -1,0 +1,91 @@
+[debug] [2025-07-23T17:10:30.717Z] ----------------------------------------------------------------------
+[debug] [2025-07-23T17:10:30.720Z] Command:       /nix/store/ws50yvm6vzlzf7jzz6n7xh4szddrack1-nodejs-20.19.1/bin/node /nix/store/gv0i9ndcpzjpfi2yr06402kzy90q51ki-firebase-tools-14.10.1/lib/node_modules/firebase-tools/lib/bin/firebase.js deploy --only hosting
+[debug] [2025-07-23T17:10:30.721Z] CLI Version:   14.10.1
+[debug] [2025-07-23T17:10:30.721Z] Platform:      linux
+[debug] [2025-07-23T17:10:30.721Z] Node Version:  v20.19.1
+[debug] [2025-07-23T17:10:30.721Z] Time:          Wed Jul 23 2025 17:10:30 GMT+0000 (Coordinated Universal Time)
+[debug] [2025-07-23T17:10:30.721Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-07-23T17:10:31.227Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"projects"}
+[debug] [2025-07-23T17:10:31.233Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-07-23T17:10:31.234Z] > authorizing via signed-in user (dany.gio91@gmail.com)
+[debug] [2025-07-23T17:10:31.234Z] [iam] checking project prodfastxcan for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-07-23T17:10:31.236Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:31.236Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:31.237Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions [none]
+[debug] [2025-07-23T17:10:31.238Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions x-goog-quota-user=projects/prodfastxcan
+[debug] [2025-07-23T17:10:31.238Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-07-23T17:10:31.971Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions 200
+[debug] [2025-07-23T17:10:31.972Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-07-23T17:10:31.975Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:31.976Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:31.976Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan [none]
+[debug] [2025-07-23T17:10:32.222Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan 200
+[debug] [2025-07-23T17:10:32.222Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan {"projectId":"prodfastxcan","projectNumber":"724257897568","displayName":"ProdFastXcan","name":"projects/prodfastxcan","resources":{"hostingSite":"prodfastxcan"},"state":"ACTIVE","etag":"1_0fc510ec-7e24-4236-b741-886e55cafa72"}
+[debug] [2025-07-23T17:10:37.499Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:37.500Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:37.501Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites pageToken=&pageSize=10
+[debug] [2025-07-23T17:10:38.438Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites 200
+[debug] [2025-07-23T17:10:38.438Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites {"sites":[{"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"}]}
+[debug] [2025-07-23T17:10:38.439Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:38.441Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:38.441Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config [none]
+[debug] [2025-07-23T17:10:39.098Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config 200
+[debug] [2025-07-23T17:10:39.099Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config {"projectId":"prodfastxcan","appId":"1:724257897568:web:2054074f18364ed0e91705","storageBucket":"prodfastxcan.firebasestorage.app","apiKey":"AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU","authDomain":"prodfastxcan.firebaseapp.com","messagingSenderId":"724257897568","measurementId":"G-8XZHSKPWPP"}
+[info] 
+   Thank you for trying our early preview of Next.js support on Firebase Hosting.
+   During the preview, support is best-effort and breaking changes can be expected. Proceed with caution.
+   The integration is known to work with Next.js version 12 - 15.0. You may encounter errors.
+
+   Documentation: https://firebase.google.com/docs/hosting/frameworks/nextjs
+   File a bug: https://github.com/firebase/firebase-tools/issues/new?template=bug_report.md
+   Submit a feature request: https://github.com/firebase/firebase-tools/issues/new?template=feature_request.md
+
+   We'd love to learn from you. Express your interest in helping us shape the future of Firebase Hosting: https://goo.gle/41enW5X
+
+[debug] [2025-07-23T17:10:49.057Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:49.057Z] Checked if tokens are valid: true, expires at: 1753294020258
+[debug] [2025-07-23T17:10:49.057Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan [none]
+[debug] [2025-07-23T17:10:49.883Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan 200
+[debug] [2025-07-23T17:10:49.883Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan {"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"}
+[info]  ⚠ Invalid next.config.js options detected: 
+
+[info]  ⚠     Unrecognized key(s) in object: 'allowedForwardedHosts'
+
+[info]  ⚠ See more info here: https://nextjs.org/docs/messages/invalid-next-config
+
+[info]    ▲ Next.js 15.3.3
+
+[info] 
+
+[info]    Creating an optimized production build ...
+
+[info] > [PWA] Compile server
+
+[info] > [PWA] Compile server
+> [PWA] Compile client (static)
+> [PWA] Auto register service worker with: /home/user/studio/node_modules/next-pwa/register.js
+> [PWA] Service worker: /home/user/studio/public/sw.js
+> [PWA]   url: /sw.js
+
+[info] > [PWA]   scope: /
+
+[info] Failed to compile.
+
+./src/app/admin/data-management/print/page.tsx
+Module not found: Can't resolve 'react-qr-code'
+
+https://nextjs.org/docs/messages/module-not-found
+
+./src/app/admin/data-management/print/page.tsx
+Module not found: Can't resolve './PrintButton'
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+[info] 
+> Build failed because of webpack errors
+
+[debug] [2025-07-23T17:11:58.814Z] Error: ENOENT: no such file or directory, open '/home/user/studio/.next/export-marker.json'
+[error] 
+[error] Error: An unexpected error has occurred.
