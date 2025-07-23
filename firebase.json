@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "prodfastxcan"
+  },
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
   }
 }

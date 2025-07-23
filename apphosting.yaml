@@ -1,6 +1,11 @@
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
+# The ID of the App Hosting backend to which you want to deploy.
+# If you don't specify a backend, Firebase attempts to deploy to a backend
+# in the same directory as the apphosting.yaml file.
+backend: prodfastxcan
+
 runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
