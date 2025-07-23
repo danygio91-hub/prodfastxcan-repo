@@ -1,21 +1,39 @@
 
-import { getJobDetailReport } from '../../actions';
+"use client"
+import { getJobDetailReport } from '../actions';
 import type { JobOrder } from '@/lib/mock-data';
-import { notFound } from 'next/navigation';
+import { notFound, useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'react-qr-code';
 import { PrintButton } from './PrintButton';
-
-interface ODLPrintPageProps {
-  params: {
-    jobId: string;
-  };
-}
+import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 // This is now an async Server Component
-export default async function ODLPrintPage({ params }: ODLPrintPageProps) {
-  // Fetch data directly on the server
-  const job = await getJobDetailReport(params.jobId) as JobOrder | null;
+export default function ODLPrintPage() {
+  const searchParams = useSearchParams();
+  const jobId = searchParams.get('jobId');
+  const [job, setJob] = useState<JobOrder | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    if (jobId) {
+      getJobDetailReport(jobId).then(data => {
+        setJob(data as JobOrder | null);
+        setLoading(false);
+      });
+    } else {
+      setLoading(false);
+    }
+  }, [jobId]);
+
+  if (loading) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    );
+  }
+  
   if (!job) {
     notFound();
   }
@@ -107,3 +125,4 @@ export default async function ODLPrintPage({ params }: ODLPrintPageProps) {
     </div>
   );
 }
+

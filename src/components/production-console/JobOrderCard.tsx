@@ -4,10 +4,12 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
+import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { Button } from '../ui/button';
 
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
@@ -72,10 +74,17 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
           <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
           <StatusBadge status={overallStatus} />
         </div>
+        <div className="flex justify-between items-center">
         <CardDescription className="flex items-center gap-2 pt-1">
           <Building className="h-4 w-4 text-muted-foreground" />
           {jobOrder.cliente}
         </CardDescription>
+          <Button asChild variant="ghost" size="icon">
+            <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                <Printer className="h-4 w-4"/>
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
         <div className="space-y-2">
