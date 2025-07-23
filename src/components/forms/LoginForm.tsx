@@ -81,24 +81,6 @@ export default function LoginForm() {
         };
     }, []);
 
-    useEffect(() => {
-        if (authLoading) return; 
-        
-        if (user && operator) {
-            if (operator.nome === 'Ruben') {
-                 toast({
-                    title: `Buongiorno Signor Ruben!`,
-                    description: `il più bello della Power Flex`,
-                });
-            } else {
-                toast({
-                    title: `Buongiorno, ${operator.nome}!`,
-                    description: `Reindirizzamento in corso...`,
-                });
-            }
-        }
-    }, [user, operator, authLoading, toast]);
-
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setIsLoading(true);
         setStep('logging_in');
