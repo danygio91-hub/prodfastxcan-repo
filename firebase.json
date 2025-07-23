@@ -1,6 +1,10 @@
+
 {
   "projects": {
     "default": "prodfastxcan"
+  },
+  "firestore": {
+    "rules": "firestore.rules"
   },
   "hosting": {
     "source": ".",
