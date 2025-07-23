@@ -93,12 +93,6 @@ export default function Header() {
                 <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} className="mr-1" unoptimized={true} />
                 <span>ProdFastXcan</span>
             </Link>
-             <a href="https://console.firebase.google.com/u/0/project/prodfastxcan/overview" target="_blank" rel="noopener noreferrer" className="hidden md:flex">
-                 <Button variant="outline" size="sm">
-                    <svg className="w-4 h-4 mr-2" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M39.63,116.3,3.75,95.66a5,5,0,0,1-1.3-7.23L42.23,24.81a5,5,0,0,1,7-1.33L59,29.11,39.63,116.3Z" fill="#8d8d8d"></path><path d="M43.75,23.33,74.52,7.31a5,5,0,0,1,6.1,2.83L99.3,55.93,43.75,23.33Z" fill="#8d8d8d"></path><path d="m99.3,55.93-19.14,9.4,32.74,56.4a5,5,0,0,0,8.5-4.88L99.3,55.93Z" fill="#8d8d8d"></path></svg>
-                    prodfastxcan
-                </Button>
-            </a>
         </div>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
