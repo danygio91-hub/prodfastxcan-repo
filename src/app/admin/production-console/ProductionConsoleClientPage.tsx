@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -24,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
+import { forceFinishProduction } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -36,15 +38,22 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Check phases
   const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
-  
-  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (isAnyProductionActive) {
-      return 'In Lavorazione';
-  }
+  const finishingPhases = (jobOrder.phases || []).filter(p => p.type === 'quality' || p.type === 'packaging');
 
+  const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
+  if (isAnyFinishingActive) return 'In Lavorazione';
+
+  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  if (isAnyProductionActive) return 'In Lavorazione';
+  
   const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-  if (preparationPhases.length > 0 && allPreparationDone) {
-      const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+
+  if (allPreparationDone) {
+    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed');
+    if (allProductionSkippedOrDone) {
+        return 'Pronto per Finitura';
+    }
+     const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
       if (isAnyProductionStarted) {
          return 'In Lavorazione';
       }
@@ -125,12 +134,23 @@ export default function ProductionConsoleClientPage() {
     // The real-time listener will automatically update the job state.
   };
 
+  const handleForceFinish = async (jobId: string) => {
+     if (!user) return;
+     const result = await forceFinishProduction(jobId, user.uid);
+      toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+  }
+
 
   const filterOptions: (OverallStatus | 'all')[] = [
     'all',
     'Da Iniziare',
     'In Preparazione',
     'Pronto per Produzione',
+    'Pronto per Finitura',
     'In Lavorazione',
     'Sospesa',
     'Problema'
@@ -175,7 +195,12 @@ export default function ProductionConsoleClientPage() {
         ) : filteredJobs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredJobs.map(job => (
-                  <JobOrderCard key={job.id} jobOrder={job} onProblemClick={() => setProblemJob(job)} />
+                  <JobOrderCard 
+                    key={job.id} 
+                    jobOrder={job} 
+                    onProblemClick={() => setProblemJob(job)}
+                    onForceFinishClick={handleForceFinish}
+                   />
               ))}
           </div>
         ) : (
@@ -195,7 +220,7 @@ export default function ProductionConsoleClientPage() {
             <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.ordinePF}</AlertDialogTitle>
                 <AlertDialogDescription asChild>
-                    <div className="space-y-2 text-sm">
+                    <div className="space-y-2 text-sm pt-2">
                         <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
                         <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
                         <div>

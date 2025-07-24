@@ -19,7 +19,7 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
-  type: z.enum(['preparation', 'production', 'quality']),
+  type: z.enum(['preparation', 'production', 'quality', 'packaging']),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
 });
 
@@ -89,7 +89,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         let newSequence: number;
         const sequences = snapshot.docs.map(doc => doc.data().sequence || 0);
 
-        if (type === 'production' || type === 'quality') {
+        if (type === 'production' || type === 'quality' || type === 'packaging') {
             const prodSequences = sequences.filter(s => s >= 0);
             newSequence = prodSequences.length > 0 ? Math.max(...prodSequences) + 1 : 1;
         } else { // preparation

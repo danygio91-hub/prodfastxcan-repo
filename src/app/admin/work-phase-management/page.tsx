@@ -32,7 +32,7 @@ const workPhaseSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
-  type: z.enum(['preparation', 'production', 'quality'], { required_error: 'Specificare il tipo di fase' }),
+  type: z.enum(['preparation', 'production', 'quality', 'packaging'], { required_error: 'Specificare il tipo di fase' }),
   requiresMaterialScan: z.boolean().default(false).optional(),
 });
 
@@ -312,8 +312,8 @@ export default function WorkPhaseManagementClientPage() {
                           </TableCell>
                           <TableCell className="font-medium">{phase.name}</TableCell>
                            <TableCell>
-                            <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : 'outline'}>
-                              {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : 'Preparazione'}
+                            <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
+                              {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-center">
@@ -402,16 +402,20 @@ export default function WorkPhaseManagementClientPage() {
                             className="flex flex-col space-y-1"
                         >
                             <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl><RadioGroupItem value="production" /></FormControl>
-                                <FormLabel className="font-normal">Produzione (sequenziale)</FormLabel>
-                            </FormItem>
-                            <FormItem className="flex items-center space-x-3 space-y-0">
                                 <FormControl><RadioGroupItem value="preparation" /></FormControl>
-                                <FormLabel className="font-normal">Preparazione (indipendente)</FormLabel>
+                                <FormLabel className="font-normal">Preparazione</FormLabel>
+                            </FormItem>
+                             <FormItem className="flex items-center space-x-3 space-y-0">
+                                <FormControl><RadioGroupItem value="production" /></FormControl>
+                                <FormLabel className="font-normal">Produzione</FormLabel>
                             </FormItem>
                             <FormItem className="flex items-center space-x-3 space-y-0">
                                 <FormControl><RadioGroupItem value="quality" /></FormControl>
-                                <FormLabel className="font-normal">Controllo Qualità (senza tempo)</FormLabel>
+                                <FormLabel className="font-normal">Controllo Qualità</FormLabel>
+                            </FormItem>
+                            <FormItem className="flex items-center space-x-3 space-y-0">
+                                <FormControl><RadioGroupItem value="packaging" /></FormControl>
+                                <FormLabel className="font-normal">Packaging</FormLabel>
                             </FormItem>
                         </RadioGroup>
                         </FormControl>

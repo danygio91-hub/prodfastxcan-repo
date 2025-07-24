@@ -25,7 +25,7 @@ export interface JobPhase {
   workPeriods: WorkPeriod[];
   sequence: number;
   workstationScannedAndVerified?: boolean;
-  type?: 'preparation' | 'production' | 'quality';
+  type?: 'preparation' | 'production' | 'quality' | 'packaging';
   requiresMaterialScan?: boolean;
   materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
   allowedMaterialTypes?: Array<RawMaterialType>;
@@ -87,7 +87,7 @@ export interface WorkPhaseTemplate {
   description: string;
   departmentCodes: Reparto[];
   sequence: number;
-  type: 'preparation' | 'production' | 'quality';
+  type: 'preparation' | 'production' | 'quality' | 'packaging';
   requiresMaterialScan?: boolean;
   allowedMaterialTypes?: Array<RawMaterialType>;
 }

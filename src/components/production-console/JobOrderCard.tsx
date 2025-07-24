@@ -1,16 +1,33 @@
 
+
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
@@ -22,21 +39,28 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Check phases
   const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+  const finishingPhases = (jobOrder.phases || []).filter(p => p.type === 'quality' || p.type === 'packaging');
+  
+  const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
+  if (isAnyFinishingActive) return 'In Lavorazione';
 
   const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (isAnyProductionActive) {
-    return 'In Lavorazione';
-  }
-
+  if (isAnyProductionActive) return 'In Lavorazione';
+  
   const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-  if (preparationPhases.length > 0 && allPreparationDone) {
-      const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+
+  if (allPreparationDone) {
+    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed');
+    if (allProductionSkippedOrDone) {
+        return 'Pronto per Finitura';
+    }
+     const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
       if (isAnyProductionStarted) {
          return 'In Lavorazione';
       }
       return 'Pronto per Produzione';
   }
-
+  
   const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
   if (isAnyPreparationStarted) {
     return 'In Preparazione';
@@ -62,7 +86,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-export default function JobOrderCard({ jobOrder, onProblemClick }: { jobOrder: JobOrder; onProblemClick: () => void; }) {
+export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; }) {
   const overallStatus = getOverallStatus(jobOrder);
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
@@ -73,6 +97,8 @@ export default function JobOrderCard({ jobOrder, onProblemClick }: { jobOrder: J
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
+  const canForceFinish = overallStatus === 'Pronto per Produzione';
+
   return (
     <Card 
       className={cn("flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
@@ -88,11 +114,47 @@ export default function JobOrderCard({ jobOrder, onProblemClick }: { jobOrder: J
           <Building className="h-4 w-4 text-muted-foreground" />
           {jobOrder.cliente}
         </CardDescription>
-          <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-            <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                <Printer className="h-4 w-4"/>
-            </Link>
-          </Button>
+          <div className="flex items-center">
+            <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+              <Link href={`/admin/reports/${jobOrder.id}`}>
+                  <CheckSquare className="h-4 w-4"/>
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+              <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                  <Printer className="h-4 w-4"/>
+              </Link>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <AlertDialog>
+                   <AlertDialogTrigger asChild>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceFinish}>
+                        <FastForward className="mr-2 h-4 w-4" />
+                        <span>Forza a Finitura</span>
+                      </DropdownMenuItem>
+                   </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Forzare l'avanzamento?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Questa azione completerà tutte le fasi di produzione e renderà la commessa pronta per la finitura (collaudo/packaging).
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
