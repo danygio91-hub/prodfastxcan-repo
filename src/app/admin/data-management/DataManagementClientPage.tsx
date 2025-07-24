@@ -485,7 +485,7 @@ export default function DataManagementClientPage({
                             <TableHead padding="checkbox">
                             <Checkbox
                                 checked={selectedRows.length > 0 ? (selectedRows.length === plannedJobOrders.length ? true : 'indeterminate') : false}
-                                onCheckedChange={(checked) => handleSelectAll(checked)}
+                                onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                                 aria-label="Seleziona tutte"
                             />
                             </TableHead>
@@ -610,7 +610,7 @@ export default function DataManagementClientPage({
                                 <TableHead padding="checkbox">
                                 <Checkbox
                                     checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === productionJobOrders.length ? true : 'indeterminate') : false}
-                                    onCheckedChange={(checked) => handleSelectAllProduction(checked)}
+                                    onCheckedChange={(checked) => handleSelectAllProduction(checked as boolean)}
                                     aria-label="Seleziona tutte"
                                 />
                                 </TableHead>
