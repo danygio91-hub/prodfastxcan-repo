@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
@@ -66,8 +67,9 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
   const deliveryDate = jobOrder.dataConsegnaFinale ? parseISO(jobOrder.dataConsegnaFinale) : null;
   const isOverdue = deliveryDate && isPast(deliveryDate) && overallStatus !== 'Completata';
 
-
-  return (
+  const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
+  
+  const cardContent = (
     <Card className="flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300">
       <CardHeader>
         <div className="flex justify-between items-start gap-4">
@@ -114,12 +116,21 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
           </div>
         )}
          {overallStatus === 'Problema' && (
-          <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20">
-            <p className="text-sm font-semibold flex items-center gap-2 text-destructive-foreground">
-              <ShieldAlert className="h-4 w-4 text-destructive" />
-              Problema Segnalato
-            </p>
-          </div>
+           <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20 cursor-pointer">
+                        <p className="text-sm font-semibold flex items-center gap-2 text-destructive-foreground">
+                        <ShieldAlert className="h-4 w-4 text-destructive" />
+                        Problema Segnalato
+                        </p>
+                    </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                    <p>{problemDescription}</p>
+                </TooltipContent>
+            </Tooltip>
+           </TooltipProvider>
         )}
         <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
@@ -146,4 +157,15 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
       </CardFooter>
     </Card>
   );
+
+  // If there's a problem, wrap the card in a Link to the scan-job page
+  if (jobOrder.isProblemReported) {
+    return (
+      <Link href={`/scan-job`}>
+        {cardContent}
+      </Link>
+    );
+  }
+
+  return cardContent;
 }

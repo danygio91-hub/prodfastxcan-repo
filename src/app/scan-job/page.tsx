@@ -70,6 +70,14 @@ type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
 
 type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
 
+const problemReportSchema = z.object({
+  problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"], {
+    required_error: "È necessario selezionare un tipo di problema.",
+  }),
+  notes: z.string().max(150, { message: "Le note non possono superare i 150 caratteri." }).optional(),
+});
+type ProblemReportFormValues = z.infer<typeof problemReportSchema>;
+
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let totalMilliseconds = 0;
@@ -190,7 +198,7 @@ export default function ScanJobPage() {
       toast({
         variant: "destructive",
         title: "Lavorazione Bloccata",
-        description: "Un problema è stato segnalato per questa commessa. Solo un supervisore può procedere.",
+        description: "Un problema è stato segnalato per questa commessa. Solo un supervisore o admin può procedere.",
       });
       setStep('initial');
       return;
@@ -613,10 +621,12 @@ export default function ScanJobPage() {
 
   const allPhasesCompleted = activeJob?.phases.every(phase => phase.status === 'completed');
 
-  const handleJobProblemReported = () => {
+  const handleJobProblemReported = (values: ProblemReportFormValues) => {
     if (activeJob) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       jobToUpdate.isProblemReported = true;
+      jobToUpdate.problemType = values.problemType;
+      jobToUpdate.problemNotes = values.notes;
       
       const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
       if (activePhase) {
