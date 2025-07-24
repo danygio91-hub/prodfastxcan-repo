@@ -21,9 +21,17 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
-  }
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+        ],
+      },
+    ];
+  },
 };
 
 // Apply PWA only in production to avoid potential conflicts with dev server features.
