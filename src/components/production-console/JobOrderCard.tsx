@@ -27,7 +27,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
 
@@ -115,17 +114,32 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
           <Building className="h-4 w-4 text-muted-foreground" />
           {jobOrder.cliente}
         </CardDescription>
+        <TooltipProvider>
           <div className="flex items-center">
-            <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-              <Link href={`/admin/reports/${jobOrder.id}`}>
-                  <CheckSquare className="h-4 w-4"/>
-              </Link>
-            </Button>
-            <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-              <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                  <Printer className="h-4 w-4"/>
-              </Link>
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                  <Link href={`/admin/reports/${jobOrder.id}`}>
+                      <CheckSquare className="h-4 w-4"/>
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Vedi Dettagli Report</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+               <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                  <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                      <Printer className="h-4 w-4"/>
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Stampa Scheda Lavorazione</p>
+              </TooltipContent>
+            </Tooltip>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -156,6 +170,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </TooltipProvider>
         </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
