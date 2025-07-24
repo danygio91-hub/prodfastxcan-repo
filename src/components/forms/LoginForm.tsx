@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { AnimatePresence, motion } from 'framer-motion';
 
 import { login } from '@/lib/auth';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -229,7 +228,7 @@ export default function LoginForm() {
         switch (step) {
             case 'initial':
                 return (
-                    <motion.div key="initial" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+                    <div>
                         <CardHeader className="items-center text-center">
                             <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} unoptimized={true} priority={true} />
                             <CardTitle className="text-2xl font-headline">Benvenuto in PFXcan</CardTitle>
@@ -280,11 +279,11 @@ export default function LoginForm() {
                                 </Button>
                             </CardFooter>
                         )}
-                    </motion.div>
+                    </div>
                 );
             case 'camera':
                 return (
-                    <motion.div key="camera" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                    <div>
                          <CardHeader>
                             <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
                             <CardDescription className="text-center">Inquadra il tuo QR code personale per accedere.</CardDescription>
@@ -310,11 +309,11 @@ export default function LoginForm() {
                         <CardFooter className="pt-6">
                             <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                         </CardFooter>
-                    </motion.div>
+                    </div>
                 );
             case 'manual_login':
                  return (
-                     <motion.div key="manual_login" initial={{ opacity: 0, x: 100 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 100 }}>
+                     <div>
                         <Form {...manualForm}>
                             <form onSubmit={manualForm.handleSubmit(onManualSubmit)}>
                                  <CardHeader className="items-center text-center">
@@ -335,14 +334,14 @@ export default function LoginForm() {
                                 </CardFooter>
                             </form>
                         </Form>
-                     </motion.div>
+                     </div>
                  );
             case 'logging_in':
                 return (
-                     <motion.div key="logging_in" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center p-12 gap-4 aspect-video">
+                     <div className="flex flex-col items-center justify-center p-12 gap-4 aspect-video">
                         <Loader2 className="h-16 w-16 animate-spin text-primary" />
                         <p className="text-xl font-semibold">Accesso in corso...</p>
-                    </motion.div>
+                    </div>
                 );
         }
     };
@@ -350,9 +349,7 @@ export default function LoginForm() {
     return (
         <>
             <Card className="w-full max-w-md shadow-xl border-border/50 bg-card overflow-hidden">
-                <AnimatePresence mode="wait">
-                    {renderStep()}
-                </AnimatePresence>
+                {renderStep()}
             </Card>
 
             <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
