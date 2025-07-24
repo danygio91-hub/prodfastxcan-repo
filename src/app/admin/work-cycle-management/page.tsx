@@ -138,6 +138,16 @@ export default function WorkCycleManagementClientPage() {
     setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
   };
   
+  const getPhaseTypeLabel = (type: WorkPhaseTemplate['type']) => {
+    switch (type) {
+      case 'production': return 'Prod';
+      case 'preparation': return 'Prep';
+      case 'quality': return 'Qual';
+      case 'packaging': return 'Pack';
+      default: return 'N/D';
+    }
+  };
+  
   const renderLoading = () => (
       <TableRow>
           <TableCell colSpan={5} className="h-24 text-center">
@@ -322,7 +332,7 @@ export default function WorkCycleManagementClientPage() {
                               />
                             </FormControl>
                             <FormLabel className="font-normal text-sm">
-                              {item.name} <span className='text-muted-foreground'>({item.type === 'production' ? 'Prod' : 'Prep'})</span>
+                              {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
                             </FormLabel>
                           </FormItem>
                         ))}
