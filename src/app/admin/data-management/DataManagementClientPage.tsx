@@ -233,133 +233,86 @@ export default function DataManagementClientPage({
 
     setIsImporting(true);
     
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        const data = e.target?.result;
-        if (!data) throw new Error("FileReader non ha restituito dati.");
-        
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
-        
-        const worksheet = workbook.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
+      
+      const worksheet = workbook.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
-        const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
-
-        if (filteredData.length === 0) {
-          toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
-          return;
-        }
-
-        const headerMapping: { [key: string]: string } = {
-          'cliente': 'cliente',
-          'ordine pf': 'ordinePF',
-          'ordine nr est': 'numeroODL',
-          'n° odl': 'numeroODLInternoImport',
-          'codice': 'details',
-          'qta': 'qta',
-          'data consegna': 'dataConsegnaFinale',
-          'data consegna prevista': 'dataConsegnaFinale',
-          'reparto': 'department',
-          'ciclo': 'workCycleName'
-        };
-
-        const mappedJson = filteredData.map((row: any) => {
-            const normalizedRow: { [key: string]: any } = {};
-            for (const key in row) {
-                const normalizedKey = key.trim().toLowerCase();
-                const targetKey = headerMapping[normalizedKey];
-                if (targetKey) {
-                    const rawValue = row[key];
-                    if (rawValue !== null && rawValue !== undefined && rawValue !== '') {
-                        normalizedRow[targetKey] = rawValue;
-                    }
-                }
-            }
-            
-            if (!normalizedRow.ordinePF) {
-              return null;
-            }
-            
-            // --- Robust Date Parsing ---
-            const rawDate = normalizedRow.dataConsegnaFinale;
-            let parsedDate: Date | null = null;
-
-            if (rawDate) {
-                if (typeof rawDate === 'number') {
-                    // Handle Excel's numeric date format
-                    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                    const jsTimestamp = excelEpoch.getTime() + rawDate * 86400 * 1000;
-                    const date = new Date(jsTimestamp);
-                    
-                    if (isValid(date)) {
-                        const timezoneOffset = date.getTimezoneOffset() * 60000;
-                        parsedDate = new Date(date.getTime() + timezoneOffset);
-                    }
-                } else if (typeof rawDate === 'string') {
-                    // Handle various string date formats
-                    const formatsToTry = [
-                        'dd/MM/yyyy', 'd/M/yyyy', 
-                        'dd-MM-yyyy', 'd-M-yyyy', 
-                        'yyyy-MM-dd', 'yyyy/MM/dd',
-                        'MM/dd/yyyy', 'M/d/yyyy',
-                        'MM-dd-yyyy', 'M-d-yyyy',
-                    ];
-                    for (const fmt of formatsToTry) {
-                        const tempDate = parse(rawDate, fmt, new Date());
-                        if (isValid(tempDate)) {
-                            parsedDate = tempDate;
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            if (parsedDate && isValid(parsedDate)) {
-                normalizedRow.dataConsegnaFinale = format(parsedDate, 'yyyy-MM-dd');
-            } else {
-                delete normalizedRow.dataConsegnaFinale;
-            }
-            // --- End Robust Date Parsing ---
-
-            return normalizedRow;
-        }).filter(Boolean);
-
-
-        if (mappedJson.length === 0) {
-          toast({ variant: "destructive", title: "Dati non validi", description: "Nessuna riga valida trovata nel file. Controllare che la colonna 'Ordine PF' sia presente e compilata."});
-          return;
-        }
-
-        const result = await processAndValidateImport(mappedJson as any[]);
-        
-        if (result.success) {
-            if (result.jobsToUpdate.length > 0) {
-                setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
-            } 
-            else if (result.newJobs.length > 0) {
-                const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
-                toast({
-                    title: "Importazione Completata",
-                    description: commitResult.message,
-                });
-                refreshData();
-            } else {
-                 toast({ title: "Analisi File Completata", description: result.message });
-            }
-        } else {
-             toast({ variant: "destructive", title: "Errore Analisi File", description: result.message });
-        }
-      } catch (error) {
-         toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
-      } finally {
-        setIsImporting(false);
-        if (event.target) event.target.value = "";
+      const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
+      if (filteredData.length === 0) {
+        toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
+        return;
       }
-    };
-    reader.readAsArrayBuffer(file);
+
+      const headerMapping: { [key: string]: string } = {
+        'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'n° odl': 'numeroODLInternoImport',
+        'codice': 'details', 'qta': 'qta', 'data consegna': 'dataConsegnaFinale', 'data consegna prevista': 'dataConsegnaFinale',
+        'reparto': 'department', 'ciclo': 'workCycleName'
+      };
+
+      const mappedJson = filteredData.map((row: any) => {
+          const normalizedRow: { [key: string]: any } = {};
+          for (const key in row) {
+              const normalizedKey = key.trim().toLowerCase();
+              if (headerMapping[normalizedKey]) {
+                  const rawValue = row[key];
+                  if (rawValue !== null && rawValue !== undefined && rawValue !== '') {
+                      normalizedRow[headerMapping[normalizedKey]] = rawValue;
+                  }
+              }
+          }
+          if (!normalizedRow.ordinePF) return null;
+          
+          const rawDate = normalizedRow.dataConsegnaFinale;
+          if (rawDate) {
+              let parsedDate: Date | null = null;
+              if (typeof rawDate === 'number') {
+                  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                  parsedDate = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000 + new Date().getTimezoneOffset() * 60000);
+              } else if (typeof rawDate === 'string') {
+                  const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'yyyy/MM/dd', 'MM/dd/yyyy', 'M/d/yyyy'];
+                  for (const fmt of formatsToTry) {
+                      const tempDate = parse(rawDate, fmt, new Date());
+                      if (isValid(tempDate)) {
+                          parsedDate = tempDate;
+                          break;
+                      }
+                  }
+              }
+              normalizedRow.dataConsegnaFinale = parsedDate && isValid(parsedDate) ? format(parsedDate, 'yyyy-MM-dd') : undefined;
+          }
+          return normalizedRow;
+      }).filter(Boolean);
+
+      if (mappedJson.length === 0) {
+        toast({ variant: "destructive", title: "Dati non validi", description: "Nessuna riga valida trovata. Controllare che la colonna 'Ordine PF' sia presente."});
+        return;
+      }
+
+      const result = await processAndValidateImport(mappedJson as any[]);
+      
+      if (!result.success) {
+          toast({ variant: "destructive", title: "Errore Analisi File", description: result.message });
+          return;
+      }
+      
+      if (result.jobsToUpdate.length > 0) {
+          setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
+      } else {
+          const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
+          toast({ title: "Importazione Completata", description: commitResult.message });
+          refreshData();
+      }
+    } catch (error) {
+       toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
+    } finally {
+      setIsImporting(false);
+      if (event.target) event.target.value = "";
+    }
   };
   
   const handleConfirmImport = async (overwrite: boolean) => {
@@ -802,3 +755,5 @@ export default function DataManagementClientPage({
       </div>
   );
 }
+
+    
