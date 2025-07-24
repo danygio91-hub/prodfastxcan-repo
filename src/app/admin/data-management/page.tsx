@@ -23,10 +23,10 @@ async function DataManagementData() {
   ]);
 
   return <DataManagementClientPage 
-    initialPlannedJobOrders={planned}
-    initialProductionJobOrders={production}
-    initialDepartmentMap={departments}
-    initialWorkCycles={cycles}
+    plannedJobOrders={planned}
+    productionJobOrders={production}
+    departmentMap={departments}
+    workCycles={cycles}
   />;
 }
 
@@ -47,3 +47,5 @@ export default async function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
+
+    

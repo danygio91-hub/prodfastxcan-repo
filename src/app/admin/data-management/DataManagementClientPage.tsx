@@ -52,24 +52,18 @@ const odlFormSchema = z.object({
 type OdlFormValues = z.infer<typeof odlFormSchema>;
 
 interface DataManagementClientPageProps {
-  initialPlannedJobOrders: JobOrder[];
-  initialProductionJobOrders: JobOrder[];
-  initialDepartmentMap: { [key in Reparto]?: string };
-  initialWorkCycles: WorkCycle[];
+  plannedJobOrders: JobOrder[];
+  productionJobOrders: JobOrder[];
+  departmentMap: { [key in Reparto]?: string };
+  workCycles: WorkCycle[];
 }
 
 export default function DataManagementClientPage({
-  initialPlannedJobOrders,
-  initialProductionJobOrders,
-  initialDepartmentMap,
-  initialWorkCycles,
+  plannedJobOrders,
+  productionJobOrders,
+  departmentMap,
+  workCycles,
 }: DataManagementClientPageProps) {
-  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
-  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
-  const [departmentMap, setDepartmentMap] = useState(initialDepartmentMap);
-  const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialWorkCycles);
-
-  const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
@@ -77,6 +71,7 @@ export default function DataManagementClientPage({
   const { toast } = useToast();
   const router = useRouter();
 
+  const [isImporting, setIsImporting] = useState(false);
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   
