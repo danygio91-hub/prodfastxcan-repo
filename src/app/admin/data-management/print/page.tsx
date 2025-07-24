@@ -1,27 +1,35 @@
 
 "use client"
-import { getJobDetailReport } from '../actions';
+
 import type { JobOrder } from '@/lib/mock-data';
 import { notFound, useSearchParams } from 'next/navigation';
 import { QRCodeSVG } from 'react-qr-code';
 import { PrintButton } from './PrintButton';
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
+import { getJobDetailReport } from '../actions';
 
-// This is now an async Server Component
 export default function ODLPrintPage() {
   const searchParams = useSearchParams();
   const jobId = searchParams.get('jobId');
   const [job, setJob] = useState<JobOrder | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (jobId) {
-      getJobDetailReport(jobId).then(data => {
-        setJob(data as JobOrder | null);
-        setLoading(false);
-      });
+      getJobDetailReport(jobId)
+        .then(data => {
+          if (data) {
+            setJob(data as JobOrder);
+          } else {
+            setError('Commessa non trovata.');
+          }
+        })
+        .catch(() => setError('Errore nel caricamento della commessa.'))
+        .finally(() => setLoading(false));
     } else {
+      setError('ID Commessa non fornito.');
       setLoading(false);
     }
   }, [jobId]);
@@ -34,7 +42,7 @@ export default function ODLPrintPage() {
     );
   }
   
-  if (!job) {
+  if (error || !job) {
     notFound();
   }
   
@@ -44,7 +52,6 @@ export default function ODLPrintPage() {
     <div className="bg-gray-100 p-4 sm:p-8">
        <div className="max-w-4xl mx-auto">
         <div className="flex justify-end mb-4 print:hidden">
-            {/* Client component for the print button to handle user interaction */}
             <PrintButton />
         </div>
         <div id="printable-area" className="bg-white p-6 rounded-lg shadow-lg">
@@ -125,4 +132,3 @@ export default function ODLPrintPage() {
     </div>
   );
 }
-

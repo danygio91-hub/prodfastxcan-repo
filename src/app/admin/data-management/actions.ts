@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc, Timestamp, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, WorkCycle } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPhaseTemplate, WorkCycle, MaterialWithdrawal } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // Helper function to sanitize Firestore document IDs
@@ -68,9 +68,10 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             sequence: template.sequence,
             type: template.type || 'production',
             requiresMaterialScan: template.requiresMaterialScan,
+            requiresMaterialSearch: template.requiresMaterialSearch,
             allowedMaterialTypes: template.allowedMaterialTypes || [],
             departmentCodes: template.departmentCodes || [],
-            materialConsumption: null,
+            materialConsumptions: [],
             qualityResult: null,
         };
     }).filter((p): p is JobPhase => p !== null);
@@ -78,12 +79,12 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
     
     const preparationPhases = sortedPhases.filter(p => p.type === 'preparation');
-    const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan);
+    const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan || p.requiresMaterialSearch);
 
     sortedPhases.forEach(phase => {
         if (phase.type === 'preparation') {
-            // A prep phase is ready if it doesn't need a material scan.
-            phase.materialReady = !phase.requiresMaterialScan;
+            // A prep phase is ready if it doesn't need a material scan/search.
+            phase.materialReady = !phase.requiresMaterialScan && !phase.requiresMaterialSearch;
         } else { // For 'production' or 'quality' phases
             const isFirstProductionPhase = phase.sequence > 0 && !sortedPhases.some(p => p.type !== 'preparation' && p.sequence > 0 && p.sequence < phase.sequence);
             
@@ -580,4 +581,16 @@ export async function updateJobOrderCycle(jobId: string, workCycleId: string): P
         console.error("Failed to update job order cycle:", error);
         return { success: false, message: errorMessage };
     }
+}
+
+export async function getJobDetailReport(jobId: string): Promise<JobOrder | null> {
+    const jobRef = doc(db, "jobOrders", jobId);
+    const docSnap = await getDoc(jobRef);
+
+    if (!docSnap.exists()) {
+        return null;
+    }
+
+    // Convert Firestore Timestamps to JS Dates
+    return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
