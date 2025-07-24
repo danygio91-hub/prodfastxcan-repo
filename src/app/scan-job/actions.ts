@@ -3,11 +3,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 import * as z from 'zod';
+import { ensureAdmin } from '@/lib/server-auth';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -117,6 +118,28 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
         return { success: false, message: 'Commessa non trovata o errore durante l\'aggiornamento.' };
     }
 }
+
+export async function resolveJobProblem(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string; }> {
+  try {
+    const operator = await ensureAdmin(uid); // Re-use ensureAdmin for role check
+    if (operator.role !== 'admin' && operator.role !== 'superadvisor') {
+      throw new Error('Permessi non sufficienti.');
+    }
+
+    const jobRef = doc(db, "jobOrders", jobId);
+    await updateDoc(jobRef, { isProblemReported: false });
+
+    revalidatePath('/scan-job');
+    revalidatePath('/admin/production-console');
+    
+    return { success: true, message: 'Problema risolto. La commessa è stata sbloccata.' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error resolving job problem:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
 
 export async function closeMaterialSessionAndUpdateStock(
   sessionData: ActiveMaterialSessionData,

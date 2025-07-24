@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -34,7 +34,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -186,11 +186,11 @@ export default function ScanJobPage() {
 
   const handleStartOverallJob = useCallback((jobToStart: JobOrder) => {
     if (!jobToStart) return;
-     if (jobToStart.isProblemReported) {
+     if (jobToStart.isProblemReported && operator?.role !== 'superadvisor' && operator?.role !== 'admin') {
       toast({
         variant: "destructive",
         title: "Lavorazione Bloccata",
-        description: "Un problema è stato segnalato per questa commessa. Impossibile avviare.",
+        description: "Un problema è stato segnalato per questa commessa. Solo un supervisore può procedere.",
       });
       setStep('initial');
       return;
@@ -220,7 +220,7 @@ export default function ScanJobPage() {
       description: `Lavoro ${isResuming ? 'ripreso' : 'iniziato'} per commessa ${jobToStart.id}.`,
       action: <PlayCircle className="text-primary" />,
     });
-  }, [handleUpdateAndPersistJob, toast, setActiveJobId]);
+  }, [handleUpdateAndPersistJob, toast, setActiveJobId, operator]);
 
 
   const handleScannedData = useCallback(async (data: string) => {
@@ -636,6 +636,17 @@ export default function ScanJobPage() {
       });
     }
     setIsProblemReportDialogOpen(false);
+  };
+  
+  const handleResolveProblem = async () => {
+    if (!activeJob || !operator) return;
+    const result = await resolveJobProblem(activeJob.id, operator.uid);
+    toast({
+        title: result.success ? "Problema Risolto" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    // The real-time listener will automatically update the job state.
   };
 
   const resetForNewScan = () => {
@@ -1070,16 +1081,45 @@ export default function ScanJobPage() {
                 <CardDescription>Reparto: {job.department}</CardDescription>
               </div>
             </div>
-            <Button 
-                variant={job.isProblemReported ? "destructive" : "outline"} 
-                size="icon"
-                onClick={() => setIsProblemReportDialogOpen(true)}
-                title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
-                className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
-            >
-                {job.isProblemReported ? <ShieldAlert className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-                <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
-            </Button>
+             <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button 
+                    variant={job.isProblemReported ? "destructive" : "outline"} 
+                    size="icon"
+                    title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
+                    className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
+                >
+                    <ShieldAlert className="h-5 w-5" />
+                    <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Gestione Problema</AlertDialogTitle>
+                    <AlertDialogDescription>
+                       {job.isProblemReported
+                          ? "Un problema è stato segnalato per questa commessa. Puoi sbloccarla se sei un supervisore."
+                          : "Segnala un problema per questa commessa. Questo metterà in pausa la fase attiva."
+                       }
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                {job.isProblemReported ? (
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                        { (operator?.role === 'superadvisor' || operator?.role === 'admin') && (
+                          <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
+                             <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
+                          </AlertDialogAction>
+                        )}
+                    </AlertDialogFooter>
+                ) : (
+                    <ProblemReportForm
+                        onSuccess={handleJobProblemReported}
+                        showTitle={false}
+                    />
+                )}
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
@@ -1126,7 +1166,6 @@ export default function ScanJobPage() {
 
   const renderPhasesManagement = () => {
     if (!activeJob) return null;
-    const isJobBlockedByProblem = false; // Problem report no longer blocks the entire job
     
     const preparationPhases = (activeJob.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
@@ -1166,16 +1205,16 @@ export default function ScanJobPage() {
             noOtherPhaseActive = !activeProductionPhase || activeProductionPhase.id === phase.id;
           }
 
-          const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan;
+          const canScanMaterial = operatorHasPermissionForDepartment && phase.requiresMaterialScan;
           
-          const canPerformAction = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.status === 'pending' && phase.materialReady;
+          const canPerformAction = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
           
-          const canStartWithScan = canPerformAction && phaseType !== 'quality' && noOtherPhaseActive;
+          const canStartWithScan = canPerformAction && phaseType !== 'quality' && (phase.type === 'preparation' ? true : noOtherPhaseActive);
           const canPerformQualityCheck = canPerformAction && phaseType === 'quality' && isPreviousPhaseCompleted;
-          const canForceStart = isSuperadvisor && !isJobBlockedByProblem && phase.materialReady && phase.status === 'pending' && !isPreviousPhaseCompleted;
+          const canForceStart = isSuperadvisor && !activeJob.isProblemReported && phase.materialReady && phase.status === 'pending' && !isPreviousPhaseCompleted;
 
-          const canPausePhase = !isJobBlockedByProblem && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
-          const canResumePhase = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.status === 'paused' && noOtherPhaseActive;
+          const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
+          const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'paused' && noOtherPhaseActive;
           const canCompletePhase = phaseType !== 'quality' && (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
 
 
@@ -1252,12 +1291,12 @@ export default function ScanJobPage() {
               
               <div className="mt-3 flex flex-wrap gap-2">
                 {canScanMaterial && (
-                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
+                    <Button size="sm" onClick={() => handleOpenMaterialScanDialog(phase)} variant="default" disabled={isPending || !operatorHasPermissionForDepartment}>
                         <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                     </Button>
                 )}
                  {canStartWithScan && (
-                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
+                     <Button size="sm" onClick={() => handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10" disabled={isPending || !operatorHasPermissionForDepartment}>
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
                 )}
@@ -1277,7 +1316,7 @@ export default function ScanJobPage() {
                 {canForceStart && (
                     <AlertDialog>
                         <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="destructive" disabled={isJobBlockedByProblem || isPending || !operatorHasPermissionForDepartment}>
+                            <Button size="sm" variant="destructive" disabled={isPending || !operatorHasPermissionForDepartment}>
                                 <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
                             </Button>
                         </AlertDialogTrigger>
@@ -1298,17 +1337,17 @@ export default function ScanJobPage() {
                     </AlertDialog>
                 )}
                 {canPausePhase && (
-                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isJobBlockedByProblem || isPending}>
+                  <Button size="sm" onClick={() => handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500" disabled={isPending}>
                     <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
                   </Button>
                 )}
                  {canResumePhase && (
-                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isJobBlockedByProblem || isPending}>
+                  <Button size="sm" onClick={() => handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" disabled={isPending}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
                   </Button>
                 )}
                 {canCompletePhase && (
-                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(isJobBlockedByProblem && phase.status !== 'completed') || isPending}>
+                  <Button size="sm" onClick={() => handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(activeJob.isProblemReported && phase.status !== 'completed') || isPending}>
                     <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
                   </Button>
                 )}
@@ -1619,7 +1658,7 @@ export default function ScanJobPage() {
         <div className="space-y-6 max-w-4xl mx-auto">
           <OperatorNavMenu />
           
-            <Dialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
+            
                 {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
                 {step === 'scanning' && renderScanArea()}
                  {step === 'manual_input' && (
@@ -1662,17 +1701,6 @@ export default function ScanJobPage() {
 
                 {step === 'finished' && activeJob && renderFinishedView()}
             
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Segnala Problema per Commessa: {activeJob?.id}</DialogTitle>
-                    </DialogHeader>
-                    <ProblemReportForm 
-                        onSuccess={handleJobProblemReported} 
-                        onCancel={() => setIsProblemReportDialogOpen(false)}
-                        showTitle={false} 
-                    />
-                </DialogContent>
-            </Dialog>
           
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}

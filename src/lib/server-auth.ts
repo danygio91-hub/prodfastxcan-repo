@@ -21,14 +21,14 @@ async function getOperatorByUid(uid: string): Promise<Operator | null> {
     }
     
     const operatorDoc = querySnapshot.docs[0];
-    return operatorDoc.data() as Operator;
+    return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
 }
 
 
 /**
- * Ensures the user associated with the UID is an admin.
- * Throws an error if the user is not an admin or doesn't exist.
- * This should be called at the beginning of any admin-only server action.
+ * Ensures the user associated with the UID is an admin or superadvisor.
+ * Throws an error if the user does not have sufficient permissions or doesn't exist.
+ * This should be called at the beginning of any privileged server action.
  * @param uid The Firebase Auth User ID of the user performing the action.
  */
 export async function ensureAdmin(uid: string | undefined | null) {
@@ -38,8 +38,8 @@ export async function ensureAdmin(uid: string | undefined | null) {
   
   const operator = await getOperatorByUid(uid);
 
-  if (!operator || operator.role !== 'admin') {
-    throw new Error('Permessi non sufficienti. Azione riservata agli amministratori.');
+  if (!operator || (operator.role !== 'admin' && operator.role !== 'superadvisor')) {
+    throw new Error('Permessi non sufficienti. Azione riservata ad amministratori o supervisori.');
   }
   
   return operator;
