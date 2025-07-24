@@ -80,7 +80,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
   const watchedRole = form.watch('role');
   const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
-  const operationalReparti = reparti.filter(r => r !== 'N/D');
+  const operationalReparti = reparti.filter(r => r !== 'N/D' && r !== 'Officina');
 
 
   useEffect(() => {
@@ -118,13 +118,14 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
   const onSubmit = async (values: OperatorFormValues) => {
     const formData = new FormData();
-    if (values.id) formData.append('id', values.id);
-    formData.append('nome', values.nome);
-    if(values.cognome) formData.append('cognome', values.cognome);
-    formData.append('email', values.email);
-    formData.append('role', values.role);
-    values.reparto.forEach(r => formData.append('reparto', r));
-
+    // Use Object.entries on the values to build FormData
+    Object.entries(values).forEach(([key, value]) => {
+        if (key === 'reparto' && Array.isArray(value)) {
+            value.forEach(r => formData.append(key, r));
+        } else if (value !== undefined && value !== null && value !== '') {
+            formData.append(key, String(value));
+        }
+    });
 
     const result = await saveOperator(formData);
 
