@@ -1133,7 +1133,7 @@ export default function ScanJobPage() {
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Procedere con cautela.
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Attendere intervento per risoluzione.
             </p>
            )}
           {job.overallStartTime && (
@@ -1376,7 +1376,7 @@ export default function ScanJobPage() {
         <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
         {activeJob?.isProblemReported && (
            <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Procedere con cautela.
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Attendere intervento per risoluzione.
             </p>
         )}
       </CardHeader>
