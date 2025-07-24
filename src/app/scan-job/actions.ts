@@ -82,11 +82,13 @@ export async function verifyAndGetJobOrder(scannedData: {
     let materialReady = false; 
 
     if (p.type === 'preparation') {
-        // A prep phase is ready if it doesn't need a scan, or if at least one material is associated.
-        materialReady = !p.requiresMaterialScan || (p.materialConsumptions && p.materialConsumptions.length > 0);
+        // A prep phase is ready if material has been associated (even once) or if it doesn't need a scan.
+        // We now trust the `materialReady` state from the database as the source of truth if it's already true.
+        materialReady = p.materialReady || !p.requiresMaterialScan;
     } else { // For production/quality phases
         // A production/quality phase is ready only if ALL preparation phases are completed.
-        materialReady = allPreparationPhasesCompleted;
+        // We also trust the saved state.
+        materialReady = p.materialReady || allPreparationPhasesCompleted;
     }
     
     return {

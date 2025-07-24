@@ -360,14 +360,13 @@ export default function ScanJobPage() {
              toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhaseInJob?.name || 'precedente'}" prima di avviare questa.` });
              return;
           }
+          const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
+          if (activeProductionPhase) {
+            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già attiva." });
+            return;
+          }
       }
 
-      const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-      if (activePhase) {
-        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva. Completare o riprendere la fase corrente prima di avviarne una nuova." });
-        return;
-      }
-      
       phaseToStart.status = 'in-progress';
       phaseToStart.workstationScannedAndVerified = true;
       phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
@@ -410,11 +409,15 @@ export default function ScanJobPage() {
         return;
     }
     
-    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-    if (activePhase) {
-        toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già attiva. Completare o riprendere la fase corrente prima di forzarne una nuova." });
-        return;
+    const phaseType = phaseToStart.type || 'production';
+    if (phaseType === 'production' || phaseType === 'quality') {
+        const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
+        if (activeProductionPhase) {
+            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già attiva." });
+            return;
+        }
     }
+    
 
     phaseToStart.status = 'in-progress';
     phaseToStart.workstationScannedAndVerified = true; // Forced start implies verification
@@ -468,10 +471,13 @@ export default function ScanJobPage() {
       return;
     }
     
-    const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-    if (activePhase) {
-       toast({ variant: "destructive", title: "Errore", description: "Un'altra fase è già in lavorazione." });
-      return;
+    const phaseType = phaseToResume.type || 'production';
+    if (phaseType === 'production' || phaseType === 'quality') {
+        const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
+        if (activeProductionPhase) {
+            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già in lavorazione." });
+            return;
+        }
     }
 
     phaseToResume.status = 'in-progress';
@@ -1177,8 +1183,11 @@ export default function ScanJobPage() {
             isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
           }
 
-          const activePhase = activeJob.phases.find(p => p.status === 'in-progress');
-          const noOtherPhaseActive = !activePhase || activePhase.id === phase.id;
+          let noOtherPhaseActive = true;
+          if (phaseType === 'production' || phaseType === 'quality') {
+            const activeProductionPhase = activeJob.phases.find(p => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
+            noOtherPhaseActive = !activeProductionPhase || activeProductionPhase.id === phase.id;
+          }
 
           const canScanMaterial = operatorHasPermissionForDepartment && !isJobBlockedByProblem && phase.requiresMaterialScan;
           
