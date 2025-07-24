@@ -35,5 +35,4 @@ const nextConfig = {
   },
 };
 
-// Apply PWA only in production to avoid potential conflicts with dev server features.
-module.exports = process.env.NODE_ENV === 'production' ? withPWA(nextConfig) : nextConfig;
+module.exports = withPWA(nextConfig);
