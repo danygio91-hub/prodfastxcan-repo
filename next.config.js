@@ -23,8 +23,8 @@ const nextConfig = {
   },
   experimental: {
     // allowedForwardedHosts is intentionally left in experimental for wider version compatibility
+    allowedForwardedHosts: ['6000-firebase-studio-1749643731577.cluster-ombtxv25tbd6yrjpp3lukp6zhc.cloudworkstations.dev'],
   },
-  allowedForwardedHosts: ['6000-firebase-studio-1749643731577.cluster-ombtxv25tbd6yrjpp3lukp6zhc.cloudworkstations.dev'],
   allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
 };
 
