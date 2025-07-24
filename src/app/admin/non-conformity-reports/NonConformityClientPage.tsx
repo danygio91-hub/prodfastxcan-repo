@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useTransition } from 'react';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { useRouter } from 'next/navigation';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -25,26 +26,27 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2, Trash2 } from 'lucide-react';
-import { getNonConformityReports, approveNonConformity, confirmReturn, deleteNonConformityReports } from './actions';
+import { approveNonConformity, confirmReturn, deleteNonConformityReports } from './actions';
 import type { NonConformityReport } from '@/lib/mock-data';
 
-export default function NonConformityClientPage() {
-    const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+interface NonConformityClientPageProps {
+  initialReports: NonConformityReport[];
+}
+
+export default function NonConformityClientPage({ initialReports }: NonConformityClientPageProps) {
+    const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>(initialReports);
     const [isPending, startTransition] = useTransition();
     const [selectedRows, setSelectedRows] = useState<string[]>([]);
     const { toast } = useToast();
+    const router = useRouter();
 
-    const fetchReports = async () => {
-        setIsLoading(true);
-        const reports = await getNonConformityReports();
-        setIncomingReports(reports);
-        setIsLoading(false);
+    const refreshData = () => {
+      router.refresh();
     };
 
     useEffect(() => {
-        fetchReports();
-    }, []);
+        setIncomingReports(initialReports);
+    }, [initialReports]);
 
     const handleApprove = (reportId: string) => {
         startTransition(async () => {
@@ -55,7 +57,7 @@ export default function NonConformityClientPage() {
                 variant: result.success ? "default" : "destructive",
             });
             if (result.success) {
-                fetchReports();
+                refreshData();
             }
         });
     };
@@ -69,7 +71,7 @@ export default function NonConformityClientPage() {
                 variant: result.success ? "default" : "destructive",
             });
             if (result.success) {
-                fetchReports();
+                refreshData();
             }
         });
     };
@@ -84,7 +86,7 @@ export default function NonConformityClientPage() {
             });
             if (result.success) {
                 setSelectedRows([]);
-                fetchReports();
+                refreshData();
             }
         });
     }
@@ -136,10 +138,9 @@ export default function NonConformityClientPage() {
                             <TableRow>
                                 <TableHead padding="checkbox">
                                     <Checkbox
-                                        checked={selectedRows.length > 0 && selectedRows.length === incomingReports.length ? true : selectedRows.length > 0 ? 'indeterminate' : false}
+                                        checked={selectedRows.length > 0 ? (selectedRows.length === incomingReports.length ? true : 'indeterminate') : false}
                                         onCheckedChange={handleSelectAll}
                                         aria-label="Seleziona tutte"
-                                        disabled={isLoading}
                                     />
                                 </TableHead>
                                 <TableHead>Data</TableHead>
@@ -153,13 +154,7 @@ export default function NonConformityClientPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {isLoading ? (
-                                <TableRow>
-                                    <TableCell colSpan={9} className="h-24 text-center">
-                                        <Loader2 className="mx-auto h-6 w-6 animate-spin" />
-                                    </TableCell>
-                                </TableRow>
-                            ) : incomingReports.length > 0 ? (
+                            {incomingReports.length > 0 ? (
                                 incomingReports.map((report) => (
                                     <TableRow key={report.id} data-state={selectedRows.includes(report.id) && "selected"}>
                                          <TableCell padding="checkbox">

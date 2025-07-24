@@ -10,9 +10,10 @@ import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { useRouter } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal } from '@/lib/mock-data';
-import { getRawMaterials, saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
@@ -66,10 +67,12 @@ const batchFormSchema = z.object({
 
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
+interface RawMaterialManagementClientPageProps {
+  initialMaterials: RawMaterial[];
+}
 
-export default function RawMaterialManagementClientPage() {
-  const [materials, setMaterials] = useState<RawMaterial[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export default function RawMaterialManagementClientPage({ initialMaterials }: RawMaterialManagementClientPageProps) {
+  const [materials, setMaterials] = useState<RawMaterial[]>(initialMaterials);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
@@ -86,6 +89,7 @@ export default function RawMaterialManagementClientPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
@@ -98,26 +102,6 @@ export default function RawMaterialManagementClientPage() {
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
-
-  const fetchMaterials = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await getRawMaterials();
-      setMaterials(data);
-    } catch (error) {
-       toast({
-        variant: "destructive",
-        title: "Errore di Caricamento",
-        description: "Impossibile caricare le materie prime.",
-       });
-    } finally {
-        setIsLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    fetchMaterials();
-  }, [fetchMaterials]);
   
   const filteredMaterials = useMemo(() => {
     if (!searchTerm) {
@@ -129,6 +113,14 @@ export default function RawMaterialManagementClientPage() {
       (material.description?.toLowerCase() || '').includes(lowercasedFilter)
     );
   }, [materials, searchTerm]);
+
+  const refreshData = () => {
+    router.refresh();
+  };
+
+  useEffect(() => {
+    setMaterials(initialMaterials);
+  }, [initialMaterials]);
 
 
   // --- Dialog Handlers ---
@@ -239,8 +231,8 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
 
-    if (result.success && result.savedMaterial) {
-      handleLocalUpdate(result.savedMaterial);
+    if (result.success) {
+      refreshData();
       setIsEditDialogOpen(false);
     }
   };
@@ -261,8 +253,8 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
 
-    if (result.success && result.updatedMaterial) {
-      handleLocalUpdate(result.updatedMaterial);
+    if (result.success) {
+      refreshData();
       setIsBatchFormDialogOpen(false);
     }
   };
@@ -276,7 +268,7 @@ export default function RawMaterialManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        setMaterials(prev => prev.filter(m => m.id !== materialToDelete.id));
+      refreshData();
     }
     setMaterialToDelete(null);
   };
@@ -290,8 +282,8 @@ export default function RawMaterialManagementClientPage() {
       description: result.message,
       variant: result.success ? "default" : "destructive",
     });
-    if (result.success && result.updatedMaterial) {
-      handleLocalUpdate(result.updatedMaterial);
+    if (result.success) {
+      refreshData();
     }
     setBatchToDelete(null);
   };
@@ -371,7 +363,7 @@ export default function RawMaterialManagementClientPage() {
         });
         
         if(result.success) {
-            fetchMaterials();
+            refreshData();
         }
       } catch (error) {
           toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
@@ -401,14 +393,6 @@ export default function RawMaterialManagementClientPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Materie Prime");
     XLSX.writeFile(wb, "anagrafica_materie_prime.xlsx");
   };
-  
-  const renderLoading = () => (
-    <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Caricamento materie prime...</p>
-    </div>
-  );
-
 
   return (
       <div className="space-y-6">
@@ -425,23 +409,22 @@ export default function RawMaterialManagementClientPage() {
           </header>
           <div className="flex items-center gap-2">
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-              <Button onClick={handleExport} variant="outline" disabled={isLoading || materials.length === 0}>
+              <Button onClick={handleExport} variant="outline" disabled={materials.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               Esporta Elenco
             </Button>
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting || isLoading}>
+            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa da Excel
             </Button>
-            <Button onClick={() => handleOpenEditDialog()} disabled={isLoading}>
+            <Button onClick={() => handleOpenEditDialog()}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Aggiungi Materiale
             </Button>
           </div>
         </div>
 
-        {isLoading ? renderLoading() : (
-            <Card>
+        <Card>
             <CardHeader>
                 <div className="flex justify-between items-center flex-wrap gap-4">
                     <div>
@@ -530,7 +513,6 @@ export default function RawMaterialManagementClientPage() {
                 </div>
             </CardContent>
             </Card>
-        )}
 
         {/* Edit/Add Material Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

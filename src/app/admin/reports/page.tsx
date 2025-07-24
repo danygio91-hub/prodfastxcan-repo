@@ -2,16 +2,38 @@
 import ReportsClientPage from './ReportsClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
+import { getJobsReport, getOperatorsReport, getMaterialWithdrawals } from './actions';
+import { Suspense } from 'react';
+import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
+async function ReportsData() {
+  const [jobsReport, operatorsReport, withdrawalsReport] = await Promise.all([
+    getJobsReport(),
+    getOperatorsReport(),
+    getMaterialWithdrawals()
+  ]);
+
+  return <ReportsClientPage
+            initialJobsReport={jobsReport}
+            initialOperatorsReport={operatorsReport}
+            initialWithdrawalsReport={withdrawalsReport}
+          />
+}
+
 export default async function AdminReportsPage() {
-  // Data is now fetched on the client side to avoid blocking the initial render.
-  // The client component will show a loading state.
   return (
     <AdminAuthGuard>
       <AppShell>
-        <ReportsClientPage />
+        <Suspense fallback={
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="ml-4 text-muted-foreground">Caricamento report...</p>
+          </div>
+        }>
+          <ReportsData />
+        </Suspense>
       </AppShell>
     </AdminAuthGuard>
   );

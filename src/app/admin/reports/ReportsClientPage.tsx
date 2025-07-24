@@ -30,14 +30,21 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search } from 'lucide-react';
-import { getJobsReport, getOperatorsReport, getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal } from '@/lib/mock-data';
+import type { getJobsReport, getOperatorsReport } from './actions';
+import { useRouter } from 'next/navigation';
 
 type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
 
+interface ReportsClientPageProps {
+  initialJobsReport: JobsReport;
+  initialOperatorsReport: OperatorsReport;
+  initialWithdrawalsReport: MaterialWithdrawal[];
+}
 
 function StatusBadge({ status }: { status: OverallStatus }) {
   return (
@@ -55,12 +62,15 @@ function StatusBadge({ status }: { status: OverallStatus }) {
   );
 }
 
-export default function ReportsClientPage() {
-  const [jobsReport, setJobsReport] = useState<JobsReport>([]);
-  const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>([]);
-  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>([]);
+export default function ReportsClientPage({
+  initialJobsReport,
+  initialOperatorsReport,
+  initialWithdrawalsReport,
+}: ReportsClientPageProps) {
+  const [jobsReport, setJobsReport] = useState<JobsReport>(initialJobsReport);
+  const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>(initialOperatorsReport);
+  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>(initialWithdrawalsReport);
   
-  const [isLoading, setIsLoading] = useState(true);
   const [isPendingWithdrawals, startTransitionWithdrawals] = useTransition();
 
   const [date, setDate] = React.useState<DateRange | undefined>({
@@ -71,6 +81,7 @@ export default function ReportsClientPage() {
   const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const router = useRouter();
 
 
   const fetchWithdrawals = React.useCallback(async () => {
@@ -80,27 +91,10 @@ export default function ReportsClientPage() {
     });
   }, [date]);
   
-  // Fetch all initial data on mount
-  useEffect(() => {
-    async function fetchReports() {
-      setIsLoading(true);
-      const [jobs, operators] = await Promise.all([
-        getJobsReport(),
-        getOperatorsReport(),
-      ]);
-      setJobsReport(jobs);
-      setOperatorsReport(operators);
-      await fetchWithdrawals(); // Fetch withdrawals with initial date range
-      setIsLoading(false);
-    }
-    fetchReports();
-  }, [fetchWithdrawals]);
-
   // This useEffect is now just for date changes for withdrawals
   useEffect(() => {
-    if (isLoading) return; // Prevent refetching on initial load
     fetchWithdrawals();
-  }, [date, isLoading, fetchWithdrawals]);
+  }, [date, fetchWithdrawals]);
   
   const filteredWithdrawals = useMemo(() => {
     if (!searchTerm) {
@@ -134,7 +128,7 @@ export default function ReportsClientPage() {
     setIsDeleting(true);
     const result = await deleteSelectedWithdrawals(selectedWithdrawals);
     if (result.success) {
-      await fetchWithdrawals();
+      router.refresh();
       setSelectedWithdrawals([]);
     }
     setIsDeleting(false);
@@ -143,7 +137,7 @@ export default function ReportsClientPage() {
   const handleDeleteAll = async () => {
     setIsDeleting(true);
     await deleteAllWithdrawals();
-    await fetchWithdrawals();
+    router.refresh();
     setSelectedWithdrawals([]);
     setIsDeleting(false);
   };
@@ -242,7 +236,7 @@ export default function ReportsClientPage() {
                           <CardTitle>Riepilogo Lavorazioni per Commessa</CardTitle>
                           <CardDescription>Elenco delle commesse in lavorazione o completate.</CardDescription>
                       </div>
-                      <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={isLoading || jobsReport.length === 0}>
+                      <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
                           <Download className="mr-2 h-4 w-4" />
                           Esporta Excel
                       </Button>
@@ -262,8 +256,7 @@ export default function ReportsClientPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {isLoading ? renderLoadingRow(6) :
-                       jobsReport.length > 0 ? jobsReport.map((job) => (
+                       {jobsReport.length > 0 ? jobsReport.map((job) => (
                         <TableRow key={job.id}>
                           <TableCell className="font-medium">{job.id}</TableCell>
                           <TableCell>{job.details}</TableCell>
@@ -299,7 +292,7 @@ export default function ReportsClientPage() {
                       <CardTitle>Riepilogo Ore per Operatore</CardTitle>
                       <CardDescription>Sommario delle ore di lavoro registrate dagli operatori.</CardDescription>
                   </div>
-                    <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={isLoading || operatorsReport.length === 0}>
+                    <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Esporta Excel
                   </Button>
@@ -320,8 +313,7 @@ export default function ReportsClientPage() {
                           </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {isLoading ? renderLoadingRow(7) :
-                         operatorsReport.length > 0 ? operatorsReport.map((op) => (
+                         {operatorsReport.length > 0 ? operatorsReport.map((op) => (
                           <TableRow key={op.id}>
                               <TableCell className="font-medium">{op.name}</TableCell>
                               <TableCell>{op.department}</TableCell>
@@ -462,7 +454,7 @@ export default function ReportsClientPage() {
                                   <TableRow>
                                        <TableHead padding="checkbox">
                                           <Checkbox
-                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === filteredWithdrawals.length ? true : selectedWithdrawals.length > 0 ? 'indeterminate' : false}
+                                            checked={selectedWithdrawals.length > 0 ? (selectedWithdrawals.length === filteredWithdrawals.length ? true : 'indeterminate') : false}
                                             onCheckedChange={handleSelectAllWithdrawals}
                                             aria-label="Seleziona tutti"
                                           />

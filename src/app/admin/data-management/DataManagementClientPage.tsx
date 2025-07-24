@@ -42,8 +42,8 @@ import { type JobOrder, type Reparto, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
-import { getPlannedJobOrders, getProductionJobOrders, processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle, getWorkCycles } from './actions';
-import { getDepartmentMap } from '@/app/admin/settings/actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle } from './actions';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const odlFormSchema = z.object({
@@ -51,12 +51,23 @@ const odlFormSchema = z.object({
 });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
 
-export default function DataManagementClientPage() {
-  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
-  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
-  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
-  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+interface DataManagementClientPageProps {
+  initialPlannedJobOrders: JobOrder[];
+  initialProductionJobOrders: JobOrder[];
+  initialDepartmentMap: { [key in Reparto]?: string };
+  initialWorkCycles: WorkCycle[];
+}
+
+export default function DataManagementClientPage({
+  initialPlannedJobOrders,
+  initialProductionJobOrders,
+  initialDepartmentMap,
+  initialWorkCycles,
+}: DataManagementClientPageProps) {
+  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlannedJobOrders);
+  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProductionJobOrders);
+  const [departmentMap, setDepartmentMap] = useState(initialDepartmentMap);
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialWorkCycles);
 
   const [isImporting, setIsImporting] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -64,6 +75,7 @@ export default function DataManagementClientPage() {
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const router = useRouter();
 
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
@@ -80,33 +92,9 @@ export default function DataManagementClientPage() {
     return map;
   }, [workCycles]);
   
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-        const [planned, production, departments, cycles] = await Promise.all([
-            getPlannedJobOrders(),
-            getProductionJobOrders(),
-            getDepartmentMap(),
-            getWorkCycles(),
-        ]);
-        setPlannedJobOrders(planned);
-        setProductionJobOrders(production);
-        setDepartmentMap(departments);
-        setWorkCycles(cycles);
-    } catch (error) {
-        toast({
-            variant: "destructive",
-            title: "Errore di Caricamento",
-            description: "Impossibile caricare i dati delle commesse.",
-        });
-    } finally {
-        setIsLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const refreshData = () => {
+    router.refresh();
+  };
 
   const handleExportPlanned = () => {
     const dataToExport = plannedJobOrders.map(job => ({
@@ -190,7 +178,7 @@ export default function DataManagementClientPage() {
     });
 
     if (result.success) {
-      fetchData();
+      refreshData();
       setIsCreateOdlDialogOpen(false);
     }
   };
@@ -203,7 +191,7 @@ export default function DataManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      fetchData();
+      refreshData();
     }
   };
 
@@ -216,7 +204,7 @@ export default function DataManagementClientPage() {
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchData();
+        refreshData();
         setSelectedRows([]);
     }
   };
@@ -230,7 +218,7 @@ export default function DataManagementClientPage() {
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-        fetchData();
+        refreshData();
         setSelectedProductionRows([]);
     }
   };
@@ -357,7 +345,7 @@ export default function DataManagementClientPage() {
                     title: "Importazione Completata",
                     description: commitResult.message,
                 });
-                fetchData();
+                refreshData();
             } else {
                  toast({ title: "Analisi File Completata", description: result.message });
             }
@@ -385,7 +373,7 @@ export default function DataManagementClientPage() {
     } else {
         const result = await commitImportedJobOrders(dataToCommit);
         toast({ title: "Operazione Completata", description: result.message });
-        fetchData();
+        refreshData();
     }
     setPendingImport(null);
   };
@@ -395,7 +383,7 @@ export default function DataManagementClientPage() {
     const result = await deleteSelectedJobOrders(selectedRows);
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchData();
+      refreshData();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
@@ -406,7 +394,7 @@ export default function DataManagementClientPage() {
     const result = await deleteAllPlannedJobOrders();
     if (result.success) {
       toast({ title: "Operazione Riuscita", description: result.message });
-      fetchData();
+      refreshData();
       setSelectedRows([]);
     } else {
       toast({ variant: "destructive", title: "Errore", description: result.message });
@@ -421,16 +409,9 @@ export default function DataManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      fetchData();
+      refreshData();
     }
   };
-
-  const renderLoading = () => (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      <p className="ml-4 text-muted-foreground">Caricamento dati commesse...</p>
-    </div>
-  );
 
   return (
       <div className="space-y-6">
@@ -443,14 +424,13 @@ export default function DataManagementClientPage() {
               accept=".xlsx, .xls"
               className="hidden"
             />
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting || isLoading}>
+            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa da Excel
             </Button>
         </div>
 
-        {isLoading ? renderLoading() : (
-            <Tabs defaultValue="planned" className="mt-6">
+        <Tabs defaultValue="planned" className="mt-6">
             <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="planned">
                     <ListChecks className="mr-2 h-4 w-4" />
@@ -551,7 +531,7 @@ export default function DataManagementClientPage() {
                         <TableRow>
                             <TableHead padding="checkbox">
                             <Checkbox
-                                checked={selectedRows.length > 0 && selectedRows.length === plannedJobOrders.length ? true : selectedRows.length > 0 ? 'indeterminate' : false}
+                                checked={selectedRows.length > 0 ? (selectedRows.length === plannedJobOrders.length ? true : 'indeterminate') : false}
                                 onCheckedChange={(checked) => handleSelectAll(checked)}
                                 aria-label="Seleziona tutte"
                             />
@@ -676,7 +656,7 @@ export default function DataManagementClientPage() {
                             <TableRow>
                                 <TableHead padding="checkbox">
                                 <Checkbox
-                                    checked={selectedProductionRows.length > 0 && selectedProductionRows.length === productionJobOrders.length ? true : selectedProductionRows.length > 0 ? 'indeterminate' : false}
+                                    checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === productionJobOrders.length ? true : 'indeterminate') : false}
                                     onCheckedChange={(checked) => handleSelectAllProduction(checked)}
                                     aria-label="Seleziona tutte"
                                 />
@@ -752,7 +732,6 @@ export default function DataManagementClientPage() {
                 </Card>
             </TabsContent>
             </Tabs>
-        )}
         
         <AlertDialog open={!!pendingImport} onOpenChange={(open) => !open && setPendingImport(null)}>
             <AlertDialogContent>
@@ -823,9 +802,3 @@ export default function DataManagementClientPage() {
       </div>
   );
 }
-
-    
-
-    
-
-    
