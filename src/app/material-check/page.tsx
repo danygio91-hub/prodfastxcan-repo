@@ -3,7 +3,8 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -13,12 +14,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge as UiBadge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
-import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, PlayCircle } from 'lucide-react';
+import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
+import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, PlayCircle, History, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -27,6 +33,15 @@ declare class BarcodeDetector {
   constructor(options?: BarcodeDetectorOptions);
   detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
 }
+
+type Movement = {
+  type: 'Carico' | 'Scarico';
+  date: string; // ISO String
+  description: string;
+  quantity: number; // Positive for income, negative for outcome
+  unit: string;
+  id: string; // Batch or Withdrawal ID
+};
 
 
 export default function MaterialCheckPage() {
@@ -40,6 +55,10 @@ export default function MaterialCheckPage() {
     const [manualCode, setManualCode] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     
+    // History State
+    const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+    const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
+
     // Simulator State
     const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
     const [simulatorInput, setSimulatorInput] = useState('');
@@ -140,6 +159,36 @@ export default function MaterialCheckPage() {
         setFoundMaterial(null);
         setManualCode('');
         setStep('initial');
+    };
+
+    const handleOpenHistoryDialog = async () => {
+        if (!foundMaterial) return;
+        setIsHistoryDialogOpen(true);
+        
+        const withdrawals = await getMaterialWithdrawalsForMaterial(foundMaterial.id);
+        const batches = foundMaterial.batches || [];
+        
+        const combinedMovements: Movement[] = [
+            ...batches.map(b => ({
+                type: 'Carico' as const,
+                date: b.date,
+                description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+                quantity: b.quantity,
+                unit: foundMaterial.unitOfMeasure.toUpperCase(),
+                id: b.id
+            })),
+            ...withdrawals.map(w => ({
+                type: 'Scarico' as const,
+                date: w.withdrawalDate.toISOString(),
+                description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+                quantity: -w.consumedWeight,
+                unit: 'KG',
+                id: w.id
+            }))
+        ];
+
+        combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setMaterialMovements(combinedMovements);
     };
 
     const handleOpenSimulator = () => {
@@ -266,7 +315,11 @@ export default function MaterialCheckPage() {
                                     </div>
                                 </div>
                             </CardContent>
-                            <CardFooter>
+                            <CardFooter className="flex-col gap-2">
+                                <Button onClick={handleOpenHistoryDialog} variant="secondary" className="w-full">
+                                    <History className="mr-2 h-4 w-4" />
+                                    Vedi Storico Movimenti
+                                </Button>
                                 <Button onClick={resetFlow} className="w-full">Cerca un Altro Materiale</Button>
                             </CardFooter>
                         </Card>
@@ -295,8 +348,62 @@ export default function MaterialCheckPage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
+
+                <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
+                    <DialogContent className="sm:max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>Storico Movimenti per: {foundMaterial?.code}</DialogTitle>
+                            <DialogDescription>
+                                Elenco di tutti i carichi e scarichi registrati per questo materiale.
+                            </DialogDescription>
+                        </DialogHeader>
+                          <ScrollArea className="max-h-[60vh]">
+                              <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Data</TableHead>
+                                  <TableHead>Tipo</TableHead>
+                                  <TableHead>Descrizione</TableHead>
+                                  <TableHead className="text-right">Quantità</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {materialMovements.length > 0 ? (
+                                    materialMovements.map(mov => (
+                                    <TableRow key={mov.id}>
+                                        <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                        <TableCell>
+                                            <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
+                                              {mov.type === 'Carico' ? <ArrowUpCircle className="mr-2 h-4 w-4"/> : <ArrowDownCircle className="mr-2 h-4 w-4"/>}
+                                              {mov.type}
+                                            </UiBadge>
+                                        </TableCell>
+                                        <TableCell>{mov.description}</TableCell>
+                                        <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
+                                          {mov.quantity.toFixed(2)} {mov.unit}
+                                        </TableCell>
+                                    </TableRow>
+                                    ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="h-24 text-center">Nessuno storico movimenti per questo materiale.</TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                        </ScrollArea>
+                        <DialogFooter>
+                            <DialogClose asChild>
+                                <Button type="button" variant="outline">Chiudi</Button>
+                            </DialogClose>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
             </AppShell>
         </AuthGuard>
     );
 }
 
+
+    
