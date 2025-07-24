@@ -1083,7 +1083,7 @@ export default function ScanJobPage() {
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Lavorazione non bloccata, ma richiede attenzione.
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Procedere con cautela.
             </p>
            )}
           {job.overallStartTime && (
@@ -1590,16 +1590,16 @@ export default function ScanJobPage() {
                 </DialogDescription>
             </DialogHeader>
             <div className="py-4 space-y-3">
-                 <Button onClick={handleAddToActiveSession} className="w-full h-16 flex items-start justify-start p-4" variant="outline">
-                    <Copy className="h-6 w-6 mr-4" />
-                    <div className="text-left">
+                 <Button onClick={handleAddToActiveSession} className="w-full p-4 flex flex-col items-center justify-center gap-2 h-auto" variant="outline">
+                    <Copy className="h-6 w-6" />
+                    <div className="text-center">
                         <p className="font-semibold">Aggiungi a Sessione Attiva</p>
                         <p className="text-xs text-muted-foreground">Continua a usare lo stesso lotto per questa nuova commessa.</p>
                     </div>
                 </Button>
-                <Button onClick={handleStartNewLotto} className="w-full h-16 flex items-start justify-start p-4" variant="outline">
-                    <PlusCircleIcon className="h-6 w-6 mr-4" />
-                    <div className="text-left">
+                <Button onClick={handleStartNewLotto} className="w-full p-4 flex flex-col items-center justify-center gap-2 h-auto" variant="outline">
+                    <PlusCircleIcon className="h-6 w-6" />
+                    <div className="text-center">
                         <p className="font-semibold">Inizia Nuovo Lotto</p>
                         <p className="text-xs text-muted-foreground">Stai usando una nuova bobina/lotto di questo materiale.</p>
                     </div>
