@@ -10,9 +10,9 @@ const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_ses
 interface ActiveMaterialSessionContextType {
   activeSessions: ActiveMaterialSessionData[];
   startSession: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
-  addJobToSession: (job: { jobId: string; jobOrderPF: string }) => void;
+  addJobToSession: (materialId: string, job: { jobId: string; jobOrderPF: string }) => void;
   closeSession: (materialId: string) => void;
-  getSessionForType: (type: RawMaterialType) => ActiveMaterialSessionData | undefined;
+  getSessionByMaterialId: (materialId: string) => ActiveMaterialSessionData | undefined;
   isLoading: boolean;
 }
 
@@ -75,11 +75,9 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     const category = getMaterialCategory(type);
     
     setActiveSessions(prevSessions => {
-        const materialExists = prevSessions.some(s => s.materialId === sessionData.materialId);
-        if (materialExists) {
-            throw new Error(`Una sessione per il materiale con codice '${sessionData.materialCode}' è già attiva.`);
-        }
-        
+        // This check is now handled in the UI to give the user options.
+        // We allow starting a session even if one for the same material exists,
+        // as it represents a new lot/spool.
         const newSession: ActiveMaterialSessionData = { ...sessionData, category };
         const updatedSessions = [...prevSessions, newSession];
         persistSessions(updatedSessions);
@@ -87,20 +85,24 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     });
   }, [persistSessions]);
 
-  const addJobToSession = useCallback((job: { jobId: string; jobOrderPF: string }) => {
+  const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
     setActiveSessions(prevSessions => {
-        if (prevSessions.length === 0) return prevSessions;
-        
         const updatedSessions = prevSessions.map(session => {
-            if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
-                return session; // Job already associated
+            if (session.materialId === materialId) {
+                // Avoid adding duplicate jobs
+                if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
+                    return session; 
+                }
+                return {
+                    ...session,
+                    associatedJobs: [...session.associatedJobs, job],
+                };
             }
-            return {
-                ...session,
-                associatedJobs: [...session.associatedJobs, job],
-            };
+            return session;
         });
-        persistSessions(updatedSessions);
+        if (JSON.stringify(updatedSessions) !== JSON.stringify(prevSessions)) {
+            persistSessions(updatedSessions);
+        }
         return updatedSessions;
     });
   }, [persistSessions]);
@@ -113,14 +115,13 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     });
   }, [persistSessions]);
 
-  const getSessionForType = useCallback((type: RawMaterialType): ActiveMaterialSessionData | undefined => {
-    const category = getMaterialCategory(type);
-    return activeSessions.find(s => s.category === category);
+  const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
+    return activeSessions.find(s => s.materialId === materialId);
   }, [activeSessions]);
 
 
   return (
-    <ActiveMaterialSessionContext.Provider value={{ activeSessions, startSession, addJobToSession, closeSession, getSessionForType, isLoading }}>
+    <ActiveMaterialSessionContext.Provider value={{ activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId, isLoading }}>
       {children}
     </ActiveMaterialSessionContext.Provider>
   );

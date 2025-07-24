@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -100,7 +100,7 @@ export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
   const { activeJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
-  const { activeSessions, startSession, addJobToSession, closeSession, getSessionForType } = useActiveMaterialSession();
+  const { activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
 
@@ -128,6 +128,8 @@ export default function ScanJobPage() {
 
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
+
+  const [sessionConflict, setSessionConflict] = useState<{ material: RawMaterial; existingSession: boolean } | null>(null);
 
   // Simulator State
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
@@ -157,7 +159,7 @@ export default function ScanJobPage() {
           setStep('finished');
         } else {
           if (activeSessions.length > 0 && !activeSessions.every(s => s.associatedJobs.some(j => j.jobId === activeJob.id))) {
-              addJobToSession({ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF });
+              activeSessions.forEach(s => addJobToSession(s.materialId, { jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }));
           }
           setStep('processing');
         }
@@ -700,10 +702,19 @@ export default function ScanJobPage() {
         return;
     }
     
+    // --- NEW LOGIC: Check for existing session ---
+    const existingSession = getSessionByMaterialId(result.id);
+    if (existingSession) {
+        setSessionConflict({ material: result, existingSession: true });
+        setIsMaterialScanDialogOpen(false); // Close the scan dialog to show the conflict dialog
+        return;
+    }
+    // --- END NEW LOGIC ---
+
     setScannedMaterialForPhase(result);
     setMaterialScanStep('form');
 
-  }, [stopCamera, toast, phaseForMaterialScan]);
+  }, [stopCamera, toast, phaseForMaterialScan, getSessionByMaterialId]);
 
   const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
     if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase) return;
@@ -962,6 +973,31 @@ export default function ScanJobPage() {
         setIsSimulatorOpen(false);
         setSimulatorInput('');
     };
+    
+    // --- NEW LOGIC: Session Conflict Resolution ---
+    const handleAddToActiveSession = () => {
+        if (!sessionConflict || !activeJob || !phaseForMaterialScan) return;
+        addJobToSession(sessionConflict.material.id, { jobId: activeJob.id, jobOrderPF: activeJob.ordinePF });
+        
+        const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+        const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
+        if (phaseToUpdate) {
+            phaseToUpdate.materialReady = true; 
+        }
+        
+        handleUpdateAndPersistJob(jobToUpdate);
+        toast({ title: "Commessa Aggiunta", description: `Questa commessa è stata associata alla sessione attiva per ${sessionConflict.material.code}.` });
+        setSessionConflict(null);
+    };
+
+    const handleStartNewLotto = () => {
+        if (!sessionConflict) return;
+        setScannedMaterialForPhase(sessionConflict.material);
+        setMaterialScanStep('form');
+        setIsMaterialScanDialogOpen(true);
+        setSessionConflict(null);
+    };
+    // --- END NEW LOGIC ---
 
   if (step === 'loading') {
     return (
@@ -1554,6 +1590,41 @@ export default function ScanJobPage() {
         </AlertDialog>
     );
   };
+  
+  const renderSessionConflictDialog = () => (
+    <Dialog open={!!sessionConflict} onOpenChange={(open) => !open && setSessionConflict(null)}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <AlertTriangle className="text-amber-500" />
+                    Sessione Materiale Attiva
+                </DialogTitle>
+                <DialogDescription>
+                    Esiste già una sessione attiva per il materiale <span className="font-bold">{sessionConflict?.material.code}</span>. Cosa vuoi fare?
+                </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-3">
+                 <Button onClick={handleAddToActiveSession} className="w-full h-16 flex items-start justify-start p-4" variant="outline">
+                    <Copy className="h-6 w-6 mr-4" />
+                    <div className="text-left">
+                        <p className="font-semibold">Aggiungi a Sessione Attiva</p>
+                        <p className="text-xs text-muted-foreground">Continua a usare lo stesso lotto per questa nuova commessa.</p>
+                    </div>
+                </Button>
+                <Button onClick={handleStartNewLotto} className="w-full h-16 flex items-start justify-start p-4" variant="outline">
+                    <PlusCircleIcon className="h-6 w-6 mr-4" />
+                    <div className="text-left">
+                        <p className="font-semibold">Inizia Nuovo Lotto</p>
+                        <p className="text-xs text-muted-foreground">Stai usando una nuova bobina/lotto di questo materiale.</p>
+                    </div>
+                </Button>
+            </div>
+             <DialogFooter>
+                <Button variant="ghost" onClick={() => setSessionConflict(null)}>Annulla</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+);
 
 
   return (
@@ -1621,6 +1692,7 @@ export default function ScanJobPage() {
           {renderLottoScanDialog()}
           {renderPhaseScanDialog()}
           {renderContinueOrCloseDialog()}
+          {renderSessionConflictDialog()}
 
            <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
                 <DialogContent>
