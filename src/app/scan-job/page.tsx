@@ -193,8 +193,8 @@ export default function ScanJobPage() {
   }, []);
 
   const handleStartOverallJob = useCallback((jobToStart: JobOrder) => {
-    if (!jobToStart) return;
-     if (jobToStart.isProblemReported && operator?.role !== 'superadvisor' && operator?.role !== 'admin') {
+    if (!jobToStart || !operator) return;
+     if (jobToStart.isProblemReported && operator.role !== 'superadvisor' && operator.role !== 'admin') {
       toast({
         variant: "destructive",
         title: "Lavorazione Bloccata",
@@ -622,11 +622,12 @@ export default function ScanJobPage() {
   const allPhasesCompleted = activeJob?.phases.every(phase => phase.status === 'completed');
 
   const handleJobProblemReported = (values: ProblemReportFormValues) => {
-    if (activeJob) {
+    if (activeJob && operator) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       jobToUpdate.isProblemReported = true;
       jobToUpdate.problemType = values.problemType;
       jobToUpdate.problemNotes = values.notes;
+      jobToUpdate.problemReportedBy = operator.nome;
       
       const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
       if (activePhase) {

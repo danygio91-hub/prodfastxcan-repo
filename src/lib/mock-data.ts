@@ -49,6 +49,7 @@ export interface JobOrder {
   isProblemReported?: boolean;
   problemType?: 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
   problemNotes?: string;
+  problemReportedBy?: string;
   status: 'planned' | 'production' | 'completed' | 'suspended';
   workCycleId?: string;
   // New fields for internal ODL number

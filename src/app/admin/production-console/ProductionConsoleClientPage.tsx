@@ -6,7 +6,7 @@ import Link from 'next/link';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User } from 'lucide-react';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -194,10 +194,15 @@ export default function ProductionConsoleClientPage() {
         <AlertDialogContent>
             <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.ordinePF}</AlertDialogTitle>
-                <AlertDialogDescription>
-                    <p className="font-bold text-foreground">Tipo: <span className="font-normal text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
-                    <p className="font-bold text-foreground">Note Operatore:</p>
-                    <p className="text-sm text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
+                <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                        <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
+                        <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
+                        <div>
+                            <p className="font-bold text-foreground">Note Operatore:</p>
+                            <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
+                        </div>
+                    </div>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
