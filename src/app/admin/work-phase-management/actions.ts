@@ -10,7 +10,8 @@ import {
   type WorkPhaseTemplate, 
   type Reparto, 
   reparti,
-  initialDepartmentMap
+  initialDepartmentMap,
+  type RawMaterialType, // Import RawMaterialType
 } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -21,6 +22,8 @@ const workPhaseSchema = z.object({
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  allowedMaterialTypes: z.array(z.string()).optional(), // Keep as string array
 });
 
 // --- Actions ---
@@ -53,6 +56,8 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         departmentCodes: formData.getAll('departmentCodes'),
         type: formData.get('type'),
         requiresMaterialScan: formData.get('requiresMaterialScan'),
+        requiresMaterialSearch: formData.get('requiresMaterialSearch'),
+        allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
     };
 
     const validatedFields = workPhaseSchema.safeParse(rawData);
@@ -65,7 +70,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         };
     }
 
-    const { id, name, description, departmentCodes, type, requiresMaterialScan } = validatedFields.data;
+    const { id, name, description, departmentCodes, type, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes } = validatedFields.data;
 
     const dataToSave: Partial<WorkPhaseTemplate> = {
         name,
@@ -73,6 +78,8 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         departmentCodes,
         type,
         requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
+        requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
+        allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[] | undefined) || [],
     };
 
     if (id) {
@@ -106,6 +113,8 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             departmentCodes,
             type,
             requiresMaterialScan: dataToSave.requiresMaterialScan,
+            requiresMaterialSearch: dataToSave.requiresMaterialSearch,
+            allowedMaterialTypes: dataToSave.allowedMaterialTypes,
             sequence: newSequence,
         };
         await setDoc(phaseRef, newPhase);

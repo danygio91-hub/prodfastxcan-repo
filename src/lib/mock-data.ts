@@ -27,6 +27,7 @@ export interface JobPhase {
   workstationScannedAndVerified?: boolean;
   type?: 'preparation' | 'production' | 'quality' | 'packaging';
   requiresMaterialScan?: boolean;
+  requiresMaterialSearch?: boolean; // New field
   materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
@@ -89,6 +90,7 @@ export interface WorkPhaseTemplate {
   sequence: number;
   type: 'preparation' | 'production' | 'quality' | 'packaging';
   requiresMaterialScan?: boolean;
+  requiresMaterialSearch?: boolean; // New field
   allowedMaterialTypes?: Array<RawMaterialType>;
 }
 
