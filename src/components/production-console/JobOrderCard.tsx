@@ -14,8 +14,8 @@ import { Button } from '../ui/button';
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
-  if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.isProblemReported) return 'Problema';
+  if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.status === 'completed') return 'Completata';
 
   // Check phases

@@ -74,31 +74,13 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   // This logic is critical for multi-operator scenarios.
   // We determine phase readiness based on its own state and dependencies.
-  const allPreparationPhasesCompleted = (jobCopy.phases || [])
-      .filter(p => p.type === 'preparation')
-      .every(p => p.status === 'completed');
-
-  jobCopy.phases = (jobCopy.phases || []).map(p => {
-    let materialReady = false; 
-
-    if (p.type === 'preparation') {
-        // A prep phase is ready if material has been associated (even once) or if it doesn't need a scan.
-        // We now trust the `materialReady` state from the database as the source of truth if it's already true.
-        materialReady = p.materialReady || !p.requiresMaterialScan;
-    } else { // For production/quality phases
-        // A production/quality phase is ready only if ALL preparation phases are completed.
-        // We also trust the saved state.
-        materialReady = p.materialReady || allPreparationPhasesCompleted;
-    }
-    
-    return {
-      ...p,
-      materialReady: materialReady,
-      workPeriods: p.workPeriods || [], 
-      materialConsumptions: p.materialConsumptions || [],
-      workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-    };
-  });
+  jobCopy.phases = (jobCopy.phases || []).map(p => ({
+    ...p,
+    materialReady: p.materialReady || !p.requiresMaterialScan, // A phase is ready if already marked, or if it doesn't need a scan.
+    workPeriods: p.workPeriods || [], 
+    materialConsumptions: p.materialConsumptions || [],
+    workstationScannedAndVerified: p.workstationScannedAndVerified || false,
+  }));
   
   jobCopy.isProblemReported = jobCopy.isProblemReported || false;
 
@@ -111,8 +93,12 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
 
     try {
         const allPhasesCompleted = (jobData.phases || []).every(p => p.status === 'completed');
-        if (allPhasesCompleted && jobData.overallEndTime && jobData.status !== 'suspended') {
+        // A job can only be completed if all phases are done AND there is no open problem report.
+        if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
+             if (!jobData.overallEndTime) {
+                jobData.overallEndTime = new Date();
+            }
         }
 
         // Convert Date objects back to Firestore Timestamps before writing

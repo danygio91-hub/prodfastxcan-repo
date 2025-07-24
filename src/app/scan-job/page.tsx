@@ -345,7 +345,7 @@ export default function ScanJobPage() {
       
       const phaseType = phaseToStart.type || 'production';
 
-      if (phaseType === 'production' && !phaseToStart.materialReady) {
+      if (phaseType !== 'preparation' && !phaseToStart.materialReady) {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Questa fase non è ancora pronta. Completare la fase precedente o la preparazione.` });
         return;
       }
@@ -359,11 +359,6 @@ export default function ScanJobPage() {
           if (currentPhaseIndex > 0 && (!prevPhaseInJob || prevPhaseInJob.status !== 'completed')) {
              toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhaseInJob?.name || 'precedente'}" prima di avviare questa.` });
              return;
-          }
-          const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
-          if (activeProductionPhase) {
-            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già attiva." });
-            return;
           }
       }
 
@@ -407,15 +402,6 @@ export default function ScanJobPage() {
     if (!phaseToStart.materialReady) {
         toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
         return;
-    }
-    
-    const phaseType = phaseToStart.type || 'production';
-    if (phaseType === 'production' || phaseType === 'quality') {
-        const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
-        if (activeProductionPhase) {
-            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già attiva." });
-            return;
-        }
     }
     
 
@@ -469,15 +455,6 @@ export default function ScanJobPage() {
     if (!phaseToResume || phaseToResume.status !== 'paused') {
       toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
       return;
-    }
-    
-    const phaseType = phaseToResume.type || 'production';
-    if (phaseType === 'production' || phaseType === 'quality') {
-        const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => (p.type === 'production' || p.type === 'quality') && p.status === 'in-progress');
-        if (activeProductionPhase) {
-            toast({ variant: "destructive", title: "Errore", description: "Un'altra fase di produzione/qualità è già in lavorazione." });
-            return;
-        }
     }
 
     phaseToResume.status = 'in-progress';
@@ -655,7 +632,7 @@ export default function ScanJobPage() {
       toast({
         variant: "destructive",
         title: "Problema Segnalato per Commessa",
-        description: `La commessa ${activeJob.id} è stata bloccata. Risolvere il problema prima di continuare.`,
+        description: `La commessa ${activeJob.id} è stata contrassegnata con un problema.`,
       });
     }
     setIsProblemReportDialogOpen(false);
@@ -1106,7 +1083,7 @@ export default function ScanJobPage() {
           </div>
            {job.isProblemReported && (
             <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Lavorazione bloccata.
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Lavorazione non bloccata, ma richiede attenzione.
             </p>
            )}
           {job.overallStartTime && (
@@ -1149,7 +1126,7 @@ export default function ScanJobPage() {
 
   const renderPhasesManagement = () => {
     if (!activeJob) return null;
-    const isJobBlockedByProblem = !!activeJob.isProblemReported;
+    const isJobBlockedByProblem = false; // Problem report no longer blocks the entire job
     
     const preparationPhases = (activeJob.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
@@ -1216,7 +1193,7 @@ export default function ScanJobPage() {
           const lastActiveWorkPeriod = workPeriodsForPhase.length > 0 ? workPeriodsForPhase[workPeriodsForPhase.length - 1] : null;
 
           return (
-            <Card key={phase.id} className={`p-4 bg-card/50 ${isJobBlockedByProblem && phase.status !== 'completed' ? 'opacity-70' : ''} ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
+            <Card key={phase.id} className={`p-4 bg-card/50 ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center">
                   {phaseIcon}
@@ -1348,9 +1325,9 @@ export default function ScanJobPage() {
           Fasi di Lavorazione Commessa: {activeJob?.id}
         </CardTitle>
         <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
-        {isJobBlockedByProblem && (
+        {activeJob?.isProblemReported && (
            <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Le operazioni sulle fasi sono bloccate.
+              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Procedere con cautela.
             </p>
         )}
       </CardHeader>
@@ -1393,7 +1370,7 @@ export default function ScanJobPage() {
           <Button 
             onClick={handleConcludeOverallJob} 
             className="w-full mt-4 bg-primary text-primary-foreground"
-            disabled={isJobBlockedByProblem || isPending}
+            disabled={activeJob?.isProblemReported || isPending}
           >
             <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
           </Button>
