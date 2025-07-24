@@ -20,7 +20,6 @@ const ptSans = PT_Sans({
 export const metadata: Metadata = {
   title: 'ProdFast Xcan',
   description: 'Applicazione per il Tracciamento dei Tempi di Produzione',
-  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
@@ -31,14 +30,9 @@ export default function RootLayout({
   return (
     <html lang="it" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#220_10%_10%" media="(prefers-color-scheme: dark)" />
         <meta name="theme-color" content="#25_25%_95%" media="(prefers-color-scheme: light)" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="PFXcan" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
