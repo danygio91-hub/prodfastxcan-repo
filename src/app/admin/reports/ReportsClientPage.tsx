@@ -462,10 +462,9 @@ export default function ReportsClientPage() {
                                   <TableRow>
                                        <TableHead padding="checkbox">
                                           <Checkbox
-                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === filteredWithdrawals.length}
+                                            checked={selectedWithdrawals.length > 0 && selectedWithdrawals.length === filteredWithdrawals.length ? true : selectedWithdrawals.length > 0 ? 'indeterminate' : false}
                                             onCheckedChange={handleSelectAllWithdrawals}
                                             aria-label="Seleziona tutti"
-                                            indeterminate={selectedWithdrawals.length > 0 && selectedWithdrawals.length < filteredWithdrawals.length}
                                           />
                                       </TableHead>
                                       <TableHead>Commessa/e</TableHead>

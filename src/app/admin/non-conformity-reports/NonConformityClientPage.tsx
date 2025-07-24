@@ -136,9 +136,8 @@ export default function NonConformityClientPage() {
                             <TableRow>
                                 <TableHead padding="checkbox">
                                     <Checkbox
-                                        checked={selectedRows.length > 0 && selectedRows.length === incomingReports.length}
+                                        checked={selectedRows.length > 0 && selectedRows.length === incomingReports.length ? true : selectedRows.length > 0 ? 'indeterminate' : false}
                                         onCheckedChange={handleSelectAll}
-                                        indeterminate={selectedRows.length > 0 && selectedRows.length < incomingReports.length}
                                         aria-label="Seleziona tutte"
                                         disabled={isLoading}
                                     />

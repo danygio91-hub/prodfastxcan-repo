@@ -214,9 +214,8 @@ export default function WorkCycleManagementClientPage() {
                     <TableRow>
                        <TableHead padding="checkbox">
                          <Checkbox
-                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === cycles.length}
+                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === cycles.length ? true : !isLoading && selectedRows.length > 0 ? 'indeterminate' : false}
                             onCheckedChange={handleSelectAll}
-                            indeterminate={selectedRows.length > 0 && selectedRows.length < cycles.length}
                             aria-label="Seleziona tutti"
                             disabled={isLoading}
                           />

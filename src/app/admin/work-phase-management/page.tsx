@@ -285,9 +285,8 @@ export default function WorkPhaseManagementClientPage() {
                     <TableRow>
                       <TableHead padding="checkbox">
                          <Checkbox
-                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === phases.length}
+                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === phases.length ? true : !isLoading && selectedRows.length > 0 ? 'indeterminate' : false}
                             onCheckedChange={handleSelectAll}
-                            indeterminate={selectedRows.length > 0 && selectedRows.length < phases.length}
                             aria-label="Seleziona tutte"
                             disabled={isLoading}
                           />
