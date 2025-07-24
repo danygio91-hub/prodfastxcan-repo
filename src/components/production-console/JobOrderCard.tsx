@@ -30,6 +30,10 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
 
   const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
   if (preparationPhases.length > 0 && allPreparationDone) {
+      const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+      if (isAnyProductionStarted) {
+         return 'In Lavorazione';
+      }
       return 'Pronto per Produzione';
   }
 
@@ -58,7 +62,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
+export default function JobOrderCard({ jobOrder, onProblemClick }: { jobOrder: JobOrder; onProblemClick: () => void; }) {
   const overallStatus = getOverallStatus(jobOrder);
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
@@ -69,8 +73,11 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
-  const cardContent = (
-    <Card className="flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300">
+  return (
+    <Card 
+      className={cn("flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
+      onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
+    >
       <CardHeader>
         <div className="flex justify-between items-start gap-4">
           <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
@@ -81,7 +88,7 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
           <Building className="h-4 w-4 text-muted-foreground" />
           {jobOrder.cliente}
         </CardDescription>
-          <Button asChild variant="ghost" size="icon">
+          <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
             <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
                 <Printer className="h-4 w-4"/>
             </Link>
@@ -119,7 +126,7 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
            <TooltipProvider>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20 cursor-pointer">
+                    <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20">
                         <p className="text-sm font-semibold flex items-center gap-2 text-destructive-foreground">
                         <ShieldAlert className="h-4 w-4 text-destructive" />
                         Problema Segnalato
@@ -157,15 +164,4 @@ export default function JobOrderCard({ jobOrder }: { jobOrder: JobOrder }) {
       </CardFooter>
     </Card>
   );
-
-  // If there's a problem, wrap the card in a Link to the scan-job page
-  if (jobOrder.isProblemReported) {
-    return (
-      <Link href={`/scan-job`}>
-        {cardContent}
-      </Link>
-    );
-  }
-
-  return cardContent;
 }
