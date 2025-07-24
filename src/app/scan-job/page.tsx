@@ -1107,12 +1107,22 @@ export default function ScanJobPage() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Gestione Problema</AlertDialogTitle>
-                    <AlertDialogDescription>
-                       {job.isProblemReported
-                          ? "Un problema è stato segnalato per questa commessa. Puoi sbloccarla se sei un supervisore."
-                          : "Segnala un problema per questa commessa. Questo metterà in pausa la fase attiva."
-                       }
-                    </AlertDialogDescription>
+                    {job.isProblemReported ? (
+                        <AlertDialogDescription asChild>
+                             <div className="space-y-2 text-sm pt-2">
+                                <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{job.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
+                                <p><strong className="text-foreground">Segnalato da:</strong> {job.problemReportedBy || 'N/D'}</p>
+                                <div>
+                                    <p className="font-bold text-foreground">Note Operatore:</p>
+                                    <p className="text-muted-foreground p-2 bg-muted rounded-md">{job.problemNotes || 'Nessuna nota fornita.'}</p>
+                                </div>
+                            </div>
+                        </AlertDialogDescription>
+                    ) : (
+                        <AlertDialogDescription>
+                            Segnala un problema per questa commessa. Questo metterà in pausa la fase attiva.
+                        </AlertDialogDescription>
+                    )}
                 </AlertDialogHeader>
                 {job.isProblemReported ? (
                     <AlertDialogFooter>
