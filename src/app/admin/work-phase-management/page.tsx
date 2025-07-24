@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type WorkPhaseTemplate, type Reparto, reparti } from '@/lib/mock-data';
+import { type WorkPhaseTemplate, type Reparto, reparti, RawMaterialType } from '@/lib/mock-data';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
@@ -27,6 +27,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from '@/components/ui/switch';
 import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X } from 'lucide-react';
 
+const materialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA'];
+
 const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
@@ -34,7 +36,10 @@ const workPhaseSchema = z.object({
   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging'], { required_error: 'Specificare il tipo di fase' }),
   requiresMaterialScan: z.boolean().default(false).optional(),
+  requiresMaterialSearch: z.boolean().default(false).optional(),
+  allowedMaterialTypes: z.array(z.string()).optional(),
 });
+
 
 type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
 
@@ -51,7 +56,7 @@ export default function WorkPhaseManagementClientPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] },
   });
   
   const fetchPhases = async () => {
@@ -77,9 +82,11 @@ export default function WorkPhaseManagementClientPage() {
         departmentCodes: phase.departmentCodes || [],
         type: phase.type || 'production',
         requiresMaterialScan: phase.requiresMaterialScan || false,
+        requiresMaterialSearch: phase.requiresMaterialSearch || false,
+        allowedMaterialTypes: phase.allowedMaterialTypes || [],
       });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] });
     }
     setIsDialogOpen(true);
   };
@@ -97,9 +104,12 @@ export default function WorkPhaseManagementClientPage() {
     formData.append('description', values.description);
     values.departmentCodes.forEach(code => formData.append('departmentCodes', code));
     formData.append('type', values.type);
-    if (values.type !== 'quality' && values.requiresMaterialScan) {
-      formData.append('requiresMaterialScan', 'on');
+    if (values.type !== 'quality') {
+        if (values.requiresMaterialScan) formData.append('requiresMaterialScan', 'on');
+        if (values.requiresMaterialSearch) formData.append('requiresMaterialSearch', 'on');
     }
+    (values.allowedMaterialTypes || []).forEach(type => formData.append('allowedMaterialTypes', type));
+
 
     startTransition(async () => {
       const result = await saveWorkPhaseTemplate(formData);
@@ -374,7 +384,7 @@ export default function WorkPhaseManagementClientPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
                 <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nome Fase</FormLabel>
@@ -424,7 +434,8 @@ export default function WorkPhaseManagementClientPage() {
                     )}
                 />
                 {form.watch('type') !== 'quality' && (
-                  <FormField
+                 <div className="space-y-4">
+                    <FormField
                       control={form.control}
                       name="requiresMaterialScan"
                       render={({ field }) => (
@@ -446,6 +457,76 @@ export default function WorkPhaseManagementClientPage() {
                       </FormItem>
                       )}
                   />
+                    <FormField
+                      control={form.control}
+                      name="requiresMaterialSearch"
+                      render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                          <FormLabel className="text-base">
+                              Richiede Ricerca Materiale
+                          </FormLabel>
+                          <FormDescription>
+                             Se attiva, l'operatore cercherà il materiale manualmente.
+                          </FormDescription>
+                          </div>
+                          <FormControl>
+                          <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                          />
+                          </FormControl>
+                      </FormItem>
+                      )}
+                  />
+                  {(form.watch('requiresMaterialScan') || form.watch('requiresMaterialSearch')) && (
+                      <FormField
+                          control={form.control}
+                          name="allowedMaterialTypes"
+                          render={({ field }) => (
+                              <FormItem>
+                                  <div className="mb-4">
+                                      <FormLabel>Tipi di Materiale Ammessi</FormLabel>
+                                      <FormDescription>
+                                          Seleziona quali tipi di materiale sono permessi per questa fase.
+                                      </FormDescription>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                                      {materialTypes.map((type) => (
+                                          <FormField
+                                              key={type}
+                                              control={form.control}
+                                              name="allowedMaterialTypes"
+                                              render={({ field }) => {
+                                                  return (
+                                                      <FormItem key={type} className="flex flex-row items-start space-x-3 space-y-0">
+                                                          <FormControl>
+                                                              <Checkbox
+                                                                  checked={field.value?.includes(type)}
+                                                                  onCheckedChange={(checked) => {
+                                                                      return checked
+                                                                          ? field.onChange([...(field.value || []), type])
+                                                                          : field.onChange(
+                                                                                (field.value || []).filter(
+                                                                                    (value) => value !== type
+                                                                                )
+                                                                            )
+                                                                  }}
+                                                              />
+                                                          </FormControl>
+                                                          <FormLabel className="font-normal">{type}</FormLabel>
+                                                      </FormItem>
+                                                  )
+                                              }}
+                                          />
+                                      ))}
+                                  </div>
+                                  <FormMessage />
+                              </FormItem>
+                          )}
+                      />
+                  )}
+                 </div>
                 )}
                 <FormField
                   control={form.control}
