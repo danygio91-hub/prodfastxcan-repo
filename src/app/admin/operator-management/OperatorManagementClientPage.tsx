@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -8,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Operator, type Reparto, type OperatorRole, reparti } from '@/lib/mock-data';
+import { type Operator, type Reparto, reparti } from '@/lib/mock-data';
 import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 import type { StatoOperatore } from '@/lib/mock-data';
@@ -17,11 +18,12 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -33,7 +35,7 @@ const operatorFormSchema = z.object({
   nome: z.string().min(1, "Il nome è obbligatorio."),
   cognome: z.string().optional(),
   email: z.string().email("Formato email non valido."),
-  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina']),
+  reparto: z.array(z.string()).min(1, "Selezionare almeno un reparto.").max(3, "Puoi selezionare al massimo 3 reparti."),
   role: z.enum(['admin', 'superadvisor', 'operator']),
 });
 
@@ -71,7 +73,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
       nome: "",
       cognome: "",
       email: "",
-      reparto: 'CP',
+      reparto: [],
       role: 'operator',
     },
   });
@@ -83,7 +85,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
   useEffect(() => {
     if (watchedRole === 'admin') {
-      form.setValue('reparto', 'N/D');
+      form.setValue('reparto', ['N/D']);
     }
   }, [watchedRole, form]);
 
@@ -99,11 +101,11 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
         nome: operator.nome,
         cognome: operator.cognome || '',
         email: operator.email || '',
-        reparto: operator.reparto,
+        reparto: Array.isArray(operator.reparto) ? operator.reparto : [operator.reparto],
         role: operator.role,
       });
     } else {
-      form.reset({ id: undefined, nome: "", cognome: "", email: "", reparto: 'CP', role: 'operator' });
+      form.reset({ id: undefined, nome: "", cognome: "", email: "", reparto: [], role: 'operator' });
     }
     setIsDialogOpen(true);
   };
@@ -116,11 +118,13 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
   const onSubmit = async (values: OperatorFormValues) => {
     const formData = new FormData();
-    Object.entries(values).forEach(([key, value]) => {
-      if (value) {
-        formData.append(key, value);
-      }
-    });
+    if (values.id) formData.append('id', values.id);
+    formData.append('nome', values.nome);
+    if(values.cognome) formData.append('cognome', values.cognome);
+    formData.append('email', values.email);
+    formData.append('role', values.role);
+    values.reparto.forEach(r => formData.append('reparto', r));
+
 
     const result = await saveOperator(formData);
 
@@ -153,7 +157,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
         'Nome': op.nome,
         'Cognome': op.cognome,
         'Email': op.email,
-        'Reparto': op.reparto,
+        'Reparto': Array.isArray(op.reparto) ? op.reparto.join(', ') : op.reparto,
         'Ruolo': op.role,
         'Stato': op.stato,
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
@@ -209,7 +213,15 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                       <TableRow key={op.id}>
                         <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
                         <TableCell>{op.email}</TableCell>
-                        <TableCell>{op.reparto}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {Array.isArray(op.reparto) ? (
+                              op.reparto.map(r => <Badge key={r} variant="secondary">{r}</Badge>)
+                            ) : (
+                              <Badge variant="secondary">{op.reparto}</Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="capitalize">{op.role}</TableCell>
                         <TableCell><StatusBadge status={op.stato} /></TableCell>
                         <TableCell>
@@ -319,22 +331,54 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                   </FormItem>
                 )} />
                 {watchedRole !== 'admin' && (
-                  <FormField control={form.control} name="reparto" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reparto</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Seleziona un reparto" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {operationalReparti.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField
+                    control={form.control}
+                    name="reparto"
+                    render={() => (
+                      <FormItem>
+                        <div className="mb-4">
+                          <FormLabel>Reparti di Competenza</FormLabel>
+                          <FormDescription>
+                            Seleziona uno o più reparti (max 3).
+                          </FormDescription>
+                        </div>
+                        {operationalReparti.map((item) => (
+                          <FormField
+                            key={item}
+                            control={form.control}
+                            name="reparto"
+                            render={({ field }) => {
+                              return (
+                                <FormItem
+                                  key={item}
+                                  className="flex flex-row items-start space-x-3 space-y-0"
+                                >
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(item)}
+                                      onCheckedChange={(checked) => {
+                                        return checked
+                                          ? field.onChange([...field.value, item])
+                                          : field.onChange(
+                                              field.value?.filter(
+                                                (value) => value !== item
+                                              )
+                                            )
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal">
+                                    {item}
+                                  </FormLabel>
+                                </FormItem>
+                              )
+                            }}
+                          />
+                        ))}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
                 <DialogFooter className="pt-4">
                   <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>

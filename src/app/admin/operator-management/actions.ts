@@ -1,11 +1,12 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Operator } from '@/lib/mock-data';
+import type { Operator, Reparto } from '@/lib/mock-data';
 
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
@@ -15,9 +16,7 @@ const operatorFormSchema = z.object({
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
   cognome: z.string().optional(),
   email: z.string().email("L'email è obbligatoria e deve essere valida."),
-  reparto: z.enum(['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina'], {
-    errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
-  }),
+  reparto: z.array(z.string()).min(1, "Selezionare almeno un reparto.").max(3, "Massimo 3 reparti."),
   role: z.enum(['admin', 'superadvisor', 'operator'], {
     errorMap: () => ({ message: 'Selezionare un ruolo valido.' }),
   }),
@@ -33,7 +32,15 @@ export async function getOperators(): Promise<Operator[]> {
 }
 
 export async function saveOperator(formData: FormData) {
-  const rawData = Object.fromEntries(formData.entries());
+  const rawData = {
+    id: formData.get('id') || undefined,
+    nome: formData.get('nome'),
+    cognome: formData.get('cognome'),
+    email: formData.get('email'),
+    role: formData.get('role'),
+    reparto: formData.getAll('reparto'),
+  };
+
   let validatedFields = operatorFormSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
@@ -45,13 +52,13 @@ export async function saveOperator(formData: FormData) {
   }
   
   if (validatedFields.data.role === 'admin') {
-    validatedFields.data.reparto = 'N/D';
+    validatedFields.data.reparto = ['N/D'];
   }
 
   const { id, email } = validatedFields.data;
   const nome = validatedFields.data.nome.trim();
   const cognome = (validatedFields.data.cognome || '').trim();
-  const reparto = validatedFields.data.reparto;
+  const reparto = validatedFields.data.reparto as Reparto[];
   const role = validatedFields.data.role;
   const nome_normalized = nome.toLowerCase();
   

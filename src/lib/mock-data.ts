@@ -73,7 +73,7 @@ export interface Operator {
   uid?: string;
   nome: string;
   cognome?: string;
-  reparto: Reparto;
+  reparto: Reparto | Reparto[];
   stato: StatoOperatore;
   password?: string;
   role: OperatorRole;

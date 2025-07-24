@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React from 'react';
@@ -15,6 +16,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { getDepartmentMap } from '@/app/admin/settings/actions';
 import PrivacyForm from './PrivacyForm';
+import { Badge } from '@/components/ui/badge';
 
 
 export default function OperatorDataPage() {
@@ -26,8 +28,8 @@ export default function OperatorDataPage() {
     getDepartmentMap().then(setDepartmentMap);
   }, []);
 
-  const getFullDepartmentName = (repartoCode: string) => {
-    return departmentMap[repartoCode as keyof typeof departmentMap] || 'N/D';
+  const getFullDepartmentName = (repartoCode: Reparto) => {
+    return departmentMap[repartoCode] || repartoCode;
   }
 
   const email = operator?.email || '...';
@@ -41,6 +43,8 @@ export default function OperatorDataPage() {
        </AppShell>
     )
   }
+  
+  const repartiAsArray = Array.isArray(operator.reparto) ? operator.reparto : [operator.reparto];
 
   return (
     <AuthGuard>
@@ -77,9 +81,13 @@ export default function OperatorDataPage() {
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="department" className="flex items-center text-foreground/80">
                     <Factory className="mr-2 h-5 w-5 text-primary" />
-                    Reparto di Produzione
+                    Reparto/i di Produzione
                   </Label>
-                  <Input id="department" value={operator ? getFullDepartmentName(operator.reparto) : '...'} readOnly className="bg-input text-foreground" />
+                  <div className="p-3 bg-input rounded-md min-h-[40px] flex items-center flex-wrap gap-2">
+                     {repartiAsArray.map(r => (
+                        <Badge key={r} variant="default">{getFullDepartmentName(r)}</Badge>
+                     ))}
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -92,4 +100,3 @@ export default function OperatorDataPage() {
     </AuthGuard>
   );
 }
-
