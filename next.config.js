@@ -21,7 +21,9 @@ const nextConfig = {
       },
     ],
   },
-  allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
+  experimental: {
+    allowedDevOrigins: ["*.cloudworkstations.dev", "http://localhost:3000"],
+  }
 };
 
 // Apply PWA only in production to avoid potential conflicts with dev server features.
