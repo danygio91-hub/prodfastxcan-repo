@@ -38,8 +38,8 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   if (jobOrder.status === 'completed') return 'Completata';
 
   // Check phases
-  const preparationPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'preparation');
-  const productionPhases = jobOrder.phases.filter(p => (p.type ?? 'production') === 'production');
+  const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+  const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
   const finishingPhases = (jobOrder.phases || []).filter(p => p.type === 'quality' || p.type === 'packaging');
   
   const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
@@ -143,7 +143,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
             </Tooltip>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
