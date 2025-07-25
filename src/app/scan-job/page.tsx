@@ -519,10 +519,6 @@ export default function ScanJobPage() {
       const isCurrentPhasePrep = phaseToComplete.type === 'preparation';
       const isNextPhaseProd = nextPhase.type === 'production';
       
-      const allPrepPhasesBeforeNext = sortedPhases
-        .slice(0, currentPhaseIndex + 1)
-        .filter(p => p.type === 'preparation');
-
       const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
 
       if (isCurrentPhasePrep && isNextPhaseProd && allPreviousPhasesCompleted) {
@@ -1254,7 +1250,7 @@ export default function ScanJobPage() {
     
     const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality' || p.type === 'packaging');
     
-    const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
+    const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG'));
 
     const sortedPhases = [...activeJob.phases].sort((a,b) => a.sequence - b.sequence);
     const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
@@ -1822,3 +1818,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
