@@ -170,6 +170,7 @@ export default function ScanJobPage() {
     if (activeJob) {
       forceJobDataRefresh(activeJob.id);
     }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -521,7 +522,11 @@ export default function ScanJobPage() {
     if (currentPhaseIndex > -1) {
         const nextPhase = sortedPhases[currentPhaseIndex + 1];
         if (nextPhase && nextPhase.status === 'pending') {
-            nextPhase.materialReady = true;
+             // Only unlock the next if the current one is also completed
+            const currentPhaseFromSorted = sortedPhases[currentPhaseIndex];
+            if (currentPhaseFromSorted.status === 'completed') {
+                nextPhase.materialReady = true;
+            }
         }
     }
     
@@ -598,7 +603,20 @@ export default function ScanJobPage() {
     const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type === 'production');
 
     if (firstProductionPhase && firstProductionPhase.status === 'pending') {
-        firstProductionPhase.materialReady = true;
+        const allPrepCompleted = jobToUpdate.phases
+            .filter((p: JobPhase) => p.type === 'preparation')
+            .every((p: JobPhase) => p.status === 'completed');
+
+        if (allPrepCompleted) {
+             firstProductionPhase.materialReady = true;
+        } else {
+            toast({
+                variant: "destructive",
+                title: "Preparazione non completa",
+                description: "Tutte le fasi di preparazione devono essere completate prima di liberare la commessa."
+            });
+            return;
+        }
     } else {
         toast({
             variant: "destructive",
@@ -814,6 +832,7 @@ export default function ScanJobPage() {
           }
           handleUpdateAndPersistJob(jobToUpdate);
           setIsMaterialScanDialogOpen(false);
+          await forceJobDataRefresh(activeJob.id); // Force refresh
       }
   };
 
