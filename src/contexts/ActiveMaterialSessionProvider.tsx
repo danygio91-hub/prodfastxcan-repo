@@ -32,7 +32,6 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
   
-  // Use a ref to get the latest operator value in callbacks without re-triggering effects
   const operatorRef = useRef(operator);
   operatorRef.current = operator;
 
@@ -40,24 +39,29 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     const currentOperator = operatorRef.current;
     return currentOperator ? `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}` : null;
   }, []);
+  
+  const broadcastSessionsUpdate = useCallback((sessions: ActiveMaterialSessionData[]) => {
+    try {
+      const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      channel.postMessage({ type: 'SESSIONS_UPDATED', payload: JSON.stringify(sessions) });
+      channel.close();
+    } catch (error) {
+      console.error("Failed to broadcast session update:", error);
+    }
+  }, []);
 
-  const persistAndBroadcastSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
+  const persistSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
     const storageKey = getStorageKey();
     if (!storageKey) return;
 
     try {
-      const serializedSessions = JSON.stringify(sessions);
-      localStorage.setItem(storageKey, serializedSessions);
-      
-      const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-      channel.postMessage({ type: 'SESSIONS_UPDATED', payload: serializedSessions });
-      channel.close();
-
+      localStorage.setItem(storageKey, JSON.stringify(sessions));
+      broadcastSessionsUpdate(sessions);
     } catch (error) {
-      console.error("Failed to save or broadcast active material sessions", error);
+      console.error("Failed to save active material sessions", error);
     }
-  }, [getStorageKey]);
-
+  }, [getStorageKey, broadcastSessionsUpdate]);
+  
   const loadSessionsFromStorage = useCallback(() => {
     const storageKey = getStorageKey();
     if (!storageKey) {
@@ -113,11 +117,18 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     
     setActiveSessions(prevSessions => {
         const newSession: ActiveMaterialSessionData = { ...sessionData, category };
+        
+        // Prevent adding a session for a material that already has one.
+        if (prevSessions.some(s => s.materialId === newSession.materialId)) {
+          console.warn(`Attempted to start a session for material ${newSession.materialId}, but one already exists.`);
+          return prevSessions;
+        }
+
         const updatedSessions = [...prevSessions, newSession];
-        persistAndBroadcastSessions(updatedSessions);
+        persistSessions(updatedSessions);
         return updatedSessions;
     });
-  }, [persistAndBroadcastSessions]);
+  }, [persistSessions]);
 
   const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
     setActiveSessions(prevSessions => {
@@ -137,11 +148,11 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         });
 
         if (hasChanged) {
-          persistAndBroadcastSessions(updatedSessions);
+          persistSessions(updatedSessions);
         }
         return updatedSessions;
     });
-  }, [persistAndBroadcastSessions]);
+  }, [persistSessions]);
 
   const closeSession = useCallback((materialId: string) => {
     setActiveSessions(prevSessions => {
@@ -149,10 +160,10 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
       if (!sessionToClose) return prevSessions;
 
       const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
-      persistAndBroadcastSessions(updatedSessions);
+      persistSessions(updatedSessions);
       return updatedSessions;
     });
-  }, [persistAndBroadcastSessions]);
+  }, [persistSessions]);
 
 
   const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
