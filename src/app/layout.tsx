@@ -29,11 +29,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it" suppressHydrationWarning>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#220_10%_10%" media="(prefers-color-scheme: dark)" />
-        <meta name="theme-color" content="#25_25%_95%" media="(prefers-color-scheme: light)" />
-      </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
           <ActiveJobProvider>
