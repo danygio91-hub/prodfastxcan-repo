@@ -490,6 +490,12 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
+    // If the phase being completed is a preparation phase and doesn't require a material scan,
+    // we should explicitly set its materialReady state to true.
+    if (phaseToComplete.type === 'preparation' && !phaseToComplete.requiresMaterialScan && !phaseToComplete.requiresMaterialSearch) {
+        phaseToComplete.materialReady = true;
+    }
+    
     // Check if ALL preparation phases are now completed to unlock the first production phase
     const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
     const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
@@ -1191,7 +1197,7 @@ export default function ScanJobPage() {
     const preparationPhases = (activeJob.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
     const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
     
-    const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality');
+    const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality' || p.type === 'packaging');
     
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
@@ -1227,7 +1233,7 @@ export default function ScanJobPage() {
             noOtherPhaseActive = !activeProductionPhase || activeProductionPhase.id === phase.id;
           }
 
-          const canScanMaterial = operatorHasPermissionForDepartment && phase.requiresMaterialScan;
+          const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
           
           const canPerformAction = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
           
