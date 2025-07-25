@@ -35,12 +35,9 @@ function triggerGlobalLogout() {
   const timestamp = Date.now().toString();
   localStorage.setItem('force_logout_timestamp', timestamp);
 
-  // Clear all material session keys from localStorage
+  // Clear all session keys from localStorage
   Object.keys(localStorage).forEach(key => {
-    if (key.startsWith('prodtime_tracker_active_material_sessions_')) {
-      localStorage.removeItem(key);
-    }
-     if (key.startsWith('prodtime_tracker_active_job_id_')) {
+    if (key.startsWith('prodtime_tracker_active_material_sessions_') || key.startsWith('prodtime_tracker_active_job_id_')) {
       localStorage.removeItem(key);
     }
   });
