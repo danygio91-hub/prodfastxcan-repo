@@ -492,21 +492,17 @@ export default function ScanJobPage() {
     
     // If the phase being completed is a preparation phase and doesn't require a material scan,
     // we should explicitly set its materialReady state to true.
-    if (phaseToComplete.type === 'preparation' && !phaseToComplete.requiresMaterialScan && !phaseToComplete.requiresMaterialSearch) {
+    if (phaseToComplete.type === 'preparation') {
         phaseToComplete.materialReady = true;
     }
     
-    // Check if ALL preparation phases are now completed to unlock the first production phase
-    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-    const allPreparationPhasesCompleted = allPreparationPhases.every((p: JobPhase) => p.status === 'completed');
+    // Unlock the next phase in the sequence
+    const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+    const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
+    const nextPhase = sortedPhases[currentPhaseIndex + 1];
 
-    if (allPreparationPhasesCompleted) {
-        const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-        const firstProductionPhase = sortedPhases.find((p: JobPhase) => (p.type || 'production') === 'production');
-        
-        if (firstProductionPhase) {
-            firstProductionPhase.materialReady = true;
-        }
+    if (nextPhase) {
+        nextPhase.materialReady = true;
     }
     
     const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));

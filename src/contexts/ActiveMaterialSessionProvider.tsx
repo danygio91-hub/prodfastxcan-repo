@@ -109,11 +109,15 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
 
   const closeSession = useCallback((materialId: string) => {
     setActiveSessions(prevSessions => {
-        const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
-        persistSessions(updatedSessions);
-        return updatedSessions;
+      const sessionToClose = prevSessions.find(s => s.materialId === materialId);
+      if (!sessionToClose) return prevSessions;
+
+      const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
+      persistSessions(updatedSessions);
+      return updatedSessions;
     });
   }, [persistSessions]);
+
 
   const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
     return activeSessions.find(s => s.materialId === materialId);

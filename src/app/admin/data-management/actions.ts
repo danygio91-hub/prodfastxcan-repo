@@ -63,7 +63,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: false, // Start all as not ready. Logic below will set them.
+            materialReady: !(template.requiresMaterialScan || template.requiresMaterialSearch),
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
@@ -76,27 +76,20 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         };
     }).filter((p): p is JobPhase => p !== null);
     
+    // Sort phases by sequence before determining readiness
     const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
     
-    const preparationPhases = sortedPhases.filter(p => p.type === 'preparation');
-    const hasPrepPhaseRequiringScan = preparationPhases.some(p => p.requiresMaterialScan || p.requiresMaterialSearch);
+    // The first phase in the sequence (lowest sequence number) that is NOT a preparation phase
+    // should have its material set to ready, ONLY if no preparation phase requires a scan.
+    const hasPrepPhaseRequiringScan = sortedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch));
 
-    sortedPhases.forEach(phase => {
-        if (phase.type === 'preparation') {
-            // A prep phase is ready if it doesn't need a material scan/search.
-            phase.materialReady = !phase.requiresMaterialScan && !phase.requiresMaterialSearch;
-        } else { // For 'production' or 'quality' phases
-            const isFirstProductionPhase = phase.sequence > 0 && !sortedPhases.some(p => p.type !== 'preparation' && p.sequence > 0 && p.sequence < phase.sequence);
-            
-            // The first production/quality phase is ready only if NO preparation phase requires a scan.
-            if (isFirstProductionPhase) {
-                phase.materialReady = !hasPrepPhaseRequiringScan;
-            } else {
-                // Subsequent production/quality phases are never ready by default. They are unlocked by the previous phase.
-                phase.materialReady = false;
-            }
+    if (!hasPrepPhaseRequiringScan) {
+        // Find the first non-preparation phase and set its material to ready.
+        const firstProdOrQualityPhase = sortedPhases.find(p => p.type !== 'preparation');
+        if (firstProdOrQualityPhase) {
+            firstProdOrQualityPhase.materialReady = true;
         }
-    });
+    }
 
     return sortedPhases;
 }
