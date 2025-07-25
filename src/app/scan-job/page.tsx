@@ -524,12 +524,9 @@ export default function ScanJobPage() {
         const nextPhase = sortedPhases[currentPhaseIndex + 1];
         if (nextPhase && nextPhase.status === 'pending') {
              // Only unlock the next if the current one is also completed
-            const currentPhaseFromSorted = sortedPhases[currentPhaseIndex];
-            if (currentPhaseFromSorted.status === 'completed') {
-                 const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
-                 if(allPreviousPhasesCompleted) {
-                    nextPhase.materialReady = true;
-                 }
+            const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
+            if(allPreviousPhasesCompleted) {
+                nextPhase.materialReady = true;
             }
         }
     }
@@ -563,7 +560,10 @@ export default function ScanJobPage() {
         const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
 
         if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
-            nextPhaseInJob.materialReady = true;
+            const allPreviousPhasesCompleted = sortedPhasesInJob.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
+            if (allPreviousPhasesCompleted) {
+                nextPhaseInJob.materialReady = true;
+            }
         }
         toast({ title: "Collaudo Superato", description: `La fase "${phaseToUpdate.name}" è stata approvata.`, action: <CheckCircle className="text-green-500"/> });
     } else {
@@ -847,7 +847,6 @@ export default function ScanJobPage() {
       });
 
       if (!result.success) {
-          // If the backend call fails, revert the optimistic update
           forceJobDataRefresh(activeJob.id);
       }
   };
@@ -1822,4 +1821,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
