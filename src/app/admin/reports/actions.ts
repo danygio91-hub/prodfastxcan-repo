@@ -4,7 +4,7 @@
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -437,18 +437,26 @@ export type ProductionTimeAnalysisReport = {
         qta: number;
         totalTimeMinutes: number;
         minutesPerPiece: number;
+        phases: Array<{
+            name: string;
+            totalTimeMinutes: number;
+            minutesPerPiece: number;
+        }>
     }>;
 };
 
+function getPhaseTimeMilliseconds(phase: JobPhase): number {
+    return (phase.workPeriods || []).reduce((phaseTotal, period) => {
+        if (period.start && period.end) {
+            return phaseTotal + (new Date(period.end).getTime() - new Date(period.start).getTime());
+        }
+        return phaseTotal;
+    }, 0);
+}
+
 function getTotalMilliseconds(job: JobOrder): number {
     return (job.phases || []).reduce((total, phase) => {
-        const phaseTime = (phase.workPeriods || []).reduce((phaseTotal, period) => {
-            if (period.start && period.end) {
-                return phaseTotal + (new Date(period.end).getTime() - new Date(period.start).getTime());
-            }
-            return phaseTotal;
-        }, 0);
-        return total + phaseTime;
+        return total + getPhaseTimeMilliseconds(phase);
     }, 0);
 }
 
@@ -477,6 +485,16 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const totalTimeMs = getTotalMilliseconds(job);
         const totalTimeMinutes = totalTimeMs / (1000 * 60);
         const minutesPerPiece = job.qta > 0 ? totalTimeMinutes / job.qta : 0;
+        
+        const phaseDetails = (job.phases || []).map(phase => {
+            const phaseTimeMs = getPhaseTimeMilliseconds(phase);
+            const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+            return {
+                name: phase.name,
+                totalTimeMinutes: phaseTimeMinutes,
+                minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
+            };
+        });
 
         const report = analysisByArticle[articleCode];
         report.totalJobs += 1;
@@ -487,6 +505,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             qta: job.qta,
             totalTimeMinutes: totalTimeMinutes,
             minutesPerPiece: minutesPerPiece,
+            phases: phaseDetails,
         });
     }
 

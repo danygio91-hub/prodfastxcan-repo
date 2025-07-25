@@ -9,8 +9,14 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { Timer, Package, Download } from 'lucide-react';
+import { Timer, Package, Download, ChevronRight } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
+import { Badge } from '@/components/ui/badge';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 interface ProductionTimeAnalysisClientPageProps {
   report: ProductionTimeAnalysisReport[];
@@ -19,14 +25,31 @@ interface ProductionTimeAnalysisClientPageProps {
 export default function ProductionTimeAnalysisClientPage({ report }: ProductionTimeAnalysisClientPageProps) {
 
   const handleExport = (articleReport: ProductionTimeAnalysisReport) => {
-    const dataToExport = articleReport.jobs.map(job => ({
-        'Codice Articolo': articleReport.articleCode,
-        'Commessa': job.id,
-        'Cliente': job.cliente,
-        'Quantità': job.qta,
-        'Tempo Totale (min)': job.totalTimeMinutes.toFixed(2),
-        'Minuti/Pezzo': job.minutesPerPiece.toFixed(4),
-    }));
+    const dataToExport: any[] = [];
+    articleReport.jobs.forEach(job => {
+        // Main job row
+        dataToExport.push({
+            'Codice Articolo': articleReport.articleCode,
+            'Commessa': job.id,
+            'Cliente': job.cliente,
+            'Quantità': job.qta,
+            'Fase': 'TOTALE COMMESSA',
+            'Tempo Totale (min)': job.totalTimeMinutes.toFixed(2),
+            'Minuti/Pezzo': job.minutesPerPiece.toFixed(4),
+        });
+        // Phase rows
+        job.phases.forEach(phase => {
+             dataToExport.push({
+                'Codice Articolo': '',
+                'Commessa': '',
+                'Cliente': '',
+                'Quantità': '',
+                'Fase': phase.name,
+                'Tempo Totale (min)': phase.totalTimeMinutes.toFixed(2),
+                'Minuti/Pezzo': phase.minutesPerPiece.toFixed(4),
+            });
+        })
+    });
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -52,7 +75,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
             <CardHeader>
                 <CardTitle>Report Articoli</CardTitle>
                 <CardDescription>
-                    Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione.
+                    Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione, inclusi i dettagli per singola fase.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -81,28 +104,47 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                             Esporta Dettaglio
                                         </Button>
                                     </div>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Commessa</TableHead>
-                                                <TableHead>Cliente</TableHead>
-                                                <TableHead>Q.tà</TableHead>
-                                                <TableHead>Tempo Totale</TableHead>
-                                                <TableHead>Minuti/Pezzo</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {item.jobs.map(job => (
-                                                <TableRow key={job.id}>
-                                                    <TableCell className="font-mono">{job.id}</TableCell>
-                                                    <TableCell>{job.cliente}</TableCell>
-                                                    <TableCell>{job.qta}</TableCell>
-                                                    <TableCell>{job.totalTimeMinutes.toFixed(2)} min</TableCell>
-                                                    <TableCell className="font-semibold">{job.minutesPerPiece.toFixed(4)} min</TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
+                                    <div className="space-y-4">
+                                        {item.jobs.map(job => (
+                                            <Collapsible key={job.id} className="border-t pt-4">
+                                                <CollapsibleTrigger asChild>
+                                                    <div className="flex justify-between items-center w-full cursor-pointer hover:bg-background/50 p-2 rounded-md">
+                                                        <div className="flex-1">
+                                                            <div className="font-mono text-base font-semibold">{job.id} <Badge variant="secondary" className="ml-2">Cliente: {job.cliente}</Badge></div>
+                                                            <div className="text-sm text-muted-foreground">Q.tà: {job.qta}</div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="font-semibold text-primary">{job.minutesPerPiece.toFixed(4)} min/pz</div>
+                                                            <div className="text-xs text-muted-foreground">Tot: {job.totalTimeMinutes.toFixed(2)} min</div>
+                                                        </div>
+                                                        <ChevronRight className="h-4 w-4 ml-2 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                                                    </div>
+                                                </CollapsibleTrigger>
+                                                <CollapsibleContent>
+                                                    <div className="pl-6 pt-2">
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow>
+                                                                    <TableHead>Fase</TableHead>
+                                                                    <TableHead className="text-right">Tempo Totale Fase</TableHead>
+                                                                    <TableHead className="text-right">Minuti/Pezzo</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {job.phases.map((phase, index) => (
+                                                                    <TableRow key={index}>
+                                                                        <TableCell>{phase.name}</TableCell>
+                                                                        <TableCell className="text-right">{phase.totalTimeMinutes.toFixed(2)} min</TableCell>
+                                                                        <TableCell className="text-right font-medium">{phase.minutesPerPiece.toFixed(4)} min</TableCell>
+                                                                    </TableRow>
+                                                                ))}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                </CollapsibleContent>
+                                            </Collapsible>
+                                        ))}
+                                    </div>
                                 </div>
                             </AccordionContent>
                         </AccordionItem>
