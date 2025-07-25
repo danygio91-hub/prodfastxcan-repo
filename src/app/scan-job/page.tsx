@@ -490,17 +490,19 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
-    if (phaseToComplete.type === 'preparation' && !phaseToComplete.requiresMaterialScan) {
+    if (phaseToComplete.type === 'preparation' && !(phaseToComplete.requiresMaterialScan || phaseToComplete.requiresMaterialSearch)) {
         phaseToComplete.materialReady = true;
     }
     
-    // Unlock the next phase in the sequence
-    const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+    // Unlock the next phase ONLY if the current phase is completed.
+    const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
-    const nextPhase = sortedPhases[currentPhaseIndex + 1];
-
-    if (nextPhase) {
-        nextPhase.materialReady = true;
+    
+    if (currentPhaseIndex > -1) {
+        const nextPhase = sortedPhases[currentPhaseIndex + 1];
+        if (nextPhase) {
+            nextPhase.materialReady = true;
+        }
     }
     
     const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
@@ -570,7 +572,10 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production');
+    const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+    
+    // Find the first phase that is not a 'preparation' phase.
+    const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type !== 'preparation');
 
     if (firstProductionPhase) {
         firstProductionPhase.materialReady = true;
@@ -1196,7 +1201,8 @@ export default function ScanJobPage() {
     
     const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
 
-    const firstProductionPhase = (activeJob.phases || []).find(p => p.type === 'production');
+    const sortedPhases = [...activeJob.phases].sort((a,b) => a.sequence - b.sequence);
+    const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
     
     const showReleaseButton = allPreparationPhasesCompleted && 
                               firstProductionPhase && 
@@ -1232,7 +1238,7 @@ export default function ScanJobPage() {
           
           const canPerformAction = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
           
-          const canStartWithScan = canPerformAction && phaseType !== 'quality' && (phase.type === 'preparation' ? true : noOtherPhaseActive);
+          const canStartWithScan = canPerformAction && phaseType !== 'quality' && (phase.type === 'preparation' ? true : (noOtherPhaseActive && isPreviousPhaseCompleted));
           const canPerformQualityCheck = canPerformAction && phaseType === 'quality' && isPreviousPhaseCompleted;
           const canForceStart = isSuperadvisor && !activeJob.isProblemReported && phase.materialReady && phase.status === 'pending' && !isPreviousPhaseCompleted;
 
