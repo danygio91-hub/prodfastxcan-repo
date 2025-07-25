@@ -1,11 +1,12 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import type { ActiveMaterialSessionData, MaterialSessionCategory, RawMaterialType } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
+const BROADCAST_CHANNEL_NAME = 'material_session_channel';
 
 interface ActiveMaterialSessionContextType {
   activeSessions: ActiveMaterialSessionData[];
@@ -30,69 +31,103 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   const [activeSessions, setActiveSessions] = useState<ActiveMaterialSessionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
+  
+  // Use a ref to get the latest operator value in callbacks without re-triggering effects
+  const operatorRef = useRef(operator);
+  operatorRef.current = operator;
 
-  // Effect to load sessions from localStorage when the operator logs in or changes
+  const getStorageKey = useCallback(() => {
+    const currentOperator = operatorRef.current;
+    return currentOperator ? `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}` : null;
+  }, []);
+
+  const persistAndBroadcastSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
+    const storageKey = getStorageKey();
+    if (!storageKey) return;
+
+    try {
+      const serializedSessions = JSON.stringify(sessions);
+      localStorage.setItem(storageKey, serializedSessions);
+      
+      const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+      channel.postMessage({ type: 'SESSIONS_UPDATED', payload: serializedSessions });
+      channel.close();
+
+    } catch (error) {
+      console.error("Failed to save or broadcast active material sessions", error);
+    }
+  }, [getStorageKey]);
+
+  const loadSessionsFromStorage = useCallback(() => {
+    const storageKey = getStorageKey();
+    if (!storageKey) {
+        setActiveSessions([]);
+        return;
+    }
+    try {
+        const storedSessions = localStorage.getItem(storageKey);
+        if (storedSessions) {
+            setActiveSessions(JSON.parse(storedSessions));
+        } else {
+            setActiveSessions([]);
+        }
+    } catch (error) {
+        console.error("Failed to load material sessions from localStorage:", error);
+        setActiveSessions([]);
+    }
+  }, [getStorageKey]);
+
+
+  // Effect for initial loading and handling broadcast messages
   useEffect(() => {
     if (authLoading) {
         setIsLoading(true);
         return;
     }
-    if (operator?.id) {
-        try {
-            const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-            const storedSessions = localStorage.getItem(storageKey);
-            if (storedSessions) {
-                setActiveSessions(JSON.parse(storedSessions));
-            } else {
-                setActiveSessions([]);
-            }
-        } catch (error) {
-            console.error("Failed to load material sessions from localStorage:", error);
-            setActiveSessions([]);
-        }
-    } else {
-        // If there's no operator, clear the sessions for this instance
-        setActiveSessions([]);
-    }
-    setIsLoading(false);
-  }, [operator, authLoading]);
 
-  const persistSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
-    if (!operator?.id) return;
-    const storageKey = `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${operator.id}`;
-    try {
-        if (sessions.length > 0) {
-            localStorage.setItem(storageKey, JSON.stringify(sessions));
-        } else {
-            localStorage.removeItem(storageKey);
+    setIsLoading(true);
+    loadSessionsFromStorage();
+    setIsLoading(false);
+
+    const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+    const handleMessage = (event: MessageEvent) => {
+        if (event.data?.type === 'SESSIONS_UPDATED' && event.data.payload) {
+             try {
+                setActiveSessions(JSON.parse(event.data.payload));
+            } catch (error) {
+                console.error("Failed to parse broadcasted sessions", error);
+            }
         }
-    } catch (error) {
-        console.error("Failed to save active material sessions to localStorage", error);
-    }
-  }, [operator]);
+    };
+    channel.addEventListener('message', handleMessage);
+
+    return () => {
+        channel.removeEventListener('message', handleMessage);
+        channel.close();
+    };
+  }, [operator, authLoading, loadSessionsFromStorage]);
+
 
   const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
     const category = getMaterialCategory(type);
     
     setActiveSessions(prevSessions => {
-        // This check is now handled in the UI to give the user options.
-        // We allow starting a session even if one for the same material exists,
-        // as it represents a new lot/spool.
         const newSession: ActiveMaterialSessionData = { ...sessionData, category };
         const updatedSessions = [...prevSessions, newSession];
-        persistSessions(updatedSessions);
+        persistAndBroadcastSessions(updatedSessions);
         return updatedSessions;
     });
-  }, [persistSessions]);
+  }, [persistAndBroadcastSessions]);
 
   const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
     setActiveSessions(prevSessions => {
+        let hasChanged = false;
         const updatedSessions = prevSessions.map(session => {
             if (session.materialId === materialId) {
-                // Avoid adding duplicate jobs
                 if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
                     return session; 
                 }
+                hasChanged = true;
                 return {
                     ...session,
                     associatedJobs: [...session.associatedJobs, job],
@@ -100,12 +135,13 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
             }
             return session;
         });
-        if (JSON.stringify(updatedSessions) !== JSON.stringify(prevSessions)) {
-            persistSessions(updatedSessions);
+
+        if (hasChanged) {
+          persistAndBroadcastSessions(updatedSessions);
         }
         return updatedSessions;
     });
-  }, [persistSessions]);
+  }, [persistAndBroadcastSessions]);
 
   const closeSession = useCallback((materialId: string) => {
     setActiveSessions(prevSessions => {
@@ -113,10 +149,10 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
       if (!sessionToClose) return prevSessions;
 
       const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
-      persistSessions(updatedSessions);
+      persistAndBroadcastSessions(updatedSessions);
       return updatedSessions;
     });
-  }, [persistSessions]);
+  }, [persistAndBroadcastSessions]);
 
 
   const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
