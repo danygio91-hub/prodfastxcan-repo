@@ -1204,7 +1204,8 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
-          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes && phase.departmentCodes.includes(operator.reparto)));
+          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (Array.isArray(operator.reparto) ? phase.departmentCodes.some(dc => (operator.reparto as string[]).includes(dc)) : phase.departmentCodes.includes(operator.reparto)));
+
 
           const lastWorkPeriod = (phase.workPeriods || []).slice(-1)[0];
           const isPhaseOwner = lastWorkPeriod && !lastWorkPeriod.end && lastWorkPeriod.operatorId === operator?.id;
@@ -1406,7 +1407,7 @@ export default function ScanJobPage() {
         
         {showReleaseButton && (
             <div className="pt-4">
-                <Button onClick={handleCompletePreparation} className="w-full" size="lg">
+                <Button onClick={handleCompletePreparation} className="w-full bg-green-600 hover:bg-green-700" size="lg">
                     <ThumbsUp className="mr-2 h-5 w-5" />
                     Completa Preparazione e Libera Commessa
                 </Button>

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React from 'react';
@@ -6,7 +7,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw } from 'lucide-react';
+import { LogOut, RefreshCw, ThumbsUp } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -26,6 +27,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import type { JobPhase } from '@/lib/mock-data';
 
 export default function Header() {
   const { operator, logout } = useAuth();
@@ -82,8 +84,53 @@ export default function Header() {
   
   const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
   const displayInitials = getInitials(avatarName);
+  
+  const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
+  const preparationPhases = activeJob?.phases.filter(p => (p.type ?? 'production') === 'preparation') || [];
+  const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
+  const firstProductionPhase = activeJob?.phases.find(p => p.type === 'production');
+
+  const showReleaseButton = allPreparationPhasesCompleted && 
+                              firstProductionPhase && 
+                              !firstProductionPhase.materialReady &&
+                              isMagazzinoOrSuperadvisor &&
+                              pathname === '/scan-job';
 
   const showAbandonButton = pathname === '/scan-job' && activeJob;
+
+  const handleCompletePreparation = async () => {
+    if (!activeJob || !operator) return;
+    
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    const firstProdPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production');
+
+    if (firstProdPhase) {
+        firstProdPhase.materialReady = true;
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Nessuna Fase di Produzione",
+            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione definite."
+        });
+        return;
+    }
+
+    const result = await updateJob(jobToUpdate);
+    
+    if (result.success) {
+      toast({
+        title: "Preparazione Completata",
+        description: `La commessa ${activeJob.id} è ora disponibile per la produzione.`,
+        action: <ThumbsUp className="text-primary" />
+      });
+      if (operator.role !== 'superadvisor') {
+        setActiveJobId(null);
+      }
+    } else {
+       toast({ variant: 'destructive', title: 'Errore', description: result.message });
+    }
+  };
+
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
@@ -95,6 +142,18 @@ export default function Header() {
         </div>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
+            {showReleaseButton && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="default" size="sm" onClick={handleCompletePreparation} className="bg-green-600 hover:bg-green-700">
+                      <ThumbsUp className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Completa Preparazione e Libera Commessa</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {showAbandonButton && (
                  <Tooltip>
                     <TooltipTrigger asChild>
