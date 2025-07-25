@@ -11,6 +11,7 @@ const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
 
 interface ActiveJobContextType {
   activeJob: JobOrder | null;
+  setActiveJob: (job: JobOrder | null) => void;
   setActiveJobId: (jobId: string | null) => void;
   isLoading: boolean;
 }
@@ -97,9 +98,13 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
       console.error("Failed to save active job ID to localStorage", error);
     }
   }, [operator]);
+  
+  const setActiveJob = useCallback((job: JobOrder | null) => {
+    setActiveJobState(job);
+  }, []);
 
   return (
-    <ActiveJobContext.Provider value={{ activeJob, setActiveJobId, isLoading }}>
+    <ActiveJobContext.Provider value={{ activeJob, setActiveJob, setActiveJobId, isLoading }}>
       {children}
     </ActiveJobContext.Provider>
   );

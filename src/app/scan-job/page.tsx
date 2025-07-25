@@ -34,7 +34,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -107,7 +107,7 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
@@ -159,6 +159,18 @@ export default function ScanJobPage() {
     defaultValues: { closingWeight: 0 },
   });
 
+  const forceJobDataRefresh = useCallback(async (jobId: string) => {
+    const freshJobData = await getJobOrderById(jobId);
+    if (freshJobData) {
+      setActiveJob(freshJobData);
+    }
+  }, [setActiveJob]);
+  
+  useEffect(() => {
+    if (activeJob) {
+      forceJobDataRefresh(activeJob.id);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isJobLoading) {
@@ -361,13 +373,15 @@ export default function ScanJobPage() {
       const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
       const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
       
-      // Check for production/quality phases if they follow a sequence
-      if (phaseType === 'production' || phaseType === 'quality') {
-          const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
-          if (currentPhaseIndex > 0 && (!prevPhaseInJob || prevPhaseInJob.status !== 'completed')) {
-             toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${prevPhaseInJob?.name || 'precedente'}" prima di avviare questa.` });
-             return;
-          }
+      let isPreviousPhaseCompleted = true;
+      if (phaseType !== 'preparation') {
+        const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
+        isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
+      }
+
+      if (!isPreviousPhaseCompleted) {
+        toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${sortedPhasesInJob[currentPhaseIndex - 1]?.name || 'precedente'}" prima di avviare questa.` });
+        return;
       }
 
       phaseToStart.status = 'in-progress';
@@ -464,6 +478,12 @@ export default function ScanJobPage() {
       toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
       return;
     }
+    
+    const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
+    if (activeProductionPhase) {
+      toast({ variant: "destructive", title: "Un'altra fase è già attiva", description: `Completare o mettere in pausa "${activeProductionPhase.name}" prima di riprenderne un'altra.`});
+      return;
+    }
 
     phaseToResume.status = 'in-progress';
     phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
@@ -500,7 +520,7 @@ export default function ScanJobPage() {
     
     if (currentPhaseIndex > -1) {
         const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        if (nextPhase) {
+        if (nextPhase && nextPhase.status === 'pending') {
             nextPhase.materialReady = true;
         }
     }
@@ -575,15 +595,15 @@ export default function ScanJobPage() {
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     
     // Find the first phase that is not a 'preparation' phase.
-    const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type !== 'preparation');
+    const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type === 'production');
 
-    if (firstProductionPhase) {
+    if (firstProductionPhase && firstProductionPhase.status === 'pending') {
         firstProductionPhase.materialReady = true;
     } else {
         toast({
             variant: "destructive",
-            title: "Nessuna Fase di Produzione",
-            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione definite."
+            title: "Nessuna Fase di Produzione Pronta",
+            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione in attesa o definite."
         });
         return;
     }
