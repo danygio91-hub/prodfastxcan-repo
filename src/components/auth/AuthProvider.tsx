@@ -48,10 +48,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
-    // Clear all app-related local storage that should not persist across logins
+    // Clear only the active job ID, but PERSIST the material session.
     if (currentOperator?.id) {
         localStorage.removeItem(`${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${currentOperator.id}`);
-        localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
     }
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
     
@@ -107,9 +106,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             fullLogout();
         }
     };
-
-    const channel = new BroadcastChannel('auth_channel');
-    channel.addEventListener('message', handleForcedLogout);
+    
+    let channel: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('auth_channel');
+      channel.addEventListener('message', handleForcedLogout);
+    }
 
     const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
     const forceLogoutTimestamp = localStorage.getItem(FORCE_LOGOUT_TIMESTAMP_KEY);
@@ -123,8 +125,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     return () => {
-      channel.removeEventListener('message', handleForcedLogout);
-      channel.close();
+      if (channel) {
+        channel.removeEventListener('message', handleForcedLogout);
+        channel.close();
+      }
     }
   }, [fullLogout]);
 
