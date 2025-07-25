@@ -165,7 +165,7 @@ export async function getOperatorsReport() {
         return {
             id: op.id,
             name: op.nome,
-            department: op.reparto,
+            department: Array.isArray(op.reparto) ? op.reparto.join(', ') : op.reparto,
             status: op.stato,
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
@@ -422,4 +422,82 @@ export async function deleteAllWithdrawals(): Promise<{ success: boolean; messag
     }
     const idsToDelete = querySnapshot.docs.map(doc => doc.id);
     return await deleteSelectedWithdrawals(idsToDelete);
+}
+
+// --- Production Time Analysis ---
+
+export type ProductionTimeAnalysisReport = {
+    articleCode: string;
+    totalJobs: number;
+    totalQuantity: number;
+    averageMinutesPerPiece: number;
+    jobs: Array<{
+        id: string;
+        cliente: string;
+        qta: number;
+        totalTimeMinutes: number;
+        minutesPerPiece: number;
+    }>;
+};
+
+function getTotalMilliseconds(job: JobOrder): number {
+    return (job.phases || []).reduce((total, phase) => {
+        const phaseTime = (phase.workPeriods || []).reduce((phaseTotal, period) => {
+            if (period.start && period.end) {
+                return phaseTotal + (new Date(period.end).getTime() - new Date(period.start).getTime());
+            }
+            return phaseTotal;
+        }, 0);
+        return total + phaseTime;
+    }, 0);
+}
+
+export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
+    const jobsRef = collection(db, "jobOrders");
+    const q = query(jobsRef, where("status", "==", "completed"));
+    const jobsSnapshot = await getDocs(q);
+    const completedJobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+
+    const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
+
+    for (const job of completedJobs) {
+        const articleCode = job.details;
+        if (!articleCode) continue;
+
+        if (!analysisByArticle[articleCode]) {
+            analysisByArticle[articleCode] = {
+                articleCode: articleCode,
+                totalJobs: 0,
+                totalQuantity: 0,
+                averageMinutesPerPiece: 0, // Will be calculated later
+                jobs: [],
+            };
+        }
+
+        const totalTimeMs = getTotalMilliseconds(job);
+        const totalTimeMinutes = totalTimeMs / (1000 * 60);
+        const minutesPerPiece = job.qta > 0 ? totalTimeMinutes / job.qta : 0;
+
+        const report = analysisByArticle[articleCode];
+        report.totalJobs += 1;
+        report.totalQuantity += job.qta;
+        report.jobs.push({
+            id: job.ordinePF,
+            cliente: job.cliente,
+            qta: job.qta,
+            totalTimeMinutes: totalTimeMinutes,
+            minutesPerPiece: minutesPerPiece,
+        });
+    }
+
+    // Calculate the final average
+    for (const articleCode in analysisByArticle) {
+        const report = analysisByArticle[articleCode];
+        const totalMinutesForAllJobs = report.jobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
+        if (report.totalQuantity > 0) {
+            report.averageMinutesPerPiece = totalMinutesForAllJobs / report.totalQuantity;
+        }
+    }
+
+    return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
