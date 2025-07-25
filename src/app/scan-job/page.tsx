@@ -33,7 +33,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
@@ -511,6 +511,7 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
+    // Explicitly set material ready for prep phases without scan requirement on completion
     if (phaseToComplete.type === 'preparation' && !(phaseToComplete.requiresMaterialScan || phaseToComplete.requiresMaterialSearch)) {
         phaseToComplete.materialReady = true;
     }
@@ -525,7 +526,10 @@ export default function ScanJobPage() {
              // Only unlock the next if the current one is also completed
             const currentPhaseFromSorted = sortedPhases[currentPhaseIndex];
             if (currentPhaseFromSorted.status === 'completed') {
-                nextPhase.materialReady = true;
+                 const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
+                 if(allPreviousPhasesCompleted) {
+                    nextPhase.materialReady = true;
+                 }
             }
         }
     }
@@ -599,7 +603,6 @@ export default function ScanJobPage() {
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     
-    // Find the first phase that is not a 'preparation' phase.
     const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type === 'production');
 
     if (firstProductionPhase && firstProductionPhase.status === 'pending') {
@@ -816,6 +819,25 @@ export default function ScanJobPage() {
       formData.append('quantity', String(values.quantity));
       formData.append('unit', values.unit);
       
+      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+      const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
+
+      if (phaseToUpdate) {
+          phaseToUpdate.materialReady = true;
+          const newConsumption: MaterialConsumption = {
+              materialId: scannedMaterialForPhase.id,
+              materialCode: scannedMaterialForPhase.code,
+              pcs: values.unit === 'n' ? values.quantity : undefined,
+          };
+          if (!phaseToUpdate.materialConsumptions) {
+              phaseToUpdate.materialConsumptions = [];
+          }
+          phaseToUpdate.materialConsumptions.push(newConsumption);
+          setActiveJob(jobToUpdate);
+      }
+      
+      setIsMaterialScanDialogOpen(false);
+      
       const result = await logTubiWithdrawal(formData);
 
       toast({
@@ -824,15 +846,9 @@ export default function ScanJobPage() {
         variant: result.success ? "default" : "destructive",
       });
 
-      if (result.success) {
-          const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-          const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
-          if(phaseToUpdate) {
-            phaseToUpdate.materialReady = true;
-          }
-          handleUpdateAndPersistJob(jobToUpdate);
-          setIsMaterialScanDialogOpen(false);
-          await forceJobDataRefresh(activeJob.id); // Force refresh
+      if (!result.success) {
+          // If the backend call fails, revert the optimistic update
+          forceJobDataRefresh(activeJob.id);
       }
   };
 
@@ -1806,3 +1822,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
