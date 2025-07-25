@@ -490,9 +490,7 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
-    // If the phase being completed is a preparation phase and doesn't require a material scan,
-    // we should explicitly set its materialReady state to true.
-    if (phaseToComplete.type === 'preparation') {
+    if (phaseToComplete.type === 'preparation' && !phaseToComplete.requiresMaterialScan) {
         phaseToComplete.materialReady = true;
     }
     
