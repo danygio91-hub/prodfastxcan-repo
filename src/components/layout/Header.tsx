@@ -46,6 +46,7 @@ export default function Header() {
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     
+    // Pause any active phase
     const activePhase = jobToUpdate.phases.find((p: any) => p.status === 'in-progress');
     if (activePhase) {
       const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
@@ -55,13 +56,21 @@ export default function Header() {
       activePhase.status = 'paused';
     }
     
-    jobToUpdate.status = 'suspended';
+    // If all preparation phases are completed, the job is ready for production, not suspended.
+    const preparationPhases = jobToUpdate.phases.filter((p: JobPhase) => p.type === 'preparation');
+    const allPreparationDone = preparationPhases.length > 0 && preparationPhases.every((p: JobPhase) => p.status === 'completed');
 
+    if (!allPreparationDone) {
+      jobToUpdate.status = 'suspended';
+    }
+    
     const result = await updateJob(jobToUpdate);
     if (result.success) {
       toast({
-        title: "Commessa Abbandonata",
-        description: `La commessa ${jobToUpdate.id} è stata sospesa.`,
+        title: allPreparationDone ? "Commessa Pronta" : "Commessa Abbandonata",
+        description: allPreparationDone 
+          ? `La commessa ${jobToUpdate.id} è pronta per la produzione.`
+          : `La commessa ${jobToUpdate.id} è stata sospesa.`,
       });
       setActiveJobId(null);
     } else {
@@ -85,52 +94,7 @@ export default function Header() {
   const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
   const displayInitials = getInitials(avatarName);
   
-  const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || operator?.reparto === 'MAG';
-  const preparationPhases = activeJob?.phases.filter(p => (p.type ?? 'production') === 'preparation') || [];
-  const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
-  const firstProductionPhase = activeJob?.phases.find(p => p.type === 'production');
-
-  const showReleaseButton = allPreparationPhasesCompleted && 
-                              firstProductionPhase && 
-                              !firstProductionPhase.materialReady &&
-                              isMagazzinoOrSuperadvisor &&
-                              pathname === '/scan-job';
-
   const showAbandonButton = pathname === '/scan-job' && activeJob;
-
-  const handleCompletePreparation = async () => {
-    if (!activeJob || !operator) return;
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const firstProdPhase = jobToUpdate.phases.find((p: JobPhase) => p.type === 'production');
-
-    if (firstProdPhase) {
-        firstProdPhase.materialReady = true;
-    } else {
-        toast({
-            variant: "destructive",
-            title: "Nessuna Fase di Produzione",
-            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione definite."
-        });
-        return;
-    }
-
-    const result = await updateJob(jobToUpdate);
-    
-    if (result.success) {
-      toast({
-        title: "Preparazione Completata",
-        description: `La commessa ${activeJob.id} è ora disponibile per la produzione.`,
-        action: <ThumbsUp className="text-primary" />
-      });
-      if (operator.role !== 'superadvisor') {
-        setActiveJobId(null);
-      }
-    } else {
-       toast({ variant: 'destructive', title: 'Errore', description: result.message });
-    }
-  };
-
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
@@ -142,18 +106,6 @@ export default function Header() {
         </div>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
-            {showReleaseButton && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="default" size="sm" onClick={handleCompletePreparation} className="bg-green-600 hover:bg-green-700">
-                      <ThumbsUp className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Completa Preparazione e Libera Commessa</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
             {showAbandonButton && (
                  <Tooltip>
                     <TooltipTrigger asChild>

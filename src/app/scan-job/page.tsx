@@ -511,24 +511,25 @@ export default function ScanJobPage() {
     }
     phaseToComplete.status = 'completed';
     
-    // Explicitly set material ready for prep phases without scan requirement on completion
-    if (phaseToComplete.type === 'preparation' && !(phaseToComplete.requiresMaterialScan || phaseToComplete.requiresMaterialSearch)) {
-        phaseToComplete.materialReady = true;
-    }
-    
-    // Unlock the next phase ONLY if the current phase is completed.
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
-    
-    if (currentPhaseIndex > -1) {
-        const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        if (nextPhase && nextPhase.status === 'pending') {
-             // Only unlock the next if the current one is also completed
-            const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
-            if(allPreviousPhasesCompleted) {
-                nextPhase.materialReady = true;
-            }
-        }
+    const nextPhase = sortedPhases[currentPhaseIndex + 1];
+
+    if (nextPhase && nextPhase.status === 'pending') {
+      const isCurrentPhasePrep = phaseToComplete.type === 'preparation';
+      const isNextPhaseProd = nextPhase.type === 'production';
+      
+      const allPrepPhasesBeforeNext = sortedPhases
+        .slice(0, currentPhaseIndex + 1)
+        .filter(p => p.type === 'preparation');
+
+      const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
+
+      if (isCurrentPhasePrep && isNextPhaseProd && allPreviousPhasesCompleted) {
+        // This case is handled by the "Complete Preparation" button now.
+      } else if (allPreviousPhasesCompleted) {
+        nextPhase.materialReady = true;
+      }
     }
     
     const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
