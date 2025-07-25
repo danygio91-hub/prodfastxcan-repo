@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -231,6 +231,7 @@ const tubiWithdrawalSchema = z.object({
   operatorId: z.string(),
   jobId: z.string(),
   jobOrderPF: z.string(),
+  phaseId: z.string(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   unit: z.enum(['n', 'kg']),
 });
@@ -242,17 +243,21 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
   
-  const { materialId, operatorId, jobId, jobOrderPF, quantity, unit } = validated.data;
+  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit } = validated.data;
   const materialRef = doc(db, "rawMaterials", materialId);
+  const jobRef = doc(db, 'jobOrders', jobId);
   
   try {
     await runTransaction(db, async (transaction) => {
         const materialDoc = await transaction.get(materialRef);
-        if (!materialDoc.exists()) {
-            throw new Error("Materia prima non trovata.");
-        }
+        const jobDoc = await transaction.get(jobRef);
+
+        if (!materialDoc.exists()) throw new Error("Materia prima non trovata.");
+        if (!jobDoc.exists()) throw new Error("Commessa non trovata.");
         
         const material = materialDoc.data() as RawMaterial;
+        const job = jobDoc.data() as JobOrder;
+        
         let consumedWeight = 0;
         let unitsConsumed = 0;
         let newStockUnits = material.currentStockUnits ?? 0;
@@ -276,8 +281,10 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
         newStockUnits -= unitsConsumed;
         const newWeightKg = currentWeightKg - consumedWeight;
 
+        // Update material stock
         transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
         
+        // Create withdrawal log
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
             jobIds: [jobId],
@@ -289,6 +296,26 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
             operatorId,
             withdrawalDate: Timestamp.now(),
         });
+        
+        // Update JobOrder with consumption data
+        const phaseToUpdate = job.phases.find(p => p.id === phaseId);
+        if (!phaseToUpdate) {
+            throw new Error(`Fase con ID ${phaseId} non trovata nella commessa.`);
+        }
+        
+        const newConsumption: MaterialConsumption = {
+            materialId: materialId,
+            materialCode: material.code,
+            pcs: unitsConsumed,
+        };
+
+        if (!phaseToUpdate.materialConsumptions) {
+            phaseToUpdate.materialConsumptions = [];
+        }
+        phaseToUpdate.materialConsumptions.push(newConsumption);
+        
+        const updatedPhases = job.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
+        transaction.update(jobRef, { phases: updatedPhases });
     });
 
     revalidatePath('/admin/raw-material-management');

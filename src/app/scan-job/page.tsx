@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from '@/components/ui/switch';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -775,6 +775,7 @@ export default function ScanJobPage() {
       formData.append('operatorId', operator.id);
       formData.append('jobId', activeJob.id);
       formData.append('jobOrderPF', activeJob.ordinePF);
+      formData.append('phaseId', phaseForMaterialScan.id);
       formData.append('quantity', String(values.quantity));
       formData.append('unit', values.unit);
       
@@ -1514,7 +1515,7 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'form' && scannedMaterialForPhase && (
-                scannedMaterialForPhase.type === 'TUBI' ? (
+                scannedMaterialForPhase.type === 'TUBI' || scannedMaterialForPhase.type === 'GUAINA' ? (
                      <Form {...tubiWithdrawalForm}>
                         <form onSubmit={tubiWithdrawalForm.handleSubmit(onTubiWithdrawalSubmit)} className="space-y-4">
                             <Card>
