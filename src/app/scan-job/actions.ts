@@ -77,7 +77,7 @@ export async function verifyAndGetJobOrder(scannedData: {
   // We determine phase readiness based on its own state and dependencies.
   jobCopy.phases = (jobCopy.phases || []).map(p => ({
     ...p,
-    materialReady: p.materialReady || !p.requiresMaterialScan, // A phase is ready if already marked, or if it doesn't need a scan.
+    materialReady: p.materialReady || (!p.requiresMaterialScan && !p.requiresMaterialSearch),
     workPeriods: p.workPeriods || [], 
     materialConsumptions: p.materialConsumptions || [],
     workstationScannedAndVerified: p.workstationScannedAndVerified || false,

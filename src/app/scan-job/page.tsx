@@ -1126,11 +1126,11 @@ export default function ScanJobPage() {
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
                     const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
                     const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
-                    const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
                     const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
                     const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'paused';
                     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
+                    const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob} 
                                       permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor}}

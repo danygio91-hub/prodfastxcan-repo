@@ -209,7 +209,7 @@ export const initialDepartmentMap: { [key in Reparto]: string } = {
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
     { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', requiresMaterialScan: true, allowedMaterialTypes: ['BOB', 'PF3V0'] },
     { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', requiresMaterialScan: true, allowedMaterialTypes: ['TUBI'] },
-    { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', requiresMaterialScan: true, allowedMaterialTypes: ['GUAINA'] },
+    { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', requiresMaterialScan: false, requiresMaterialSearch: true, allowedMaterialTypes: ['GUAINA'] },
     { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', requiresMaterialScan: false },
     { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', requiresMaterialScan: false },
     { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'quality', requiresMaterialScan: false },
