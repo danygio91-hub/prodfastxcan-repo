@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc, Timestamp, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, WorkCycle, MaterialWithdrawal } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkCycle, MaterialWithdrawal, WorkPhaseTemplate } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // Helper function to sanitize Firestore document IDs
@@ -399,8 +399,8 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
 
   let createdCount = 0;
   let startedCount = 0;
-  let failedCount = 0;
   let noCycleCount = 0;
+  let failedCount = 0;
 
   const now = new Date();
   const year = now.getFullYear();
@@ -408,48 +408,69 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   const counterRef = doc(db, "counters", `odl_${year}`);
 
   try {
-    await runTransaction(db, async (transaction) => {
-      const counterDoc = await transaction.get(counterRef);
-      let currentCounter = counterDoc.data()?.value || 0;
+    // Fetch all job documents outside of the transaction
+    const jobRefs = jobIds.map(id => doc(db, "jobOrders", id));
+    const jobDocsSnap = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
+    const jobDocs = new Map(jobDocsSnap.docs.map(d => [d.id, d.data() as JobOrder]));
 
-      const jobDocs = await Promise.all(jobIds.map(id => transaction.get(doc(db, "jobOrders", id))));
+    const batch = writeBatch(db);
 
-      for (const docSnap of jobDocs) {
-        if (docSnap.exists() && docSnap.data().status === 'planned') {
-          const jobData = docSnap.data() as JobOrder;
-          if (!jobData.phases || jobData.phases.length === 0) {
-            noCycleCount++;
-            continue;
-          }
-          
-          if (jobData.numeroODLInterno) {
-            // Job has an ODL, just move it to production
-            transaction.update(docSnap.ref, {
-              status: 'production' as const,
-              odlCreationDate: Timestamp.fromDate(now),
-            });
-            startedCount++;
-          } else {
-            // Job needs a new ODL
-            currentCounter++;
-            const newOdlId = `${currentCounter}/${shortYear}`;
-            transaction.update(docSnap.ref, { 
-                status: 'production' as const,
-                odlCreationDate: Timestamp.fromDate(now),
-                numeroODLInterno: newOdlId,
-                odlCounter: currentCounter
-            });
-            createdCount++;
-          }
-        } else {
-          failedCount++;
+    // Run a transaction ONLY for the counter to avoid contention
+    const newCounterValue = await runTransaction(db, async (transaction) => {
+        const counterDoc = await transaction.get(counterRef);
+        let currentCounter = counterDoc.data()?.value || 0;
+        
+        const jobsToCreateOdlFor = jobIds.filter(id => {
+            const jobData = jobDocs.get(id);
+            return jobData && jobData.status === 'planned' && !jobData.numeroODLInterno && jobData.phases && jobData.phases.length > 0;
+        });
+        
+        if (jobsToCreateOdlFor.length > 0) {
+            const newCounter = currentCounter + jobsToCreateOdlFor.length;
+            transaction.set(counterRef, { value: newCounter });
+            return newCounter;
         }
-      }
-
-      if (createdCount > 0) {
-        transaction.set(counterRef, { value: currentCounter });
-      }
+        return currentCounter;
     });
+
+    let counterForNewOdls = newCounterValue - jobDocs.size + 1;
+
+    for (const jobId of jobIds) {
+        const jobData = jobDocs.get(jobId);
+        if (jobData && jobData.status === 'planned') {
+            if (!jobData.phases || jobData.phases.length === 0) {
+                noCycleCount++;
+                continue;
+            }
+
+            const jobRef = doc(db, "jobOrders", jobId);
+
+            if (jobData.numeroODLInterno) {
+                // Job has an ODL, just move it to production
+                batch.update(jobRef, {
+                    status: 'production' as const,
+                    odlCreationDate: Timestamp.fromDate(now),
+                });
+                startedCount++;
+            } else {
+                // Job needs a new ODL
+                const newOdlId = `${counterForNewOdls}/${shortYear}`;
+                batch.update(jobRef, {
+                    status: 'production' as const,
+                    odlCreationDate: Timestamp.fromDate(now),
+                    numeroODLInterno: newOdlId,
+                    odlCounter: counterForNewOdls
+                });
+                counterForNewOdls++;
+                createdCount++;
+            }
+        } else {
+            failedCount++;
+        }
+    }
+    
+    await batch.commit();
+
   } catch(error) {
       const errorMessage = error instanceof Error ? error.message : "Errore durante la transazione.";
       console.error("Failed to create multiple ODLs:", error);
@@ -465,7 +486,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
   let messageParts: string[] = [];
   if (startedCount > 0) messageParts.push(`${startedCount} commesse avviate.`);
   if (createdCount > 0) messageParts.push(`${createdCount} ODL creati e avviati.`);
-  if (failedCount > 0) messageParts.push(`${failedCount} commesse non valide.`);
+  if (failedCount > 0) messageParts.push(`${failedCount} commesse non valide o non in stato 'pianificata'.`);
   if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse senza ciclo.`);
   
   const message = messageParts.length > 0 ? messageParts.join(' ') : 'Nessuna operazione eseguita.';
@@ -476,6 +497,7 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
 
   return { success: true, message: message.trim() };
 }
+
 
 export async function cancelODL(jobId: string): Promise<{ success: boolean; message: string }> {
   const jobRef = doc(db, "jobOrders", jobId);
