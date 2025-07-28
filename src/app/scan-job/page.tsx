@@ -1090,8 +1090,8 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
-          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (Array.isArray(operator.reparto) ? (phase.departmentCodes || []).some(dc => (operator.reparto as string[]).includes(dc)) : (phase.departmentCodes || []).includes(operator.reparto)));
-
+          const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
+          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
 
           const lastWorkPeriod = (phase.workPeriods || []).slice(-1)[0];
           const isPhaseOwner = lastWorkPeriod && !lastWorkPeriod.end && lastWorkPeriod.operatorId === operator?.id;

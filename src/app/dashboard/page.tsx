@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -40,6 +39,7 @@ export default function DashboardPage() {
     });
   }, [toast]);
 
+  const hasMagAccess = operator && (operator.role === 'superadvisor' || (Array.isArray(operator.reparto) ? operator.reparto.includes('MAG') : operator.reparto === 'MAG'));
 
   return (
     <AuthGuard>
@@ -60,7 +60,7 @@ export default function DashboardPage() {
               icon={ScanLine}
               href="/scan-job"
             />
-            {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
+            {hasMagAccess && (
               <>
                  <DashboardItem
                   title="Carico Merce"

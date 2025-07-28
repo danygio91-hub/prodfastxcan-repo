@@ -42,6 +42,8 @@ function OperatorNavMenu() {
     });
   }, [toast]);
 
+  const hasMagAccess = operator && (operator.role === 'superadvisor' || (Array.isArray(operator.reparto) ? operator.reparto.includes('MAG') : operator.reparto === 'MAG'));
+
   return (
     <Card className="mb-6 p-2">
         <TooltipProvider delayDuration={0}>
@@ -87,7 +89,7 @@ function OperatorNavMenu() {
               </Tooltip>
               
               {/* Carico Materiale & Verifica Materiale (Conditional) */}
-              {operator && (operator.reparto === 'MAG' || operator.role === 'superadvisor') && (
+              {hasMagAccess && (
                 <>
                  <Tooltip>
                     <TooltipTrigger asChild>
