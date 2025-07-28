@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -54,6 +54,7 @@ export default function AdminAppSettingsPage() {
   const [isPending, startTransition] = useTransition();
   const [isResettingJobs, startResetJobsTransition] = useTransition();
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
+  const [isResettingMaterialHistory, startResetMaterialHistoryTransition] = useTransition();
   const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
   const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
   const [isResettingWork, startResetWorkTransition] = useTransition();
@@ -153,6 +154,18 @@ export default function AdminAppSettingsPage() {
     });
   };
   
+  const handleResetMaterialHistory = () => {
+    if (!user) return;
+    startResetMaterialHistoryTransition(async () => {
+        const result = await resetRawMaterialHistory(user.uid);
+        toast({
+            title: result.success ? "Operazione Completata" : "Operazione Fallita",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+        });
+    });
+  };
+
   const handleResetWithdrawals = () => {
     if (!user) return;
     startResetWithdrawalsTransition(async () => {
@@ -428,7 +441,7 @@ export default function AdminAppSettingsPage() {
                       </div>
                       <div className="flex justify-between items-center p-4 border rounded-md">
                           <div>
-                              <h4 className="font-semibold">Reset Materie Prime</h4>
+                              <h4 className="font-semibold">Reset Anagrafica Materie Prime</h4>
                               <p className="text-sm text-muted-foreground">
                                   Elimina tutta l'anagrafica delle materie prime, i lotti e i prelievi.
                               </p>
@@ -437,7 +450,7 @@ export default function AdminAppSettingsPage() {
                               <AlertDialogTrigger asChild>
                                   <Button variant="destructive" disabled={isResettingMaterials}>
                                       {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                                      Resetta Materie Prime
+                                      Resetta Anagrafica
                                   </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -459,9 +472,40 @@ export default function AdminAppSettingsPage() {
                       </div>
                       <div className="flex justify-between items-center p-4 border rounded-md">
                           <div>
+                              <h4 className="font-semibold">Reset Storico Materiali</h4>
+                              <p className="text-sm text-muted-foreground">
+                                 Elimina lotti e prelievi, azzerando lo stock ma mantenendo l'anagrafica.
+                              </p>
+                          </div>
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" disabled={isResettingMaterialHistory}>
+                                      {isResettingMaterialHistory ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <History className="mr-2 h-4 w-4" />}
+                                      Resetta Storico
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                         Questa azione è irreversibile. Verranno eliminati TUTTI i lotti e i prelievi. Lo stock verrà azzerato.
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={handleResetMaterialHistory} disabled={isResettingMaterialHistory} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                                          {isResettingMaterialHistory ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                          Sì, resetta storico
+                                      </AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      </div>
+                      <div className="flex justify-between items-center p-4 border rounded-md">
+                          <div>
                               <h4 className="font-semibold">Reset Prelievi da Magazzino</h4>
                               <p className="text-sm text-muted-foreground">
-                                  Elimina tutti i report dei prelievi di materiale registrati.
+                                  Elimina tutti i report dei prelievi di materiale e ripristina lo stock.
                               </p>
                           </div>
                           <AlertDialog>
@@ -475,14 +519,14 @@ export default function AdminAppSettingsPage() {
                                   <AlertDialogHeader>
                                       <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminati TUTTI i report di prelievo.
+                                          Questa azione è irreversibile. Verranno eliminati TUTTI i report di prelievo e lo stock verrà ripristinato.
                                       </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
                                       <AlertDialogAction onClick={handleResetWithdrawals} disabled={isResettingWithdrawals} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
                                           {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, elimina tutto
+                                          Sì, resetta tutto
                                       </AlertDialogAction>
                                   </AlertDialogFooter>
                               </AlertDialogContent>

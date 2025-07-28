@@ -81,6 +81,44 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
   }
 }
 
+
+export async function resetRawMaterialHistory(uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const materialsRef = collection(db, "rawMaterials");
+    const materialsSnapshot = await getDocs(materialsRef);
+    let updatedMaterialsCount = 0;
+
+    const materialsBatch = writeBatch(db);
+    materialsSnapshot.forEach(doc => {
+      materialsBatch.update(doc.ref, {
+        batches: [],
+        currentStockUnits: 0,
+        currentWeightKg: 0,
+      });
+      updatedMaterialsCount++;
+    });
+    await materialsBatch.commit();
+    
+    const withdrawalsCount = await deleteAllFromCollection("materialWithdrawals");
+
+    if (updatedMaterialsCount === 0 && withdrawalsCount === 0) {
+      return { success: true, message: 'Nessuno storico da resettare.' };
+    }
+
+    revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/reports');
+    
+    return { success: true, message: `Reset completato. Storico di ${updatedMaterialsCount} materie prime e ${withdrawalsCount} prelievi sono stati eliminati.` };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Errore nel reset dello storico materiali:", error);
+    return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
+  }
+}
+
+
 export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
@@ -220,11 +258,11 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
         status: 'pending' as const,
         workPeriods: [],
         materialConsumption: null,
-        materialReady: !(phase.requiresMaterialScan),
+        materialReady: !(phase.requiresMaterialScan || phase.requiresMaterialSearch),
       }));
       
       // Ensure first production phase is ready if no prep phase requires scan
-      if (!updatedPhases.some(p => p.type === 'preparation' && p.requiresMaterialScan)) {
+      if (!updatedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch))) {
           const firstProdPhase = updatedPhases.find(p => p.sequence === 1);
           if (firstProdPhase) {
               firstProdPhase.materialReady = true;
