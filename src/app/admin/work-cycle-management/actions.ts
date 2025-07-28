@@ -98,3 +98,5 @@ export async function deleteSelectedWorkCycles(ids: string[]): Promise<{ success
     revalidatePath('/admin/work-cycle-management');
     return { success: true, message: `${ids.length} cicli eliminati con successo.` };
 }
+
+    

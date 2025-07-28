@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
@@ -369,14 +368,21 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
         for (const withdrawal of withdrawals) {
             const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
             update.consumedWeight += withdrawal.consumedWeight || 0;
-            if (typeof withdrawal.consumedUnits === 'number') {
-                update.consumedUnits += withdrawal.consumedUnits;
+            if (typeof (withdrawal as any).consumedUnits === 'number') {
+                update.consumedUnits += (withdrawal as any).consumedUnits;
             }
             materialUpdates.set(withdrawal.materialId, update);
         }
 
         const materialIds = Array.from(materialUpdates.keys());
-        if (materialIds.length === 0) return;
+        if (materialIds.length === 0) {
+            // This case handles if withdrawals exist but have no material to update for some reason.
+            // Still need to delete the withdrawals themselves.
+            for (const withdrawalDoc of withdrawalsSnapshot.docs) {
+                transaction.delete(withdrawalDoc.ref);
+            }
+            return;
+        }
 
         const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
         const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
@@ -387,8 +393,12 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
                 const materialData = materialDoc.data() as RawMaterial;
                 const updates = materialUpdates.get(materialDoc.id)!;
                 
-                const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
-                const newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+                let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+                let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+                if (materialData.unitOfMeasure === 'kg') {
+                    newUnits = newWeight;
+                }
 
                 transaction.update(materialDoc.ref, { 
                     currentWeightKg: newWeight,
@@ -520,3 +530,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
+    
