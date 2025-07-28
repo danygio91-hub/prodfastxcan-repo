@@ -173,7 +173,6 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               newWeightKg = newStockUnits * material.conversionFactor;
           }
           
-          // Use arrayUnion for efficient addition
           transaction.update(materialRef, { 
               batches: arrayUnion(newBatch),
               currentStockUnits: newStockUnits,
@@ -214,13 +213,12 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 
             const material = docSnap.data() as RawMaterial;
             const existingBatches = material.batches || [];
-            const batchIndex = existingBatches.findIndex(b => b.id === batchId);
+            const oldBatch = existingBatches.find(b => b.id === batchId);
 
-            if (batchIndex === -1) {
+            if (!oldBatch) {
                 throw new Error('Lotto da modificare non trovato.');
             }
             
-            const oldBatch = existingBatches[batchIndex];
             const updatedBatch = {
                 ...oldBatch,
                 ...newBatchData,
@@ -237,7 +235,6 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 newWeightKg = newStockUnits * material.conversionFactor;
             }
 
-            // Efficiently remove the old batch and add the new one
             transaction.update(materialRef, {
                 batches: arrayRemove(oldBatch),
             });
@@ -274,15 +271,19 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
                 throw new Error("Lotto da eliminare non trovato.");
             }
 
-            const newStockUnits = (material.currentStockUnits || 0) - batchToDelete.quantity;
-            let newWeightKg = 0;
+            const stockChange = -batchToDelete.quantity;
+            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
+            let newWeightKg = (material.currentWeightKg || 0);
+
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
                 newWeightKg = newStockUnits * material.conversionFactor;
             } else {
-                newWeightKg = (material.currentWeightKg || 0) - (batchToDelete.quantity * (material.conversionFactor || 1));
+                 newWeightKg += (stockChange * (material.conversionFactor || 1));
             }
+             if (newWeightKg < 0) newWeightKg = 0;
+
 
             transaction.update(materialRef, { 
                 batches: arrayRemove(batchToDelete),
