@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, writeBatch, query, where, doc, runTransaction } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
@@ -315,9 +315,11 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
 export async function resetAllActiveSessions(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    // This action doesn't need to modify the database.
-    // Its purpose is to trigger the force logout mechanism on the client.
-    // The client-side handler will then call triggerGlobalLogout().
+    // The action now writes a global timestamp to Firestore to trigger a logout
+    // on all active non-admin clients.
+    const logoutTriggerRef = doc(db, 'system', 'logoutTrigger');
+    await updateDoc(logoutTriggerRef, { timestamp: new Date().getTime() });
+    
     return { success: true, message: 'Segnale di reset sessioni inviato. Tutti gli operatori verranno disconnessi per pulire il loro stato locale.' };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

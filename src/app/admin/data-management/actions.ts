@@ -393,109 +393,100 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
 }
 
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
-  if (jobIds.length === 0) {
-    return { success: false, message: 'Nessun ID fornito.' };
-  }
+    if (!jobIds || jobIds.length === 0) {
+        return { success: false, message: 'Nessuna commessa selezionata.' };
+    }
 
-  let createdCount = 0;
-  let startedCount = 0;
-  let noCycleCount = 0;
-  let failedCount = 0;
+    let createdCount = 0;
+    let startedCount = 0;
+    let noCycleCount = 0;
+    let alreadyInProdCount = 0;
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const shortYear = year.toString().slice(-2);
-  const counterRef = doc(db, "counters", `odl_${year}`);
+    const now = new Date();
+    const year = now.getFullYear();
+    const shortYear = year.toString().slice(-2);
+    const counterRef = doc(db, 'counters', `odl_${year}`);
 
-  try {
-    // Fetch all job documents outside of the transaction
-    const jobRefs = jobIds.map(id => doc(db, "jobOrders", id));
-    const jobDocsSnap = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
-    const jobDocs = new Map(jobDocsSnap.docs.map(d => [d.id, d.data() as JobOrder]));
+    try {
+        const jobsToProcessRefs = jobIds.map(id => doc(db, "jobOrders", id));
+        const jobsSnaps = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
+        const jobsDataMap = new Map(jobsSnaps.docs.map(d => [d.id, d.data() as JobOrder]));
 
-    const batch = writeBatch(db);
+        const jobsToCreateOdlFor: string[] = [];
+        const jobsToStart: string[] = [];
 
-    // Run a transaction ONLY for the counter to avoid contention
-    const newCounterValue = await runTransaction(db, async (transaction) => {
-        const counterDoc = await transaction.get(counterRef);
-        let currentCounter = counterDoc.data()?.value || 0;
+        for (const jobId of jobIds) {
+            const jobData = jobsDataMap.get(jobId);
+            if (jobData && jobData.status === 'planned') {
+                if (!jobData.phases || jobData.phases.length === 0) {
+                    noCycleCount++;
+                } else if (jobData.numeroODLInterno) {
+                    jobsToStart.push(jobId);
+                } else {
+                    jobsToCreateOdlFor.push(jobId);
+                }
+            } else {
+                alreadyInProdCount++;
+            }
+        }
         
-        const jobsToCreateOdlFor = jobIds.filter(id => {
-            const jobData = jobDocs.get(id);
-            return jobData && jobData.status === 'planned' && !jobData.numeroODLInterno && jobData.phases && jobData.phases.length > 0;
+        let newOdlCounter = 0;
+        if (jobsToCreateOdlFor.length > 0) {
+            const counterDoc = await runTransaction(db, async (transaction) => {
+                const counterSnap = await transaction.get(counterRef);
+                const currentCounter = counterSnap.data()?.value || 0;
+                newOdlCounter = currentCounter + jobsToCreateOdlFor.length;
+                transaction.set(counterRef, { value: newOdlCounter });
+                return newOdlCounter;
+            });
+            newOdlCounter = newOdlCounter - jobsToCreateOdlFor.length; // Start from the correct number
+        }
+
+        const batch = writeBatch(db);
+        
+        jobsToStart.forEach(jobId => {
+            batch.update(doc(db, "jobOrders", jobId), { status: 'production', odlCreationDate: Timestamp.fromDate(now) });
+            startedCount++;
         });
         
-        if (jobsToCreateOdlFor.length > 0) {
-            const newCounter = currentCounter + jobsToCreateOdlFor.length;
-            transaction.set(counterRef, { value: newCounter });
-            return newCounter;
+        jobsToCreateOdlFor.forEach(jobId => {
+            newOdlCounter++;
+            batch.update(doc(db, "jobOrders", jobId), {
+                status: 'production',
+                odlCreationDate: Timestamp.fromDate(now),
+                numeroODLInterno: `${newOdlCounter}/${shortYear}`,
+                odlCounter: newOdlCounter
+            });
+            createdCount++;
+        });
+
+        if (startedCount > 0 || createdCount > 0) {
+            await batch.commit();
         }
-        return currentCounter;
-    });
 
-    let counterForNewOdls = newCounterValue - jobDocs.size + 1;
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la creazione degli ODL.";
+        return { success: false, message: `Operazione fallita a causa di un errore di sistema: ${errorMessage}` };
+    }
 
-    for (const jobId of jobIds) {
-        const jobData = jobDocs.get(jobId);
-        if (jobData && jobData.status === 'planned') {
-            if (!jobData.phases || jobData.phases.length === 0) {
-                noCycleCount++;
-                continue;
-            }
-
-            const jobRef = doc(db, "jobOrders", jobId);
-
-            if (jobData.numeroODLInterno) {
-                // Job has an ODL, just move it to production
-                batch.update(jobRef, {
-                    status: 'production' as const,
-                    odlCreationDate: Timestamp.fromDate(now),
-                });
-                startedCount++;
-            } else {
-                // Job needs a new ODL
-                const newOdlId = `${counterForNewOdls}/${shortYear}`;
-                batch.update(jobRef, {
-                    status: 'production' as const,
-                    odlCreationDate: Timestamp.fromDate(now),
-                    numeroODLInterno: newOdlId,
-                    odlCounter: counterForNewOdls
-                });
-                counterForNewOdls++;
-                createdCount++;
-            }
-        } else {
-            failedCount++;
-        }
+    if ((createdCount + startedCount) > 0) {
+        revalidatePath('/admin/data-management');
+        revalidatePath('/admin/production-console');
     }
     
-    await batch.commit();
+    let messageParts: string[] = [];
+    if (startedCount > 0) messageParts.push(`${startedCount} commesse avviate.`);
+    if (createdCount > 0) messageParts.push(`${createdCount} ODL creati e avviati.`);
+    if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse ignorate perché senza ciclo.`);
+    if (alreadyInProdCount > 0) messageParts.push(`${alreadyInProdCount} commesse già in produzione.`);
 
-  } catch(error) {
-      const errorMessage = error instanceof Error ? error.message : "Errore durante la transazione.";
-      console.error("Failed to create multiple ODLs:", error);
-      return { success: false, message: `Operazione fallita a causa di un errore di sistema: ${errorMessage}` };
-  }
-
-  const totalSuccess = createdCount + startedCount;
-  if (totalSuccess > 0) {
-    revalidatePath('/admin/data-management');
-    revalidatePath('/admin/production-console');
-  }
-
-  let messageParts: string[] = [];
-  if (startedCount > 0) messageParts.push(`${startedCount} commesse avviate.`);
-  if (createdCount > 0) messageParts.push(`${createdCount} ODL creati e avviati.`);
-  if (failedCount > 0) messageParts.push(`${failedCount} commesse non valide o non in stato 'pianificata'.`);
-  if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse senza ciclo.`);
-  
-  const message = messageParts.length > 0 ? messageParts.join(' ') : 'Nessuna operazione eseguita.';
-
-  if (totalSuccess === 0) {
-      return { success: false, message: `Nessun ODL avviato. ${message}` };
-  }
-
-  return { success: true, message: message.trim() };
+    const message = messageParts.length > 0 ? messageParts.join(' ') : 'Nessuna operazione eseguita sulle commesse selezionate.';
+    
+    if (createdCount + startedCount === 0 && (noCycleCount > 0 || alreadyInProdCount > 0)) {
+        return { success: false, message };
+    }
+    
+    return { success: true, message };
 }
 
 
