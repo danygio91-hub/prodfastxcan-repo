@@ -318,11 +318,18 @@ export default function ScanJobPage() {
   useEffect(() => {
     if (step === 'scanning') {
       startCamera(videoRef.current);
+    } else if (isLottoScanDialogOpen) {
+      startCamera(lottoVideoRef.current);
+    } else if (isPhaseScanDialogOpen) {
+      startCamera(phaseScanVideoRef.current);
+    } else if (isMaterialScanDialogOpen && materialScanStep === 'scanning') {
+      startCamera(materialVideoRef.current);
     } else {
       stopCamera();
     }
+    // This is the cleanup function that will be called when the component unmounts or dependencies change
     return () => stopCamera();
-  }, [step, startCamera, stopCamera]);
+  }, [step, isLottoScanDialogOpen, isPhaseScanDialogOpen, isMaterialScanDialogOpen, materialScanStep, startCamera, stopCamera]);
 
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
@@ -834,7 +841,9 @@ export default function ScanJobPage() {
         variant: result.success ? "default" : "destructive",
       });
 
-      if (!result.success) {
+      if (result.success) {
+        forceJobDataRefresh(activeJob.id);
+      } else {
           forceJobDataRefresh(activeJob.id);
       }
   };
@@ -858,34 +867,6 @@ export default function ScanJobPage() {
     setIsLottoScanDialogOpen(false);
   };
   
-  useEffect(() => {
-    if (isLottoScanDialogOpen) {
-        startCamera(lottoVideoRef.current);
-    } else {
-        stopCamera();
-    }
-    return () => stopCamera();
-  }, [isLottoScanDialogOpen, startCamera, stopCamera]);
-
-
-  useEffect(() => {
-    if (isPhaseScanDialogOpen) {
-        startCamera(phaseScanVideoRef.current);
-    } else {
-        stopCamera();
-    }
-    return () => stopCamera();
-  }, [isPhaseScanDialogOpen, startCamera, stopCamera]);
-
-
-  useEffect(() => {
-    if (isMaterialScanDialogOpen && materialScanStep === 'scanning') {
-        startCamera(materialVideoRef.current);
-    } else if (!isMaterialScanDialogOpen) {
-        stopCamera();
-    }
-  }, [isMaterialScanDialogOpen, materialScanStep, startCamera, stopCamera]);
-
     const handleOpenSimulator = (target: 'job' | 'material' | 'lotto' | 'phase') => {
         setSimulatorTarget(target);
         setSimulatorInput('');
@@ -1712,5 +1693,6 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
