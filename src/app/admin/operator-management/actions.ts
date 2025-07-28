@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Operator, Reparto } from '@/lib/mock-data';
+import { type Operator, type Reparto, reparti } from '@/lib/mock-data';
 
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
@@ -58,7 +58,10 @@ export async function saveOperator(formData: FormData) {
   const { id, email } = validatedFields.data;
   const nome = validatedFields.data.nome.trim();
   const cognome = (validatedFields.data.cognome || '').trim();
-  const reparto = validatedFields.data.reparto as Reparto[];
+  
+  // Filter out any reparti that are not in the official list.
+  const reparto = validatedFields.data.reparto.filter(r => (reparti as readonly string[]).includes(r)) as Reparto[];
+
   const role = validatedFields.data.role;
   const nome_normalized = nome.toLowerCase();
   

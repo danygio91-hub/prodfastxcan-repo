@@ -210,17 +210,17 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                 </TableHeader>
                 <TableBody>
                   {operators.length > 0 ? (
-                    operators.map((op) => (
+                    operators.map((op) => {
+                      const opReparti = Array.isArray(op.reparto) ? op.reparto : [op.reparto];
+                      const validReparti = opReparti.filter(r => reparti.includes(r));
+                      
+                      return (
                       <TableRow key={op.id}>
                         <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
                         <TableCell>{op.email}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {Array.isArray(op.reparto) ? (
-                              op.reparto.map(r => <Badge key={r} variant="secondary">{r}</Badge>)
-                            ) : (
-                              <Badge variant="secondary">{op.reparto}</Badge>
-                            )}
+                            {validReparti.map(r => <Badge key={r} variant="secondary">{r}</Badge>)}
                           </div>
                         </TableCell>
                         <TableCell className="capitalize">{op.role}</TableCell>
@@ -270,7 +270,8 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                           </AlertDialog>
                         </TableCell>
                       </TableRow>
-                    ))
+                      )
+                    })
                   ) : (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
