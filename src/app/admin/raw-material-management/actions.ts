@@ -4,7 +4,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal } from '@/lib/mock-data';
 import { format } from 'date-fns';
@@ -137,27 +137,25 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
 }
 
 
-export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
+export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
   const validatedFields = batchFormSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
-    return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
+    return { success: false, message: 'Dati del lotto non validi.' };
   }
   
   const { materialId, date, ddt, quantity, lotto } = validatedFields.data;
-  
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
-      const finalMaterialState = await runTransaction(db, async (transaction) => {
+      await runTransaction(db, async (transaction) => {
           const docSnap = await transaction.get(materialRef);
           if (!docSnap.exists()) {
             throw new Error('Materia prima non trovata.');
           }
 
           const material = docSnap.data() as RawMaterial;
-          const existingBatches = material.batches || [];
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
@@ -167,38 +165,25 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             lotto: lotto || null,
           };
 
-          const updatedBatches = [...existingBatches, newBatch];
-          
-          const currentStockUnits = material.currentStockUnits || 0;
-          const currentWeightKg = material.currentWeightKg || 0;
-          const newStockUnits = currentStockUnits + quantity;
-          
-          let newWeightKg = currentWeightKg;
+          const newStockUnits = (material.currentStockUnits || 0) + quantity;
+          let newWeightKg = material.currentWeightKg || 0;
           if (material.unitOfMeasure === 'kg') {
               newWeightKg = newStockUnits;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
               newWeightKg = newStockUnits * material.conversionFactor;
           }
-
+          
+          // Use arrayUnion for efficient addition
           transaction.update(materialRef, { 
-              batches: updatedBatches,
+              batches: arrayUnion(newBatch),
               currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg || 0,
+              currentWeightKg: newWeightKg,
           });
-
-          return { 
-              id: docSnap.id, // Ensure the ID is returned
-              ...material, 
-              batches: updatedBatches, 
-              currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg || 0,
-              stock: newStockUnits
-          };
       });
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
+      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
@@ -206,12 +191,12 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 }
 
 
-export async function updateBatchInRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
+export async function updateBatchInRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
     const rawData = Object.fromEntries(formData.entries());
     const validatedFields = batchFormSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
-        return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
+        return { success: false, message: 'Dati del lotto non validi.' };
     }
     const { materialId, batchId, ...newBatchData } = validatedFields.data;
     if (!batchId) {
@@ -221,7 +206,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
     const materialRef = doc(db, "rawMaterials", materialId);
 
     try {
-        const finalMaterialState = await runTransaction(db, async (transaction) => {
+        await runTransaction(db, async (transaction) => {
             const docSnap = await transaction.get(materialRef);
             if (!docSnap.exists()) {
                 throw new Error('Materia prima non trovata.');
@@ -234,55 +219,48 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             if (batchIndex === -1) {
                 throw new Error('Lotto da modificare non trovato.');
             }
-
-            const updatedBatches = [...existingBatches];
-            updatedBatches[batchIndex] = {
-                ...updatedBatches[batchIndex],
+            
+            const oldBatch = existingBatches[batchIndex];
+            const updatedBatch = {
+                ...oldBatch,
                 ...newBatchData,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
             };
-            
-            // Recalculate total stock from all batches
-            const newStockUnits = updatedBatches.reduce((sum, b) => sum + b.quantity, 0);
-            let newWeightKg = 0;
+
+            const stockChange = updatedBatch.quantity - oldBatch.quantity;
+            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
+            let newWeightKg = material.currentWeightKg || 0;
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
                 newWeightKg = newStockUnits * material.conversionFactor;
-            } else {
-                 newWeightKg = material.currentWeightKg || 0;
             }
 
+            // Efficiently remove the old batch and add the new one
             transaction.update(materialRef, {
-                batches: updatedBatches,
+                batches: arrayRemove(oldBatch),
+            });
+            transaction.update(materialRef, {
+                batches: arrayUnion(updatedBatch),
                 currentStockUnits: newStockUnits,
                 currentWeightKg: newWeightKg
             });
-
-            return {
-                id: docSnap.id, // Ensure the ID is returned
-                ...material,
-                batches: updatedBatches,
-                currentStockUnits: newStockUnits,
-                currentWeightKg: newWeightKg,
-                stock: newStockUnits
-            };
         });
 
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Lotto aggiornato con successo. Stock ricalcolato.', updatedMaterial: finalMaterialState };
+        return { success: true, message: 'Lotto aggiornato con successo. Stock ricalcolato.' };
 
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento del lotto." };
     }
 }
 
-export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
+export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; }> {
     const materialRef = doc(db, "rawMaterials", materialId);
     
     try {
-        const finalMaterialState = await runTransaction(db, async (transaction) => {
+        await runTransaction(db, async (transaction) => {
             const docSnap = await transaction.get(materialRef);
             if (!docSnap.exists()) {
                 throw new Error("Materia prima non trovata.");
@@ -290,38 +268,31 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             
             const material = docSnap.data() as RawMaterial;
             const existingBatches = material.batches || [];
-            const updatedBatches = existingBatches.filter(b => b.id !== batchId);
+            const batchToDelete = existingBatches.find(b => b.id === batchId);
 
-            if (existingBatches.length === updatedBatches.length) {
+            if (!batchToDelete) {
                 throw new Error("Lotto da eliminare non trovato.");
             }
 
-            const newStockUnits = updatedBatches.reduce((sum, b) => sum + b.quantity, 0);
+            const newStockUnits = (material.currentStockUnits || 0) - batchToDelete.quantity;
             let newWeightKg = 0;
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
                 newWeightKg = newStockUnits * material.conversionFactor;
+            } else {
+                newWeightKg = (material.currentWeightKg || 0) - (batchToDelete.quantity * (material.conversionFactor || 1));
             }
 
             transaction.update(materialRef, { 
-                batches: updatedBatches,
+                batches: arrayRemove(batchToDelete),
                 currentStockUnits: newStockUnits,
                 currentWeightKg: newWeightKg
             });
-
-             return {
-                id: docSnap.id, // Ensure the ID is returned
-                ...material,
-                batches: updatedBatches,
-                currentStockUnits: newStockUnits,
-                currentWeightKg: newWeightKg,
-                stock: newStockUnits
-            };
         });
 
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Lotto eliminato con successo. Stock ricalcolato.', updatedMaterial: finalMaterialState };
+        return { success: true, message: 'Lotto eliminato con successo. Stock ricalcolato.' };
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione del lotto." };
     }
@@ -462,3 +433,5 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
+
+    
