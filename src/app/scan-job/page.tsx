@@ -1090,7 +1090,7 @@ export default function ScanJobPage() {
 
     const renderPhaseCard = (phase: JobPhase) => {
           const isSuperadvisor = operator?.role === 'superadvisor';
-          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (Array.isArray(operator.reparto) ? phase.departmentCodes.some(dc => (operator.reparto as string[]).includes(dc)) : phase.departmentCodes.includes(operator.reparto)));
+          const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (Array.isArray(operator.reparto) ? (phase.departmentCodes || []).some(dc => (operator.reparto as string[]).includes(dc)) : (phase.departmentCodes || []).includes(operator.reparto)));
 
 
           const lastWorkPeriod = (phase.workPeriods || []).slice(-1)[0];
@@ -1653,8 +1653,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-
-
-
 
