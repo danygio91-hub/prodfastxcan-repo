@@ -293,11 +293,15 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
       }
     });
 
+    if (jobsResetCount > 0 || operatorsResetCount > 0) {
+      await batch.commit();
+    }
+
+
     if (jobsResetCount === 0 && operatorsResetCount === 0) {
       return { success: true, message: 'Nessuna lavorazione in corso o operatore attivo da resettare.' };
     }
 
-    await batch.commit();
 
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/data-management');

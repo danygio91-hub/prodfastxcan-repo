@@ -161,7 +161,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const workCycleId = workCycle?.id;
         const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
 
-        let odlToAssign: string | undefined = undefined;
+        let odlToAssign: string | null = null;
         if (validData.numeroODLInternoImport) {
             const odlString = String(validData.numeroODLInternoImport);
             const match = odlString.match(/\d+/); // Extract first sequence of digits
@@ -492,18 +492,24 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
 
 export async function cancelODL(jobId: string): Promise<{ success: boolean; message: string }> {
   const jobRef = doc(db, "jobOrders", jobId);
-  const docSnap = await getDoc(jobRef);
   
-  if (!docSnap.exists() || docSnap.data().status !== 'production') {
-    return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
-  }
+  try {
+    const docSnap = await getDoc(jobRef);
+    
+    if (!docSnap.exists() || docSnap.data().status !== 'production') {
+      return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
+    }
 
-  // When canceling, we keep the ODL number for historical reference, but reset status
-  await updateDoc(jobRef, { status: 'planned' });
-  
-  revalidatePath('/admin/data-management');
-  revalidatePath('/admin/production-console');
-  return { success: true, message: `ODL per la commessa ${jobId} annullato. La commessa è di nuovo pianificata.` };
+    // When canceling, we keep the ODL number for historical reference, but reset status
+    await updateDoc(jobRef, { status: 'planned', odlCreationDate: null });
+    
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/production-console');
+    return { success: true, message: `ODL per la commessa ${jobId} annullato. La commessa è di nuovo pianificata.` };
+  } catch (error) {
+     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'annullamento dell'ODL.";
+     return { success: false, message: errorMessage };
+  }
 }
 
 
@@ -516,12 +522,14 @@ export async function cancelMultipleODLs(jobIds: string[]): Promise<{ success: b
   let canceledCount = 0;
   let failedCount = 0;
 
-  for (const jobId of jobIds) {
-    const jobRef = doc(db, "jobOrders", jobId);
-    const docSnap = await getDoc(jobRef);
+  // We can't use a transaction here for reads as we are doing a write batch,
+  // so we fetch all documents first.
+  const jobsToProcessRefs = jobIds.map(id => doc(db, "jobOrders", id));
+  const jobDocs = await Promise.all(jobsToProcessRefs.map(ref => getDoc(ref)));
 
+  for (const docSnap of jobDocs) {
     if (docSnap.exists() && docSnap.data().status === 'production') {
-      batch.update(jobRef, { status: 'planned' });
+      batch.update(docSnap.ref, { status: 'planned', odlCreationDate: null });
       canceledCount++;
     } else {
       failedCount++;
