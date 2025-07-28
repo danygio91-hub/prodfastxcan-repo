@@ -313,6 +313,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
             phaseToUpdate.materialConsumptions = [];
         }
         phaseToUpdate.materialConsumptions.push(newConsumption);
+        phaseToUpdate.materialReady = true; // Mark phase as ready
         
         const updatedPhases = job.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
         transaction.update(jobRef, { phases: updatedPhases });
@@ -397,3 +398,4 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     // If neither strategy finds a weight, return null.
     return null;
 }
+
