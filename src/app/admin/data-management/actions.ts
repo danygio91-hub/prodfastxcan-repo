@@ -63,7 +63,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: !(template.requiresMaterialScan || template.requiresMaterialSearch),
+            materialReady: false, // Default to false for all phases initially
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
@@ -76,21 +76,20 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         };
     }).filter((p): p is JobPhase => p !== null);
     
-    // Sort phases by sequence before determining readiness
+    // Sort phases by sequence before determining initial readiness
     const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
     
-    // The first phase in the sequence (lowest sequence number) that is NOT a preparation phase
-    // should have its material set to ready, ONLY if no preparation phase requires a scan.
-    const hasPrepPhaseRequiringScan = sortedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch));
-
-    if (!hasPrepPhaseRequiringScan) {
-        // Find the first non-preparation phase and set its material to ready.
-        const firstProdOrQualityPhase = sortedPhases.find(p => p.type !== 'preparation');
-        if (firstProdOrQualityPhase) {
-            firstProdOrQualityPhase.materialReady = true;
-        }
+    // The very first phase that requires material should be marked as ready.
+    const firstPhaseRequiringMaterial = sortedPhases.find(p => p.requiresMaterialScan || p.requiresMaterialSearch);
+    if (firstPhaseRequiringMaterial) {
+      firstPhaseRequiringMaterial.materialReady = true;
+    } else {
+      // If no phase requires material, the first phase of the whole cycle is ready.
+      if (sortedPhases.length > 0) {
+        sortedPhases[0].materialReady = true;
+      }
     }
-
+    
     return sortedPhases;
 }
 

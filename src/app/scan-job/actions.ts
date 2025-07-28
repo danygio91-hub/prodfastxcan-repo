@@ -74,13 +74,12 @@ export async function verifyAndGetJobOrder(scannedData: {
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
   // This logic is critical for multi-operator scenarios.
-  // We determine phase readiness based on its own state and dependencies.
+  // We just ensure the fields exist, but we do not modify readiness state here.
+  // Readiness is now determined by the logic in createPhasesFromCycle and updateJob.
   jobCopy.phases = (jobCopy.phases || []).map(p => ({
     ...p,
-    materialReady: p.materialReady || (!p.requiresMaterialScan && !p.requiresMaterialSearch),
     workPeriods: p.workPeriods || [], 
     materialConsumptions: p.materialConsumptions || [],
-    workstationScannedAndVerified: p.workstationScannedAndVerified || false,
   }));
   
   jobCopy.isProblemReported = jobCopy.isProblemReported || false;
@@ -398,4 +397,3 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     // If neither strategy finds a weight, return null.
     return null;
 }
-
