@@ -23,7 +23,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, PlayCircle, History, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, PlayCircle, History, ArrowUpCircle, ArrowDownCircle, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -54,6 +54,7 @@ export default function MaterialCheckPage() {
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [manualCode, setManualCode] = useState('');
     const [isSearching, setIsSearching] = useState(false);
+    const [isCapturing, setIsCapturing] = useState(false);
     
     // History State
     const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
@@ -112,36 +113,15 @@ export default function MaterialCheckPage() {
             return;
         }
 
-        let animationFrameId: number;
-        const startCameraAndScan = async () => {
+        const startCamera = async () => {
             setCameraError(null);
             try {
-                if (!('BarcodeDetector' in window)) {
-                    toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
-                    setStep('initial'); return;
-                }
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 streamRef.current = stream;
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
                 }
-
-                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-                
-                const detect = async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
-                        animationFrameId = requestAnimationFrame(detect);
-                        return;
-                    }
-                    const barcodes = await barcodeDetector.detect(videoRef.current);
-                    if (barcodes.length > 0) {
-                        handleCodeSubmit(barcodes[0].rawValue);
-                    } else {
-                        animationFrameId = requestAnimationFrame(detect);
-                    }
-                };
-                detect();
 
             } catch (err) {
                 setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi.");
@@ -150,10 +130,36 @@ export default function MaterialCheckPage() {
             }
         };
 
-        startCameraAndScan();
+        startCamera();
 
-        return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
-    }, [step, stopCamera, handleCodeSubmit, toast]);
+        return () => { stopCamera(); };
+    }, [step, stopCamera]);
+    
+     const triggerScan = async () => {
+        if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+            toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
+            return;
+        }
+        if (!('BarcodeDetector' in window)) {
+            toast({ variant: 'destructive', title: 'Funzionalità non supportata.' });
+            return;
+        }
+
+        setIsCapturing(true);
+        try {
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+            const barcodes = await barcodeDetector.detect(videoRef.current);
+            if (barcodes.length > 0) {
+                handleCodeSubmit(barcodes[0].rawValue);
+            } else {
+                toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
+            }
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
+        } finally {
+            setIsCapturing(false);
+        }
+    };
     
     const resetFlow = () => {
         setFoundMaterial(null);
@@ -291,7 +297,11 @@ export default function MaterialCheckPage() {
                                     </div>
                                 </div>
                             </CardContent>
-                            <CardFooter>
+                            <CardFooter className="flex-col gap-2">
+                                <Button onClick={triggerScan} disabled={isCapturing || cameraError} className="w-full h-12">
+                                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                                    <span className="ml-2">{isCapturing ? 'Scansione...' : 'Scansiona Ora'}</span>
+                                </Button>
                                 <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                             </CardFooter>
                         </Card>

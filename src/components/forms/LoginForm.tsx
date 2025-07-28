@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, PlayCircle } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, PlayCircle, Camera } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -54,6 +54,7 @@ type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
     const [isLoading, setIsLoading] = useState(false);
+    const [isScanning, setIsScanning] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -120,80 +121,74 @@ export default function LoginForm() {
       }
       setStep('camera');
     };
+    
+    const stopCamera = useCallback(() => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+    }, []);
 
     useEffect(() => {
         if (step !== 'camera') {
-            if (streamRef.current) {
-                streamRef.current.getTracks().forEach(track => track.stop());
-                streamRef.current = null;
-            }
+            stopCamera();
             return;
         }
 
-        let animationFrameId: number;
-        let localStream: MediaStream | null = null;
-
-        const startCameraAndScan = async () => {
+        const startCamera = async () => {
             try {
-                if (!('BarcodeDetector' in window)) {
-                    toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
-                    setStep('manual_login');
-                    return;
-                }
-
-                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                streamRef.current = localStream;
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                streamRef.current = stream;
                 setHasCameraPermission(true);
-
-                const video = videoRef.current;
-                if (video) {
-                    video.srcObject = localStream;
-                    video.onloadedmetadata = () => {
-                        video.play().catch(e => console.error("Video play failed:", e));
-                    };
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play().catch(e => console.error("Video play failed:", e));
                 }
-
-                const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-                
-                const detect = async () => {
-                    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
-                       animationFrameId = requestAnimationFrame(detect);
-                       return;
-                    }
-                    const barcodes = await barcodeDetector.detect(videoRef.current);
-                    if (barcodes.length > 0) {
-                        const scannedData = barcodes[0].rawValue;
-                        if (streamRef.current) {
-                            streamRef.current.getTracks().forEach(track => track.stop());
-                            streamRef.current = null;
-                        }
-                        toast({ title: "QR Code Rilevato", description: "Verifica credenziali in corso..." });
-                        handleScannedData(scannedData);
-                    } else {
-                        animationFrameId = requestAnimationFrame(detect);
-                    }
-                };
-                detect();
-
             } catch (err) {
                 console.error("Camera access error:", err);
                 setHasCameraPermission(false);
-                if (streamRef.current) {
-                    streamRef.current.getTracks().forEach(track => track.stop());
-                    streamRef.current = null;
-                }
+                stopCamera();
             }
         };
 
-        startCameraAndScan();
+        startCamera();
 
         return () => {
-            cancelAnimationFrame(animationFrameId);
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-            }
+            stopCamera();
         };
-    }, [step, handleScannedData, toast]);
+    }, [step, stopCamera]);
+    
+    const triggerScan = async () => {
+        if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+            toast({ variant: 'destructive', title: 'Fotocamera non Pronta', description: 'Attendere che il video sia attivo.' });
+            return;
+        }
+
+        if (!('BarcodeDetector' in window)) {
+            toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
+            return;
+        }
+
+        setIsScanning(true);
+        toast({ title: 'Scansione...', description: 'Alla ricerca di un codice nel frame.' });
+        
+        try {
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            const barcodes = await barcodeDetector.detect(videoRef.current);
+
+            if (barcodes.length > 0) {
+                stopCamera();
+                handleScannedData(barcodes[0].rawValue);
+            } else {
+                toast({ variant: 'destructive', title: 'Nessun Codice Trovato', description: 'Assicurati che il codice sia ben visibile e riprova.' });
+            }
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Errore di Scansione', description: 'Impossibile processare l\'immagine.' });
+        } finally {
+            setIsScanning(false);
+        }
+    };
+
 
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
@@ -286,16 +281,17 @@ export default function LoginForm() {
                     <div>
                          <CardHeader>
                             <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
-                            <CardDescription className="text-center">Inquadra il tuo QR code personale per accedere.</CardDescription>
+                            <CardDescription className="text-center">Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
                         </CardHeader>
                         <CardContent className="relative flex items-center justify-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <div className="w-2/3 h-2/3 relative">
-                                    <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                                    <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                                    <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                                    <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                    <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
                                 </div>
                              </div>
                              {!hasCameraPermission && (
@@ -306,7 +302,11 @@ export default function LoginForm() {
                                 </div>
                             )}
                         </CardContent>
-                        <CardFooter className="pt-6">
+                        <CardFooter className="pt-6 flex flex-col gap-2">
+                             <Button onClick={triggerScan} disabled={isScanning || !hasCameraPermission} className="w-full h-14">
+                                {isScanning ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
+                                <span className="ml-2 text-lg">{isScanning ? 'Scansionando...' : 'Scansiona'}</span>
+                             </Button>
                             <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                         </CardFooter>
                     </div>

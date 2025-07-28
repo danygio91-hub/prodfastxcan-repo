@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -117,6 +117,7 @@ export default function ScanJobPage() {
   const materialVideoRef = useRef<HTMLVideoElement>(null);
   const phaseScanVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -271,63 +272,58 @@ export default function ScanJobPage() {
     }
   }, [toast, handleStartOverallJob, stopCamera]);
 
-  useEffect(() => {
-    if (step !== 'scanning') {
-        stopCamera();
-        return;
-    }
-
-    let animationFrameId: number;
-    const startCameraAndScan = async () => {
-        setCameraError(null);
-        try {
-            if (!('BarcodeDetector' in window)) {
-                toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
-                setStep('initial');
-                return;
-            }
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            streamRef.current = stream;
-            const video = videoRef.current;
-            if (video) {
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                   video.play().catch(e => console.error("Video play failed:", e));
-                };
-            }
-
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-            
-            const detect = async () => {
-                if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
-                    animationFrameId = requestAnimationFrame(detect);
-                    return;
-                }
-                const barcodes = await barcodeDetector.detect(videoRef.current);
-                if (barcodes.length > 0) {
-                    const scannedData = barcodes[0].rawValue;
-                    handleScannedData(scannedData);
-                } else {
-                    animationFrameId = requestAnimationFrame(detect);
-                }
-            };
-            detect();
-
-        } catch (err) {
-            console.error("Camera access error:", err);
-            setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi del browser.");
-            stopCamera();
-            setStep('initial');
+  const startCamera = useCallback(async (videoElement: HTMLVideoElement | null) => {
+    setCameraError(null);
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        streamRef.current = stream;
+        if (videoElement) {
+            videoElement.srcObject = stream;
+            await videoElement.play().catch(e => console.error("Video play failed:", e));
         }
-    };
-
-    startCameraAndScan();
-    
-    return () => {
-        cancelAnimationFrame(animationFrameId);
+    } catch (err) {
+        console.error("Camera access error:", err);
+        setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi del browser.");
         stopCamera();
     }
-  }, [step, stopCamera, toast, handleScannedData]);
+  }, [stopCamera]);
+  
+  const triggerScan = useCallback(async (videoElement: HTMLVideoElement | null, onScan: (data: string) => void) => {
+      if (!videoElement || videoElement.paused || videoElement.readyState < 2) {
+          toast({ variant: 'destructive', title: 'Fotocamera non Pronta' });
+          return;
+      }
+      if (!('BarcodeDetector' in window)) {
+          toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
+          return;
+      }
+
+      setIsCapturing(true);
+      try {
+          const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+          const barcodes = await barcodeDetector.detect(videoElement);
+          if (barcodes.length > 0) {
+              onScan(barcodes[0].rawValue);
+          } else {
+              toast({ variant: 'destructive', title: 'Nessun Codice Trovato' });
+          }
+      } catch (error) {
+          toast({ variant: 'destructive', title: 'Errore di Scansione' });
+      } finally {
+          setIsCapturing(false);
+      }
+  }, [toast]);
+  
+
+  useEffect(() => {
+    if (step === 'scanning') {
+      startCamera(videoRef.current);
+    } else {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [step, startCamera, stopCamera]);
+
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
     if (activeJob) {
@@ -344,6 +340,7 @@ export default function ScanJobPage() {
 
   const handlePhaseScanResult = (scannedId: string) => {
       setIsPhaseScanDialogOpen(false);
+      stopCamera();
       if (!activeJob || !operator || !phaseForPhaseScan) return;
 
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
@@ -516,21 +513,15 @@ export default function ScanJobPage() {
     const nextPhase = sortedPhases[currentPhaseIndex + 1];
 
     if (nextPhase && nextPhase.status === 'pending') {
-      const isCurrentPhasePrep = phaseToComplete.type === 'preparation';
-      const isNextPhaseProd = nextPhase.type === 'production';
-      
       const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
-
-      if (isCurrentPhasePrep && isNextPhaseProd && allPreviousPhasesCompleted) {
-        // This case is handled by the "Complete Preparation" button now.
-      } else if (allPreviousPhasesCompleted) {
+      if (allPreviousPhasesCompleted) {
         nextPhase.materialReady = true;
       }
     }
     
     const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
 
-    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || operator.reparto === 'MAG')) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
@@ -860,153 +851,40 @@ export default function ScanJobPage() {
 
 
   const handleLottoScanned = (scannedValue: string) => {
+    stopCamera();
     phaseMaterialForm.setValue('lottoBobina', scannedValue, { shouldDirty: true });
     handleLottoChange(scannedValue);
     toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
     setIsLottoScanDialogOpen(false);
   };
-
+  
   useEffect(() => {
-    if (!isLottoScanDialogOpen) {
-      stopCamera();
-      return;
-    }
-
-    let animationFrameId: number;
-    const startCameraAndScan = async () => {
-      try {
-        if (!('BarcodeDetector' in window)) {
-          toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
-          setIsLottoScanDialogOpen(false);
-          return;
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        streamRef.current = stream;
-        const video = lottoVideoRef.current;
-        if (video) {
-          video.srcObject = stream;
-          await video.play();
-        }
-
-        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-
-        const detect = async () => {
-            if (!lottoVideoRef.current || lottoVideoRef.current.paused || lottoVideoRef.current.readyState < 2) {
-                animationFrameId = requestAnimationFrame(detect);
-                return;
-            }
-            const barcodes = await barcodeDetector.detect(lottoVideoRef.current);
-            if (barcodes.length > 0) {
-                handleLottoScanned(barcodes[0].rawValue);
-            } else {
-                animationFrameId = requestAnimationFrame(detect);
-            }
-        };
-        detect();
-      } catch (err) {
-        toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
+    if (isLottoScanDialogOpen) {
+        startCamera(lottoVideoRef.current);
+    } else {
         stopCamera();
-        setIsLottoScanDialogOpen(false);
-      }
-    };
-
-    startCameraAndScan();
-    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
-  }, [isLottoScanDialogOpen, stopCamera, handleLottoScanned, toast]);
+    }
+    return () => stopCamera();
+  }, [isLottoScanDialogOpen, startCamera, stopCamera]);
 
 
   useEffect(() => {
-    if (!isPhaseScanDialogOpen) {
-      stopCamera();
-      return;
+    if (isPhaseScanDialogOpen) {
+        startCamera(phaseScanVideoRef.current);
+    } else {
+        stopCamera();
     }
-
-    let animationFrameId: number;
-    const startCameraAndScan = async () => {
-        try {
-            if (!('BarcodeDetector' in window)) {
-                toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione di QR code.' });
-                setIsPhaseScanDialogOpen(false); return;
-            }
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            streamRef.current = stream;
-            const video = phaseScanVideoRef.current;
-            if (video) {
-                video.srcObject = stream;
-                await video.play();
-            }
-
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-            
-            const detect = async () => {
-                if (!phaseScanVideoRef.current || phaseScanVideoRef.current.paused || phaseScanVideoRef.current.readyState < 2) {
-                    animationFrameId = requestAnimationFrame(detect);
-                    return;
-                }
-                const barcodes = await barcodeDetector.detect(phaseScanVideoRef.current);
-                if (barcodes.length > 0) {
-                    handlePhaseScanResult(barcodes[0].rawValue);
-                } else {
-                    animationFrameId = requestAnimationFrame(detect);
-                }
-            };
-            detect();
-        } catch (err) {
-            toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
-            stopCamera();
-            setIsPhaseScanDialogOpen(false);
-        }
-    };
-    startCameraAndScan();
-    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
-  }, [isPhaseScanDialogOpen, stopCamera, handlePhaseScanResult, toast]);
+    return () => stopCamera();
+  }, [isPhaseScanDialogOpen, startCamera, stopCamera]);
 
 
   useEffect(() => {
-    if (!isMaterialScanDialogOpen || materialScanStep !== 'scanning') {
-      stopCamera();
-      return;
+    if (isMaterialScanDialogOpen && materialScanStep === 'scanning') {
+        startCamera(materialVideoRef.current);
+    } else if (!isMaterialScanDialogOpen) {
+        stopCamera();
     }
-
-    let animationFrameId: number;
-    const startCameraAndScan = async () => {
-        try {
-            if (!('BarcodeDetector' in window)) {
-                toast({ variant: 'destructive', title: 'Funzionalità non Supportata'});
-                setMaterialScanStep('initial'); return;
-            }
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            streamRef.current = stream;
-            const video = materialVideoRef.current;
-            if (video) {
-                video.srcObject = stream;
-                await video.play();
-            }
-
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-            
-            const detect = async () => {
-                 if (!materialVideoRef.current || materialVideoRef.current.paused || materialVideoRef.current.readyState < 2) {
-                    animationFrameId = requestAnimationFrame(detect);
-                    return;
-                }
-                const barcodes = await barcodeDetector.detect(materialVideoRef.current);
-                if (barcodes.length > 0) {
-                    handleMaterialCodeSubmit(barcodes[0].rawValue);
-                } else {
-                    animationFrameId = requestAnimationFrame(detect);
-                }
-            };
-            detect();
-        } catch (err) {
-            toast({ variant: 'destructive', title: 'Errore Fotocamera', description: 'Accesso negato o non disponibile.' });
-            stopCamera();
-            setMaterialScanStep('initial');
-        }
-    };
-    startCameraAndScan();
-    return () => { cancelAnimationFrame(animationFrameId); stopCamera(); };
-  }, [isMaterialScanDialogOpen, materialScanStep, stopCamera, handleMaterialCodeSubmit, toast]);
+  }, [isMaterialScanDialogOpen, materialScanStep, startCamera, stopCamera]);
 
     const handleOpenSimulator = (target: 'job' | 'material' | 'lotto' | 'phase') => {
         setSimulatorTarget(target);
@@ -1017,20 +895,16 @@ export default function ScanJobPage() {
     const handleSimulatorSubmit = () => {
         if (!simulatorTarget) return;
         
-        switch (simulatorTarget) {
-            case 'job':
-                handleScannedData(simulatorInput);
-                break;
-            case 'material':
-                handleMaterialCodeSubmit(simulatorInput);
-                break;
-            case 'lotto':
-                handleLottoScanned(simulatorInput);
-                break;
-            case 'phase':
-                handlePhaseScanResult(simulatorInput);
-                break;
-        }
+        const handleScan = (data: string) => {
+            switch (simulatorTarget) {
+                case 'job': handleScannedData(data); break;
+                case 'material': handleMaterialCodeSubmit(data); break;
+                case 'lotto': handleLottoScanned(data); break;
+                case 'phase': handlePhaseScanResult(data); break;
+            }
+        };
+        
+        handleScan(simulatorInput);
         
         setIsSimulatorOpen(false);
         setSimulatorInput('');
@@ -1108,7 +982,7 @@ export default function ScanJobPage() {
           <QrCode className="h-8 w-8 text-primary" />
           <div>
             <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
-            <CardDescription>Scansiona il QR code sulla commessa per iniziare la lavorazione.</CardDescription>
+            <CardDescription>Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -1121,6 +995,7 @@ export default function ScanJobPage() {
                   <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
                   <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
                   <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                  <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
               </div>
           </div>
         </div>
@@ -1132,6 +1007,13 @@ export default function ScanJobPage() {
           </Alert>
         )}
       </CardContent>
+      <CardFooter className="flex-col gap-2">
+        <Button onClick={() => triggerScan(videoRef.current, handleScannedData)} disabled={isCapturing || cameraError} className="w-full h-14">
+            {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
+            <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
+        </Button>
+        <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
+      </CardFooter>
     </Card>
   );
 
@@ -1534,7 +1416,7 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'scanning' && (
-              <div className="py-4">
+              <div className="py-4 space-y-4">
                 <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
                   <video ref={materialVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -1547,7 +1429,11 @@ export default function ScanJobPage() {
                       </div>
                   </div>
                 </div>
-                  <Button variant="outline" className="w-full mt-4" onClick={() => setMaterialScanStep('initial')}>Annulla Scansione</Button>
+                  <Button onClick={() => triggerScan(materialVideoRef.current, handleMaterialCodeSubmit)} disabled={isCapturing} className="w-full h-12">
+                     {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                     <span className="ml-2">Scansiona Codice</span>
+                  </Button>
+                  <Button variant="outline" className="w-full mt-4" onClick={() => setMaterialScanStep('initial')}>Annulla</Button>
               </div>
             )}
 
@@ -1634,7 +1520,11 @@ export default function ScanJobPage() {
                     </div>
                 </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button onClick={() => triggerScan(lottoVideoRef.current, handleLottoScanned)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
+                   {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                   <span className="ml-2">Scansiona Lotto</span>
+                </Button>
                 <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
@@ -1660,7 +1550,11 @@ export default function ScanJobPage() {
                 </div>
             </div>
             <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button variant="secondary" onClick={() => handleOpenSimulator('phase')}>Simula Scansione Fase</Button>
+                <Button onClick={() => triggerScan(phaseScanVideoRef.current, handlePhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
+                   {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                   <span className="ml-2">Scansiona Fase</span>
+                </Button>
+                <Button variant="secondary" onClick={() => handleOpenSimulator('phase')}>Simula</Button>
                 <Button variant="outline" onClick={() => setIsPhaseScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
@@ -1818,4 +1712,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
