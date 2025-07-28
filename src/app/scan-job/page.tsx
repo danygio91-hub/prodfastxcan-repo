@@ -949,15 +949,15 @@ export default function ScanJobPage() {
   );
 
   const renderScanArea = (onScan: (data: string) => void) => (
-    <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+    <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-5/6 h-2/5 relative flex items-center justify-center">
+        <div className="absolute inset-0 grid place-items-center pointer-events-none">
+            <div className="w-5/6 h-2/5 relative">
                 <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
                 <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
                 <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
                 <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
             </div>
         </div>
     </div>
@@ -1568,7 +1568,7 @@ export default function ScanJobPage() {
                           {renderScanArea(handleScannedData)}
                       </CardContent>
                       <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || cameraError} className="w-full h-14">
+                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !!cameraError} className="w-full h-14">
                               {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
                               <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
                            </Button>
@@ -1653,6 +1653,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 

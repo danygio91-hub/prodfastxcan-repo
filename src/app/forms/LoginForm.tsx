@@ -55,7 +55,7 @@ type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
     const [isLoading, setIsLoading] = useState(false);
-    const [isCapturing, setIsCapturing] = useState(false);
+    const [isScanning, setIsScanning] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -101,8 +101,6 @@ export default function LoginForm() {
     }, [toast]);
 
     const handleScannedData = useCallback(async (data: string) => {
-        stopCamera();
-        setStep('initial');
         const [username, password] = data.split('@');
         if (username && password) {
              performLogin(username, password);
@@ -112,8 +110,9 @@ export default function LoginForm() {
                 title: 'Dati QR non Validi',
                 description: 'Il formato del QR code per il login non è corretto.',
             });
+            setStep('initial');
         }
-    }, [performLogin, toast, stopCamera]);
+    }, [performLogin, toast]);
     
     const handleQrLoginClick = (targetPath: string | null) => {
       if (targetPath) {
@@ -171,7 +170,7 @@ export default function LoginForm() {
             return;
         }
 
-        setIsCapturing(true);
+        setIsScanning(true);
         toast({ title: 'Scansione...', description: 'Alla ricerca di un codice nel frame.' });
         
         try {
@@ -179,6 +178,7 @@ export default function LoginForm() {
             const barcodes = await barcodeDetector.detect(videoRef.current);
 
             if (barcodes.length > 0) {
+                stopCamera();
                 handleScannedData(barcodes[0].rawValue);
             } else {
                 toast({ variant: 'destructive', title: 'Nessun Codice Trovato', description: 'Assicurati che il codice sia ben visibile e riprova.' });
@@ -186,7 +186,7 @@ export default function LoginForm() {
         } catch (error) {
             toast({ variant: 'destructive', title: 'Errore di Scansione', description: 'Impossibile processare l\'immagine.' });
         } finally {
-            setIsCapturing(false);
+            setIsScanning(false);
         }
     };
 
@@ -282,17 +282,17 @@ export default function LoginForm() {
                     <div>
                          <CardHeader>
                             <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
-                            <CardDescription className="text-center">Inquadra il QR code per accedere.</CardDescription>
+                            <CardDescription className="text-center">Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
                         </CardHeader>
-                        <CardContent className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+                        <CardContent className="relative grid place-items-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <div className="w-5/6 h-2/5 relative flex items-center justify-center">
+                             <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                                <div className="w-2/3 h-2/3 relative">
                                     <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
                                     <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
                                     <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
                                     <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                                    <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
                                 </div>
                              </div>
                              {!hasCameraPermission && (
@@ -304,9 +304,9 @@ export default function LoginForm() {
                             )}
                         </CardContent>
                         <CardFooter className="pt-6 flex flex-col gap-2">
-                             <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
-                                {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
-                                <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
+                             <Button onClick={triggerScan} disabled={isScanning || !hasCameraPermission} className="w-full h-14">
+                                {isScanning ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
+                                <span className="ml-2 text-lg">{isScanning ? 'Scansionando...' : 'Scansiona'}</span>
                              </Button>
                             <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                         </CardFooter>
