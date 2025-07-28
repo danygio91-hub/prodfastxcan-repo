@@ -113,9 +113,6 @@ export default function ScanJobPage() {
   const [isPending, startTransition] = useTransition();
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const lottoVideoRef = useRef<HTMLVideoElement>(null);
-  const materialVideoRef = useRef<HTMLVideoElement>(null);
-  const phaseScanVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -247,16 +244,15 @@ export default function ScanJobPage() {
 
   const handleScannedData = useCallback(async (data: string) => {
     stopCamera();
+    setStep('initial');
     const parts = data.split('@');
     if (parts.length !== 3) {
         toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
-        setStep('initial');
         return;
     }
     const [ordinePF, codice, qta] = parts;
     if (!ordinePF || !codice || !qta) {
         toast({ variant: 'destructive', title: 'QR Code Incompleto', description: 'Dati mancanti nel QR Code.' });
-        setStep('initial');
         return;
     }
 
@@ -265,21 +261,20 @@ export default function ScanJobPage() {
 
     if ('error' in result) {
         toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-        setStep('initial');
     } else {
         toast({ title: "Commessa Verificata!", description: `Pronto per iniziare la lavorazione per ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
         handleStartOverallJob(result);
     }
   }, [toast, handleStartOverallJob, stopCamera]);
 
-  const startCamera = useCallback(async (videoElement: HTMLVideoElement | null) => {
+  const startCamera = useCallback(async () => {
     setCameraError(null);
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         streamRef.current = stream;
-        if (videoElement) {
-            videoElement.srcObject = stream;
-            await videoElement.play().catch(e => console.error("Video play failed:", e));
+        if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            await videoRef.current.play().catch(e => console.error("Video play failed:", e));
         }
     } catch (err) {
         console.error("Camera access error:", err);
@@ -288,8 +283,8 @@ export default function ScanJobPage() {
     }
   }, [stopCamera]);
   
-  const triggerScan = useCallback(async (videoElement: HTMLVideoElement | null, onScan: (data: string) => void) => {
-      if (!videoElement || videoElement.paused || videoElement.readyState < 2) {
+  const triggerScan = useCallback(async (onScan: (data: string) => void) => {
+      if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
           toast({ variant: 'destructive', title: 'Fotocamera non Pronta' });
           return;
       }
@@ -301,7 +296,7 @@ export default function ScanJobPage() {
       setIsCapturing(true);
       try {
           const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-          const barcodes = await barcodeDetector.detect(videoElement);
+          const barcodes = await barcodeDetector.detect(videoRef.current);
           if (barcodes.length > 0) {
               onScan(barcodes[0].rawValue);
           } else {
@@ -316,14 +311,14 @@ export default function ScanJobPage() {
   
 
   useEffect(() => {
-    if (step === 'scanning') {
-      startCamera(videoRef.current);
-    } else if (isLottoScanDialogOpen) {
-      startCamera(lottoVideoRef.current);
-    } else if (isPhaseScanDialogOpen) {
-      startCamera(phaseScanVideoRef.current);
-    } else if (isMaterialScanDialogOpen && materialScanStep === 'scanning') {
-      startCamera(materialVideoRef.current);
+    const shouldStartCamera =
+      step === 'scanning' ||
+      isLottoScanDialogOpen ||
+      isPhaseScanDialogOpen ||
+      (isMaterialScanDialogOpen && materialScanStep === 'scanning');
+
+    if (shouldStartCamera) {
+      startCamera();
     } else {
       stopCamera();
     }
@@ -805,15 +800,7 @@ export default function ScanJobPage() {
   const onTubiWithdrawalSubmit = async (values: TubiWithdrawalFormValues) => {
       if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
 
-      const formData = new FormData();
-      formData.append('materialId', scannedMaterialForPhase.id);
-      formData.append('operatorId', operator.id);
-      formData.append('jobId', activeJob.id);
-      formData.append('jobOrderPF', activeJob.ordinePF);
-      formData.append('phaseId', phaseForMaterialScan.id);
-      formData.append('quantity', String(values.quantity));
-      formData.append('unit', values.unit);
-      
+      // Optimistic UI update
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
 
@@ -830,8 +817,16 @@ export default function ScanJobPage() {
           phaseToUpdate.materialConsumptions.push(newConsumption);
           setActiveJob(jobToUpdate);
       }
-      
       setIsMaterialScanDialogOpen(false);
+      
+      const formData = new FormData();
+      formData.append('materialId', scannedMaterialForPhase.id);
+      formData.append('operatorId', operator.id);
+      formData.append('jobId', activeJob.id);
+      formData.append('jobOrderPF', activeJob.ordinePF);
+      formData.append('phaseId', phaseForMaterialScan.id);
+      formData.append('quantity', String(values.quantity));
+      formData.append('unit', values.unit);
       
       const result = await logTubiWithdrawal(formData);
 
@@ -841,11 +836,8 @@ export default function ScanJobPage() {
         variant: result.success ? "default" : "destructive",
       });
 
-      if (result.success) {
-        forceJobDataRefresh(activeJob.id);
-      } else {
-          forceJobDataRefresh(activeJob.id);
-      }
+      // Force a refresh from DB to ensure consistency
+      forceJobDataRefresh(activeJob.id);
   };
 
   const handleLottoChange = useCallback(async (lotto: string) => {
@@ -956,46 +948,19 @@ export default function ScanJobPage() {
     </Card>
   );
 
-  const renderScanArea = () => (
-    <Card>
-      <CardHeader>
-          <div className="flex items-center space-x-3">
-          <QrCode className="h-8 w-8 text-primary" />
-          <div>
-            <CardTitle className="text-2xl font-headline">Scansiona Commessa (Ordine PF)</CardTitle>
-            <CardDescription>Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
-          </div>
+  const renderScanArea = (onScan: (data: string) => void) => (
+    <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
+        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-5/6 h-2/5 relative flex items-center justify-center">
+                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+            </div>
         </div>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center justify-center space-y-6">
-        <div className="relative flex items-center justify-center w-full max-w-xs aspect-square bg-black rounded-lg overflow-hidden">
-          <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-2/3 h-2/3 relative">
-                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                  <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-              </div>
-          </div>
-        </div>
-        {cameraError && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>Errore Fotocamera</AlertTitle>
-            <AlertDescription>{cameraError}</AlertDescription>
-          </Alert>
-        )}
-      </CardContent>
-      <CardFooter className="flex-col gap-2">
-        <Button onClick={() => triggerScan(videoRef.current, handleScannedData)} disabled={isCapturing || cameraError} className="w-full h-14">
-            {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
-            <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
-        </Button>
-        <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
-      </CardFooter>
-    </Card>
+    </div>
   );
 
   const renderJobDetailsCard = (job: JobOrder) => {
@@ -1381,6 +1346,14 @@ export default function ScanJobPage() {
     </Card>
   );
 
+  const renderScanDialog = (title: string, onScan: (data: string) => void) => (
+    <div className="py-4 space-y-4">
+      <DialogTitle>{title}</DialogTitle>
+      {renderScanArea(onScan)}
+      <Button variant="outline" className="w-full" onClick={() => { setIsPhaseScanDialogOpen(false); setIsLottoScanDialogOpen(false); setIsMaterialScanDialogOpen(false); setMaterialScanStep('initial'); }}>Annulla</Button>
+    </div>
+  );
+
   const renderMaterialScanDialog = () => (
     <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
         <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
@@ -1398,23 +1371,14 @@ export default function ScanJobPage() {
 
             {materialScanStep === 'scanning' && (
               <div className="py-4 space-y-4">
-                <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
-                  <video ref={materialVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-5/6 h-2/5 relative flex items-center justify-center">
-                          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                          <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                      </div>
-                  </div>
+                {renderScanArea(handleMaterialCodeSubmit)}
+                <div className="flex flex-col gap-2">
+                    <Button onClick={() => triggerScan(handleMaterialCodeSubmit)} disabled={isCapturing} className="w-full h-12">
+                       {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                       <span className="ml-2">Scansiona Codice</span>
+                    </Button>
+                    <Button variant="outline" className="w-full" onClick={() => setMaterialScanStep('initial')}>Annulla</Button>
                 </div>
-                  <Button onClick={() => triggerScan(materialVideoRef.current, handleMaterialCodeSubmit)} disabled={isCapturing} className="w-full h-12">
-                     {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
-                     <span className="ml-2">Scansiona Codice</span>
-                  </Button>
-                  <Button variant="outline" className="w-full mt-4" onClick={() => setMaterialScanStep('initial')}>Annulla</Button>
               </div>
             )}
 
@@ -1489,20 +1453,9 @@ export default function ScanJobPage() {
             <DialogHeader>
                 <DialogTitle>Inquadra il QR/Barcode del Lotto</DialogTitle>
             </DialogHeader>
-            <div className="relative flex items-center justify-center aspect-video bg-black rounded-lg overflow-hidden">
-                <video ref={lottoVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-5/6 h-2/5 relative flex items-center justify-center">
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                        <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                    </div>
-                </div>
-            </div>
+            {renderScanArea(handleLottoScanned)}
             <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button onClick={() => triggerScan(lottoVideoRef.current, handleLottoScanned)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
+                <Button onClick={() => triggerScan(handleLottoScanned)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Lotto</span>
                 </Button>
@@ -1519,19 +1472,9 @@ export default function ScanJobPage() {
                 <DialogTitle>Scansiona QR Code Fase</DialogTitle>
                 <DialogDescription>Inquadra il QR Code con il nome della fase "{phaseForPhaseScan?.name}" per avviarla.</DialogDescription>
             </DialogHeader>
-            <div className="relative flex items-center justify-center aspect-square bg-black rounded-lg overflow-hidden">
-                <video ref={phaseScanVideoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-2/3 h-2/3 relative">
-                        <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                        <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                        <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                        <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                    </div>
-                </div>
-            </div>
+            {renderScanArea(handlePhaseScanResult)}
             <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button onClick={() => triggerScan(phaseScanVideoRef.current, handlePhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
+                <Button onClick={() => triggerScan(handlePhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Fase</span>
                 </Button>
@@ -1615,7 +1558,24 @@ export default function ScanJobPage() {
           
             
                 {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
-                {step === 'scanning' && renderScanArea()}
+                {step === 'scanning' && (
+                  <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" />Scansiona Commessa</CardTitle>
+                        <CardDescription>Inquadra il QR code della commessa per iniziare.</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                          {renderScanArea(handleScannedData)}
+                      </CardContent>
+                      <CardFooter className="flex-col gap-2">
+                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || cameraError} className="w-full h-14">
+                              {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
+                              <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
+                           </Button>
+                          <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
+                      </CardFooter>
+                  </Card>
+                )}
                  {step === 'manual_input' && (
                         <Card>
                             <CardHeader>
@@ -1693,6 +1653,7 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
 
 
 
