@@ -310,6 +310,28 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
   }
 }
 
+export async function deleteSelectedRawMaterials(ids: string[]): Promise<{ success: boolean, message: string }> {
+  if (!ids || ids.length === 0) {
+    return { success: false, message: 'Nessuna materia prima selezionata.' };
+  }
+
+  const batch = writeBatch(db);
+  ids.forEach(id => {
+    const docRef = doc(db, 'rawMaterials', id);
+    batch.delete(docRef);
+  });
+
+  try {
+    await batch.commit();
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: `${ids.length} materie prime sono state eliminate.` };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Errore durante l'eliminazione.";
+    return { success: false, message: errorMessage };
+  }
+}
+
+
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
       code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio.").optional(),

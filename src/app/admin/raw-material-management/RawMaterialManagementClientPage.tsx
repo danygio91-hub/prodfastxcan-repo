@@ -13,10 +13,11 @@ import { it } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
@@ -87,6 +88,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -120,6 +122,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   useEffect(() => {
     setMaterials(initialMaterials);
+    setSelectedRows([]);
   }, [initialMaterials]);
 
 
@@ -273,6 +276,19 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     setMaterialToDelete(null);
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedRows.length === 0) return;
+    const result = await deleteSelectedRawMaterials(selectedRows);
+     toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+  }
+
   const handleDeleteBatch = async () => {
     if (!batchToDelete) return;
     const { materialId, batchId } = batchToDelete;
@@ -394,6 +410,21 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     XLSX.writeFile(wb, "anagrafica_materie_prime.xlsx");
   };
 
+  const handleSelectAll = (checked: boolean | 'indeterminate') => {
+    if (checked === true) {
+      setSelectedRows(filteredMaterials.map(m => m.id));
+    } else {
+      setSelectedRows([]);
+    }
+  };
+
+  const handleSelectRow = (id: string) => {
+    setSelectedRows(prev =>
+      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+    );
+  };
+
+
   return (
       <div className="space-y-6">
         <AdminNavMenu />
@@ -431,14 +462,38 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <CardTitle>Elenco Materie Prime</CardTitle>
                     <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
                     </div>
-                    <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Cerca per codice o descrizione..."
-                            className="pl-9"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                     <div className="flex items-center gap-2">
+                        {selectedRows.length > 0 && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Elimina ({selectedRows.length})
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Questa azione è irreversibile. Verranno eliminate definitivamente {selectedRows.length} materie prime e il loro storico.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Cerca per codice o descrizione..."
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
                     </div>
                 </div>
             </CardHeader>
@@ -447,6 +502,14 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 <Table>
                     <TableHeader>
                     <TableRow>
+                        <TableHead padding="checkbox">
+                          <Checkbox
+                            checked={selectedRows.length > 0 ? (selectedRows.length === filteredMaterials.length ? true : 'indeterminate') : false}
+                            onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                            aria-label="Seleziona tutte"
+                            disabled={filteredMaterials.length === 0}
+                          />
+                        </TableHead>
                         <TableHead>Codice</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Descrizione</TableHead>
@@ -459,7 +522,14 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <TableBody>
                     {filteredMaterials.length > 0 ? (
                         filteredMaterials.map((material) => (
-                        <TableRow key={material.id}>
+                        <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
+                            <TableCell padding="checkbox">
+                              <Checkbox
+                                checked={selectedRows.includes(material.id)}
+                                onCheckedChange={() => handleSelectRow(material.id)}
+                                aria-label={`Seleziona materiale ${material.code}`}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
@@ -503,7 +573,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         ))
                     ) : (
                         <TableRow>
-                        <TableCell colSpan={7} className="text-center h-24">
+                        <TableCell colSpan={8} className="text-center h-24">
                             {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
                         </TableCell>
                         </TableRow>
@@ -739,3 +809,4 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
