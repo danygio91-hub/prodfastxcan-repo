@@ -161,10 +161,20 @@ export async function getOperatorsReport() {
             }, 0);
         };
         
+        const getDepartmentDisplay = (operator: Operator) => {
+            if (operator.role === 'superadvisor') {
+                return 'Officina';
+            }
+            if (Array.isArray(operator.reparto)) {
+                return operator.reparto.join(', ');
+            }
+            return operator.reparto;
+        };
+
         return {
             id: op.id,
             name: op.nome,
-            department: Array.isArray(op.reparto) ? op.reparto.join(', ') : op.reparto,
+            department: getDepartmentDisplay(op),
             status: op.stato,
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
