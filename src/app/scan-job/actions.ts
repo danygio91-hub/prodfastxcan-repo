@@ -247,19 +247,19 @@ export async function closeMaterialSessionAndUpdateStock(
   }
 }
 
-const tubiWithdrawalSchema = z.object({
+const tubiGuainaWithdrawalSchema = z.object({
   materialId: z.string(),
   operatorId: z.string(),
   jobId: z.string(),
   jobOrderPF: z.string(),
   phaseId: z.string(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'kg']),
+  unit: z.enum(['n', 'kg', 'mt']),
 });
 
-export async function logTubiWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
+export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
   const rawData = Object.fromEntries(formData.entries());
-  const validated = tubiWithdrawalSchema.safeParse(rawData);
+  const validated = tubiGuainaWithdrawalSchema.safeParse(rawData);
   if (!validated.success) {
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
@@ -287,7 +287,7 @@ export async function logTubiWithdrawal(formData: FormData): Promise<{ success: 
         if (unit === 'kg') {
             consumedWeight = quantity;
             unitsConsumed = material.conversionFactor && material.conversionFactor > 0 ? Math.round(consumedWeight / material.conversionFactor) : 0;
-        } else { // unit is 'n'
+        } else { // unit is 'n' or 'mt'
             unitsConsumed = quantity;
             consumedWeight = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
         }
@@ -463,38 +463,41 @@ export async function searchRawMaterials(
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string) {
   try {
     const jobRef = doc(db, 'jobOrders', jobId);
-    const docSnap = await getDoc(jobRef);
-    if (!docSnap.exists()) throw new Error('Commessa non trovata.');
-
-    const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder;
     
-    // Create a mutable copy
-    const jobToUpdate = JSON.parse(JSON.stringify(jobData));
-    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-    if (!phaseToStart) throw new Error('Fase non trovata nella commessa.');
+    await runTransaction(db, async (transaction) => {
+        const docSnap = await transaction.get(jobRef);
+        if (!docSnap.exists()) throw new Error('Commessa non trovata.');
 
-    // Validate if the phase is ready to be started
-    if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
-    if (!phaseToStart.materialReady) throw new Error('Il materiale per questa fase non è pronto.');
-    if (jobData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
+        const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder;
+        
+        // Create a mutable copy
+        const jobToUpdate = JSON.parse(JSON.stringify(jobData));
+        const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+        if (!phaseToStart) throw new Error('Fase non trovata nella commessa.');
 
-    // Start the phase
-    phaseToStart.status = 'in-progress';
-    phaseToStart.workstationScannedAndVerified = true;
-    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
+        // Validate if the phase is ready to be started
+        if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
+        if (!phaseToStart.materialReady) throw new Error('Il materiale per questa fase non è pronto.');
+        if (jobData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
 
-    // Unlock the next phase's material readiness
-    const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-    const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
-    const nextPhase = sortedPhases[currentPhaseIndex + 1];
-    
-    if (nextPhase && nextPhase.status === 'pending') {
-      nextPhase.materialReady = true;
-    }
+        // Start the phase
+        phaseToStart.status = 'in-progress';
+        phaseToStart.workstationScannedAndVerified = true;
+        phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-    // Persist the changes
-    await updateJob(jobToUpdate);
+        // Unlock the next phase's material readiness
+        const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
+        const nextPhase = sortedPhases[currentPhaseIndex + 1];
+        
+        if (nextPhase && nextPhase.status === 'pending') {
+          nextPhase.materialReady = true;
+        }
+        
+        transaction.update(jobRef, jobToUpdate);
+    });
 
+    revalidatePath('/scan-job'); // Revalidate to update the UI
     return { success: true, message: `Fase "${phaseToStart.name}" avviata.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };

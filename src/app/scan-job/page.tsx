@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -55,11 +55,11 @@ const phaseMaterialSchema = z.object({
 });
 type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
 
-const tubiWithdrawalSchema = z.object({
+const tubiGuainaWithdrawalSchema = z.object({
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  unit: z.enum(['n', 'kg'], { required_error: "Selezionare l'unità di misura." }),
+  unit: z.enum(['n', 'kg', 'mt'], { required_error: "Selezionare l'unità di misura." }),
 });
-type TubiWithdrawalFormValues = z.infer<typeof tubiWithdrawalSchema>;
+type TubiGuainaWithdrawalFormValues = z.infer<typeof tubiGuainaWithdrawalSchema>;
 
 
 const closingWeightSchema = z.object({
@@ -151,8 +151,8 @@ export default function ScanJobPage() {
     defaultValues: { openingWeight: undefined, lottoBobina: '' },
   });
   
-  const tubiWithdrawalForm = useForm<TubiWithdrawalFormValues>({
-    resolver: zodResolver(tubiWithdrawalSchema),
+  const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
+    resolver: zodResolver(tubiGuainaWithdrawalSchema),
     defaultValues: { quantity: undefined },
   });
 
@@ -687,7 +687,7 @@ export default function ScanJobPage() {
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
     phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
-    tubiWithdrawalForm.reset({ quantity: undefined });
+    tubiGuainaWithdrawalForm.reset({ quantity: undefined });
     
     if (phase.requiresMaterialSearch) {
         setMaterialScanStep('search_input');
@@ -799,7 +799,7 @@ export default function ScanJobPage() {
     setIsMaterialScanDialogOpen(false);
   };
   
-  const onTubiWithdrawalSubmit = async (values: TubiWithdrawalFormValues) => {
+  const onTubiGuainaWithdrawalSubmit = async (values: TubiGuainaWithdrawalFormValues) => {
       if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
 
       // Optimistic UI update
@@ -811,7 +811,7 @@ export default function ScanJobPage() {
           const newConsumption: MaterialConsumption = {
               materialId: scannedMaterialForPhase.id,
               materialCode: scannedMaterialForPhase.code,
-              pcs: values.unit === 'n' ? values.quantity : undefined,
+              pcs: (values.unit === 'n' || values.unit === 'mt') ? values.quantity : undefined,
           };
           if (!phaseToUpdate.materialConsumptions) {
               phaseToUpdate.materialConsumptions = [];
@@ -830,7 +830,7 @@ export default function ScanJobPage() {
       formData.append('quantity', String(values.quantity));
       formData.append('unit', values.unit);
       
-      const result = await logTubiWithdrawal(formData);
+      const result = await logTubiGuainaWithdrawal(formData);
 
       toast({
         title: result.success ? "Successo" : "Errore",
@@ -1289,13 +1289,26 @@ export default function ScanJobPage() {
             )}
 
             {materialScanStep === 'form' && scannedMaterialForPhase && (
-                scannedMaterialForPhase.type === 'TUBI' || scannedMaterialForPhase.type === 'GUAINA' ? (
-                     <Form {...tubiWithdrawalForm}>
-                        <form onSubmit={tubiWithdrawalForm.handleSubmit(onTubiWithdrawalSubmit)} className="space-y-4">
-                            <Card>
-                                <CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader>
-                            </Card>
-                            <FormField control={tubiWithdrawalForm.control} name="unit" render={({ field }) => (
+                scannedMaterialForPhase.type === 'GUAINA' ? (
+                     <Form {...tubiGuainaWithdrawalForm}>
+                        <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
+                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                             <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => ( <FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
+                             <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Metri da Prelevare (MT)</FormLabel>
+                                    <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )} />
+                            <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                        </form>
+                    </Form>
+                ) : scannedMaterialForPhase.type === 'TUBI' ? (
+                     <Form {...tubiGuainaWithdrawalForm}>
+                        <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
+                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                            <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => (
                                 <FormItem className="space-y-3"><FormLabel>Prelievo per unità o peso?</FormLabel>
                                 <FormControl>
                                     <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
@@ -1304,10 +1317,10 @@ export default function ScanJobPage() {
                                     </RadioGroup>
                                 </FormControl><FormMessage /></FormItem>
                             )} />
-                            <FormField control={tubiWithdrawalForm.control} name="quantity" render={({ field }) => (
-                                <FormItem><FormLabel>Quantità da Prelevare</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                            <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                <FormItem><FormLabel>Quantità da Prelevare ({tubiGuainaWithdrawalForm.watch('unit')?.toUpperCase()})</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
                             )} />
-                            <DialogFooter><Button type="submit" disabled={tubiWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                            <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
                         </form>
                     </Form>
                 ) : (
@@ -1745,6 +1758,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
