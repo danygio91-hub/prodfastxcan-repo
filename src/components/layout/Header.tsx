@@ -42,35 +42,36 @@ export default function Header() {
   };
 
   const handleAbandonJob = async () => {
-    if (!activeJob) return;
+    if (!activeJob || !operator) return;
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    let phaseWasPaused = false;
     
-    // Pause any active phase
-    const activePhase = jobToUpdate.phases.find((p: any) => p.status === 'in-progress');
-    if (activePhase) {
-      const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
-      if (lastWorkPeriod && !lastWorkPeriod.end) {
-        lastWorkPeriod.end = new Date();
-      }
-      activePhase.status = 'paused';
-    }
-    
-    // If all preparation phases are completed, the job is ready for production, not suspended.
-    const preparationPhases = jobToUpdate.phases.filter((p: JobPhase) => p.type === 'preparation');
-    const allPreparationDone = preparationPhases.length > 0 && preparationPhases.every((p: JobPhase) => p.status === 'completed');
+    // Iterate over all phases to find the one the current operator is working on
+    jobToUpdate.phases.forEach((phase: JobPhase) => {
+        const myWorkPeriod = phase.workPeriods.find(wp => wp.operatorId === operator.id && wp.end === null);
+        
+        if (myWorkPeriod) {
+            myWorkPeriod.end = new Date(); // Close my specific work period
 
-    if (!allPreparationDone) {
-      jobToUpdate.status = 'suspended';
-    }
-    
+            // Check if anyone else is still working on this phase
+            const isAnyoneElseWorking = phase.workPeriods.some(wp => wp.operatorId !== operator.id && wp.end === null);
+
+            // Only pause the phase if I was the last one working on it
+            if (!isAnyoneElseWorking) {
+                phase.status = 'paused';
+                phaseWasPaused = true;
+            }
+        }
+    });
+
     const result = await updateJob(jobToUpdate);
     if (result.success) {
       toast({
-        title: allPreparationDone ? "Commessa Pronta" : "Commessa Abbandonata",
-        description: allPreparationDone 
-          ? `La commessa ${jobToUpdate.id} è pronta per la produzione.`
-          : `La commessa ${jobToUpdate.id} è stata sospesa.`,
+        title: "Sei uscito dalla commessa",
+        description: phaseWasPaused 
+          ? `La tua fase di lavoro è stata messa in pausa.`
+          : `La tua attività è terminata ma la fase prosegue con altri operatori.`,
       });
       setActiveJobId(null);
     } else {

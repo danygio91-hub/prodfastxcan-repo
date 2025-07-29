@@ -406,7 +406,7 @@ export default function ScanJobPage() {
 
 
   const handlePausePhase = (phaseId: string) => {
-    if (!activeJob) return;
+    if (!activeJob || !operator) return;
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
@@ -419,14 +419,21 @@ export default function ScanJobPage() {
       return;
     }
     
-    const lastWorkPeriod = phaseToPause.workPeriods[phaseToPause.workPeriods.length - 1];
-    if (lastWorkPeriod && !lastWorkPeriod.end) {
-        lastWorkPeriod.end = new Date();
+    const myWorkPeriod = phaseToPause.workPeriods.find((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriod) {
+        myWorkPeriod.end = new Date();
+    } else {
+      toast({ variant: "destructive", title: "Errore", description: "Non stai lavorando attivamente a questa fase." });
+      return;
     }
-    phaseToPause.status = 'paused';
+    
+    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.operatorId !== operator.id && wp.end === null);
+    if (!isAnyoneElseWorking) {
+        phaseToPause.status = 'paused';
+    }
 
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Messa in Pausa", description: `Fase "${phaseToPause.name}" in pausa.` });
+    toast({ title: "Fase Messa in Pausa", description: `La tua attività per la fase "${phaseToPause.name}" è in pausa.` });
   };
 
   const handleResumePhase = (phaseId: string) => {
@@ -438,14 +445,14 @@ export default function ScanJobPage() {
       toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." });
       return;
     }
-    if (!phaseToResume || phaseToResume.status !== 'paused') {
-      toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa." });
+    if (!phaseToResume || (phaseToResume.status !== 'paused' && phaseToResume.status !== 'in-progress')) {
+      toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa o in lavorazione per potervi partecipare." });
       return;
     }
     
-    const activeProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-    if (activeProductionPhase) {
-      toast({ variant: "destructive", title: "Un'altra fase è già attiva", description: `Completare o mettere in pausa "${activeProductionPhase.name}" prima di riprenderne un'altra.`});
+    const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    if (amIAlreadyWorking) {
+      toast({ variant: "destructive", title: "Già al lavoro", description: `Stai già lavorando a questa fase.`});
       return;
     }
 
@@ -453,7 +460,7 @@ export default function ScanJobPage() {
     phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Ripresa", description: `Fase "${phaseToResume.name}" ripresa.` });
+    toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToResume.name}".` });
   };
 
   const handleCompletePhase = (phaseId: string) => {
@@ -466,13 +473,21 @@ export default function ScanJobPage() {
         return;
     }
 
-    if (phaseToComplete.status === 'in-progress') {
-        const lastWorkPeriod = phaseToComplete.workPeriods[phaseToComplete.workPeriods.length - 1];
-        if (lastWorkPeriod && !lastWorkPeriod.end) {
-            lastWorkPeriod.end = new Date();
-        }
+    // Close only the current operator's work period
+    const myWorkPeriod = phaseToComplete.workPeriods.find((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriod) {
+        myWorkPeriod.end = new Date();
+    } else {
+        toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo su questa fase." });
+        return;
     }
-    phaseToComplete.status = 'completed';
+    
+    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: WorkPeriod) => wp.operatorId !== operator.id && wp.end === null);
+
+    // Only set the phase to completed if no one else is working on it.
+    if (!isAnyoneElseWorking) {
+        phaseToComplete.status = 'completed';
+    }
     
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
@@ -494,7 +509,7 @@ export default function ScanJobPage() {
     }
 
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
+    toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToComplete.name}" è terminata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
   
   const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed', notes?: string) => {
@@ -1116,7 +1131,7 @@ export default function ScanJobPage() {
                     const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
                     const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
-                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'paused';
+                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status !== 'in-progress' && (phase.status === 'paused' || phase.status === 'in-progress');
                     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
                     const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
 
@@ -1155,11 +1170,11 @@ export default function ScanJobPage() {
                         operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('Collaudo'));
                     }
                     
-                    const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
+                    const isPhaseOwner = (phase.workPeriods || []).some((wp: WorkPeriod) => wp.operatorId === operator?.id && wp.end === null);
                     const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
                     const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
-                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'paused';
+                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
                     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob}
@@ -1758,6 +1773,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
