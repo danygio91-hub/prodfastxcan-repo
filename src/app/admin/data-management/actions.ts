@@ -64,6 +64,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
+            // LOGIC FIX: A phase is NOT ready if it requires a material scan OR a manual search.
             materialReady: !(template.requiresMaterialScan || template.requiresMaterialSearch),
             workPeriods: [],
             sequence: template.sequence,
@@ -79,14 +80,18 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     
     const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
     
-    const firstPhaseRequiringMaterial = sortedPhases.find(p => p.requiresMaterialScan || p.requiresMaterialSearch);
-    if (firstPhaseRequiringMaterial) {
-      firstPhaseRequiringMaterial.materialReady = true;
+    // Find the very first preparation phase and make it ready ONLY IF it doesn't need material.
+    // This allows the workflow to start. If it needs material, the user action will make it ready.
+    const firstPrepPhase = sortedPhases.find(p => p.type === 'preparation');
+    if (firstPrepPhase && !firstPrepPhase.requiresMaterialScan && !firstPrepPhase.requiresMaterialSearch) {
+      firstPrepPhase.materialReady = true;
     } else {
-      // If no phase requires material, the first phase of the whole cycle is ready.
-      if (sortedPhases.length > 0) {
-        sortedPhases[0].materialReady = true;
-      }
+        // If there are no preparation phases, the first production phase is ready to be worked on
+        // if it doesn't require material.
+        const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
+        if (firstProductionPhase && !firstProductionPhase.requiresMaterialScan && !firstProductionPhase.requiresMaterialSearch) {
+            firstProductionPhase.materialReady = true;
+        }
     }
     
     return sortedPhases;
@@ -606,4 +611,3 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
-
