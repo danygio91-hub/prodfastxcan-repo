@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -63,7 +64,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: false, // Default to false for all phases initially
+            materialReady: !(template.requiresMaterialScan || template.requiresMaterialSearch),
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
@@ -76,10 +77,8 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         };
     }).filter((p): p is JobPhase => p !== null);
     
-    // Sort phases by sequence before determining initial readiness
     const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
     
-    // The very first phase that requires material should be marked as ready.
     const firstPhaseRequiringMaterial = sortedPhases.find(p => p.requiresMaterialScan || p.requiresMaterialSearch);
     if (firstPhaseRequiringMaterial) {
       firstPhaseRequiringMaterial.materialReady = true;
@@ -607,3 +606,4 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
+
