@@ -3,7 +3,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
@@ -131,12 +131,12 @@ export async function resolveJobProblem(jobId: string, uid: string | undefined |
 
     const jobData = jobSnap.data() as JobOrder;
     
-    // Reset the general problem flag
-    const updatePayload: Partial<JobOrder> = { 
+    // Reset the general problem flag using deleteField() for undefined values
+    const updatePayload: any = { 
         isProblemReported: false,
-        problemType: undefined,
-        problemNotes: undefined,
-        problemReportedBy: undefined
+        problemType: deleteField(),
+        problemNotes: deleteField(),
+        problemReportedBy: deleteField()
     };
 
     // If the problem was a quality failure, reset the phase status to allow re-testing
