@@ -34,9 +34,19 @@ const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
   cognome: z.string().optional(),
-  email: z.string().email("Formato email non valido."),
-  reparto: z.array(z.string()).min(1, "Selezionare almeno un reparto.").max(3, "Puoi selezionare al massimo 3 reparti."),
+  email: z.string().email("Formato email non valido.").refine(email => email.endsWith('@prodfastxcan.app'), {
+    message: "L'email deve terminare con @prodfastxcan.app",
+  }),
+  reparto: z.array(z.string()).max(3, "Puoi selezionare al massimo 3 reparti.").optional(),
   role: z.enum(['admin', 'superadvisor', 'operator']),
+}).refine(data => {
+    if (data.role === 'operator') {
+        return data.reparto && data.reparto.length > 0;
+    }
+    return true;
+}, {
+    message: "Selezionare almeno un reparto per il ruolo operatore.",
+    path: ["reparto"],
 });
 
 type OperatorFormValues = z.infer<typeof operatorFormSchema>;
@@ -84,8 +94,8 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
 
   useEffect(() => {
-    if (watchedRole === 'admin') {
-      form.setValue('reparto', ['N/D']);
+    if (watchedRole === 'admin' || watchedRole === 'superadvisor') {
+      form.setValue('reparto', []);
     }
   }, [watchedRole, form]);
 
@@ -117,17 +127,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
   }
 
   const onSubmit = async (values: OperatorFormValues) => {
-    const formData = new FormData();
-    // Use Object.entries on the values to build FormData
-    Object.entries(values).forEach(([key, value]) => {
-        if (key === 'reparto' && Array.isArray(value)) {
-            value.forEach(r => formData.append(key, r));
-        } else if (value !== undefined && value !== null && value !== '') {
-            formData.append(key, String(value));
-        }
-    });
-
-    const result = await saveOperator(formData);
+    const result = await saveOperator(values);
 
     if (result.success) {
       toast({ title: "Successo", description: result.message });
@@ -332,7 +332,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                     <FormMessage />
                   </FormItem>
                 )} />
-                {watchedRole !== 'admin' && (
+                {watchedRole === 'operator' && (
                   <FormField
                     control={form.control}
                     name="reparto"
@@ -359,10 +359,11 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                                     <Checkbox
                                       checked={field.value?.includes(item)}
                                       onCheckedChange={(checked) => {
+                                        const currentValue = field.value || [];
                                         return checked
-                                          ? field.onChange([...field.value, item])
+                                          ? field.onChange([...currentValue, item])
                                           : field.onChange(
-                                              field.value?.filter(
+                                              currentValue.filter(
                                                 (value) => value !== item
                                               )
                                             )
