@@ -1545,10 +1545,6 @@ export default function ScanJobPage() {
 
             <Dialog open={isQualityProblemDialogOpen} onOpenChange={setIsQualityProblemDialogOpen}>
                 <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Segnala Non Conformità</DialogTitle>
-                        <DialogDescription>Descrivi il problema riscontrato durante il collaudo per la fase "{phaseForQualityProblem?.name}".</DialogDescription>
-                    </DialogHeader>
                     <Form {...problemForm}>
                         <form onSubmit={problemForm.handleSubmit((data) => {
                             if (phaseForQualityProblem) {
@@ -1556,23 +1552,32 @@ export default function ScanJobPage() {
                             }
                             setIsQualityProblemDialogOpen(false);
                             problemForm.reset();
-                        })} className="py-4 space-y-4">
-                            <FormField
-                                control={problemForm.control}
-                                name="notes"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Note sulla non conformità</FormLabel>
-                                    <FormControl>
-                                    <Input {...field} placeholder="Es. Saldatura fredda sul componente C12" />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
+                        })}>
+                            <DialogHeader>
+                                <DialogTitle>Segnala Non Conformità</DialogTitle>
+                                <DialogDescription>Descrivi il problema riscontrato durante il collaudo per la fase "{phaseForQualityProblem?.name}".</DialogDescription>
+                            </DialogHeader>
+                            <div className="py-4">
+                                <FormField
+                                    control={problemForm.control}
+                                    name="notes"
+                                    render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Note sulla non conformità</FormLabel>
+                                        <FormControl>
+                                        <Input {...field} placeholder="Es. Quote fuori tolleranza" />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                    )}
+                                />
+                            </div>
                              <DialogFooter>
-                                <Button type="button" variant="ghost" onClick={() => setIsQualityProblemDialogOpen(false)}>Annulla</Button>
-                                <Button type="submit" variant="destructive">Invia Segnalazione</Button>
+                                <Button type="button" variant="ghost" onClick={() => setIsQualityProblemDialogOpen(false)} disabled={problemForm.formState.isSubmitting}>Annulla</Button>
+                                <Button type="submit" variant="destructive" disabled={problemForm.formState.isSubmitting}>
+                                     {problemForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                    Invia Segnalazione
+                                </Button>
                             </DialogFooter>
                         </form>
                     </Form>
@@ -1748,6 +1753,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
