@@ -153,7 +153,7 @@ export default function ScanJobPage() {
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
     resolver: zodResolver(tubiGuainaWithdrawalSchema),
-    defaultValues: { quantity: undefined },
+    defaultValues: { quantity: undefined, unit: 'mt' },
   });
 
   const closingWeightForm = useForm<ClosingWeightFormValues>({
@@ -677,7 +677,7 @@ export default function ScanJobPage() {
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
     phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
-    tubiGuainaWithdrawalForm.reset({ quantity: undefined });
+    tubiGuainaWithdrawalForm.reset({ quantity: undefined, unit: 'mt' });
     
     if (phase.requiresMaterialSearch) {
         setMaterialScanStep('search_input');
@@ -1748,6 +1748,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
