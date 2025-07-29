@@ -1152,7 +1152,7 @@ export default function ScanJobPage() {
                     let operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
                     // Special check for 'quality' phases
                     if (phase.type === 'quality') {
-                        operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('COLLAUDO'));
+                        operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('Collaudo'));
                     }
                     
                     const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
@@ -1758,6 +1758,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 

@@ -59,13 +59,13 @@ export interface JobOrder {
   odlCreationDate?: Date;
 }
 
-export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina' | 'COLLAUDO';
+export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina' | 'Collaudo';
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
 export type OperatorRole = 'admin' | 'superadvisor' | 'operator';
 
-export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina', 'COLLAUDO'];
+export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina', 'Collaudo'];
 // Deprecated: This was too restrictive. Use `reparti` and filter as needed.
-export const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG'];
+export const operatorReparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'Collaudo'];
 export const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
 
 export interface Operator {
@@ -207,7 +207,7 @@ export const initialDepartmentMap: { [key in Reparto]: string } = {
     CG: 'Controllo Qualità',
     BF: 'Burattatura e Finitura',
     MAG: 'Magazzino',
-    COLLAUDO: 'Collaudo e Test Funzionali',
+    Collaudo: 'Collaudo e Test Funzionali',
     'N/D': 'Non Definito',
     Officina: 'Officina',
 };
