@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions, backupAllData } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -59,6 +59,7 @@ export default function AdminAppSettingsPage() {
   const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
   const [isResettingWork, startResetWorkTransition] = useTransition();
   const [isResettingSessions, startResetSessionsTransition] = useTransition();
+  const [isBackingUp, startBackupTransition] = useTransition();
 
   const { toast } = useToast();
 
@@ -121,6 +122,28 @@ export default function AdminAppSettingsPage() {
         });
     });
   }
+
+  const handleBackup = () => {
+    startBackupTransition(async () => {
+        toast({ title: "Avvio del Backup", description: "Preparazione dei dati in corso..." });
+        const result = await backupAllData();
+
+        if (result.success && result.data) {
+            try {
+                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(result.data, null, 2))}`;
+                const link = document.createElement("a");
+                link.href = jsonString;
+                link.download = `pfxcan_backup_${new Date().toISOString().split('T')[0]}.json`;
+                link.click();
+                toast({ title: "Backup Completato", description: "Il file di backup è stato scaricato." });
+            } catch (e) {
+                toast({ variant: "destructive", title: "Errore Download", description: "Impossibile creare il file di backup da scaricare." });
+            }
+        } else {
+            toast({ variant: "destructive", title: "Backup Fallito", description: result.message });
+        }
+    });
+  };
 
   const handleResetJobOrders = () => {
     if (!user) return;
@@ -238,8 +261,8 @@ export default function AdminAppSettingsPage() {
                 </p>
             </header>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <Card>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <Card className="lg:col-span-1">
                   <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                           <Brush className="h-6 w-6 text-primary" />
@@ -284,54 +307,76 @@ export default function AdminAppSettingsPage() {
                   </CardContent>
               </Card>
 
-              <Card>
-                  <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                          <Database className="h-6 w-6 text-primary" />
-                          Dati Iniziali Applicazione
-                      </CardTitle>
-                      <CardDescription>
-                          Usa questa funzione per caricare i dati di esempio (operatori, reparti, etc.) nel tuo database Firebase.
-                      </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="p-4 border border-yellow-500/50 bg-yellow-500/10 rounded-md">
-                      <div className="flex items-start">
-                        <AlertTriangle className="h-5 w-5 text-yellow-600 mr-3 mt-1" />
-                        <div>
-                          <h4 className="font-semibold text-yellow-700 dark:text-yellow-400">Attenzione</h4>
-                          <p className="text-sm text-yellow-600 dark:text-yellow-300">
-                            Questa operazione aggiungerà i dati solo se le collezioni nel database sono vuote. Non sovrascriverà dati esistenti.
-                          </p>
-                        </div>
+              <div className="lg:col-span-2 space-y-8">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Database className="h-6 w-6 text-primary" />
+                            Gestione Dati
+                        </CardTitle>
+                        <CardDescription>
+                            Popola il database con dati di esempio o esegui un backup completo.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                         <div className="p-4 border border-yellow-500/50 bg-yellow-500/10 rounded-md">
+                            <div className="flex items-start">
+                              <AlertTriangle className="h-5 w-5 text-yellow-600 mr-3 mt-1" />
+                              <div>
+                                <h4 className="font-semibold text-yellow-700 dark:text-yellow-400">Attenzione</h4>
+                                <p className="text-sm text-yellow-600 dark:text-yellow-300">
+                                  L'operazione di popolamento aggiungerà dati solo se il database è vuoto.
+                                </p>
+                              </div>
+                            </div>
+                         </div>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                             <Button variant="outline" className="w-full" disabled={isPending}>
+                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Database className="mr-2 h-4 w-4" />}
+                              Popola Database Iniziale
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Confermi di voler procedere?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Verranno aggiunti i dati di esempio al tuo database Firestore. Questa operazione è consigliata solo al primo avvio o dopo un reset completo del database.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleSeedDatabase} disabled={isPending}>
+                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                Sì, popola il database
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
-                    </div>
-                  </CardContent>
-                   <CardFooter>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                         <Button variant="outline" className="w-full" disabled={isPending}>
-                          Popola Database Iniziale
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Confermi di voler procedere?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Verranno aggiunti i dati di esempio al tuo database Firestore. Questa operazione è consigliata solo al primo avvio o dopo un reset completo del database.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleSeedDatabase} disabled={isPending}>
-                            {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                            Sì, popola il database
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </CardFooter>
-              </Card>
+
+                      <div className="space-y-4">
+                        <div className="p-4 border border-blue-500/50 bg-blue-500/10 rounded-md">
+                          <div className="flex items-start">
+                            <Download className="h-5 w-5 text-blue-600 mr-3 mt-1" />
+                            <div>
+                              <h4 className="font-semibold text-blue-700 dark:text-blue-400">Backup Completo</h4>
+                              <p className="text-sm text-blue-600 dark:text-blue-300">
+                                Scarica un file JSON contenente tutti i dati principali dell'applicazione.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                         <Button onClick={handleBackup} disabled={isBackingUp} className="w-full">
+                           {isBackingUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2 h-4 w-4" />}
+                            Esegui Backup Completo
+                          </Button>
+                      </div>
+                    </CardContent>
+                </Card>
+              </div>
+
             </div>
             
             <div className="mt-8">

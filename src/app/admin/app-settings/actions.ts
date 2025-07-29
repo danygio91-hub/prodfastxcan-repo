@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
@@ -330,4 +330,46 @@ export async function resetAllActiveSessions(uid: string): Promise<{ success: bo
     console.error("Errore nel reset delle sessioni:", error);
     return { success: false, message: `Si è verificato un errore: ${errorMessage}` };
   }
+}
+
+export async function backupAllData(): Promise<{ success: boolean; message: string; data?: any; }> {
+    try {
+        const collectionsToBackup = [
+            'jobOrders',
+            'rawMaterials',
+            'operators',
+            'workPhaseTemplates',
+            'workCycles',
+            'workstations',
+            'materialWithdrawals',
+            'nonConformityReports',
+        ];
+
+        const backupData: { [key: string]: any[] } = {};
+        let totalDocs = 0;
+
+        for (const collectionName of collectionsToBackup) {
+            const snapshot = await getDocs(collection(db, collectionName));
+            backupData[collectionName] = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+            totalDocs += snapshot.size;
+        }
+
+        const configRef = doc(db, "configuration", "departmentMap");
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+            backupData['configuration'] = [{...configSnap.data(), id: 'departmentMap'}];
+            totalDocs++;
+        }
+
+        return {
+            success: true,
+            message: `Backup di ${totalDocs} documenti completato con successo.`,
+            data: backupData,
+        };
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore durante il backup.";
+        console.error("Errore nel backup:", error);
+        return { success: false, message: errorMessage };
+    }
 }
