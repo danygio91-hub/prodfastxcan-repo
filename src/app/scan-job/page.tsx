@@ -346,22 +346,12 @@ export default function ScanJobPage() {
 
       if (!activeJob || !operator || !phaseForPhaseScan) return;
       
-      if (scannedId !== phaseForPhaseScan.name) {
-        toast({
-            variant: "destructive",
-            title: "Errore Scansione Fase",
-            description: `QR Code non valido. Scansionato: "${scannedId}", Atteso: "${phaseForPhaseScan?.name}".`,
-            duration: 9000,
-        });
-        return;
-      }
-
       const result = await handlePhaseScanResult(activeJob.id, phaseForPhaseScan.id, operator.id);
       
       if (result.success) {
           toast({
             title: "Fase Avviata!",
-            description: result.message,
+            description: `Fase "${phaseForPhaseScan.name}" avviata con successo.`,
             action: <CheckCircle className="text-green-500" />,
           });
       } else {
@@ -1375,7 +1365,7 @@ export default function ScanJobPage() {
         <DialogContent>
             <DialogHeader>
                 <DialogTitle>Scansiona QR Code Fase</DialogTitle>
-                <DialogDescription>Inquadra il QR Code con il nome della fase "{phaseForPhaseScan?.name}" per avviarla.</DialogDescription>
+                <DialogDescription>Inquadra il QR Code con il nome della fase per avviarla.</DialogDescription>
             </DialogHeader>
             {renderScanArea(handleLocalPhaseScanResult)}
             <DialogFooter className="flex-col sm:flex-row gap-2">
@@ -1758,6 +1748,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 

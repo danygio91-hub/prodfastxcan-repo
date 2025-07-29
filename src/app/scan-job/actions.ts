@@ -498,7 +498,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
-    return { success: true, message: `Fase "${phaseToStart.name}" avviata.` };
+    return { success: true, message: `Fase avviata con successo.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
