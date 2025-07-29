@@ -3,7 +3,7 @@
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -318,7 +318,9 @@ export async function getOperatorDetailReport(operatorId: string) {
     };
 }
 
-export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Date }): Promise<MaterialWithdrawal[]> {
+type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
+
+export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Date }): Promise<EnrichedMaterialWithdrawal[]> {
     const withdrawalsRef = collection(db, "materialWithdrawals");
     let q = query(withdrawalsRef);
 
@@ -330,15 +332,26 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     }
 
     const snapshot = await getDocs(q);
-    const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
+    const withdrawals: EnrichedMaterialWithdrawal[] = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as EnrichedMaterialWithdrawal);
+
+    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
+    const materialIds = [...new Set(withdrawals.map(w => w.materialId))];
 
     // Fetch operators to enrich the report
-    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
     if (operatorIds.length > 0) {
         const operatorsSnapshot = await getDocs(query(collection(db, "operators"), where("id", "in", operatorIds)));
         const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.data().id, doc.data() as Operator]));
         withdrawals.forEach(w => {
             w.operatorName = operatorsMap.get(w.operatorId)?.nome || 'Sconosciuto';
+        });
+    }
+
+    // Fetch materials to get their type for grouping
+    if (materialIds.length > 0) {
+        const materialsSnapshot = await getDocs(query(collection(db, "rawMaterials"), where("__name__", "in", materialIds)));
+        const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.id, doc.data() as RawMaterial]));
+        withdrawals.forEach(w => {
+            w.materialType = materialsMap.get(w.materialId)?.type;
         });
     }
 
@@ -530,5 +543,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-
-    

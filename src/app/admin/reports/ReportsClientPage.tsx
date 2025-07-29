@@ -15,6 +15,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,22 +30,18 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search } from 'lucide-react';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package } from 'lucide-react';
 import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
-import type { MaterialWithdrawal } from '@/lib/mock-data';
+import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
 import type { getJobsReport, getOperatorsReport } from './actions';
 import { useRouter } from 'next/navigation';
 
 type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
+type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 
-interface ReportsClientPageProps {
-  initialJobsReport: JobsReport;
-  initialOperatorsReport: OperatorsReport;
-  initialWithdrawalsReport: MaterialWithdrawal[];
-}
 
 function StatusBadge({ status }: { status: OverallStatus }) {
   return (
@@ -69,7 +66,7 @@ export default function ReportsClientPage({
 }: ReportsClientPageProps) {
   const [jobsReport, setJobsReport] = useState<JobsReport>(initialJobsReport);
   const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>(initialOperatorsReport);
-  const [withdrawalsReport, setWithdrawalsReport] = useState<MaterialWithdrawal[]>(initialWithdrawalsReport);
+  const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>(initialWithdrawalsReport);
   
   const [isPendingWithdrawals, startTransitionWithdrawals] = useTransition();
 
@@ -96,24 +93,32 @@ export default function ReportsClientPage({
     fetchWithdrawals();
   }, [date, fetchWithdrawals]);
   
-  const filteredWithdrawals = useMemo(() => {
-    if (!searchTerm) {
-        return withdrawalsReport;
-    }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return withdrawalsReport.filter(w =>
-        w.jobOrderPFs.join(', ').toLowerCase().includes(lowercasedFilter) ||
-        w.materialCode.toLowerCase().includes(lowercasedFilter) ||
-        (w.operatorName || '').toLowerCase().includes(lowercasedFilter)
-    );
+  const filteredAndGroupedWithdrawals = useMemo(() => {
+    const filtered = searchTerm
+        ? withdrawalsReport.filter(w =>
+            w.jobOrderPFs.join(', ').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            w.materialCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (w.operatorName || '').toLowerCase().includes(searchTerm.toLowerCase())
+        )
+        : withdrawalsReport;
+
+    return filtered.reduce((acc, withdrawal) => {
+        const type = withdrawal.materialType || 'Sconosciuto';
+        if (!acc[type]) {
+            acc[type] = [];
+        }
+        acc[type].push(withdrawal);
+        return acc;
+    }, {} as Record<string, EnrichedMaterialWithdrawal[]>);
   }, [withdrawalsReport, searchTerm]);
 
 
-  const handleSelectAllWithdrawals = (checked: boolean | 'indeterminate') => {
-    if (checked === true) {
-      setSelectedWithdrawals(filteredWithdrawals.map(w => w.id));
+  const handleSelectAllForGroup = (group: EnrichedMaterialWithdrawal[], checked: boolean | 'indeterminate') => {
+    const groupIds = group.map(w => w.id);
+    if (checked) {
+        setSelectedWithdrawals(prev => [...new Set([...prev, ...groupIds])]);
     } else {
-      setSelectedWithdrawals([]);
+        setSelectedWithdrawals(prev => prev.filter(id => !groupIds.includes(id)));
     }
   };
 
@@ -174,7 +179,8 @@ export default function ReportsClientPage({
   };
 
   const handleExportWithdrawals = () => {
-    const dataToExport = filteredWithdrawals.map(w => ({
+    const dataToExport = withdrawalsReport.map(w => ({
+      'Tipo Materiale': w.materialType || 'Sconosciuto',
       'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
       'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
@@ -399,7 +405,7 @@ export default function ReportsClientPage({
                                     />
                                 </PopoverContent>
                             </Popover>
-                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || filteredWithdrawals.length === 0}>
+                            <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
                                 <Download className="mr-2 h-4 w-4" />
                                 Esporta Excel
                             </Button>
@@ -448,51 +454,75 @@ export default function ReportsClientPage({
                       </div>
                   </CardHeader>
                   <CardContent>
-                      <div className="overflow-x-auto">
-                          <Table>
-                              <TableHeader>
-                                  <TableRow>
-                                       <TableHead padding="checkbox">
-                                          <Checkbox
-                                            checked={selectedWithdrawals.length > 0 ? (selectedWithdrawals.length === filteredWithdrawals.length ? true : 'indeterminate') : false}
-                                            onCheckedChange={handleSelectAllWithdrawals}
-                                            aria-label="Seleziona tutti"
-                                          />
-                                      </TableHead>
-                                      <TableHead>Commessa/e</TableHead>
-                                      <TableHead>Materiale</TableHead>
-                                      <TableHead>Peso Consumato (Kg)</TableHead>
-                                      <TableHead>Data Prelievo</TableHead>
-                                      <TableHead>Operatore</TableHead>
-                                  </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                  {isPendingWithdrawals ? renderLoadingRow(6) : 
-                                   filteredWithdrawals.length > 0 ? (
-                                      filteredWithdrawals.map((w) => (
-                                          <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
-                                               <TableCell padding="checkbox">
-                                                  <Checkbox
-                                                    checked={selectedWithdrawals.includes(w.id)}
-                                                    onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
-                                                    aria-label={`Seleziona prelievo ${w.id}`}
-                                                  />
-                                              </TableCell>
-                                              <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
-                                              <TableCell>{w.materialCode}</TableCell>
-                                              <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
-                                              <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                              <TableCell>{w.operatorName}</TableCell>
-                                          </TableRow>
-                                      ))
-                                  ) : (
-                                      <TableRow>
-                                          <TableCell colSpan={6} className="h-24 text-center">Nessun prelievo trovato per i filtri selezionati.</TableCell>
-                                      </TableRow>
-                                  )}
-                              </TableBody>
-                          </Table>
-                      </div>
+                       {isPendingWithdrawals ? (
+                         <div className="flex items-center justify-center h-64">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                         </div>
+                       ) : Object.keys(filteredAndGroupedWithdrawals).length > 0 ? (
+                           <Accordion type="multiple" defaultValue={Object.keys(filteredAndGroupedWithdrawals)} className="w-full">
+                            {Object.entries(filteredAndGroupedWithdrawals).map(([type, group]) => {
+                                const groupIds = group.map(w => w.id);
+                                const selectedInGroupCount = selectedWithdrawals.filter(id => groupIds.includes(id)).length;
+                                return (
+                                <AccordionItem value={type} key={type}>
+                                    <AccordionTrigger>
+                                        <div className="flex items-center gap-2 text-lg font-semibold">
+                                            <Package className="h-5 w-5 text-primary" />
+                                            {type}
+                                            <Badge variant="secondary">{group.length}</Badge>
+                                        </div>
+                                    </AccordionTrigger>
+                                    <AccordionContent>
+                                        <div className="overflow-x-auto">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead padding="checkbox">
+                                                        <Checkbox
+                                                          checked={selectedInGroupCount > 0 ? (selectedInGroupCount === group.length ? true : 'indeterminate') : false}
+                                                          onCheckedChange={(checked) => handleSelectAllForGroup(group, checked)}
+                                                          aria-label={`Seleziona tutti i prelievi per ${type}`}
+                                                        />
+                                                    </TableHead>
+                                                    <TableHead>Commessa/e</TableHead>
+                                                    <TableHead>Materiale</TableHead>
+                                                    <TableHead>Peso Consumato (Kg)</TableHead>
+                                                    <TableHead>Data Prelievo</TableHead>
+                                                    <TableHead>Operatore</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {group.map((w) => (
+                                                    <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
+                                                        <TableCell padding="checkbox">
+                                                            <Checkbox
+                                                              checked={selectedWithdrawals.includes(w.id)}
+                                                              onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
+                                                              aria-label={`Seleziona prelievo ${w.id}`}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
+                                                        <TableCell>{w.materialCode}</TableCell>
+                                                        <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
+                                                        <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                                        <TableCell>{w.operatorName}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                        </div>
+                                    </AccordionContent>
+                                </AccordionItem>
+                                )
+                            })}
+                           </Accordion>
+                       ) : (
+                        <div className="flex flex-col items-center justify-center h-48 text-center text-muted-foreground">
+                            <Boxes className="h-12 w-12 mb-4" />
+                            <p className="font-semibold">Nessun prelievo trovato.</p>
+                            <p className="text-sm">Non ci sono dati che corrispondono ai filtri di ricerca e al periodo selezionato.</p>
+                        </div>
+                       )}
                   </CardContent>
                 </Card>
           </TabsContent>
