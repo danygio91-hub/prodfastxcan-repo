@@ -341,22 +341,33 @@ export default function ScanJobPage() {
   const handleLocalPhaseScanResult = async (scannedId: string) => {
       setIsPhaseScanDialogOpen(false);
       stopCamera();
-
+  
       if (!activeJob || !operator || !phaseForPhaseScan) return;
-      
+  
+      // --- VALIDATION LOGIC ---
+      if (scannedId.trim() !== phaseForPhaseScan.name) {
+          toast({
+              variant: "destructive",
+              title: "Scansione Fase Errata",
+              description: `Prevista: "${phaseForPhaseScan.name}". Scansionata: "${scannedId.trim()}".`,
+          });
+          return;
+      }
+      // --- END VALIDATION LOGIC ---
+  
       const result = await handlePhaseScanResult(activeJob.id, phaseForPhaseScan.id, operator.id);
-      
+  
       if (result.success) {
           toast({
-            title: "Fase Avviata!",
-            description: `Fase "${phaseForPhaseScan.name}" avviata con successo.`,
-            action: <CheckCircle className="text-green-500" />,
+              title: "Fase Avviata!",
+              description: `Fase "${phaseForPhaseScan.name}" avviata con successo.`,
+              action: <CheckCircle className="text-green-500" />,
           });
       } else {
-           toast({
-            variant: "destructive",
-            title: "Errore Avvio Fase",
-            description: result.message,
+          toast({
+              variant: "destructive",
+              title: "Errore Avvio Fase",
+              description: result.message,
           });
       }
   };
