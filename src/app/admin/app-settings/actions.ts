@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
@@ -370,6 +370,53 @@ export async function backupAllData(): Promise<{ success: boolean; message: stri
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore durante il backup.";
         console.error("Errore nel backup:", error);
+        return { success: false, message: errorMessage };
+    }
+}
+
+
+export async function restoreDataFromBackup(backupJson: string, uid: string): Promise<{ success: boolean; message: string; }> {
+    try {
+        await ensureAdmin(uid);
+
+        const collectionsToRestore = [
+            'jobOrders', 'rawMaterials', 'operators', 'workPhaseTemplates',
+            'workCycles', 'workstations', 'materialWithdrawals', 'nonConformityReports',
+            'configuration'
+        ];
+
+        // 1. Delete all current data
+        for (const collectionName of collectionsToRestore) {
+            await deleteAllFromCollection(collectionName);
+        }
+
+        // 2. Parse backup data
+        const backupData = JSON.parse(backupJson);
+
+        // 3. Restore data from backup
+        const restoreBatch = writeBatch(db);
+        let restoredDocs = 0;
+
+        for (const collectionName of collectionsToRestore) {
+            if (backupData[collectionName]) {
+                for (const item of backupData[collectionName]) {
+                    const { id, ...data } = item;
+                    const docRef = doc(db, collectionName, id);
+                    restoreBatch.set(docRef, data);
+                    restoredDocs++;
+                }
+            }
+        }
+        
+        await restoreBatch.commit();
+
+        revalidatePath('/', 'layout');
+
+        return { success: true, message: `Ripristino completato. ${restoredDocs} documenti sono stati ripristinati.` };
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore durante il ripristino.";
+        console.error("Errore nel ripristino:", error);
         return { success: false, message: errorMessage };
     }
 }

@@ -1,12 +1,12 @@
 
 "use client";
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useRef } from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download, Upload } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import {
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions, backupAllData } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions, backupAllData, restoreDataFromBackup } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -60,6 +60,9 @@ export default function AdminAppSettingsPage() {
   const [isResettingWork, startResetWorkTransition] = useTransition();
   const [isResettingSessions, startResetSessionsTransition] = useTransition();
   const [isBackingUp, startBackupTransition] = useTransition();
+  const [isRestoring, startRestoreTransition] = useTransition();
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
 
@@ -143,6 +146,38 @@ export default function AdminAppSettingsPage() {
             toast({ variant: "destructive", title: "Backup Fallito", description: result.message });
         }
     });
+  };
+
+  const handleRestoreTrigger = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const content = e.target?.result;
+        if (typeof content === 'string') {
+            startRestoreTransition(async () => {
+                if (!user) return;
+                toast({ title: 'Ripristino in corso', description: 'Cancellazione dei dati attuali...' });
+                const result = await restoreDataFromBackup(content, user.uid);
+                toast({
+                    title: result.success ? "Ripristino Completato" : "Ripristino Fallito",
+                    description: result.message,
+                    variant: result.success ? "default" : "destructive",
+                });
+                if (result.success) {
+                    triggerGlobalLogout();
+                    toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+                }
+            });
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
   };
 
   const handleResetJobOrders = () => {
@@ -312,29 +347,20 @@ export default function AdminAppSettingsPage() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Database className="h-6 w-6 text-primary" />
-                            Gestione Dati
+                            Gestione Dati Applicazione
                         </CardTitle>
                         <CardDescription>
-                            Popola il database con dati di esempio o esegui un backup completo.
+                            Azioni di popolamento, backup e ripristino del database.
                         </CardDescription>
                     </CardHeader>
                     <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-4">
-                         <div className="p-4 border border-yellow-500/50 bg-yellow-500/10 rounded-md">
-                            <div className="flex items-start">
-                              <AlertTriangle className="h-5 w-5 text-yellow-600 mr-3 mt-1" />
-                              <div>
-                                <h4 className="font-semibold text-yellow-700 dark:text-yellow-400">Attenzione</h4>
-                                <p className="text-sm text-yellow-600 dark:text-yellow-300">
-                                  L'operazione di popolamento aggiungerà dati solo se il database è vuoto.
-                                </p>
-                              </div>
-                            </div>
-                         </div>
+                      <div className="space-y-2 p-4 rounded-lg border">
+                         <h4 className="font-semibold flex items-center gap-2"><Database className="h-5 w-5"/> Popolamento Iniziale</h4>
+                         <p className="text-sm text-muted-foreground">Aggiunge dati di esempio solo se il database è vuoto.</p>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                              <Button variant="outline" className="w-full" disabled={isPending}>
-                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Database className="mr-2 h-4 w-4" />}
+                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                               Popola Database Iniziale
                             </Button>
                           </AlertDialogTrigger>
@@ -356,22 +382,41 @@ export default function AdminAppSettingsPage() {
                         </AlertDialog>
                       </div>
 
-                      <div className="space-y-4">
-                        <div className="p-4 border border-blue-500/50 bg-blue-500/10 rounded-md">
-                          <div className="flex items-start">
-                            <Download className="h-5 w-5 text-blue-600 mr-3 mt-1" />
-                            <div>
-                              <h4 className="font-semibold text-blue-700 dark:text-blue-400">Backup Completo</h4>
-                              <p className="text-sm text-blue-600 dark:text-blue-300">
-                                Scarica un file JSON contenente tutti i dati principali dell'applicazione.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                         <Button onClick={handleBackup} disabled={isBackingUp} className="w-full">
-                           {isBackingUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2 h-4 w-4" />}
-                            Esegui Backup Completo
+                      <div className="space-y-2 p-4 rounded-lg border">
+                          <h4 className="font-semibold flex items-center gap-2"><Download className="h-5 w-5"/> Backup Completo</h4>
+                          <p className="text-sm text-muted-foreground">Scarica un file JSON con tutti i dati principali dell'app.</p>
+                          <Button onClick={handleBackup} disabled={isBackingUp} className="w-full">
+                           {isBackingUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                            Esegui Backup
                           </Button>
+                      </div>
+                       <div className="space-y-2 p-4 rounded-lg border md:col-span-2 border-yellow-500/50 bg-yellow-500/10">
+                          <h4 className="font-semibold flex items-center gap-2 text-yellow-700 dark:text-yellow-400"><Upload className="h-5 w-5"/> Ripristino da Backup</h4>
+                          <p className="text-sm text-yellow-600 dark:text-yellow-300">Carica un file JSON di backup. <span className="font-bold">Attenzione:</span> tutti i dati attuali verranno eliminati e sostituiti.</p>
+                           <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="outline" className="w-full border-yellow-500/50 hover:bg-yellow-500/20 text-yellow-700 dark:text-yellow-400" disabled={isRestoring}>
+                                {isRestoring ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                Ripristina da Backup
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Questa azione è irreversibile. Tutti i dati correnti verranno eliminati e sostituiti con i dati del file di backup. Vuoi procedere?
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleRestoreTrigger} disabled={isRestoring}>
+                                        {isRestoring ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                        Sì, procedi al ripristino
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                           </AlertDialog>
+                          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
                       </div>
                     </CardContent>
                 </Card>
