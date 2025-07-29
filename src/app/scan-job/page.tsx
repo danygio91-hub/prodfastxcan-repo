@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -334,73 +334,41 @@ export default function ScanJobPage() {
 
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
-    if (activeJob) {
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-      const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phase.id);
-      if (phaseToUpdate) {
-          phaseToUpdate.workstationScannedAndVerified = false;
-      }
-      handleUpdateAndPersistJob(jobToUpdate);
-    }
     setPhaseForPhaseScan(phase);
     setIsPhaseScanDialogOpen(true);
   };
 
-  const handlePhaseScanResult = (scannedId: string) => {
+  const handleLocalPhaseScanResult = async (scannedId: string) => {
       setIsPhaseScanDialogOpen(false);
       stopCamera();
+
       if (!activeJob || !operator || !phaseForPhaseScan) return;
-
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-      const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForPhaseScan.id);
-
-      if (!phaseToStart || scannedId !== phaseToStart.name) {
+      
+      if (scannedId !== phaseForPhaseScan.name) {
         toast({
             variant: "destructive",
             title: "Errore Scansione Fase",
-            description: `QR Code non valido. Scansionato: "${scannedId}", Atteso: "${phaseToStart?.name}".`,
+            description: `QR Code non valido. Scansionato: "${scannedId}", Atteso: "${phaseForPhaseScan?.name}".`,
             duration: 9000,
         });
         return;
       }
-      
-      if (jobToUpdate.isProblemReported) {
-        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato per questa commessa." });
-        return;
-      }
-      
-      const phaseType = phaseToStart.type || 'production';
 
-      if (phaseType !== 'preparation' && !phaseToStart.materialReady) {
-        toast({ variant: "destructive", title: "Errore Materiale", description: `Questa fase non è ancora pronta. Completare la fase precedente o la preparazione.` });
-        return;
-      }
+      const result = await handlePhaseScanResult(activeJob.id, phaseForPhaseScan.id, operator.id);
       
-      const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-      const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToStart.id);
-      
-      let isPreviousPhaseCompleted = true;
-      if (phaseType !== 'preparation') {
-        const prevPhaseInJob = sortedPhasesInJob[currentPhaseIndex - 1];
-        isPreviousPhaseCompleted = !prevPhaseInJob || prevPhaseInJob.status === 'completed';
+      if (result.success) {
+          toast({
+            title: "Fase Avviata!",
+            description: result.message,
+            action: <CheckCircle className="text-green-500" />,
+          });
+      } else {
+           toast({
+            variant: "destructive",
+            title: "Errore Avvio Fase",
+            description: result.message,
+          });
       }
-
-      if (!isPreviousPhaseCompleted) {
-        toast({ variant: "destructive", title: "Errore di Sequenza", description: `Completare la fase "${sortedPhasesInJob[currentPhaseIndex - 1]?.name || 'precedente'}" prima di avviare questa.` });
-        return;
-      }
-
-      phaseToStart.status = 'in-progress';
-      phaseToStart.workstationScannedAndVerified = true;
-      phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-
-      handleUpdateAndPersistJob(jobToUpdate);
-      
-      toast({
-        title: "Fase Avviata!",
-        description: `Fase "${phaseToStart.name}" avviata correttamente.`,
-        action: <CheckCircle className="text-green-500" />,
-      });
   };
 
   const handleForceStartPhase = (phaseId: string) => {
@@ -902,7 +870,7 @@ export default function ScanJobPage() {
                 case 'job': handleScannedData(data); break;
                 case 'material': handleMaterialCodeSubmit(data); break;
                 case 'lotto': handleLottoScanned(data); break;
-                case 'phase': handlePhaseScanResult(data); break;
+                case 'phase': handleLocalPhaseScanResult(data); break;
             }
         };
         
@@ -1391,9 +1359,9 @@ export default function ScanJobPage() {
                 <DialogTitle>Scansiona QR Code Fase</DialogTitle>
                 <DialogDescription>Inquadra il QR Code con il nome della fase "{phaseForPhaseScan?.name}" per avviarla.</DialogDescription>
             </DialogHeader>
-            {renderScanArea(handlePhaseScanResult)}
+            {renderScanArea(handleLocalPhaseScanResult)}
             <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button onClick={() => triggerScan(handlePhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
+                <Button onClick={() => triggerScan(handleLocalPhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Fase</span>
                 </Button>
@@ -1730,4 +1698,5 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 

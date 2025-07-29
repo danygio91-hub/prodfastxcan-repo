@@ -437,4 +437,44 @@ export async function searchRawMaterials(
   return filteredMaterials.slice(0, 10); // Limit to 10 results for performance
 }
 
+
+export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string) {
+  try {
+    const jobRef = doc(db, 'jobOrders', jobId);
+    const docSnap = await getDoc(jobRef);
+    if (!docSnap.exists()) throw new Error('Commessa non trovata.');
+
+    const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder;
     
+    // Create a mutable copy
+    const jobToUpdate = JSON.parse(JSON.stringify(jobData));
+    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    if (!phaseToStart) throw new Error('Fase non trovata nella commessa.');
+
+    // Validate if the phase is ready to be started
+    if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
+    if (!phaseToStart.materialReady) throw new Error('Il materiale per questa fase non è pronto.');
+    if (jobData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
+
+    // Start the phase
+    phaseToStart.status = 'in-progress';
+    phaseToStart.workstationScannedAndVerified = true;
+    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
+
+    // Unlock the next phase's material readiness
+    const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+    const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
+    const nextPhase = sortedPhases[currentPhaseIndex + 1];
+    
+    if (nextPhase && nextPhase.status === 'pending') {
+      nextPhase.materialReady = true;
+    }
+
+    // Persist the changes
+    await updateJob(jobToUpdate);
+
+    return { success: true, message: `Fase "${phaseToStart.name}" avviata.` };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
+  }
+}
