@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
@@ -432,227 +433,100 @@ export default function AdminAppSettingsPage() {
                           Zona Pericolosa
                       </CardTitle>
                       <CardDescription>
-                          Queste operazioni sono irreversibili e cancelleranno permanentemente i dati o resetteranno gli stati. Procedere con la massima cautela.
+                          Queste operazioni sono irreversibili. Procedere con la massima cautela.
                       </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                       <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Sessioni Attive</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Forza un logout per tutti gli operatori, cancellando le loro sessioni locali (es. commesse e materiali attivi).
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingSessions}>
-                                      {isResettingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <LogOut className="mr-2 h-4 w-4" />}
-                                      Resetta Sessioni
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione disconnetterà tutti gli operatori e pulirà il loro stato locale. Utile per risolvere sessioni bloccate.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetSessions} disabled={isResettingSessions} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, resetta le sessioni
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                      <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Tutte le Commesse</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Elimina TUTTE le commesse, i prelievi e resetta lo stato degli operatori.
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingJobs}>
-                                      {isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                                      Resetta Commesse
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminate TUTTE le commesse e i prelievi.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetJobOrders} disabled={isResettingJobs} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, elimina tutto
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                       <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Tutte le Lavorazioni</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Resetta lo stato di tutte le commesse in lavorazione a "pianificata" e imposta tutti gli operatori come "inattivi".
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingWork}>
-                                      {isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Factory className="mr-2 h-4 w-4" />}
-                                      Resetta Lavorazioni
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione riporterà tutte le commesse in produzione allo stato di "pianificata", azzerando l'avanzamento.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetWork} disabled={isResettingWork} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, resetta tutto
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                      <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Anagrafica Materie Prime</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Elimina tutta l'anagrafica delle materie prime, i lotti e i prelievi.
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingMaterials}>
-                                      {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                                      Resetta Anagrafica
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminate TUTTE le materie prime e i prelievi dal sistema.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetRawMaterials} disabled={isResettingMaterials} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, elimina tutto
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                      <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Storico Materiali</h4>
-                              <p className="text-sm text-muted-foreground">
-                                 Elimina lotti e prelievi, azzerando lo stock ma mantenendo l'anagrafica.
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingMaterialHistory}>
-                                      {isResettingMaterialHistory ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <History className="mr-2 h-4 w-4" />}
-                                      Resetta Storico
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                         Questa azione è irreversibile. Verranno eliminati TUTTI i lotti e i prelievi. Lo stock verrà azzerato.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetMaterialHistory} disabled={isResettingMaterialHistory} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingMaterialHistory ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, resetta storico
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                      <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Prelievi da Magazzino</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Elimina tutti i report dei prelievi di materiale e ripristina lo stock.
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingWithdrawals}>
-                                      {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Boxes className="mr-2 h-4 w-4" />}
-                                      Resetta Prelievi
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione è irreversibile. Verranno eliminati TUTTI i report di prelievo e lo stock verrà ripristinato.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetWithdrawals} disabled={isResettingWithdrawals} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, resetta tutto
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
-                      <div className="flex justify-between items-center p-4 border rounded-md">
-                          <div>
-                              <h4 className="font-semibold">Reset Firme Privacy</h4>
-                              <p className="text-sm text-muted-foreground">
-                                  Annulla l'accettazione dell'informativa privacy per tutti gli operatori.
-                              </p>
-                          </div>
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" disabled={isResettingPrivacy}>
-                                      {isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldOff className="mr-2 h-4 w-4" />}
-                                      Resetta Firme
-                                  </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                          Questa azione forzerà tutti gli operatori a ri-accettare l'informativa al loro prossimo accesso.
-                                      </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={handleResetPrivacy} disabled={isResettingPrivacy} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                                          {isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                          Sì, resetta tutto
-                                      </AlertDialogAction>
-                                  </AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      </div>
+                  <CardContent>
+                      <Tabs defaultValue="reset-state" className="w-full">
+                          <TabsList className="grid w-full grid-cols-3">
+                              <TabsTrigger value="reset-state">Reset Stato</TabsTrigger>
+                              <TabsTrigger value="reset-data">Reset Dati</TabsTrigger>
+                              <TabsTrigger value="reset-total">Reset Totale</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="reset-state" className="pt-6 space-y-4">
+                              {/* Reset Sessioni Attive */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Sessioni Attive</h4>
+                                      <p className="text-sm text-muted-foreground">Forza un logout per tutti gli operatori per pulire le loro sessioni locali.</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingSessions}>{isResettingSessions ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <LogOut className="mr-2 h-4 w-4" />}Resetta Sessioni</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Questa azione disconnetterà tutti gli operatori. Utile per risolvere sessioni bloccate.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetSessions} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                              {/* Reset Tutte le Lavorazioni */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Lavorazioni in Corso</h4>
+                                      <p className="text-sm text-muted-foreground">Riporta tutte le commesse in produzione allo stato di "pianificata".</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingWork}>{isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Factory className="mr-2 h-4 w-4" />}Resetta Lavorazioni</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>L'avanzamento delle commesse in produzione verrà azzerato.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetWork} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                              {/* Reset Firme Privacy */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Firme Privacy</h4>
+                                      <p className="text-sm text-muted-foreground">Annulla l'accettazione della privacy per tutti gli operatori.</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingPrivacy}>{isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldOff className="mr-2 h-4 w-4" />}Resetta Firme</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Tutti gli operatori dovranno ri-accettare l'informativa al prossimo accesso.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetPrivacy} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                          </TabsContent>
+                          <TabsContent value="reset-data" className="pt-6 space-y-4">
+                              {/* Reset Tutte le Commesse */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Tutte le Commesse</h4>
+                                      <p className="text-sm text-muted-foreground">Elimina TUTTE le commesse e i prelievi associati.</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingJobs}>{isResettingJobs ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}Resetta Commesse</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Verranno eliminate TUTTE le commesse e i prelievi.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetJobOrders} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                              {/* Reset Prelievi da Magazzino */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Prelievi da Magazzino</h4>
+                                      <p className="text-sm text-muted-foreground">Elimina tutti i report dei prelievi di materiale e ripristina lo stock.</p>
+                                  </div>
+                                   <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingWithdrawals}>{isResettingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Boxes className="mr-2 h-4 w-4" />}Resetta Prelievi</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>TUTTI i report di prelievo verranno eliminati e lo stock ripristinato.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetWithdrawals} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                              {/* Reset Storico Materiali */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Storico Materiali</h4>
+                                      <p className="text-sm text-muted-foreground">Elimina lotti e prelievi, azzerando lo stock ma mantenendo l'anagrafica.</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingMaterialHistory}>{isResettingMaterialHistory ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <History className="mr-2 h-4 w-4" />}Resetta Storico</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Verranno eliminati TUTTI i lotti e i prelievi. Lo stock verrà azzerato.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetMaterialHistory} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                          </TabsContent>
+                          <TabsContent value="reset-total" className="pt-6 space-y-4">
+                              {/* Reset Anagrafica Materie Prime */}
+                              <div className="flex justify-between items-center p-4 border rounded-md">
+                                  <div>
+                                      <h4 className="font-semibold">Reset Anagrafica Materie Prime</h4>
+                                      <p className="text-sm text-muted-foreground">Elimina TUTTA l'anagrafica delle materie prime, i lotti e i prelievi.</p>
+                                  </div>
+                                  <AlertDialog>
+                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingMaterials}>{isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}Resetta Anagrafica</Button></AlertDialogTrigger>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Azione irreversibile. Verranno eliminate TUTTE le materie prime.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetRawMaterials} className="bg-destructive hover:bg-destructive/90">Sì, elimina tutto</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                  </AlertDialog>
+                              </div>
+                          </TabsContent>
+                      </Tabs>
                   </CardContent>
               </Card>
             </div>
