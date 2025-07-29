@@ -188,7 +188,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             type: 'Scarico' as const,
             date: w.withdrawalDate.toISOString(),
             description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
-            quantity: -w.consumedWeight,
+            quantity: -(w.consumedWeight),
             unit: 'KG',
             id: w.id
         }))
@@ -809,4 +809,5 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 

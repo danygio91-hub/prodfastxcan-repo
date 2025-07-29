@@ -170,7 +170,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           if (material.unitOfMeasure === 'kg') {
               newWeightKg = newStockUnits;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg = newStockUnits * material.conversionFactor;
+              newWeightKg += quantity * material.conversionFactor;
           }
           
           transaction.update(materialRef, { 
@@ -232,9 +232,10 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg = newStockUnits * material.conversionFactor;
+                newWeightKg += stockChange * material.conversionFactor;
             }
 
+            // Atomically remove the old batch and add the new one
             transaction.update(materialRef, {
                 batches: arrayRemove(oldBatch),
             });
@@ -278,9 +279,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg = newStockUnits * material.conversionFactor;
-            } else {
-                 newWeightKg += (stockChange * (material.conversionFactor || 1));
+                newWeightKg += stockChange * material.conversionFactor;
             }
              if (newWeightKg < 0) newWeightKg = 0;
 
