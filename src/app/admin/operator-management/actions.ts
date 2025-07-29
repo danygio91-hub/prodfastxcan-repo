@@ -61,7 +61,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>) 
   if (validatedFields.data.role === 'admin') {
       repartiToSave = ['N/D'];
   } else if (validatedFields.data.role === 'superadvisor') {
-      repartiToSave = reparti.filter(r => r !== 'N/D'); // All except N/D
+      repartiToSave = ['Officina']; 
   } else {
       repartiToSave = (validatedFields.data.reparto || []).filter(r => (reparti as readonly string[]).includes(r)) as Reparto[];
   }

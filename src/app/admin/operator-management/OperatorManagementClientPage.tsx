@@ -212,7 +212,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                   {operators.length > 0 ? (
                     operators.map((op) => {
                       const opReparti = Array.isArray(op.reparto) ? op.reparto : [op.reparto];
-                      const validReparti = opReparti.filter(r => reparti.includes(r));
+                      const validReparti = op.role === 'superadvisor' ? ['Officina'] : opReparti.filter(r => reparti.includes(r));
                       
                       return (
                       <TableRow key={op.id}>
