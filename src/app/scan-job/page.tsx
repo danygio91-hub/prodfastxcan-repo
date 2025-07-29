@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -119,6 +119,8 @@ export default function ScanJobPage() {
   const [isSearching, setIsSearching] = useState(false);
   
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
+  const [isQualityProblemDialogOpen, setIsQualityProblemDialogOpen] = useState(false);
+  const [phaseForQualityProblem, setPhaseForQualityProblem] = useState<JobPhase | null>(null);
   
   const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
   const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
@@ -507,7 +509,7 @@ export default function ScanJobPage() {
     toast({ title: "Fase Completata", description: `Fase "${phaseToComplete.name}" completata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
   };
   
-  const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed') => {
+  const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed', notes?: string) => {
     if (!activeJob || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
@@ -531,7 +533,10 @@ export default function ScanJobPage() {
         }
         toast({ title: "Collaudo Superato", description: `La fase "${phaseToUpdate.name}" è stata approvata.`, action: <CheckCircle className="text-green-500"/> });
     } else {
-        jobToUpdate.isProblemReported = true; // Flag the job as having a problem
+        jobToUpdate.isProblemReported = true;
+        jobToUpdate.problemType = 'PROBLEMA_QUALITA';
+        jobToUpdate.problemNotes = notes || 'Esito collaudo negativo.';
+        jobToUpdate.problemReportedBy = operator.nome;
         toast({ variant: "destructive", title: "Collaudo Fallito", description: `La fase "${phaseToUpdate.name}" non ha superato il controllo. La commessa è bloccata.` });
     }
     
@@ -1164,7 +1169,7 @@ export default function ScanJobPage() {
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob}
                                       permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor}}
-                                      handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase}}
+                                      handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}}
                                       />
                 })}
             </div>
@@ -1535,6 +1540,42 @@ export default function ScanJobPage() {
                 </DialogContent>
             </Dialog>
 
+            <Dialog open={isQualityProblemDialogOpen} onOpenChange={setIsQualityProblemDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Segnala Non Conformità</DialogTitle>
+                        <DialogDescription>Descrivi il problema riscontrato durante il collaudo per la fase "{phaseForQualityProblem?.name}".</DialogDescription>
+                    </DialogHeader>
+                    <Form {...problemForm}>
+                        <form onSubmit={problemForm.handleSubmit((data) => {
+                            if (phaseForQualityProblem) {
+                                handleQualityPhaseResult(phaseForQualityProblem.id, 'failed', data.notes);
+                            }
+                            setIsQualityProblemDialogOpen(false);
+                            problemForm.reset();
+                        })} className="py-4 space-y-4">
+                            <FormField
+                                control={problemForm.control}
+                                name="notes"
+                                render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Note sulla non conformità</FormLabel>
+                                    <FormControl>
+                                    <Input {...field} placeholder="Es. Saldatura fredda sul componente C12" />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                                )}
+                            />
+                             <DialogFooter>
+                                <Button type="button" variant="ghost" onClick={() => setIsQualityProblemDialogOpen(false)}>Annulla</Button>
+                                <Button type="submit" variant="destructive">Invia Segnalazione</Button>
+                            </DialogFooter>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+
         </div>
       </AppShell>
     </AuthGuard>
@@ -1560,8 +1601,10 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         handlePausePhase: (phaseId: string) => void,
         handleResumePhase: (phaseId: string) => void,
         handleCompletePhase: (phaseId: string) => void,
-        handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed') => void,
+        handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed', notes?: string) => void,
         handleForceStartPhase?: (phaseId: string) => void,
+        openQualityProblemDialog: (isOpen: boolean) => void,
+        setPhaseForQualityProblem: (phase: JobPhase) => void,
     }
 }) {
     const { operator } = useAuth();
@@ -1578,6 +1621,11 @@ function PhaseCard({ phase, job, permissions, handlers }: {
     }
     
     const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
+
+    const openProblemDialog = () => {
+        handlers.setPhaseForQualityProblem(phase);
+        handlers.openQualityProblemDialog(true);
+    };
 
     return (
         <Card key={phase.id} className={`p-4 bg-card/50 ${!permissions.operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
@@ -1645,14 +1693,13 @@ function PhaseCard({ phase, job, permissions, handlers }: {
             )}
             {permissions.canStartPhase && phase.type === 'quality' && handlers.handleQualityPhaseResult && (
                 <div className="flex gap-2">
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
-                        <ThumbsUp className="h-4 w-4" /> <span className="sr-only">OK</span>
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700 h-12 w-16 flex-col" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
+                        <ThumbsUp className="h-5 w-5" />
+                        <span className="text-xs">OK</span>
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'failed')}>
-                        <ThumbsDown className="h-4 w-4" /> <span className="sr-only">NON OK</span>
-                    </Button>
-                    <Button size="sm" variant="outline" className="border-yellow-500 text-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500" onClick={() => {/* logic to open problem dialog */}}>
-                        <AlertTriangle className="h-4 w-4" /> <span className="sr-only">PROBLEMA</span>
+                    <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
+                       <ThumbsDown className="h-5 w-5" />
+                       <span className="text-xs">NC</span>
                     </Button>
                 </div>
             )}
@@ -1698,5 +1745,6 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 

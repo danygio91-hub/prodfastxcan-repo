@@ -126,12 +126,34 @@ export async function resolveJobProblem(jobId: string, uid: string | undefined |
     }
 
     const jobRef = doc(db, "jobOrders", jobId);
-    await updateDoc(jobRef, { isProblemReported: false });
+    const jobSnap = await getDoc(jobRef);
+    if (!jobSnap.exists()) throw new Error("Commessa non trovata.");
+
+    const jobData = jobSnap.data() as JobOrder;
+    
+    // Reset the general problem flag
+    const updatePayload: Partial<JobOrder> = { 
+        isProblemReported: false,
+        problemType: undefined,
+        problemNotes: undefined,
+        problemReportedBy: undefined
+    };
+
+    // If the problem was a quality failure, reset the phase status to allow re-testing
+    const failedPhaseIndex = jobData.phases.findIndex(p => p.qualityResult === 'failed');
+    if (failedPhaseIndex !== -1) {
+        const updatedPhases = [...jobData.phases];
+        updatedPhases[failedPhaseIndex].status = 'pending';
+        updatedPhases[failedPhaseIndex].qualityResult = null;
+        updatePayload.phases = updatedPhases;
+    }
+
+    await updateDoc(jobRef, updatePayload);
 
     revalidatePath('/scan-job');
     revalidatePath('/admin/production-console');
     
-    return { success: true, message: 'Problema risolto. La commessa è stata sbloccata.' };
+    return { success: true, message: 'Problema risolto. La commessa è stata sbloccata e la fase di collaudo resettata.' };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error resolving job problem:", error);
