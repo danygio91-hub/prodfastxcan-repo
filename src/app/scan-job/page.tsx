@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials } from './actions';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -67,7 +67,7 @@ const closingWeightSchema = z.object({
 });
 type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
 
-type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description'>;
+type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description' | 'type' | 'unitOfMeasure' | 'currentStockUnits' | 'currentWeightKg'>;
 
 const problemReportSchema = z.object({
   problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"], {
@@ -126,15 +126,18 @@ export default function ScanJobPage() {
   const [isMaterialScanDialogOpen, setIsMaterialScanDialogOpen] = useState(false);
   const [isLottoScanDialogOpen, setIsLottoScanDialogOpen] = useState(false);
   const [phaseForMaterialScan, setPhaseForMaterialScan] = useState<JobPhase | null>(null);
-  const [materialScanStep, setMaterialScanStep] = useState<'initial' | 'scanning' | 'manual_input' | 'form'>('initial');
-  const [scannedMaterialForPhase, setScannedMaterialForPhase] = useState<RawMaterial | null>(null);
+  const [materialScanStep, setMaterialScanStep] = useState<'initial' | 'scanning' | 'manual_input' | 'search_input' | 'form'>('initial');
+  const [scannedMaterialForPhase, setScannedMaterialForPhase] = useState<SearchResult | null>(null);
   const [manualMaterialCode, setManualMaterialCode] = useState('');
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const searchDebounceTimeout = useRef<NodeJS.Timeout | null>(null);
+
 
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
 
-  const [sessionConflict, setSessionConflict] = useState<{ material: RawMaterial; existingSession: boolean } | null>(null);
+  const [sessionConflict, setSessionConflict] = useState<{ material: SearchResult; existingSession: boolean } | null>(null);
 
   // Simulator State
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
@@ -712,8 +715,31 @@ export default function ScanJobPage() {
     setManualMaterialCode('');
     phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
     tubiWithdrawalForm.reset({ quantity: undefined });
-    setMaterialScanStep('initial');
+    
+    if (phase.requiresMaterialSearch) {
+        setMaterialScanStep('search_input');
+    } else {
+        setMaterialScanStep('initial');
+    }
+    
     setIsMaterialScanDialogOpen(true);
+  };
+  
+  const handleSearchTermChange = (term: string) => {
+    setManualMaterialCode(term);
+    if (searchDebounceTimeout.current) {
+      clearTimeout(searchDebounceTimeout.current);
+    }
+    if (term.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    searchDebounceTimeout.current = setTimeout(async () => {
+      setIsSearchingMaterial(true);
+      const results = await searchRawMaterials(term, phaseForMaterialScan?.allowedMaterialTypes);
+      setSearchResults(results);
+      setIsSearchingMaterial(false);
+    }, 300);
   };
 
   const handleMaterialCodeSubmit = useCallback(async (code: string) => {
@@ -1233,6 +1259,34 @@ export default function ScanJobPage() {
                     <Button onClick={() => handleOpenSimulator('material')} variant="secondary" size="sm" className="w-full"><PlayCircle className="mr-2 h-4 w-4" />Simula Scansione Materiale</Button>
                 </div>
             )}
+            
+            {materialScanStep === 'search_input' && (
+                <div className="py-4 space-y-4">
+                     <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Cerca per codice o descrizione..."
+                            className="pl-9"
+                            value={manualMaterialCode}
+                            onChange={(e) => handleSearchTermChange(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    {isSearchingMaterial ? (
+                        <div className="flex items-center justify-center p-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                    ) : (
+                        <div className="max-h-60 overflow-y-auto space-y-2">
+                           {searchResults.map(material => (
+                             <button key={material.id} onClick={() => handleMaterialCodeSubmit(material.code)} className="w-full text-left p-2 rounded-md hover:bg-accent">
+                               <p className="font-semibold">{material.code}</p>
+                               <p className="text-xs text-muted-foreground">{material.description}</p>
+                               <p className="text-xs text-muted-foreground">Stock: {material.currentStockUnits} {material.unitOfMeasure}</p>
+                             </button>
+                           ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
             {materialScanStep === 'scanning' && (
               <div className="py-4 space-y-4">
@@ -1676,3 +1730,4 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+

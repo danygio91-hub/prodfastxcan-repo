@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType } from '@/lib/mock-data';
 import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -396,4 +396,43 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
 
     // If neither strategy finds a weight, return null.
     return null;
+}
+
+export async function searchRawMaterials(
+  searchTerm: string,
+  allowedTypes?: RawMaterialType[]
+): Promise<Array<Pick<RawMaterial, 'id' | 'code' | 'description' | 'type' | 'unitOfMeasure' | 'currentStockUnits' | 'currentWeightKg'>>> {
+  const materialsRef = collection(db, "rawMaterials");
+  
+  let q = firestoreQuery(materialsRef);
+
+  if (allowedTypes && allowedTypes.length > 0) {
+    q = firestoreQuery(q, where("type", "in", allowedTypes));
+  }
+  
+  const querySnapshot = await getDocs(q);
+  if (querySnapshot.empty) {
+    return [];
+  }
+
+  const allMaterials = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as RawMaterial);
+  
+  const lowercasedTerm = searchTerm.toLowerCase();
+
+  const filteredMaterials = allMaterials
+    .filter(material => 
+      material.code.toLowerCase().includes(lowercasedTerm) || 
+      material.description.toLowerCase().includes(lowercasedTerm)
+    )
+    .map(({ id, code, description, type, unitOfMeasure, currentStockUnits, currentWeightKg }) => ({
+      id,
+      code,
+      description,
+      type,
+      unitOfMeasure,
+      currentStockUnits,
+      currentWeightKg
+    }));
+  
+  return filteredMaterials.slice(0, 10); // Limit to 10 results for performance
 }
