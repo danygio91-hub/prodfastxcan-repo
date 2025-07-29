@@ -70,9 +70,7 @@ type ClosingWeightFormValues = z.infer<typeof closingWeightSchema>;
 type SearchResult = Pick<RawMaterial, 'id' | 'code' | 'description' | 'type' | 'unitOfMeasure' | 'currentStockUnits' | 'currentWeightKg'>;
 
 const problemReportSchema = z.object({
-  problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"], {
-    required_error: "È necessario selezionare un tipo di problema.",
-  }),
+  problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"]).optional(),
   notes: z.string().max(150, { message: "Le note non possono superare i 150 caratteri." }).optional(),
 });
 type ProblemReportFormValues = z.infer<typeof problemReportSchema>;
@@ -627,7 +625,7 @@ export default function ScanJobPage() {
   const allPhasesCompleted = activeJob?.phases.every(phase => phase.status === 'completed');
 
   const onProblemSubmit = (values: ProblemReportFormValues) => {
-    if (activeJob && operator) {
+    if (activeJob && operator && values.problemType) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
       jobToUpdate.isProblemReported = true;
       jobToUpdate.problemType = values.problemType;
@@ -1753,6 +1751,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
