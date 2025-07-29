@@ -2,9 +2,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction, writeBatch, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { NonConformityReport, RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import type { NonConformityReport, RawMaterial, RawMaterialBatch, ProductionProblemReport } from '@/lib/mock-data';
 
 // Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {
@@ -22,7 +22,7 @@ function convertTimestamps(obj: any): any {
     return obj;
 }
 
-export async function getNonConformityReports(): Promise<NonConformityReport[]> {
+export async function getIncomingNonConformityReports(): Promise<NonConformityReport[]> {
   const reportsRef = collection(db, "nonConformityReports");
   const q = query(reportsRef, orderBy("reportDate", "desc"));
   const snapshot = await getDocs(q);
@@ -73,7 +73,7 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg = newStockUnits * material.conversionFactor;
+                newWeightKg += report.quantity * material.conversionFactor;
             }
 
             // Update material stock
@@ -115,7 +115,7 @@ export async function confirmReturn(reportId: string): Promise<{ success: boolea
 }
 
 
-export async function deleteNonConformityReports(reportIds: string[]): Promise<{ success: boolean, message: string }> {
+export async function deleteIncomingNonConformityReports(reportIds: string[]): Promise<{ success: boolean, message: string }> {
     if (!reportIds || reportIds.length === 0) {
         return { success: false, message: 'Nessuna segnalazione selezionata per l\'eliminazione.' };
     }
@@ -133,4 +133,36 @@ export async function deleteNonConformityReports(reportIds: string[]): Promise<{
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione delle segnalazioni." };
     }
+}
+
+
+// --- Production Problem Reports ---
+
+export async function getProductionProblemReports(): Promise<ProductionProblemReport[]> {
+  const reportsRef = collection(db, "productionProblemReports");
+  const q = query(reportsRef, orderBy("reportDate", "desc"));
+  const snapshot = await getDocs(q);
+
+  if (snapshot.empty) {
+    return [];
+  }
+  
+  const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProductionProblemReport));
+  return JSON.parse(JSON.stringify(convertTimestamps(reports)));
+}
+
+export async function deleteProductionProblemReports(reportIds: string[]): Promise<{ success: boolean, message: string }> {
+    if (!reportIds || reportIds.length === 0) {
+        return { success: false, message: 'Nessuna segnalazione selezionata per l\'eliminazione.' };
+    }
+
+    const batch = writeBatch(db);
+    reportIds.forEach(id => {
+        const docRef = doc(db, "productionProblemReports", id);
+        batch.delete(docRef);
+    });
+
+    await batch.commit();
+    revalidatePath('/admin/non-conformity-reports');
+    return { success: true, message: `${reportIds.length} segnalazioni di produzione sono state eliminate.` };
 }

@@ -25,18 +25,22 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2, Trash2 } from 'lucide-react';
-import { approveNonConformity, confirmReturn, deleteNonConformityReports } from './actions';
-import type { NonConformityReport } from '@/lib/mock-data';
+import { ShieldAlert, Loader2, Warehouse, AlertCircle, PackageCheck, Undo2, Trash2, ShieldCheck, ShieldX } from 'lucide-react';
+import { approveNonConformity, confirmReturn, deleteIncomingNonConformityReports, deleteProductionProblemReports } from './actions';
+import type { NonConformityReport, ProductionProblemReport } from '@/lib/mock-data';
 
 interface NonConformityClientPageProps {
-  initialReports: NonConformityReport[];
+  initialIncomingReports: NonConformityReport[];
+  initialProductionReports: ProductionProblemReport[];
 }
 
-export default function NonConformityClientPage({ initialReports }: NonConformityClientPageProps) {
-    const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>(initialReports);
+export default function NonConformityClientPage({ initialIncomingReports, initialProductionReports }: NonConformityClientPageProps) {
+    const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>(initialIncomingReports);
+    const [productionReports, setProductionReports] = useState<ProductionProblemReport[]>(initialProductionReports);
     const [isPending, startTransition] = useTransition();
-    const [selectedRows, setSelectedRows] = useState<string[]>([]);
+    const [selectedIncomingRows, setSelectedIncomingRows] = useState<string[]>([]);
+    const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
+
     const { toast } = useToast();
     const router = useRouter();
 
@@ -45,8 +49,9 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
     };
 
     useEffect(() => {
-        setIncomingReports(initialReports);
-    }, [initialReports]);
+        setIncomingReports(initialIncomingReports);
+        setProductionReports(initialProductionReports);
+    }, [initialIncomingReports, initialProductionReports]);
 
     const handleApprove = (reportId: string) => {
         startTransition(async () => {
@@ -76,27 +81,50 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
         });
     };
     
-    const handleDeleteSelected = () => {
+    const handleDeleteIncomingSelected = () => {
         startTransition(async () => {
-            const result = await deleteNonConformityReports(selectedRows);
+            const result = await deleteIncomingNonConformityReports(selectedIncomingRows);
             toast({
                 title: result.success ? "Operazione Completata" : "Errore",
                 description: result.message,
                 variant: result.success ? "default" : "destructive",
             });
             if (result.success) {
-                setSelectedRows([]);
+                setSelectedIncomingRows([]);
+                refreshData();
+            }
+        });
+    }
+    
+    const handleDeleteProductionSelected = () => {
+        startTransition(async () => {
+            const result = await deleteProductionProblemReports(selectedProductionRows);
+            toast({
+                title: result.success ? "Operazione Completata" : "Errore",
+                description: result.message,
+                variant: result.success ? "default" : "destructive",
+            });
+            if (result.success) {
+                setSelectedProductionRows([]);
                 refreshData();
             }
         });
     }
 
-    const handleSelectAll = (checked: boolean | 'indeterminate') => {
-        setSelectedRows(checked === true ? incomingReports.map(r => r.id) : []);
+    const handleSelectAllIncoming = (checked: boolean | 'indeterminate') => {
+        setSelectedIncomingRows(checked === true ? incomingReports.map(r => r.id) : []);
     };
     
-    const handleSelectRow = (id: string) => {
-        setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
+    const handleSelectIncomingRow = (id: string) => {
+        setSelectedIncomingRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
+    };
+    
+     const handleSelectAllProduction = (checked: boolean | 'indeterminate') => {
+        setSelectedProductionRows(checked === true ? productionReports.map(r => r.id) : []);
+    };
+    
+    const handleSelectProductionRow = (id: string) => {
+        setSelectedProductionRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
     };
 
     const renderIncomingReports = () => (
@@ -107,24 +135,24 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
                         <CardTitle>Segnalazioni da Carico Merce</CardTitle>
                         <CardDescription>Elenco delle non conformità segnalate. Gestisci ogni segnalazione per procedere.</CardDescription>
                     </div>
-                     {selectedRows.length > 0 && (
+                     {selectedIncomingRows.length > 0 && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                                 <Button variant="destructive" disabled={isPending}>
                                     <Trash2 className="mr-2 h-4 w-4" />
-                                    Elimina Selezionate ({selectedRows.length})
+                                    Elimina Selezionate ({selectedIncomingRows.length})
                                 </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        Stai per eliminare {selectedRows.length} segnalazioni. Questa operazione è irreversibile.
+                                        Stai per eliminare {selectedIncomingRows.length} segnalazioni. Questa operazione è irreversibile.
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
+                                    <AlertDialogAction onClick={handleDeleteIncomingSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>
@@ -138,8 +166,8 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
                             <TableRow>
                                 <TableHead padding="checkbox">
                                     <Checkbox
-                                        checked={selectedRows.length > 0 ? (selectedRows.length === incomingReports.length ? true : 'indeterminate') : false}
-                                        onCheckedChange={handleSelectAll}
+                                        checked={selectedIncomingRows.length > 0 ? (selectedIncomingRows.length === incomingReports.length ? true : 'indeterminate') : false}
+                                        onCheckedChange={handleSelectAllIncoming}
                                         aria-label="Seleziona tutte"
                                     />
                                 </TableHead>
@@ -156,11 +184,11 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
                         <TableBody>
                             {incomingReports.length > 0 ? (
                                 incomingReports.map((report) => (
-                                    <TableRow key={report.id} data-state={selectedRows.includes(report.id) && "selected"}>
+                                    <TableRow key={report.id} data-state={selectedIncomingRows.includes(report.id) && "selected"}>
                                          <TableCell padding="checkbox">
                                             <Checkbox
-                                                checked={selectedRows.includes(report.id)}
-                                                onCheckedChange={() => handleSelectRow(report.id)}
+                                                checked={selectedIncomingRows.includes(report.id)}
+                                                onCheckedChange={() => handleSelectIncomingRow(report.id)}
                                                 aria-label={`Seleziona report ${report.id}`}
                                             />
                                         </TableCell>
@@ -238,14 +266,90 @@ export default function NonConformityClientPage({ initialReports }: NonConformit
      const renderOutgoingReports = () => (
          <Card>
             <CardHeader>
-                <CardTitle>Segnalazioni da Produzione</CardTitle>
-                <CardDescription>Elenco dei problemi segnalati durante le fasi di lavorazione delle commesse.</CardDescription>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div>
+                        <CardTitle>Segnalazioni da Produzione</CardTitle>
+                        <CardDescription>Elenco dei problemi segnalati durante le fasi di lavorazione delle commesse.</CardDescription>
+                    </div>
+                     {selectedProductionRows.length > 0 && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" disabled={isPending}>
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Elimina Selezionate ({selectedProductionRows.length})
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Stai per eliminare {selectedProductionRows.length} segnalazioni. Questa operazione è irreversibile.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDeleteProductionSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
+                </div>
             </CardHeader>
             <CardContent>
-                 <div className="flex flex-col items-center justify-center py-10 text-center border-2 border-dashed rounded-lg">
-                    <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold">Funzionalità in Sviluppo</h3>
-                    <p className="text-sm text-muted-foreground">Questa sezione è in fase di implementazione.</p>
+                <div className="overflow-x-auto">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead padding="checkbox">
+                                    <Checkbox
+                                        checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === productionReports.length ? true : 'indeterminate') : false}
+                                        onCheckedChange={handleSelectAllProduction}
+                                        aria-label="Seleziona tutte"
+                                    />
+                                </TableHead>
+                                <TableHead>Data</TableHead>
+                                <TableHead>Stato</TableHead>
+                                <TableHead>Commessa</TableHead>
+                                <TableHead>Fase</TableHead>
+                                <TableHead>Tipo Problema</TableHead>
+                                <TableHead>Note</TableHead>
+                                <TableHead>Operatore</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                             {productionReports.length > 0 ? (
+                                productionReports.map((report) => (
+                                    <TableRow key={report.id} data-state={selectedProductionRows.includes(report.id) && "selected"}>
+                                         <TableCell padding="checkbox">
+                                            <Checkbox
+                                                checked={selectedProductionRows.includes(report.id)}
+                                                onCheckedChange={() => handleSelectProductionRow(report.id)}
+                                                aria-label={`Seleziona report ${report.id}`}
+                                            />
+                                        </TableCell>
+                                        <TableCell>{format(new Date(report.reportDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={report.status === 'open' ? 'destructive' : 'default'}>
+                                                {report.status === 'open' ? <ShieldX className="mr-1 h-3 w-3" /> : <ShieldCheck className="mr-1 h-3 w-3" />}
+                                                {report.status === 'open' ? 'Da Risolvere' : 'Risolto'}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="font-medium">{report.jobOrderPF}</TableCell>
+                                        <TableCell>{report.phaseName}</TableCell>
+                                        <TableCell>{report.problemType.replace(/_/g, ' ')}</TableCell>
+                                        <TableCell className="text-muted-foreground italic">{report.notes || 'N/D'}</TableCell>
+                                        <TableCell>{report.operatorName}</TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={8} className="h-24 text-center">
+                                        Nessuna segnalazione di non conformità dalla produzione.
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
                 </div>
             </CardContent>
         </Card>

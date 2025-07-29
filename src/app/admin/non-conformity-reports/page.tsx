@@ -2,15 +2,22 @@
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import NonConformityClientPage from './NonConformityClientPage';
-import { getNonConformityReports } from './actions';
+import { getIncomingNonConformityReports, getProductionProblemReports } from './actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 async function NonConformityData() {
-  const reports = await getNonConformityReports();
-  return <NonConformityClientPage initialReports={reports} />;
+  const [incomingReports, productionReports] = await Promise.all([
+    getIncomingNonConformityReports(),
+    getProductionProblemReports(),
+  ]);
+
+  return <NonConformityClientPage 
+            initialIncomingReports={incomingReports} 
+            initialProductionReports={productionReports}
+         />;
 }
 
 export default function NonConformityReportsPage() {

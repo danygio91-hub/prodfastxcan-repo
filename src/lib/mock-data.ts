@@ -175,18 +175,22 @@ export interface NonConformityReport {
     status: 'pending' | 'approved' | 'returned';
 }
 
+export type ProductionProblemType = 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
+
 export interface ProductionProblemReport {
     id: string;
     jobId: string;
     jobOrderPF: string;
     phaseId: string;
     phaseName: string;
-    problemType: 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
+    problemType: ProductionProblemType,
     notes?: string;
     operatorId: string;
     operatorName: string;
-    reportDate: Date;
+    reportDate: Date | string;
     status: 'open' | 'resolved';
+    resolvedAt?: Date | string;
+    resolvedBy?: string;
 }
 
 
