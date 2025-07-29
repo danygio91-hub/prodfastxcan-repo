@@ -73,9 +73,7 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
-  // This logic is critical for multi-operator scenarios.
-  // We just ensure the fields exist, but we do not modify readiness state here.
-  // Readiness is now determined by the logic in createPhasesFromCycle and updateJob.
+  // Clean up the job data to ensure it's in a consistent state without modifying readiness.
   jobCopy.phases = (jobCopy.phases || []).map(p => ({
     ...p,
     workPeriods: p.workPeriods || [], 
@@ -92,11 +90,13 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     const jobRef = doc(db, "jobOrders", jobData.id);
 
     try {
-        const allPhasesCompleted = (jobData.phases || []).every(p => p.status === 'completed');
-        // A job can only be completed if all phases are done AND there is no open problem report.
-        if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
+        const sortedPhases = [...jobData.phases].sort((a, b) => a.sequence - b.sequence);
+        const lastPhaseInSequence = sortedPhases[sortedPhases.length - 1];
+
+        // A job is completed if its last phase is completed, AND there is no open problem report.
+        if (lastPhaseInSequence?.status === 'completed' && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
-             if (!jobData.overallEndTime) {
+            if (!jobData.overallEndTime) {
                 jobData.overallEndTime = new Date();
             }
         }
@@ -436,3 +436,5 @@ export async function searchRawMaterials(
   
   return filteredMaterials.slice(0, 10); // Limit to 10 results for performance
 }
+
+    

@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -56,7 +55,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     const allTemplates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
     const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
 
-    const phases: JobPhase[] = phaseTemplateIds.map(templateId => {
+    let phases: JobPhase[] = phaseTemplateIds.map(templateId => {
         const template = allTemplatesMap.get(templateId);
         if (!template) return null;
 
@@ -64,8 +63,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            // LOGIC FIX: A phase is NOT ready if it requires a material scan OR a manual search.
-            materialReady: !(template.requiresMaterialScan || template.requiresMaterialSearch),
+            materialReady: false, // Start all phases as not ready by default
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
@@ -78,23 +76,18 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         };
     }).filter((p): p is JobPhase => p !== null);
     
-    const sortedPhases = phases.sort((a, b) => a.sequence - b.sequence);
+    phases = phases.sort((a, b) => a.sequence - b.sequence);
     
-    // Find the very first preparation phase and make it ready ONLY IF it doesn't need material.
-    // This allows the workflow to start. If it needs material, the user action will make it ready.
-    const firstPrepPhase = sortedPhases.find(p => p.type === 'preparation');
-    if (firstPrepPhase && !firstPrepPhase.requiresMaterialScan && !firstPrepPhase.requiresMaterialSearch) {
-      firstPrepPhase.materialReady = true;
-    } else {
-        // If there are no preparation phases, the first production phase is ready to be worked on
-        // if it doesn't require material.
-        const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
-        if (firstProductionPhase && !firstProductionPhase.requiresMaterialScan && !firstProductionPhase.requiresMaterialSearch) {
-            firstProductionPhase.materialReady = true;
+    // The very first phase in the sequence is made ready only if it does not require any material interaction.
+    // This allows the workflow to start. If it requires material, user action will make it ready.
+    if (phases.length > 0) {
+        const firstPhase = phases[0];
+        if (!firstPhase.requiresMaterialScan && !firstPhase.requiresMaterialSearch) {
+            firstPhase.materialReady = true;
         }
     }
     
-    return sortedPhases;
+    return phases;
 }
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
@@ -611,3 +604,5 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
+
+    
