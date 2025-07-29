@@ -507,6 +507,7 @@ export default function ScanJobPage() {
 
     phaseToUpdate.status = 'completed';
     phaseToUpdate.qualityResult = result;
+    phaseToUpdate.workPeriods.push({ start: new Date(), end: new Date(), operatorId: operator.id });
 
     if (result === 'passed') {
         const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
@@ -1147,7 +1148,13 @@ export default function ScanJobPage() {
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
                     const isSuperadvisor = operator?.role === 'superadvisor';
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
-                    const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
+
+                    let operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
+                    // Special check for 'quality' phases
+                    if (phase.type === 'quality') {
+                        operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('COLLAUDO'));
+                    }
+                    
                     const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
                     const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
@@ -1751,6 +1758,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
 
 
 
