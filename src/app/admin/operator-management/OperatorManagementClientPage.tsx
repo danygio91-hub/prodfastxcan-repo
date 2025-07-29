@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { type Operator, type Reparto, reparti } from '@/lib/mock-data';
 import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
-import type { StatoOperatore } from '@/lib/mock-data';
+import type { StatoOperatore, OperatorRole } from '@/lib/mock-data';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';

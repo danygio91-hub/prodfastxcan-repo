@@ -45,44 +45,51 @@ export default function Header() {
     if (!activeJob || !operator) return;
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    let wasMyPhasePaused = false;
+    
+    // Find the specific work period for the current operator that is still active
     let myPhaseName = '';
-
-    // Iterate over all phases to find active work periods for the current operator
+    let phaseToUpdate: JobPhase | undefined;
+    
     jobToUpdate.phases.forEach((phase: JobPhase) => {
         const myWorkPeriodIndex = phase.workPeriods.findIndex(wp => wp.operatorId === operator.id && wp.end === null);
-        
         if (myWorkPeriodIndex !== -1) {
-            // Close my specific work period first
             phase.workPeriods[myWorkPeriodIndex].end = new Date();
+            phaseToUpdate = phase;
             myPhaseName = phase.name;
-
-            // NOW, check if anyone else is still working on this phase
-            const isAnyoneElseWorking = phase.workPeriods.some(wp => wp.end === null);
-
-            // Only pause the phase if no one else is active
-            if (!isAnyoneElseWorking) {
-                phase.status = 'paused';
-                wasMyPhasePaused = true;
-            }
         }
     });
 
-    const result = await updateJob(jobToUpdate);
-    if (result.success) {
-      toast({
-        title: "Sei uscito dalla commessa",
-        description: wasMyPhasePaused 
-          ? `La fase "${myPhaseName}" è stata messa in pausa perché eri l'unico operatore attivo.`
-          : `La tua attività sulla fase "${myPhaseName}" è terminata. La fase prosegue con altri operatori.`,
-      });
-      setActiveJobId(null);
+    if (phaseToUpdate) {
+        // After closing my period, check if anyone else is still active on THIS phase
+        const isAnyoneElseWorkingOnThisPhase = phaseToUpdate.workPeriods.some(wp => wp.end === null);
+        
+        if (!isAnyoneElseWorkingOnThisPhase) {
+            phaseToUpdate.status = 'paused';
+             toast({
+                title: "Sei uscito dalla commessa",
+                description: `La fase "${myPhaseName}" è stata messa in pausa perché eri l'unico operatore attivo.`,
+            });
+        } else {
+             toast({
+                title: "Attività terminata",
+                description: `La tua attività sulla fase "${myPhaseName}" è terminata. La fase prosegue con altri operatori.`,
+            });
+        }
+
+        const result = await updateJob(jobToUpdate);
+        if (result.success) {
+          setActiveJobId(null);
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Errore",
+            description: "Impossibile abbandonare la commessa. Riprova.",
+          });
+        }
     } else {
-      toast({
-        variant: "destructive",
-        title: "Errore",
-        description: "Impossibile abbandonare la commessa. Riprova.",
-      });
+        // This case handles if the user was just viewing the job but not actively working on a phase
+        setActiveJobId(null);
+        toast({ title: "Sei uscito dalla commessa", description: "Nessuna fase attiva è stata modificata."});
     }
   };
 
