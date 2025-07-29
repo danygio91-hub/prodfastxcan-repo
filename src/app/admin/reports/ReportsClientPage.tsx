@@ -15,7 +15,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,7 +62,11 @@ export default function ReportsClientPage({
   initialJobsReport,
   initialOperatorsReport,
   initialWithdrawalsReport,
-}: ReportsClientPageProps) {
+}: {
+  initialJobsReport: JobsReport;
+  initialOperatorsReport: OperatorsReport;
+  initialWithdrawalsReport: EnrichedMaterialWithdrawal[];
+}) {
   const [jobsReport, setJobsReport] = useState<JobsReport>(initialJobsReport);
   const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>(initialOperatorsReport);
   const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>(initialWithdrawalsReport);
@@ -203,6 +206,8 @@ export default function ReportsClientPage({
       </TableCell>
     </TableRow>
   )
+
+  const withdrawalGroups = Object.keys(filteredAndGroupedWithdrawals);
 
   return (
       <div className="space-y-6">
@@ -356,7 +361,7 @@ export default function ReportsClientPage({
                       <div className="flex justify-between items-center flex-wrap gap-4">
                           <div>
                               <CardTitle>Report Prelievi da Magazzino</CardTitle>
-                              <CardDescription>Elenco degli scarichi di materiale per commessa.</CardDescription>
+                              <CardDescription>Elenco degli scarichi di materiale per commessa, raggruppati per tipo.</CardDescription>
                           </div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="relative w-full sm:w-auto">
@@ -458,64 +463,65 @@ export default function ReportsClientPage({
                          <div className="flex items-center justify-center h-64">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                          </div>
-                       ) : Object.keys(filteredAndGroupedWithdrawals).length > 0 ? (
-                           <Accordion type="multiple" defaultValue={Object.keys(filteredAndGroupedWithdrawals)} className="w-full">
-                            {Object.entries(filteredAndGroupedWithdrawals).map(([type, group]) => {
-                                const groupIds = group.map(w => w.id);
-                                const selectedInGroupCount = selectedWithdrawals.filter(id => groupIds.includes(id)).length;
-                                return (
-                                <AccordionItem value={type} key={type}>
-                                    <AccordionTrigger>
-                                        <div className="flex items-center gap-2 text-lg font-semibold">
-                                            <Package className="h-5 w-5 text-primary" />
+                       ) : withdrawalGroups.length > 0 ? (
+                            <Tabs defaultValue={withdrawalGroups[0]} className="w-full">
+                                <TabsList>
+                                    {withdrawalGroups.map(type => (
+                                        <TabsTrigger key={type} value={type}>
+                                             <Package className="mr-2 h-4 w-4" />
                                             {type}
-                                            <Badge variant="secondary">{group.length}</Badge>
-                                        </div>
-                                    </AccordionTrigger>
-                                    <AccordionContent>
+                                        </TabsTrigger>
+                                    ))}
+                                </TabsList>
+                                {withdrawalGroups.map(type => {
+                                    const group = filteredAndGroupedWithdrawals[type] || [];
+                                    const groupIds = group.map(w => w.id);
+                                    const selectedInGroupCount = selectedWithdrawals.filter(id => groupIds.includes(id)).length;
+                                    
+                                    return (
+                                     <TabsContent value={type} key={type}>
                                         <div className="overflow-x-auto">
-                                        <Table>
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead padding="checkbox">
-                                                        <Checkbox
-                                                          checked={selectedInGroupCount > 0 ? (selectedInGroupCount === group.length ? true : 'indeterminate') : false}
-                                                          onCheckedChange={(checked) => handleSelectAllForGroup(group, checked)}
-                                                          aria-label={`Seleziona tutti i prelievi per ${type}`}
-                                                        />
-                                                    </TableHead>
-                                                    <TableHead>Commessa/e</TableHead>
-                                                    <TableHead>Materiale</TableHead>
-                                                    <TableHead>Peso Consumato (Kg)</TableHead>
-                                                    <TableHead>Data Prelievo</TableHead>
-                                                    <TableHead>Operatore</TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                {group.map((w) => (
-                                                    <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
-                                                        <TableCell padding="checkbox">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow>
+                                                        <TableHead padding="checkbox">
                                                             <Checkbox
-                                                              checked={selectedWithdrawals.includes(w.id)}
-                                                              onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
-                                                              aria-label={`Seleziona prelievo ${w.id}`}
+                                                            checked={selectedInGroupCount > 0 ? (selectedInGroupCount === group.length ? true : 'indeterminate') : false}
+                                                            onCheckedChange={(checked) => handleSelectAllForGroup(group, checked)}
+                                                            aria-label={`Seleziona tutti i prelievi per ${type}`}
                                                             />
-                                                        </TableCell>
-                                                        <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
-                                                        <TableCell>{w.materialCode}</TableCell>
-                                                        <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
-                                                        <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                                        <TableCell>{w.operatorName}</TableCell>
+                                                        </TableHead>
+                                                        <TableHead>Commessa/e</TableHead>
+                                                        <TableHead>Materiale</TableHead>
+                                                        <TableHead>Peso Consumato (Kg)</TableHead>
+                                                        <TableHead>Data Prelievo</TableHead>
+                                                        <TableHead>Operatore</TableHead>
                                                     </TableRow>
-                                                ))}
-                                            </TableBody>
-                                        </Table>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {group.map((w) => (
+                                                        <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
+                                                            <TableCell padding="checkbox">
+                                                                <Checkbox
+                                                                checked={selectedWithdrawals.includes(w.id)}
+                                                                onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
+                                                                aria-label={`Seleziona prelievo ${w.id}`}
+                                                                />
+                                                            </TableCell>
+                                                            <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
+                                                            <TableCell>{w.materialCode}</TableCell>
+                                                            <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
+                                                            <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                                            <TableCell>{w.operatorName}</TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
                                         </div>
-                                    </AccordionContent>
-                                </AccordionItem>
-                                )
-                            })}
-                           </Accordion>
+                                    </TabsContent>
+                                    )
+                                })}
+                            </Tabs>
                        ) : (
                         <div className="flex flex-col items-center justify-center h-48 text-center text-muted-foreground">
                             <Boxes className="h-12 w-12 mb-4" />
