@@ -45,22 +45,25 @@ export default function Header() {
     if (!activeJob || !operator) return;
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    let phaseWasPaused = false;
-    
-    // Iterate over all phases to find the one the current operator is working on
+    let wasMyPhasePaused = false;
+    let myPhaseName = '';
+
+    // Iterate over all phases to find active work periods for the current operator
     jobToUpdate.phases.forEach((phase: JobPhase) => {
-        const myWorkPeriod = phase.workPeriods.find(wp => wp.operatorId === operator.id && wp.end === null);
+        const myWorkPeriodIndex = phase.workPeriods.findIndex(wp => wp.operatorId === operator.id && wp.end === null);
         
-        if (myWorkPeriod) {
-            myWorkPeriod.end = new Date(); // Close my specific work period
+        if (myWorkPeriodIndex !== -1) {
+            // Close my specific work period first
+            phase.workPeriods[myWorkPeriodIndex].end = new Date();
+            myPhaseName = phase.name;
 
-            // Check if anyone else is still working on this phase
-            const isAnyoneElseWorking = phase.workPeriods.some(wp => wp.operatorId !== operator.id && wp.end === null);
+            // NOW, check if anyone else is still working on this phase
+            const isAnyoneElseWorking = phase.workPeriods.some(wp => wp.end === null);
 
-            // Only pause the phase if I was the last one working on it
+            // Only pause the phase if no one else is active
             if (!isAnyoneElseWorking) {
                 phase.status = 'paused';
-                phaseWasPaused = true;
+                wasMyPhasePaused = true;
             }
         }
     });
@@ -69,9 +72,9 @@ export default function Header() {
     if (result.success) {
       toast({
         title: "Sei uscito dalla commessa",
-        description: phaseWasPaused 
-          ? `La tua fase di lavoro è stata messa in pausa.`
-          : `La tua attività è terminata ma la fase prosegue con altri operatori.`,
+        description: wasMyPhasePaused 
+          ? `La fase "${myPhaseName}" è stata messa in pausa perché eri l'unico operatore attivo.`
+          : `La tua attività sulla fase "${myPhaseName}" è terminata. La fase prosegue con altri operatori.`,
       });
       setActiveJobId(null);
     } else {

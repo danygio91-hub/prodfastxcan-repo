@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -419,15 +419,15 @@ export default function ScanJobPage() {
       return;
     }
     
-    const myWorkPeriod = phaseToPause.workPeriods.find((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriod) {
-        myWorkPeriod.end = new Date();
+    const myWorkPeriodIndex = phaseToPause.workPeriods.findIndex((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex !== -1) {
+        phaseToPause.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
       toast({ variant: "destructive", title: "Errore", description: "Non stai lavorando attivamente a questa fase." });
       return;
     }
     
-    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.operatorId !== operator.id && wp.end === null);
+    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
     if (!isAnyoneElseWorking) {
         phaseToPause.status = 'paused';
     }
@@ -473,18 +473,16 @@ export default function ScanJobPage() {
         return;
     }
 
-    // Close only the current operator's work period
-    const myWorkPeriod = phaseToComplete.workPeriods.find((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriod) {
-        myWorkPeriod.end = new Date();
+    const myWorkPeriodIndex = phaseToComplete.workPeriods.findIndex((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex !== -1) {
+        phaseToComplete.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
         toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo su questa fase." });
         return;
     }
     
-    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: WorkPeriod) => wp.operatorId !== operator.id && wp.end === null);
+    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: WorkPeriod) => wp.end === null);
 
-    // Only set the phase to completed if no one else is working on it.
     if (!isAnyoneElseWorking) {
         phaseToComplete.status = 'completed';
     }
@@ -1128,15 +1126,17 @@ export default function ScanJobPage() {
                     const isSuperadvisor = operator?.role === 'superadvisor';
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
                     const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
-                    const isPhaseOwner = (phase.workPeriods || []).slice(-1)[0]?.operatorId === operator?.id && (phase.workPeriods || []).slice(-1)[0]?.end === null;
+                    const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator?.id && wp.end === null);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
-                    const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
-                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status !== 'in-progress' && (phase.status === 'paused' || phase.status === 'in-progress');
-                    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
+                    const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
+                    const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
+                    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
                     const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
+                    const anyOperatorActive = phase.workPeriods.some(wp => wp.end === null);
+                    const otherOperatorsActive = phase.workPeriods.some(wp => wp.operatorId !== operator?.id && wp.end === null);
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob} 
-                                      permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor}}
+                                      permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
                                       handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase}}
                                       />
                 })}
@@ -1165,7 +1165,6 @@ export default function ScanJobPage() {
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
 
                     let operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
-                    // Special check for 'quality' phases
                     if (phase.type === 'quality') {
                         operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('Collaudo'));
                     }
@@ -1173,12 +1172,15 @@ export default function ScanJobPage() {
                     const isPhaseOwner = (phase.workPeriods || []).some((wp: WorkPeriod) => wp.operatorId === operator?.id && wp.end === null);
                     const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
-                    const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && (isPhaseOwner || isSuperadvisor);
+                    const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
                     const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
-                    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && (isPhaseOwner || isSuperadvisor);
+                    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
+                    const anyOperatorActive = phase.workPeriods.some(wp => wp.end === null);
+                    const otherOperatorsActive = phase.workPeriods.some(wp => wp.operatorId !== operator?.id && wp.end === null);
+
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob}
-                                      permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor}}
+                                      permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
                                       handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}}
                                       />
                 })}
@@ -1621,7 +1623,9 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         canCompletePhase: boolean,
         operatorHasPermissionForDepartment: boolean,
         isPhaseOwner: boolean,
-        isSuperadvisor: boolean
+        isSuperadvisor: boolean,
+        anyOperatorActive: boolean,
+        otherOperatorsActive: boolean
     },
     handlers: {
         handleOpenPhaseScanDialog: (phase: JobPhase) => void,
@@ -1674,12 +1678,19 @@ function PhaseCard({ phase, job, permissions, handlers }: {
                 Fase non di competenza del tuo reparto.
             </p>
             )}
-            {phase.status === 'in-progress' && permissions.isPhaseOwner && (
+            {permissions.isPhaseOwner && (
             <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">
                 <UserCheck className="h-4 w-4" />
                 Stai lavorando a questa fase.
             </p>
             )}
+            {permissions.otherOperatorsActive && (
+              <p className="text-xs text-blue-500 font-semibold mt-2 flex items-center gap-1">
+                <Users className="h-4 w-4" />
+                Altri operatori sono attivi su questa fase.
+              </p>
+            )}
+
 
             {phase.qualityResult && (
                 <div className="mt-2">
@@ -1773,14 +1784,3 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
-
-
-
-
-
-
-
-
-
-
-
