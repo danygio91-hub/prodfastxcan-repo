@@ -148,7 +148,15 @@ export default function MaterialLoadingPage() {
         } else {
             setScannedMaterial(result);
             form.setValue('materialId', result.id);
-            form.setValue('unit', result.unitOfMeasure);
+            // Pre-set unit based on material type
+            if (result.type === 'BOB') {
+                form.setValue('unit', 'kg');
+            } else if (result.type === 'GUAINA') {
+                form.setValue('unit', 'mt');
+            } else {
+                // Default to 'n' for TUBI/PF3V0, user can change to kg
+                form.setValue('unit', 'n');
+            }
             setStep('scan_lotto');
         }
     }, [stopCamera, toast, form]);
@@ -370,15 +378,25 @@ export default function MaterialLoadingPage() {
                                             <form onSubmit={form.handleSubmit(onQuantitySubmit)} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
-                                                 <FormField control={form.control} name="unit" render={({ field }) => (
-                                                    <FormItem className="space-y-3"><FormLabel>Carico per unità o peso?</FormLabel>
-                                                    <FormControl>
-                                                        <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
-                                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
-                                                            <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
-                                                        </RadioGroup>
-                                                    </FormControl><FormMessage /></FormItem>
-                                                )} />
+                                                {(scannedMaterial?.type === 'TUBI' || scannedMaterial?.type === 'PF3V0') && (
+                                                     <FormField control={form.control} name="unit" render={({ field }) => (
+                                                        <FormItem className="space-y-3"><FormLabel>Carico per unità o peso?</FormLabel>
+                                                        <FormControl>
+                                                            <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
+                                                                <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
+                                                                <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
+                                                            </RadioGroup>
+                                                        </FormControl><FormMessage /></FormItem>
+                                                    )} />
+                                                )}
+
+                                                {scannedMaterial?.type === 'BOB' && (
+                                                     <FormField control={form.control} name="unit" render={({ field }) => (<FormItem><FormControl><Input type="hidden" {...field} value="kg" /></FormControl></FormItem>)} />
+                                                )}
+
+                                                 {scannedMaterial?.type === 'GUAINA' && (
+                                                     <FormField control={form.control} name="unit" render={({ field }) => (<FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
+                                                )}
                                                 
                                                 <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità in Entrata ({form.watch('unit').toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl> <FormMessage /> </FormItem> )} />
                                                 <Button type="submit" className="w-full">Registra Carico</Button>

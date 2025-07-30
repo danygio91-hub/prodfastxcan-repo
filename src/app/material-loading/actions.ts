@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, doc, getDoc, getDocs, query, where, runTransaction, addDoc, Timestamp } from 'firebase/firestore';
@@ -44,7 +45,7 @@ const batchFormSchema = z.object({
   unit: z.enum(['n', 'kg', 'mt']),
 });
 
-export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; }> {
+export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; errors?: any }> {
   const rawData = Object.fromEntries(formData.entries());
   const validatedFields = batchFormSchema.safeParse(rawData);
 
@@ -64,7 +65,6 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
 
           const material = docSnap.data() as RawMaterial;
-          const existingBatches = material.batches || [];
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
@@ -80,7 +80,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           
           let unitsToAdd = 0;
           if (unit === 'kg') {
-              unitsToAdd = material.conversionFactor ? Math.round(quantity / material.conversionFactor) : 0;
+              // If loading by KG, we can only add units if there is a conversion factor.
+              // Otherwise, we only add weight.
+              unitsToAdd = material.conversionFactor && material.conversionFactor > 0 ? Math.round(quantity / material.conversionFactor) : 0;
           } else { // 'n' or 'mt'
               unitsToAdd = quantity;
           }
@@ -90,7 +92,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           if (unit === 'kg') {
               weightKgToAdd = quantity;
           } else { // 'n' or 'mt'
-              weightKgToAdd = material.conversionFactor ? quantity * material.conversionFactor : 0;
+              // If loading by units (n or mt), we can only add weight if there is a conversion factor.
+              weightKgToAdd = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
           }
           const newWeightKg = (material.currentWeightKg || 0) + weightKgToAdd;
 
