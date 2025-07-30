@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -934,6 +934,8 @@ export default function ScanJobPage() {
     )
   }
 
+  const isAnyPhaseActiveForMe = activeJob?.phases.some(p => p.workPeriods.some(wp => wp.operatorId === operator?.id && wp.end === null));
+
   const renderInitialView = () => (
      <Card>
         <CardHeader>
@@ -1214,6 +1216,14 @@ export default function ScanJobPage() {
           <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJob.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
         )}
       </CardContent>
+      {!isAnyPhaseActiveForMe && !allPhasesCompleted && (
+          <CardFooter>
+            <Button variant="secondary" className="w-full" onClick={resetForNewScan}>
+                <MoveLeft className="mr-2 h-4 w-4" />
+                Esci e Scansiona Altra Commessa
+            </Button>
+          </CardFooter>
+      )}
     </Card>
   )};
 
