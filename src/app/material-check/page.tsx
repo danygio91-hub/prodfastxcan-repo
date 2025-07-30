@@ -61,10 +61,6 @@ export default function MaterialCheckPage() {
     const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
     const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
 
-    // Simulator State
-    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-    const [simulatorInput, setSimulatorInput] = useState('');
-
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
 
@@ -198,17 +194,6 @@ export default function MaterialCheckPage() {
         setMaterialMovements(combinedMovements);
     };
 
-    const handleOpenSimulator = () => {
-        setSimulatorInput('');
-        setIsSimulatorOpen(true);
-    };
-
-    const handleSimulatorSubmit = () => {
-        handleCodeSubmit(simulatorInput);
-        setIsSimulatorOpen(false);
-        setSimulatorInput('');
-    };
-
     if (authLoading || !operator) {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
@@ -240,10 +225,6 @@ export default function MaterialCheckPage() {
                                 <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
                                     <Keyboard className="mr-2 h-5 w-5" />
                                     Inserisci Codice Manualmente
-                                </Button>
-                                <Button onClick={handleOpenSimulator} variant="secondary" size="sm" className="w-full">
-                                    <PlayCircle className="mr-2 h-4 w-4" />
-                                    Simula Scansione (Test)
                                 </Button>
                             </CardContent>
                         </Card>
@@ -336,29 +317,6 @@ export default function MaterialCheckPage() {
                         </Card>
                     )}
                 </div>
-
-                <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Simulatore Scansione QR</DialogTitle>
-                            <DialogDescription>Incolla il contenuto del QR code che vuoi simulare.</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <Label htmlFor="simulator-input">Contenuto QR Code</Label>
-                            <Input 
-                                id="simulator-input"
-                                value={simulatorInput}
-                                onChange={(e) => setSimulatorInput(e.target.value)}
-                                placeholder="Codice materiale..."
-                                autoFocus
-                            />
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
-                            <Button onClick={handleSimulatorSubmit}>Simula Scansione</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
 
                 <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
                     <DialogContent className="sm:max-w-4xl">

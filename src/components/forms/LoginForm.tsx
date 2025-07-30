@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -62,10 +63,6 @@ export default function LoginForm() {
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
     const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-
-    // QR Simulator State
-    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-    const [simulatorInput, setSimulatorInput] = useState('');
 
     // Effect to handle PWA install prompt
     useEffect(() => {
@@ -212,13 +209,6 @@ export default function LoginForm() {
         setInstallPrompt(null);
     };
 
-    const handleSimulatorSubmit = () => {
-        localStorage.removeItem('login_redirect_path');
-        handleScannedData(simulatorInput);
-        setIsSimulatorOpen(false);
-        setSimulatorInput('');
-    };
-
     const renderStep = () => {
         switch (step) {
             case 'initial':
@@ -259,11 +249,6 @@ export default function LoginForm() {
                             <Button onClick={() => setStep('manual_login')} variant="outline">
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
-                            </Button>
-
-                             <Button onClick={() => setIsSimulatorOpen(true)} variant="secondary" size="sm">
-                                <PlayCircle className="mr-2 h-4 w-4" />
-                                Simula Scansione QR (Test)
                             </Button>
                         </CardContent>
                         {installPrompt && (
@@ -351,31 +336,6 @@ export default function LoginForm() {
             <Card className="w-full max-w-md shadow-xl border-border/50 bg-card overflow-hidden">
                 {renderStep()}
             </Card>
-
-            <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Simulatore Scansione QR</DialogTitle>
-                        <DialogDescription>
-                            Incolla il contenuto del QR code per il login (formato: username@password).
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <Label htmlFor="simulator-input">Contenuto QR Code</Label>
-                        <Input 
-                            id="simulator-input"
-                            value={simulatorInput}
-                            onChange={(e) => setSimulatorInput(e.target.value)}
-                            placeholder="username@password"
-                            autoFocus
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
-                        <Button onClick={handleSimulatorSubmit}>Simula e Accedi</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 }

@@ -66,9 +66,6 @@ export default function MaterialLoadingPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     
-    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-    const [simulatorInput, setSimulatorInput] = useState('');
-
     useEffect(() => {
         if (!authLoading && operator && operator.reparto !== 'MAG' && operator.role !== 'superadvisor') {
             toast({ variant: 'destructive', title: 'Accesso Negato', description: 'Non hai i permessi per accedere a questa pagina.' });
@@ -221,16 +218,6 @@ export default function MaterialLoadingPage() {
         ncForm.reset();
         form.reset({ date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_RAPIDO' });
         setStep('scan_material');
-    };
-
-    const handleSimulatorSubmit = () => {
-        if (step === 'scan_material') {
-            handleMaterialScanned(simulatorInput);
-        } else if (step === 'scan_lotto') {
-            handleLottoScanned(simulatorInput);
-        }
-        setIsSimulatorOpen(false);
-        setSimulatorInput('');
     };
 
     if (authLoading || !operator) {
@@ -411,35 +398,11 @@ export default function MaterialLoadingPage() {
                            {step !== 'success' && (
                             <div className="w-full flex justify-between items-center">
                                 <Button variant="ghost" onClick={resetFlow}><ArrowLeft className="mr-2 h-4 w-4"/>Ricomincia</Button>
-                                <Button variant="secondary" size="sm" onClick={() => setIsSimulatorOpen(true)}><PlayCircle className="mr-2 h-4 w-4" />Simula Scansione</Button>
                             </div>
                            )}
                         </CardFooter>
                      </Card>
                 </div>
-                
-                <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Simulatore Scansione QR</DialogTitle>
-                            <DialogDescription>Incolla il contenuto del QR code che vuoi simulare.</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <Label htmlFor="simulator-input">Contenuto QR Code</Label>
-                            <Input 
-                                id="simulator-input"
-                                value={simulatorInput}
-                                onChange={(e) => setSimulatorInput(e.target.value)}
-                                placeholder={step === 'scan_material' ? 'Codice materiale...' : 'Codice lotto...'}
-                                autoFocus
-                            />
-                        </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
-                            <Button onClick={handleSimulatorSubmit}>Simula Scansione</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
             </AppShell>
         </AuthGuard>
     );

@@ -139,11 +139,6 @@ export default function ScanJobPage() {
 
   const [sessionConflict, setSessionConflict] = useState<{ material: SearchResult; existingSession: boolean } | null>(null);
 
-  // Simulator State
-  const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-  const [simulatorInput, setSimulatorInput] = useState('');
-  const [simulatorTarget, setSimulatorTarget] = useState<'job' | 'material' | 'lotto' | 'phase' | null>(null);
-
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
     defaultValues: { openingWeight: undefined, lottoBobina: '' },
@@ -875,30 +870,6 @@ export default function ScanJobPage() {
     toast({ title: "Lotto Scansionato", description: `Lotto: ${scannedValue}` });
     setIsLottoScanDialogOpen(false);
   };
-  
-    const handleOpenSimulator = (target: 'job' | 'material' | 'lotto' | 'phase') => {
-        setSimulatorTarget(target);
-        setSimulatorInput('');
-        setIsSimulatorOpen(true);
-    };
-
-    const handleSimulatorSubmit = () => {
-        if (!simulatorTarget) return;
-        
-        const handleScan = (data: string) => {
-            switch (simulatorTarget) {
-                case 'job': handleScannedData(data); break;
-                case 'material': handleMaterialCodeSubmit(data); break;
-                case 'lotto': handleLottoScanned(data); break;
-                case 'phase': handleLocalPhaseScanResult(data); break;
-            }
-        };
-        
-        handleScan(simulatorInput);
-        
-        setIsSimulatorOpen(false);
-        setSimulatorInput('');
-    };
     
     // --- NEW LOGIC: Session Conflict Resolution ---
     const handleAddToActiveSession = () => {
@@ -958,10 +929,6 @@ export default function ScanJobPage() {
             <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
                 <Keyboard className="mr-2 h-5 w-5" />
                 Inserisci Codice Manualmente
-            </Button>
-            <Button onClick={() => handleOpenSimulator('job')} variant="secondary" size="sm" className="w-full">
-                <PlayCircle className="mr-2 h-4 w-4" />
-                Simula Scansione Commessa (Test)
             </Button>
         </CardContent>
     </Card>
@@ -1256,7 +1223,6 @@ export default function ScanJobPage() {
                 <div className="py-4 space-y-4">
                     <Button onClick={() => setMaterialScanStep('scanning')} className="w-full"><QrCode className="mr-2 h-4 w-4" /> Scansiona QR/Barcode</Button>
                     <Button onClick={() => setMaterialScanStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2 h-4 w-4" /> Inserisci Manualmente</Button>
-                    <Button onClick={() => handleOpenSimulator('material')} variant="secondary" size="sm" className="w-full"><PlayCircle className="mr-2 h-4 w-4" />Simula Scansione Materiale</Button>
                 </div>
             )}
             
@@ -1364,7 +1330,6 @@ export default function ScanJobPage() {
                                         <div className="flex gap-2">
                                             <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
                                             <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
-                                            <Button type="button" variant="secondary" size="icon" onClick={() => handleOpenSimulator('lotto')}><PlayCircle className="h-4 w-4" /><span className="sr-only">Simula lotto</span></Button>
                                         </div><FormMessage />
                                     </FormItem>
                                 )} />
@@ -1410,7 +1375,6 @@ export default function ScanJobPage() {
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Fase</span>
                 </Button>
-                <Button variant="secondary" onClick={() => handleOpenSimulator('phase')}>Simula</Button>
                 <Button variant="outline" onClick={() => setIsPhaseScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
@@ -1566,31 +1530,6 @@ export default function ScanJobPage() {
           {renderPhaseScanDialog()}
           {renderContinueOrCloseDialog()}
           {renderSessionConflictDialog()}
-
-           <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Simulatore Scansione QR</DialogTitle>
-                        <DialogDescription>
-                            Incolla il contenuto del QR code che vuoi simulare.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <Label htmlFor="simulator-input">Contenuto QR Code</Label>
-                        <Input 
-                            id="simulator-input"
-                            value={simulatorInput}
-                            onChange={(e) => setSimulatorInput(e.target.value)}
-                            placeholder="Es. Comm-123/24@CODICE@100"
-                            autoFocus
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
-                        <Button onClick={handleSimulatorSubmit}>Simula Scansione</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             <Dialog open={isQualityProblemDialogOpen} onOpenChange={setIsQualityProblemDialogOpen}>
                 <DialogContent>
