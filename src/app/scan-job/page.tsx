@@ -52,7 +52,7 @@ declare class BarcodeDetector {
 
 const phaseMaterialSchema = z.object({
   grossOpeningWeight: z.coerce.number().positive("Il peso lordo di apertura deve essere un numero positivo."),
-  netOpeningWeight: z.coerce.number().optional(),
+  netOpeningWeight: z.coerce.number().optional(), // Now optional
   lottoBobina: z.string().optional(),
   packagingId: z.string().optional(),
 });
@@ -890,7 +890,7 @@ export default function ScanJobPage() {
     if (lotto && scannedMaterialForPhase) {
         const lastWeightData = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
         
-        if (lastWeightData && lastWeightData.isInitialLoad) {
+        if (lastWeightData?.isInitialLoad) {
             setIsHistoricalLotto(true);
             const tare = packagingItems.find(p => p.id === lastWeightData.packagingId)?.weightKg || 0;
             const grossWeight = lastWeightData.netWeight + tare;

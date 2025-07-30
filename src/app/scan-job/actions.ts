@@ -350,14 +350,29 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
 }
 
 
-export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string} | null> {
+export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string, isInitialLoad: boolean} | null> {
     if (!materialId || !lotto) return null;
 
+    // STRATEGY 1: Find the initial loading data for this lot first ---
     const materialRef = doc(db, "rawMaterials", materialId);
+    const materialSnap = await getDoc(materialRef);
+    if (materialSnap.exists()) {
+        const material = materialSnap.data() as RawMaterial;
+        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
+        if (specificBatch) {
+            return { 
+                grossWeight: specificBatch.grossWeight,
+                netWeight: specificBatch.netQuantity,
+                packagingId: specificBatch.packagingId || 'none',
+                isInitialLoad: true,
+            };
+        }
+    }
     
-    // STRATEGY 2: Find the last usage (closing weight) of this lot first, as it's most current.
+    // STRATEGY 2: If no initial load found, find the last usage (closing weight) of this lot, as it's most current.
     const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, where(`phases.materialConsumptions`, 'array-contains', { lottoBobina: lotto, materialId: materialId }));
+    // This query is broad, but necessary to search within the nested array.
+    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended"]));
     const snapshot = await getDocs(q);
     const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
 
@@ -399,22 +414,9 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
         return {
             grossWeight: lastUsage.closingWeight,
             netWeight: lastUsage.closingWeight - lastUsage.tareWeight,
-            packagingId: lastUsage.packagingId
+            packagingId: lastUsage.packagingId,
+            isInitialLoad: false, // It's from a previous usage, not the initial load.
         };
-    }
-
-    // --- STRATEGY 1: If no usage found, find the initial loading data for this lot ---
-    const materialSnap = await getDoc(materialRef);
-    if (materialSnap.exists()) {
-        const material = materialSnap.data() as RawMaterial;
-        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
-        if (specificBatch) {
-            return { 
-                grossWeight: specificBatch.grossWeight,
-                netWeight: specificBatch.netQuantity,
-                packagingId: specificBatch.packagingId || 'none'
-            };
-        }
     }
 
     // If neither strategy finds a weight, return null.
@@ -506,5 +508,3 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
-    
