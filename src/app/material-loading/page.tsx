@@ -293,6 +293,10 @@ export default function MaterialLoadingPage() {
             </Button>
         </div>
     );
+
+    const filteredPackagingItems = scannedMaterial
+        ? packagingItems.filter(item => item.associatedTypes?.includes(scannedMaterial.type))
+        : [];
     
     return (
         <AuthGuard>
@@ -454,7 +458,7 @@ export default function MaterialLoadingPage() {
                                                         </FormControl>
                                                         <SelectContent>
                                                             <SelectItem value="none">Nessuna Tara</SelectItem>
-                                                            {packagingItems.map(item => (
+                                                            {filteredPackagingItems.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
                                                                     {item.name} ({item.weightKg.toFixed(3)} kg)
                                                                 </SelectItem>
@@ -499,4 +503,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-

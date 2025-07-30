@@ -76,42 +76,35 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               tareWeight = packagingSnap.data().weightKg || 0;
             }
           }
-
-          let grossWeight = 0;
-          let unitsToAdd = 0;
-
-          if (unit === 'kg') {
-              grossWeight = netQuantity + tareWeight;
-              unitsToAdd = material.conversionFactor && material.conversionFactor > 0 ? Math.round(netQuantity / material.conversionFactor) : 0;
-          } else { // 'n' or 'mt'
-              unitsToAdd = netQuantity;
-              grossWeight = (material.conversionFactor && material.conversionFactor > 0 ? netQuantity * material.conversionFactor : 0) + tareWeight;
-          }
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
-            netQuantity: netQuantity,
-            grossWeight: grossWeight,
+            quantity: netQuantity, // This is the NET quantity
             tareWeight: tareWeight,
+            grossWeight: netQuantity + tareWeight, // Gross is net + tare
             packagingId: packagingId,
             lotto: lotto || undefined,
           };
 
-          const updatedBatches = [...existingBatches, newBatch];
-          const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
-          const newWeightKg = (material.currentWeightKg || 0) + grossWeight;
-
+          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
+          let newWeightKg = material.currentWeightKg || 0;
+          if (material.unitOfMeasure === 'kg') {
+            newWeightKg += netQuantity;
+          } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newWeightKg += netQuantity * material.conversionFactor;
+          }
+          
           transaction.update(materialRef, { 
-              batches: updatedBatches,
+              batches: [...existingBatches, newBatch],
               currentStockUnits: newStockUnits,
               currentWeightKg: newWeightKg,
           });
 
           return { 
               ...material, 
-              batches: updatedBatches, 
+              batches: [...existingBatches, newBatch], 
               currentStockUnits: newStockUnits,
               currentWeightKg: newWeightKg,
               stock: newStockUnits
@@ -120,7 +113,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
+      return { success: true, message: 'Lotto aggiunto con successo. Stock netto aggiornato.', updatedMaterial: finalMaterialState };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };

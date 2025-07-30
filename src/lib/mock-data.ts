@@ -2,6 +2,7 @@
 
 
 
+
 // --- Type Definitions ---
 
 export interface WorkPeriod {
@@ -116,8 +117,8 @@ export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  netQuantity: number;
-  grossWeight: number;
+  quantity: number; // Net quantity
+  grossWeight: number; // Net + Tare
   tareWeight: number;
   packagingId?: string;
   lotto?: string;

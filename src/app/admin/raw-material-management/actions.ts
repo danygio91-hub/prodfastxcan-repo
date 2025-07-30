@@ -169,8 +169,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
-            ddt,
-            netQuantity: netQuantity,
+            ddt: ddt || 'CARICO_MANUALE',
+            quantity: netQuantity, // Storing net quantity
             tareWeight: tareWeight,
             grossWeight: netQuantity + tareWeight,
             packagingId: packagingId,
@@ -179,10 +179,11 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 
           const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
           let newWeightKg = material.currentWeightKg || 0;
+          
           if (material.unitOfMeasure === 'kg') {
-              newWeightKg = (material.currentWeightKg || 0) + newBatch.grossWeight;
+              newWeightKg = (material.currentWeightKg || 0) + netQuantity;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += netQuantity * material.conversionFactor + tareWeight;
+              newWeightKg += netQuantity * material.conversionFactor;
           }
           
           transaction.update(materialRef, { 
@@ -245,15 +246,23 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
-                netQuantity: newBatchData.netQuantity,
+                quantity: newBatchData.netQuantity,
                 tareWeight: tareWeight,
                 grossWeight: newBatchData.netQuantity + tareWeight,
                 packagingId: newBatchData.packagingId,
             };
 
-            const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
+            const stockChange = updatedBatch.quantity - oldBatch.quantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            let newWeightKg = (material.currentWeightKg || 0) + (updatedBatch.grossWeight - oldBatch.grossWeight);
+            
+            let weightChange = 0;
+            if (material.unitOfMeasure === 'kg') {
+                weightChange = stockChange;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                weightChange = stockChange * material.conversionFactor;
+            }
+
+            let newWeightKg = (material.currentWeightKg || 0) + weightChange;
             
             transaction.update(materialRef, {
                 batches: arrayRemove(oldBatch),
@@ -291,9 +300,17 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
                 throw new Error("Lotto da eliminare non trovato.");
             }
 
-            const stockChange = -batchToDelete.netQuantity;
+            const stockChange = -batchToDelete.quantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            let newWeightKg = (material.currentWeightKg || 0) - batchToDelete.grossWeight;
+            
+            let weightChange = 0;
+             if (material.unitOfMeasure === 'kg') {
+                weightChange = stockChange;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                weightChange = stockChange * material.conversionFactor;
+            }
+
+            let newWeightKg = (material.currentWeightKg || 0) + weightChange;
             if (newWeightKg < 0) newWeightKg = 0;
 
 
@@ -422,8 +439,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            netQuantity: stockUnits,
-            grossWeight: stockUnits,
+            quantity: stockUnits,
+            grossWeight: stockUnits, // Assuming imported stock is net, gross is same as net with 0 tare
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
         };
