@@ -18,6 +18,8 @@ export interface MaterialConsumption {
   closingWeight?: number;
   pcs?: number;
   lottoBobina?: string;
+  packagingId?: string;
+  tareWeight?: number;
 }
 
 export interface JobPhase {
@@ -121,7 +123,7 @@ export interface RawMaterialBatch {
   grossWeight: number; // Net + Tare
   tareWeight: number;
   packagingId?: string;
-  lotto?: string;
+  lotto?: string | null;
 }
 
 export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA';
@@ -175,6 +177,8 @@ export interface ActiveMaterialSessionData {
     originatorJobId: string;
     associatedJobs: { jobId: string; jobOrderPF: string }[];
     category: MaterialSessionCategory;
+    packagingId?: string;
+    tareWeight?: number;
 }
 
 export interface NonConformityReport {

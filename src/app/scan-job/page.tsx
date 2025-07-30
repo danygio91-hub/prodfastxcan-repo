@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -32,14 +32,15 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
-import { getRawMaterialByCode } from '@/app/material-loading/actions';
+import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -52,6 +53,7 @@ declare class BarcodeDetector {
 const phaseMaterialSchema = z.object({
   openingWeight: z.coerce.number().positive("Il peso di apertura deve essere un numero positivo."),
   lottoBobina: z.string().optional(),
+  packagingId: z.string().optional(),
 });
 type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
 
@@ -131,6 +133,7 @@ export default function ScanJobPage() {
   const [manualMaterialCode, setManualMaterialCode] = useState('');
   const [isSearchingMaterial, setIsSearchingMaterial] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const searchDebounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
 
@@ -141,7 +144,7 @@ export default function ScanJobPage() {
 
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
-    defaultValues: { openingWeight: undefined, lottoBobina: '' },
+    defaultValues: { openingWeight: undefined, lottoBobina: '', packagingId: 'none' },
   });
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
@@ -692,12 +695,15 @@ export default function ScanJobPage() {
     setStep('initial');
   }
 
-  const handleOpenMaterialScanDialog = (phase: JobPhase) => {
+  const handleOpenMaterialScanDialog = async (phase: JobPhase) => {
     setPhaseForMaterialScan(phase);
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
-    phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '' });
+    phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '', packagingId: 'none' });
     tubiGuainaWithdrawalForm.reset({ quantity: undefined, unit: 'mt' });
+    
+    const items = await getPackagingItems();
+    setPackagingItems(items);
     
     if (phase.requiresMaterialSearch) {
         setMaterialScanStep('search_input');
@@ -773,6 +779,7 @@ export default function ScanJobPage() {
     if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    const selectedPackaging = packagingItems.find(p => p.id === values.packagingId);
 
     try {
         const sessionData = {
@@ -781,6 +788,8 @@ export default function ScanJobPage() {
             openingWeight: values.openingWeight,
             originatorJobId: activeJob.id,
             associatedJobs: [{ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }],
+            packagingId: values.packagingId,
+            tareWeight: selectedPackaging?.weightKg || 0,
         };
         startSession(sessionData, scannedMaterialForPhase.type);
         
@@ -795,6 +804,8 @@ export default function ScanJobPage() {
                 materialCode: sessionData.materialCode,
                 openingWeight: sessionData.openingWeight,
                 lottoBobina: values.lottoBobina,
+                packagingId: values.packagingId,
+                tareWeight: selectedPackaging?.weightKg || 0,
             });
             phaseToUpdate.materialReady = true; 
         }
@@ -1212,137 +1223,158 @@ export default function ScanJobPage() {
     </div>
   );
 
-  const renderMaterialScanDialog = () => (
-    <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
-        <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
-            <DialogHeader>
-                <DialogTitle>Aggiungi Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
-            </DialogHeader>
+  const renderMaterialScanDialog = () => {
+    const filteredPackagingItems = scannedMaterialForPhase
+      ? packagingItems.filter(item => item.associatedTypes?.includes(scannedMaterialForPhase.type))
+      : [];
 
-            {materialScanStep === 'initial' && (
+    return (
+      <Dialog open={isMaterialScanDialogOpen} onOpenChange={setIsMaterialScanDialogOpen}>
+          <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
+              <DialogHeader>
+                  <DialogTitle>Aggiungi Materiale per: {phaseForMaterialScan?.name}</DialogTitle>
+              </DialogHeader>
+
+              {materialScanStep === 'initial' && (
+                  <div className="py-4 space-y-4">
+                      <Button onClick={() => setMaterialScanStep('scanning')} className="w-full"><QrCode className="mr-2 h-4 w-4" /> Scansiona QR/Barcode</Button>
+                      <Button onClick={() => setMaterialScanStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2 h-4 w-4" /> Inserisci Manualmente</Button>
+                  </div>
+              )}
+              
+              {materialScanStep === 'search_input' && (
+                  <div className="py-4 space-y-4">
+                       <div className="relative">
+                          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input
+                              placeholder="Cerca per codice o descrizione..."
+                              className="pl-9"
+                              value={manualMaterialCode}
+                              onChange={(e) => handleSearchTermChange(e.target.value)}
+                              autoFocus
+                          />
+                      </div>
+                      {isSearchingMaterial ? (
+                          <div className="flex items-center justify-center p-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+                      ) : (
+                          <div className="max-h-60 overflow-y-auto space-y-2">
+                             {searchResults.map(material => (
+                               <button key={material.id} onClick={() => handleMaterialCodeSubmit(material.code)} className="w-full text-left p-2 rounded-md hover:bg-accent">
+                                 <p className="font-semibold">{material.code}</p>
+                                 <p className="text-xs text-muted-foreground">{material.description}</p>
+                                 <p className="text-xs text-muted-foreground">Stock: {material.currentStockUnits} {material.unitOfMeasure}</p>
+                               </button>
+                             ))}
+                          </div>
+                      )}
+                  </div>
+              )}
+
+              {materialScanStep === 'scanning' && (
                 <div className="py-4 space-y-4">
-                    <Button onClick={() => setMaterialScanStep('scanning')} className="w-full"><QrCode className="mr-2 h-4 w-4" /> Scansiona QR/Barcode</Button>
-                    <Button onClick={() => setMaterialScanStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2 h-4 w-4" /> Inserisci Manualmente</Button>
+                  {renderScanArea(handleMaterialCodeSubmit)}
+                  <div className="flex flex-col gap-2">
+                      <Button onClick={() => triggerScan(handleMaterialCodeSubmit)} disabled={isCapturing} className="w-full h-12">
+                         {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                         <span className="ml-2">Scansiona Codice</span>
+                      </Button>
+                      <Button variant="outline" className="w-full" onClick={() => setMaterialScanStep('initial')}>Annulla</Button>
+                  </div>
                 </div>
-            )}
-            
-            {materialScanStep === 'search_input' && (
-                <div className="py-4 space-y-4">
-                     <div className="relative">
-                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Cerca per codice o descrizione..."
-                            className="pl-9"
-                            value={manualMaterialCode}
-                            onChange={(e) => handleSearchTermChange(e.target.value)}
-                            autoFocus
-                        />
-                    </div>
-                    {isSearchingMaterial ? (
-                        <div className="flex items-center justify-center p-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
-                    ) : (
-                        <div className="max-h-60 overflow-y-auto space-y-2">
-                           {searchResults.map(material => (
-                             <button key={material.id} onClick={() => handleMaterialCodeSubmit(material.code)} className="w-full text-left p-2 rounded-md hover:bg-accent">
-                               <p className="font-semibold">{material.code}</p>
-                               <p className="text-xs text-muted-foreground">{material.description}</p>
-                               <p className="text-xs text-muted-foreground">Stock: {material.currentStockUnits} {material.unitOfMeasure}</p>
-                             </button>
-                           ))}
-                        </div>
-                    )}
-                </div>
-            )}
+              )}
 
-            {materialScanStep === 'scanning' && (
-              <div className="py-4 space-y-4">
-                {renderScanArea(handleMaterialCodeSubmit)}
-                <div className="flex flex-col gap-2">
-                    <Button onClick={() => triggerScan(handleMaterialCodeSubmit)} disabled={isCapturing} className="w-full h-12">
-                       {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
-                       <span className="ml-2">Scansiona Codice</span>
-                    </Button>
-                    <Button variant="outline" className="w-full" onClick={() => setMaterialScanStep('initial')}>Annulla</Button>
-                </div>
-              </div>
-            )}
+               {materialScanStep === 'manual_input' && (
+                  <div className="space-y-4 py-4">
+                      <Label htmlFor="manualMaterialCode">Codice Materia Prima</Label>
+                      <div className="flex items-center gap-2">
+                          <Input id="manualMaterialCode" value={manualMaterialCode} onChange={(e) => setManualMaterialCode(e.target.value)} placeholder="Es. BOB-123" autoFocus autoComplete="off" />
+                          <Button onClick={() => handleMaterialCodeSubmit(manualMaterialCode)} disabled={!manualMaterialCode || isSearchingMaterial}>
+                              {isSearchingMaterial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                              <span className="sr-only">Cerca</span>
+                          </Button>
+                      </div>
+                       <Button variant="ghost" onClick={() => setMaterialScanStep('initial')}>Indietro</Button>
+                  </div>
+              )}
 
-             {materialScanStep === 'manual_input' && (
-                <div className="space-y-4 py-4">
-                    <Label htmlFor="manualMaterialCode">Codice Materia Prima</Label>
-                    <div className="flex items-center gap-2">
-                        <Input id="manualMaterialCode" value={manualMaterialCode} onChange={(e) => setManualMaterialCode(e.target.value)} placeholder="Es. BOB-123" autoFocus autoComplete="off" />
-                        <Button onClick={() => handleMaterialCodeSubmit(manualMaterialCode)} disabled={!manualMaterialCode || isSearchingMaterial}>
-                            {isSearchingMaterial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                            <span className="sr-only">Cerca</span>
-                        </Button>
-                    </div>
-                     <Button variant="ghost" onClick={() => setMaterialScanStep('initial')}>Indietro</Button>
-                </div>
-            )}
-
-            {materialScanStep === 'form' && scannedMaterialForPhase && (
-                scannedMaterialForPhase.type === 'GUAINA' ? (
-                     <Form {...tubiGuainaWithdrawalForm}>
-                        <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                             <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => ( <FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
-                             <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+              {materialScanStep === 'form' && scannedMaterialForPhase && (
+                  scannedMaterialForPhase.type === 'GUAINA' ? (
+                       <Form {...tubiGuainaWithdrawalForm}>
+                          <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                               <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => ( <FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
+                               <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                  <FormItem>
+                                      <FormLabel>Metri da Prelevare (MT)</FormLabel>
+                                      <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
+                                      <FormMessage />
+                                  </FormItem>
+                              )} />
+                              <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                          </form>
+                      </Form>
+                  ) : scannedMaterialForPhase.type === 'TUBI' ? (
+                       <Form {...tubiGuainaWithdrawalForm}>
+                          <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => (
+                                  <FormItem className="space-y-3"><FormLabel>Prelievo per unità o peso?</FormLabel>
+                                  <FormControl>
+                                      <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
+                                          <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
+                                          <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
+                                      </RadioGroup>
+                                  </FormControl><FormMessage /></FormItem>
+                              )} />
+                              <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                  <FormItem><FormLabel>Quantità da Prelevare ({tubiGuainaWithdrawalForm.watch('unit')?.toUpperCase()})</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                              )} />
+                              <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                          </form>
+                      </Form>
+                  ) : (
+                      <Form {...phaseMaterialForm}>
+                          <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <FormField control={phaseMaterialForm.control} name="openingWeight" render={({ field }) => (
+                                  <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                              )} />
+                              {scannedMaterialForPhase.type === 'BOB' && (
+                                  <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
+                                      <FormItem>
+                                          <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
+                                          <div className="flex gap-2">
+                                              <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
+                                              <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
+                                          </div><FormMessage />
+                                      </FormItem>
+                                  )} />
+                              )}
+                              <FormField control={phaseMaterialForm.control} name="packagingId" render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Metri da Prelevare (MT)</FormLabel>
-                                    <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
-                                    <FormMessage />
+                                  <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
+                                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="none">Nessuna Tara</SelectItem>
+                                      {filteredPackagingItems.map(item => (
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
                                 </FormItem>
-                            )} />
-                            <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
-                        </form>
-                    </Form>
-                ) : scannedMaterialForPhase.type === 'TUBI' ? (
-                     <Form {...tubiGuainaWithdrawalForm}>
-                        <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                            <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => (
-                                <FormItem className="space-y-3"><FormLabel>Prelievo per unità o peso?</FormLabel>
-                                <FormControl>
-                                    <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
-                                        <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
-                                        <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
-                                    </RadioGroup>
-                                </FormControl><FormMessage /></FormItem>
-                            )} />
-                            <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
-                                <FormItem><FormLabel>Quantità da Prelevare ({tubiGuainaWithdrawalForm.watch('unit')?.toUpperCase()})</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
-                            )} />
-                            <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
-                        </form>
-                    </Form>
-                ) : (
-                    <Form {...phaseMaterialForm}>
-                        <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                            <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                            <FormField control={phaseMaterialForm.control} name="openingWeight" render={({ field }) => (
-                                <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
-                            )} />
-                            {scannedMaterialForPhase.type === 'BOB' && (
-                                <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
-                                        <div className="flex gap-2">
-                                            <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
-                                            <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
-                                        </div><FormMessage />
-                                    </FormItem>
-                                )} />
-                            )}
-                            <DialogFooter><Button type="submit"><Send className="mr-2 h-4 w-4" />Avvia Sessione Materiale</Button></DialogFooter>
-                        </form>
-                    </Form>
-                )
-            )}
-            
-        </DialogContent>
-    </Dialog>
-  )
+                              )} />
+                              <DialogFooter><Button type="submit"><Send className="mr-2 h-4 w-4" />Avvia Sessione Materiale</Button></DialogFooter>
+                          </form>
+                      </Form>
+                  )
+              )}
+              
+          </DialogContent>
+      </Dialog>
+    )
+  };
   
   const renderLottoScanDialog = () => (
     <Dialog open={isLottoScanDialogOpen} onOpenChange={setIsLottoScanDialogOpen}>
