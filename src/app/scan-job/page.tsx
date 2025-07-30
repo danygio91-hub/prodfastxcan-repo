@@ -51,7 +51,8 @@ declare class BarcodeDetector {
 }
 
 const phaseMaterialSchema = z.object({
-  openingWeight: z.coerce.number().positive("Il peso di apertura deve essere un numero positivo."),
+  grossOpeningWeight: z.coerce.number().positive("Il peso lordo di apertura deve essere un numero positivo."),
+  netOpeningWeight: z.coerce.number().positive("Il peso netto deve essere un numero positivo."),
   lottoBobina: z.string().optional(),
   packagingId: z.string().optional(),
 });
@@ -114,7 +115,7 @@ export default function ScanJobPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState(true);
   const [manualCode, setManualCode] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   
@@ -144,7 +145,7 @@ export default function ScanJobPage() {
 
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
-    defaultValues: { openingWeight: undefined, lottoBobina: '', packagingId: 'none' },
+    defaultValues: { grossOpeningWeight: undefined, netOpeningWeight: undefined, lottoBobina: '', packagingId: 'none' },
   });
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
@@ -270,22 +271,28 @@ export default function ScanJobPage() {
         handleStartOverallJob(result);
     }
   }, [toast, handleStartOverallJob, stopCamera]);
-
+  
   const startCamera = useCallback(async () => {
-    setCameraError(null);
+    setHasCameraPermission(true);
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        streamRef.current = stream;
-        if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play().catch(e => console.error("Video play failed:", e));
-        }
-    } catch (err) {
-        console.error("Camera access error:", err);
-        setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi del browser.");
-        stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error) {
+      setHasCameraPermission(false);
+      console.error('Error accessing camera:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Errore Fotocamera',
+        description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
+      });
+      stopCamera();
     }
-  }, [stopCamera]);
+  }, [stopCamera, toast]);
   
   const triggerScan = useCallback(async (onScan: (data: string) => void) => {
       if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -699,7 +706,7 @@ export default function ScanJobPage() {
     setPhaseForMaterialScan(phase);
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
-    phaseMaterialForm.reset({ openingWeight: undefined, lottoBobina: '', packagingId: 'none' });
+    phaseMaterialForm.reset({ grossOpeningWeight: undefined, lottoBobina: '', packagingId: 'none' });
     tubiGuainaWithdrawalForm.reset({ quantity: undefined, unit: 'mt' });
     
     const items = await getPackagingItems();
@@ -785,7 +792,8 @@ export default function ScanJobPage() {
         const sessionData = {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
-            openingWeight: values.openingWeight,
+            grossOpeningWeight: values.grossOpeningWeight,
+            netOpeningWeight: values.netOpeningWeight,
             originatorJobId: activeJob.id,
             associatedJobs: [{ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }],
             packagingId: values.packagingId,
@@ -802,7 +810,8 @@ export default function ScanJobPage() {
             phaseToUpdate.materialConsumptions.push({
                 materialId: sessionData.materialId,
                 materialCode: sessionData.materialCode,
-                openingWeight: sessionData.openingWeight,
+                grossOpeningWeight: sessionData.grossOpeningWeight,
+                netOpeningWeight: sessionData.netOpeningWeight,
                 lottoBobina: values.lottoBobina,
                 packagingId: values.packagingId,
                 tareWeight: selectedPackaging?.weightKg || 0,
@@ -865,10 +874,15 @@ export default function ScanJobPage() {
 
   const handleLottoChange = useCallback(async (lotto: string) => {
     if (lotto && scannedMaterialForPhase) {
-      const lastWeight = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
-      if (lastWeight !== null) {
-        phaseMaterialForm.setValue('openingWeight', lastWeight);
-        toast({ title: "Peso Precedente Trovato", description: `Il peso di apertura è stato impostato a ${lastWeight} kg.` });
+      const lastWeightData = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
+      if (lastWeightData !== null) {
+        phaseMaterialForm.setValue('grossOpeningWeight', lastWeightData.grossWeight);
+        phaseMaterialForm.setValue('netOpeningWeight', lastWeightData.netWeight);
+        phaseMaterialForm.setValue('packagingId', lastWeightData.packagingId);
+        toast({ title: "Dati Storici Trovati", description: `Il peso e l'imballo sono stati pre-compilati.` });
+      } else {
+        phaseMaterialForm.setValue('grossOpeningWeight', undefined);
+        phaseMaterialForm.setValue('netOpeningWeight', undefined);
       }
     }
   }, [scannedMaterialForPhase, phaseMaterialForm, toast]);
@@ -926,14 +940,14 @@ export default function ScanJobPage() {
             <CardDescription>Avvia la scansione o inserisci un codice per iniziare una lavorazione.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-            {cameraError && (
+            {!hasCameraPermission && (
                 <Alert variant="destructive" className="mb-4">
                     <AlertTriangle className="h-4 w-4" />
                     <AlertTitle>Errore Fotocamera</AlertTitle>
-                    <AlertDescription>{cameraError}</AlertDescription>
+                    <AlertDescription>Accesso negato o non disponibile. Controlla i permessi del browser.</AlertDescription>
                 </Alert>
             )}
-            <Button onClick={() => setStep('scanning')} className="w-full" size="lg">
+            <Button onClick={() => setStep('scanning')} className="w-full" size="lg" disabled={!hasCameraPermission}>
                 <QrCode className="mr-2 h-5 w-5" />
                 Avvia Scansione
             </Button>
@@ -1336,34 +1350,36 @@ export default function ScanJobPage() {
                       <Form {...phaseMaterialForm}>
                           <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
                               <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                              <FormField control={phaseMaterialForm.control} name="openingWeight" render={({ field }) => (
-                                  <FormItem><FormLabel>KG di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Es. 10.5" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                              
+                              <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
+                                  <FormItem>
+                                      <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
+                                      <div className="flex gap-2">
+                                          <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
+                                          <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
+                                      </div><FormMessage />
+                                  </FormItem>
                               )} />
-                              {scannedMaterialForPhase.type === 'BOB' && (
-                                  <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
-                                      <FormItem>
-                                          <FormLabel className="flex items-center"><Barcode className="mr-2 h-4 w-4" /> Numero Lotto Bobina (Opzionale)</FormLabel>
-                                          <div className="flex gap-2">
-                                              <FormControl><Input placeholder="Scansiona o inserisci lotto" {...field} onChange={(e) => {field.onChange(e); handleLottoChange(e.target.value);}} /></FormControl>
-                                              <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanDialogOpen(true)}><QrCode className="h-4 w-4" /><span className="sr-only">Scansiona lotto</span></Button>
-                                          </div><FormMessage />
-                                      </FormItem>
-                                  )} />
-                              )}
-                              <FormField control={phaseMaterialForm.control} name="packagingId" render={({ field }) => (
+                               <FormField control={phaseMaterialForm.control} name="packagingId" render={({ field }) => (
                                 <FormItem>
                                   <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
-                                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                   <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                                     <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
                                     <SelectContent>
                                       <SelectItem value="none">Nessuna Tara</SelectItem>
                                       {filteredPackagingItems.map(item => (
-                                        <SelectItem key={item.id} value={item.id}>{item.name} ({Number(item.weightKg)} kg)</SelectItem>
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
                                   <FormMessage />
                                 </FormItem>
+                              )} />
+                              <FormField control={phaseMaterialForm.control} name="grossOpeningWeight" render={({ field }) => (
+                                  <FormItem><FormLabel>KG Lordi di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Peso letto sulla bilancia" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                              )} />
+                              <FormField control={phaseMaterialForm.control} name="netOpeningWeight" render={({ field }) => (
+                                  <FormItem><FormLabel>KG Netti di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Calcolato (Lordo - Tara)" {...field} value={field.value ?? ''} readOnly className="bg-muted" /></FormControl><FormMessage /></FormItem>
                               )} />
                               <DialogFooter><Button type="submit"><Send className="mr-2 h-4 w-4" />Avvia Sessione Materiale</Button></DialogFooter>
                           </form>
@@ -1508,7 +1524,7 @@ export default function ScanJobPage() {
                           {renderScanArea(handleScannedData)}
                       </CardContent>
                       <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !!cameraError} className="w-full h-14">
+                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
                               {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
                               <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
                            </Button>
@@ -1702,7 +1718,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
             {(phase.materialConsumptions || []).map((mc, index) => (
                 <p key={index} className="font-semibold text-primary/90 text-xs bg-primary/10 p-2 rounded-md">
                     Materiale: {mc.materialCode} 
-                    {mc.openingWeight !== undefined && ` (Aperto: ${mc.openingWeight} kg)`}
+                    {mc.grossOpeningWeight !== undefined && ` (Aperto: ${mc.grossOpeningWeight} kg)`}
                     {mc.closingWeight !== undefined && ` (Chiuso: ${mc.closingWeight} kg)`}
                     {mc.pcs !== undefined && ` (Pezzi: ${mc.pcs})`}
                     {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}
@@ -1782,3 +1798,5 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
+    

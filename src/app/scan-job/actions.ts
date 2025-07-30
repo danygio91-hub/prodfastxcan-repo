@@ -353,42 +353,17 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
 export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string} | null> {
     if (!materialId || !lotto) return null;
 
-    // --- STRATEGY 1: Find the initial loading data for this lot ---
     const materialRef = doc(db, "rawMaterials", materialId);
-    const materialSnap = await getDoc(materialRef);
-
-    if (materialSnap.exists()) {
-        const material = materialSnap.data() as RawMaterial;
-        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
-        if (specificBatch) {
-            // Check if this batch has been used AT ALL by looking at materialConsumption in jobs
-            const querySnapshot = await getDocs(collection(db, "jobOrders"));
-            const hasBeenUsed = querySnapshot.docs.some(doc => {
-                 const job = doc.data() as JobOrder;
-                 return (job.phases || []).some(phase => 
-                    (phase.materialConsumptions || []).some(mc => mc.materialId === materialId && mc.lottoBobina === lotto)
-                );
-            });
-            // If it has never been used, return its initial gross weight and calculated net weight.
-            if (!hasBeenUsed) {
-                 return { 
-                    grossWeight: specificBatch.grossWeight,
-                    netWeight: specificBatch.netQuantity,
-                    packagingId: specificBatch.packagingId || 'none'
-                 };
-            }
-        }
-    }
-
-
-    // --- STRATEGY 2: Find the last usage (closing weight) of this lot ---
+    
+    // STRATEGY 2: Find the last usage (closing weight) of this lot first, as it's most current.
     const jobsRef = collection(db, "jobOrders");
-    const snapshot = await getDocs(jobsRef);
+    const q = firestoreQuery(jobsRef, where(`phases.materialConsumptions`, 'array-contains', { lottoBobina: lotto, materialId: materialId }));
+    const snapshot = await getDocs(q);
     const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
 
     if (!snapshot.empty) {
-        for (const doc of snapshot.docs) {
-            const job = convertTimestampsToDates(doc.data()) as JobOrder;
+        for (const docSnap of snapshot.docs) {
+            const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
             for (const phase of (job.phases || [])) {
                 for (const consumption of (phase.materialConsumptions || [])) {
                   if (
@@ -421,13 +396,25 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     if (consumptions.length > 0) {
         consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
         const lastUsage = consumptions[0];
-        // The closing weight of the last session is the gross opening weight for the next session.
-        // We recalculate the net weight based on this.
         return {
             grossWeight: lastUsage.closingWeight,
             netWeight: lastUsage.closingWeight - lastUsage.tareWeight,
             packagingId: lastUsage.packagingId
         };
+    }
+
+    // --- STRATEGY 1: If no usage found, find the initial loading data for this lot ---
+    const materialSnap = await getDoc(materialRef);
+    if (materialSnap.exists()) {
+        const material = materialSnap.data() as RawMaterial;
+        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
+        if (specificBatch) {
+            return { 
+                grossWeight: specificBatch.grossWeight,
+                netWeight: specificBatch.netQuantity,
+                packagingId: specificBatch.packagingId || 'none'
+            };
+        }
     }
 
     // If neither strategy finds a weight, return null.
@@ -519,3 +506,5 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+
+    
