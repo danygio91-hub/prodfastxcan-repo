@@ -31,65 +31,53 @@ export default function ActiveJobStatusBar() {
     }
   };
 
-  const handlePauseResume = () => {
+  const handlePauseResume = (phaseId: string) => {
     if (!activeJob || !operator) return;
     
-    const currentPhase = activeJob.phases.find(p => p.status === 'in-progress' || p.status === 'paused');
-    if (!currentPhase) {
-        toast({ variant: 'destructive', title: 'Nessuna Fase Attiva', description: 'Non c\'è nessuna fase da mettere in pausa o riprendere.' });
-        return;
-    }
-    
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === currentPhase.id);
+    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
     if (!phaseToUpdate) return;
     
-    if (phaseToUpdate.status === 'in-progress') {
-      const lastWorkPeriod = phaseToUpdate.workPeriods[phaseToUpdate.workPeriods.length - 1];
-      if (lastWorkPeriod && !lastWorkPeriod.end) {
-        lastWorkPeriod.end = new Date();
-      }
-      phaseToUpdate.status = 'paused';
-      toast({ title: "Fase in Pausa", description: `La fase "${phaseToUpdate.name}" è stata messa in pausa.` });
-    } else if (phaseToUpdate.status === 'paused') {
+    const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
+
+    if (myWorkPeriodIndex !== -1) { // Operator is currently active, so pause
+      phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
+       const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
+       if (!isAnyoneElseWorking) {
+          phaseToUpdate.status = 'paused';
+       }
+      toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
+    } else { // Operator is not active, so resume/join
       phaseToUpdate.status = 'in-progress';
       phaseToUpdate.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-      toast({ title: "Fase Ripresa", description: `La fase "${phaseToUpdate.name}" è ripresa.` });
+      toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToUpdate.name}".` });
     }
     
     handleUpdateJob(jobToUpdate);
   };
 
-  const handleCompletePhase = () => {
+  const handleCompletePhase = (phaseId: string) => {
     if (!activeJob || !operator) return;
 
-    const currentPhase = activeJob.phases.find(p => p.status === 'in-progress' || p.status === 'paused');
-    if (!currentPhase) {
-        toast({ variant: 'destructive', title: 'Nessuna Fase Attiva', description: 'Non c\'è nessuna fase da completare.' });
+    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+    if (!phaseToUpdate) return;
+    
+    const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex !== -1) {
+        phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
+    } else {
+        toast({variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo da completare."})
         return;
     }
 
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === currentPhase.id);
-    if (!phaseToUpdate) return;
+    const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
 
-    if (phaseToUpdate.status === 'in-progress') {
-      const lastWorkPeriod = phaseToUpdate.workPeriods[phaseToUpdate.workPeriods.length - 1];
-      if (lastWorkPeriod && !lastWorkPeriod.end) {
-        lastWorkPeriod.end = new Date();
-      }
-    }
-    phaseToUpdate.status = 'completed';
-    
-    const allPreparationPhases = jobToUpdate.phases.filter((p: JobPhase) => (p.type || 'production') === 'preparation');
-    if (allPreparationPhases.every((p: JobPhase) => p.status === 'completed')) {
-        const firstProductionPhase = jobToUpdate.phases.find((p: JobPhase) => p.sequence === 1);
-        if (firstProductionPhase) {
-          firstProductionPhase.materialReady = true;
-        }
+    if (!isAnyoneElseWorking) {
+        phaseToUpdate.status = 'completed';
     }
     
-    toast({ title: "Fase Completata", description: `Fase "${phaseToUpdate.name}" completata.` });
+    toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToUpdate.name}" è terminata.` });
     
     // Check if all phases are now completed to conclude the job
     const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed');
@@ -102,14 +90,14 @@ export default function ActiveJobStatusBar() {
     handleUpdateJob(jobToUpdate);
   };
 
-  if (isLoading || !activeJob || activeJob.status === 'completed' || activeJob.status === 'planned') {
+  if (isLoading || !activeJob || activeJob.status === 'completed' || activeJob.status === 'planned' || !operator) {
     return null;
   }
+  
+  const myActivePhase = activeJob.phases.find(p => (p.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null));
 
-  const currentPhase = activeJob.phases.find(p => p.status === 'in-progress' || p.status === 'paused');
-
-  if (!currentPhase) {
-    return null;
+  if (!myActivePhase) {
+    return null; // Don't show the bar if the current operator isn't active on any phase
   }
 
   return (
@@ -119,16 +107,16 @@ export default function ActiveJobStatusBar() {
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                        Fase Attiva: {currentPhase.name}
+                        Fase Attiva: {myActivePhase.name}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <>
-                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={handlePauseResume} disabled={activeJob.isProblemReported}>
-                            {currentPhase.status === 'in-progress' ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                            <span className="sr-only">{currentPhase.status === 'in-progress' ? 'Pausa' : 'Riprendi'}</span>
+                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => handlePauseResume(myActivePhase.id)} disabled={activeJob.isProblemReported}>
+                            <Pause className="h-4 w-4" />
+                            <span className="sr-only">Pausa</span>
                         </Button>
-                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleCompletePhase} disabled={activeJob.isProblemReported}>
+                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => handleCompletePhase(myActivePhase.id)} disabled={activeJob.isProblemReported}>
                             <Check className="h-4 w-4" />
                             <span className="sr-only">Completa</span>
                         </Button>

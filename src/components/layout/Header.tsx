@@ -7,11 +7,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, ThumbsUp } from 'lucide-react';
+import { LogOut, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
-import { updateJob } from '@/app/scan-job/actions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,7 +26,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import type { JobPhase } from '@/lib/mock-data';
+
 
 export default function Header() {
   const { operator, logout } = useAuth();
@@ -41,56 +40,10 @@ export default function Header() {
     window.location.reload();
   };
 
-  const handleAbandonJob = async () => {
-    if (!activeJob || !operator) return;
-
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    
-    // Find the specific work period for the current operator that is still active
-    let myPhaseName = '';
-    let phaseToUpdate: JobPhase | undefined;
-    
-    jobToUpdate.phases.forEach((phase: JobPhase) => {
-        const myWorkPeriodIndex = phase.workPeriods.findIndex(wp => wp.operatorId === operator.id && wp.end === null);
-        if (myWorkPeriodIndex !== -1) {
-            phase.workPeriods[myWorkPeriodIndex].end = new Date();
-            phaseToUpdate = phase;
-            myPhaseName = phase.name;
-        }
-    });
-
-    if (phaseToUpdate) {
-        // After closing my period, check if anyone else is still active on THIS phase
-        const isAnyoneElseWorkingOnThisPhase = phaseToUpdate.workPeriods.some(wp => wp.end === null);
-        
-        if (!isAnyoneElseWorkingOnThisPhase) {
-            phaseToUpdate.status = 'paused';
-             toast({
-                title: "Sei uscito dalla commessa",
-                description: `La fase "${myPhaseName}" è stata messa in pausa perché eri l'unico operatore attivo.`,
-            });
-        } else {
-             toast({
-                title: "Attività terminata",
-                description: `La tua attività sulla fase "${myPhaseName}" è terminata. La fase prosegue con altri operatori.`,
-            });
-        }
-
-        const result = await updateJob(jobToUpdate);
-        if (result.success) {
-          setActiveJobId(null);
-        } else {
-          toast({
-            variant: "destructive",
-            title: "Errore",
-            description: "Impossibile abbandonare la commessa. Riprova.",
-          });
-        }
-    } else {
-        // This case handles if the user was just viewing the job but not actively working on a phase
-        setActiveJobId(null);
-        toast({ title: "Sei uscito dalla commessa", description: "Nessuna fase attiva è stata modificata."});
-    }
+  const handleExitJobScreen = () => {
+    if (!activeJob) return;
+    setActiveJobId(null);
+    toast({ title: "Sei uscito dalla schermata della commessa", description: "La fase attiva rimane in corso in background."});
   };
 
 
@@ -105,7 +58,7 @@ export default function Header() {
   const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
   const displayInitials = getInitials(avatarName);
   
-  const showAbandonButton = pathname === '/scan-job' && activeJob;
+  const showExitButton = pathname === '/scan-job' && activeJob;
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
@@ -117,15 +70,15 @@ export default function Header() {
         </div>
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
-            {showAbandonButton && (
+            {showExitButton && (
                  <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="destructive" size="icon" onClick={handleAbandonJob} aria-label="Esci dalla commessa">
+                        <Button variant="destructive" size="icon" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
                             <LogOut className="h-5 w-5" />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                        <p>Esci dalla commessa</p>
+                        <p>Esci dalla schermata della commessa</p>
                     </TooltipContent>
                 </Tooltip>
             )}

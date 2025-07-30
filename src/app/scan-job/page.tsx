@@ -339,9 +339,6 @@ export default function ScanJobPage() {
   };
 
   const handleLocalPhaseScanResult = async (scannedId: string) => {
-      setIsPhaseScanDialogOpen(false);
-      stopCamera();
-  
       if (!activeJob || !operator || !phaseForPhaseScan) return;
   
       // --- VALIDATION LOGIC ---
@@ -351,9 +348,13 @@ export default function ScanJobPage() {
               title: "Scansione Fase Errata",
               description: `Prevista: "${phaseForPhaseScan.name}". Scansionata: "${scannedId.trim()}".`,
           });
+          setIsCapturing(false);
           return;
       }
       // --- END VALIDATION LOGIC ---
+
+      setIsPhaseScanDialogOpen(false);
+      stopCamera();
   
       const result = await handlePhaseScanResult(activeJob.id, phaseForPhaseScan.id, operator.id);
   
@@ -1783,12 +1784,12 @@ function PhaseCard({ phase, job, permissions, handlers }: {
             )}
             {permissions.canResumePhase && (
                 <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
-                <PlayCircle className="mr-2 h-4 w-4" /> Riprendi Fase
+                <PlayCircle className="mr-2 h-4 w-4" /> {permissions.anyOperatorActive ? "Partecipa alla Fase" : "Riprendi Fase"}
                 </Button>
             )}
             {permissions.canCompletePhase && (
                 <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(job.isProblemReported && phase.status !== 'completed')}>
-                <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa Fase
+                <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa la tua Attività
                 </Button>
             )}
             </div>
