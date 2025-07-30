@@ -65,6 +65,7 @@ export default function MaterialLoadingPage() {
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = useState(true);
     
     useEffect(() => {
         if (!authLoading && operator) {
@@ -95,19 +96,64 @@ export default function MaterialLoadingPage() {
         }
     }, []);
     
-    const startCamera = useCallback(async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
+    const handleMaterialScanned = useCallback(async (code: string) => {
+        stopCamera();
+        const result = await getRawMaterialByCode(code.trim());
+        if ('error' in result) {
+            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+        } else {
+            setScannedMaterial(result);
+            form.setValue('materialId', result.id);
+            // Pre-set unit based on material type
+            if (result.type === 'BOB') {
+                form.setValue('unit', 'kg');
+            } else if (result.type === 'GUAINA') {
+                form.setValue('unit', 'mt');
+            } else {
+                // Default to 'n' for TUBI/PF3V0, user can change to kg
+                form.setValue('unit', 'n');
             }
-        } catch (err) {
-            toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile." });
-            stopCamera(); 
+            setStep('scan_lotto');
         }
-    }, [stopCamera, toast]);
+    }, [stopCamera, toast, form]);
+
+    const handleLottoScanned = (code: string) => {
+        stopCamera();
+        setScannedLotto(code.trim());
+        form.setValue('lotto', code.trim());
+        setStep('validate');
+    };
+
+     useEffect(() => {
+        if (step === 'scan_material' || step === 'scan_lotto') {
+            const getCameraPermission = async () => {
+              try {
+                const stream = await navigator.mediaDevices.getUserMedia({video: { facingMode: 'environment' }});
+                setHasCameraPermission(true);
+                streamRef.current = stream;
+
+                if (videoRef.current) {
+                  videoRef.current.srcObject = stream;
+                  await videoRef.current.play();
+                }
+              } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                  variant: 'destructive',
+                  title: 'Errore Fotocamera',
+                  description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
+                });
+                stopCamera();
+              }
+            };
+            getCameraPermission();
+        } else {
+            stopCamera();
+        }
+        return () => stopCamera();
+    }, [step, stopCamera, toast]);
+
 
     const triggerScan = useCallback(async () => {
         if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -137,45 +183,7 @@ export default function MaterialLoadingPage() {
         } finally {
             setIsCapturing(false);
         }
-    }, [step, toast]);
-
-
-    const handleMaterialScanned = useCallback(async (code: string) => {
-        stopCamera();
-        const result = await getRawMaterialByCode(code.trim());
-        if ('error' in result) {
-            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-        } else {
-            setScannedMaterial(result);
-            form.setValue('materialId', result.id);
-            // Pre-set unit based on material type
-            if (result.type === 'BOB') {
-                form.setValue('unit', 'kg');
-            } else if (result.type === 'GUAINA') {
-                form.setValue('unit', 'mt');
-            } else {
-                // Default to 'n' for TUBI/PF3V0, user can change to kg
-                form.setValue('unit', 'n');
-            }
-            setStep('scan_lotto');
-        }
-    }, [stopCamera, toast, form]);
-
-    const handleLottoScanned = (code: string) => {
-        stopCamera();
-        setScannedLotto(code.trim());
-        form.setValue('lotto', code.trim());
-        setStep('validate');
-    };
-
-    useEffect(() => {
-        if (step === 'scan_material' || step === 'scan_lotto') {
-            startCamera();
-        } else {
-            stopCamera();
-        }
-        return () => stopCamera();
-    }, [step, startCamera, stopCamera]);
+    }, [step, toast, handleMaterialScanned, handleLottoScanned]);
 
     async function onQuantitySubmit(values: BatchFormValues) {
         setStep('saving');
@@ -240,23 +248,31 @@ export default function MaterialLoadingPage() {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
     
-    const renderScanUI = (title: string, description: string) => (
+    const renderScanUI = (title: string) => (
         <div className="text-center space-y-4">
             <h3 className="text-xl font-semibold">{title}</h3>
             {scannedMaterial && <p className="text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial.code}</span></p>}
             <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                    <div className="w-5/6 h-2/5 relative">
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                        <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                {!hasCameraPermission ? (
+                     <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                        <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
+                        <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
                     </div>
-                </div>
+                ) : (
+                    <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                        <div className="w-5/6 h-2/5 relative">
+                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                            <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                        </div>
+                    </div>
+                )}
             </div>
-            <Button onClick={triggerScan} disabled={isCapturing} className="w-full h-12">
+            <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
                 {isCapturing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
                 <span className="ml-2">{isCapturing ? 'Scansione...' : 'Scansiona Ora'}</span>
             </Button>
@@ -293,8 +309,8 @@ export default function MaterialLoadingPage() {
                             </ol>
                             
                             <div className="mt-8">
-                                {step === 'scan_material' && renderScanUI('1. Scansiona il Codice Materiale', '')}
-                                {step === 'scan_lotto' && renderScanUI('2. Scansiona il Codice del Lotto', '')}
+                                {step === 'scan_material' && renderScanUI('1. Scansiona il Codice Materiale')}
+                                {step === 'scan_lotto' && renderScanUI('2. Scansiona il Codice del Lotto')}
                                 {step === 'validate' && (
                                      <div className="text-center space-y-4">
                                         <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
