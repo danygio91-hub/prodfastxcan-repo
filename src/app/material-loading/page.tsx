@@ -110,7 +110,7 @@ export default function MaterialLoadingPage() {
             } else if (result.type === 'GUAINA') {
                 form.setValue('unit', 'mt');
             } else {
-                // Default to 'n' for TUBI/PF3V0, user can change to kg
+                // Default to 'n' for TUBI, user can change to kg
                 form.setValue('unit', 'n');
             }
             setStep('scan_lotto');
@@ -125,36 +125,38 @@ export default function MaterialLoadingPage() {
     };
 
     useEffect(() => {
-        const shouldRunCamera = step === 'scan_material' || step === 'scan_lotto';
-        
-        if (shouldRunCamera) {
-            const getCameraPermission = async () => {
-              try {
-                const stream = await navigator.mediaDevices.getUserMedia({video: { facingMode: 'environment' }});
-                setHasCameraPermission(true);
-                streamRef.current = stream;
+      const shouldRunCamera = step === 'scan_material' || step === 'scan_lotto';
 
-                if (videoRef.current) {
-                  videoRef.current.srcObject = stream;
-                  await videoRef.current.play();
-                }
-              } catch (error) {
-                console.error('Error accessing camera:', error);
-                setHasCameraPermission(false);
-                toast({
-                  variant: 'destructive',
-                  title: 'Errore Fotocamera',
-                  description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
-                });
-                stopCamera();
-              }
-            };
-            getCameraPermission();
-        } else {
-            stopCamera();
+      const getCameraPermission = async () => {
+        if (!shouldRunCamera) return;
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+          setHasCameraPermission(true);
+          streamRef.current = stream;
+
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            await videoRef.current.play();
+          }
+        } catch (error) {
+          console.error('Error accessing camera:', error);
+          setHasCameraPermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Errore Fotocamera',
+            description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
+          });
+          stopCamera();
         }
-        return () => stopCamera();
-    }, [step, stopCamera, toast]);
+      };
+
+      getCameraPermission();
+      
+      return () => {
+        stopCamera();
+      };
+    }, [step, toast, stopCamera]);
 
 
     const triggerScan = useCallback(async () => {
