@@ -136,6 +136,7 @@ export default function ScanJobPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const searchDebounceTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [isHistoricalLotto, setIsHistoricalLotto] = useState(false);
 
 
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
@@ -708,6 +709,7 @@ export default function ScanJobPage() {
     setManualMaterialCode('');
     phaseMaterialForm.reset({ grossOpeningWeight: undefined, lottoBobina: '', packagingId: 'none' });
     tubiGuainaWithdrawalForm.reset({ quantity: undefined, unit: 'mt' });
+    setIsHistoricalLotto(false);
     
     const items = await getPackagingItems();
     setPackagingItems(items);
@@ -785,7 +787,6 @@ export default function ScanJobPage() {
   const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
     if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
     
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const selectedPackaging = packagingItems.find(p => p.id === values.packagingId);
     
     let netWeight = values.netOpeningWeight;
@@ -812,6 +813,7 @@ export default function ScanJobPage() {
         };
         startSession(sessionData, scannedMaterialForPhase.type);
         
+        const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
         const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseForMaterialScan.id);
 
         if (phaseToUpdate) {
@@ -884,28 +886,34 @@ export default function ScanJobPage() {
   };
 
   const handleLottoChange = useCallback(async (lotto: string) => {
+    const { setValue, trigger } = phaseMaterialForm;
     if (lotto && scannedMaterialForPhase) {
         const lastWeightData = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
-        const { setValue, trigger } = phaseMaterialForm;
         
-        if (lastWeightData) {
+        if (lastWeightData && lastWeightData.isInitialLoad) {
+            setIsHistoricalLotto(true);
             const tare = packagingItems.find(p => p.id === lastWeightData.packagingId)?.weightKg || 0;
-            if (lastWeightData.isInitialLoad) {
-                setValue('netOpeningWeight', lastWeightData.netWeight);
-                setValue('grossOpeningWeight', lastWeightData.netWeight + tare, { shouldValidate: true });
-                // Lock grossOpeningWeight if it comes from historical initial load
-                // This logic needs to be handled in the JSX based on a state flag.
-            } else {
-                 setValue('grossOpeningWeight', lastWeightData.grossWeight, { shouldValidate: true });
-                 setValue('netOpeningWeight', lastWeightData.netWeight);
-            }
-            setValue('packagingId', lastWeightData.packagingId);
-            toast({ title: "Dati Storici Trovati", description: `Peso e imballo sono stati pre-compilati in base allo storico del lotto.` });
+            const grossWeight = lastWeightData.netWeight + tare;
+
+            setValue('netOpeningWeight', lastWeightData.netWeight, { shouldValidate: true });
+            setValue('grossOpeningWeight', grossWeight, { shouldValidate: true });
+            setValue('packagingId', lastWeightData.packagingId || 'none');
+            toast({ title: "Dati Storici Trovati", description: `Peso e imballo pre-compilati dal carico merce originale.` });
+        } else if (lastWeightData) { // From a previous usage, not initial load
+            setIsHistoricalLotto(true);
+            setValue('grossOpeningWeight', lastWeightData.grossWeight, { shouldValidate: true });
+            setValue('netOpeningWeight', lastWeightData.netWeight, { shouldValidate: true });
+            setValue('packagingId', lastWeightData.packagingId || 'none');
+            toast({ title: "Dati Storici Trovati", description: `Peso e imballo pre-compilati dall'ultimo utilizzo.` });
         } else {
+             setIsHistoricalLotto(false);
              setValue('grossOpeningWeight', undefined);
              setValue('netOpeningWeight', undefined);
+             setValue('packagingId', 'none');
         }
         trigger();
+    } else {
+        setIsHistoricalLotto(false);
     }
   }, [scannedMaterialForPhase, phaseMaterialForm, toast, packagingItems]);
 
@@ -1385,7 +1393,7 @@ export default function ScanJobPage() {
                                <FormField control={phaseMaterialForm.control} name="packagingId" render={({ field }) => (
                                 <FormItem>
                                   <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
-                                   <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                   <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={isHistoricalLotto}>
                                     <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
                                     <SelectContent>
                                       <SelectItem value="none">Nessuna Tara</SelectItem>
@@ -1398,7 +1406,7 @@ export default function ScanJobPage() {
                                 </FormItem>
                               )} />
                               <FormField control={phaseMaterialForm.control} name="grossOpeningWeight" render={({ field }) => (
-                                  <FormItem><FormLabel>KG Lordi di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Peso letto sulla bilancia" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+                                  <FormItem><FormLabel>KG Lordi di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Peso letto sulla bilancia" {...field} value={field.value ?? ''} readOnly={isHistoricalLotto} /></FormControl><FormMessage /></FormItem>
                               )} />
                               <FormField control={phaseMaterialForm.control} name="netOpeningWeight" render={({ field }) => (
                                   <FormItem><FormLabel>KG Netti di Apertura</FormLabel><FormControl><Input type="number" step="0.01" placeholder="Calcolato (Lordo - Tara)" {...field} value={field.value ?? ''} readOnly className="bg-muted" /></FormControl><FormMessage /></FormItem>
@@ -1819,3 +1827,4 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
