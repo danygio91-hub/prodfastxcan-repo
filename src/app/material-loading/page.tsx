@@ -124,12 +124,14 @@ export default function MaterialLoadingPage() {
         setStep('validate');
     };
 
-    useEffect(() => {
+     useEffect(() => {
       const shouldRunCamera = step === 'scan_material' || step === 'scan_lotto';
-
+      if (!shouldRunCamera) {
+          stopCamera();
+          return;
+      }
+    
       const getCameraPermission = async () => {
-        if (!shouldRunCamera) return;
-
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
           setHasCameraPermission(true);
@@ -156,7 +158,7 @@ export default function MaterialLoadingPage() {
       return () => {
         stopCamera();
       };
-    }, [step, toast, stopCamera]);
+    }, [step, stopCamera, toast]);
 
 
     const triggerScan = useCallback(async () => {
@@ -454,3 +456,4 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
+
