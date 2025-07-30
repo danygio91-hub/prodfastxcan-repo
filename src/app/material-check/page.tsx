@@ -67,7 +67,7 @@ export default function MaterialCheckPage() {
 
     useEffect(() => {
         if (!authLoading && operator) {
-            const allowedAccessReparti = ['MAG', 'Collaudo', 'CG'];
+            const allowedAccessReparti = ['MAG', 'Collaudo'];
             const hasAccess = operator.role === 'superadvisor' || 
                               (Array.isArray(operator.reparto) 
                                 ? operator.reparto.some(r => allowedAccessReparti.includes(r))
