@@ -18,13 +18,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity } from './actions';
-import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera } from 'lucide-react';
+import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity, getPackagingItems } from './actions';
+import type { RawMaterial, Packaging } from '@/lib/mock-data';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive } from 'lucide-react';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -39,8 +39,9 @@ const batchFormSchema = z.object({
   lotto: z.string().min(1, "Il lotto è obbligatorio."),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().optional(),
-  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  netQuantity: z.coerce.number().positive("La quantità netta deve essere un numero positivo."),
   unit: z.enum(['n', 'mt', 'kg']),
+  packagingId: z.string().optional(),
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
@@ -57,9 +58,10 @@ export default function MaterialLoadingPage() {
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success'>('scan_material');
+    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'select_tare' | 'saving' | 'success'>('scan_material');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
+    const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
     const [isCapturing, setIsCapturing] = useState(false);
     const [showNCReport, setShowNCReport] = useState(false);
     
@@ -81,6 +83,12 @@ export default function MaterialLoadingPage() {
             }
         }
     }, [operator, authLoading, router, toast]);
+
+    useEffect(() => {
+        if (step === 'select_tare') {
+            getPackagingItems().then(setPackagingItems);
+        }
+    }, [step]);
 
     const form = useForm<BatchFormValues>({
         resolver: zodResolver(batchFormSchema),
@@ -191,7 +199,7 @@ export default function MaterialLoadingPage() {
         }
     }, [step, toast, handleMaterialScanned, handleLottoScanned]);
 
-    async function onQuantitySubmit(values: BatchFormValues) {
+    async function onFinalSubmit(values: BatchFormValues) {
         setStep('saving');
         const formData = new FormData();
         Object.entries(values).forEach(([key, value]) => {
@@ -208,7 +216,7 @@ export default function MaterialLoadingPage() {
         if (result.success) {
             setStep('success');
         } else {
-            setStep('enter_quantity'); // Go back to allow correction
+            setStep('select_tare'); // Go back to allow correction
         }
     };
     
@@ -299,14 +307,14 @@ export default function MaterialLoadingPage() {
                         
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
-                                {['Materiale', 'Lotto', 'Convalida', 'Carico'].map((title, index) => {
-                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity'];
+                                {['Materiale', 'Lotto', 'Convalida', 'Q.tà Netta', 'Tara'].map((title, index) => {
+                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity', 'select_tare'];
                                     const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
 
                                     return (
-                                        <li key={title} className={`flex items-center ${index < 3 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
+                                        <li key={title} className={`flex items-center ${index < 4 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
                                             <span className={`flex items-center justify-center w-10 h-10 ${isActive || isCompleted ? 'bg-primary/20' : 'bg-muted'} rounded-full lg:h-12 lg:w-12 dark:bg-gray-800 shrink-0`}>
                                                 {isCompleted ? <Check className="w-5 h-5 text-primary" /> : <span className={`${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{index + 1}</span>}
                                             </span>
@@ -396,9 +404,9 @@ export default function MaterialLoadingPage() {
                                 )}
                                 {step === 'enter_quantity' && (
                                     <div>
-                                        <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci la Quantità</h3>
+                                        <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci la Quantità Netta</h3>
                                          <Form {...form}>
-                                            <form onSubmit={form.handleSubmit(onQuantitySubmit)} className="space-y-6 text-left">
+                                            <form onSubmit={form.handleSubmit(() => setStep('select_tare'))} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
                                                 {(scannedMaterial?.type === 'TUBI' || scannedMaterial?.type === 'PF3V0') && (
@@ -421,7 +429,42 @@ export default function MaterialLoadingPage() {
                                                      <FormField control={form.control} name="unit" render={({ field }) => (<FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
                                                 )}
                                                 
-                                                <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità in Entrata ({form.watch('unit').toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl> <FormMessage /> </FormItem> )} />
+                                                <FormField control={form.control} name="netQuantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità Netta in Entrata ({form.watch('unit').toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl> <FormMessage /> </FormItem> )} />
+                                                <Button type="submit" className="w-full">Prosegui</Button>
+                                            </form>
+                                        </Form>
+                                    </div>
+                                )}
+                                {step === 'select_tare' && (
+                                    <div>
+                                        <h3 className="text-xl font-semibold text-center mb-4">5. Seleziona Imballo (Tara)</h3>
+                                         <Form {...form}>
+                                            <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
+                                                <FormField
+                                                  control={form.control}
+                                                  name="packagingId"
+                                                  render={({ field }) => (
+                                                    <FormItem>
+                                                      <FormLabel>Imballo</FormLabel>
+                                                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormControl>
+                                                          <SelectTrigger>
+                                                            <SelectValue placeholder="Seleziona un tipo di imballo..." />
+                                                          </SelectTrigger>
+                                                        </FormControl>
+                                                        <SelectContent>
+                                                            <SelectItem value="none">Nessuna Tara</SelectItem>
+                                                            {packagingItems.map(item => (
+                                                                <SelectItem key={item.id} value={item.id}>
+                                                                    {item.name} ({item.weightKg.toFixed(3)} kg)
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                      </Select>
+                                                      <FormMessage />
+                                                    </FormItem>
+                                                  )}
+                                                />
                                                 <Button type="submit" className="w-full">Registra Carico</Button>
                                             </form>
                                         </Form>

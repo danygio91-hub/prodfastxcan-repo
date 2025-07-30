@@ -1,5 +1,6 @@
 
 
+
 // --- Type Definitions ---
 
 export interface WorkPeriod {
@@ -100,11 +101,21 @@ export interface Workstation {
   departmentCode: Reparto;
 }
 
+export interface Packaging {
+  id: string;
+  name: string;
+  description?: string;
+  weightKg: number;
+}
+
 export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  quantity: number; // The quantity in the material's primary unitOfMeasure
+  netQuantity: number;
+  grossWeight: number;
+  tareWeight: number;
+  packagingId?: string;
   lotto?: string;
 }
 

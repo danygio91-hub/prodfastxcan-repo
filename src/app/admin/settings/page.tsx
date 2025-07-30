@@ -7,7 +7,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Save, Loader2, Boxes, GitMerge } from 'lucide-react';
+import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Save, Loader2, Boxes, GitMerge, Archive } from 'lucide-react';
 import { type Reparto } from '@/lib/mock-data';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -178,6 +178,24 @@ export default function AdminCompanySettingsPage() {
             </Card>
             </Link>
 
+            <Link href="/admin/packaging-management" className="block h-full">
+                <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
+                    <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Archive className="h-7 w-7 text-primary" />
+                                <span>Gestione Imballi (Tare)</span>
+                            </div>
+                           <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                                <ArrowRight className="h-5 w-5" />
+                           </Button>
+                        </CardTitle>
+                        <CardDescription>
+                          Definisci le tare da associare alle materie prime.
+                        </CardDescription>
+                    </CardHeader>
+                </Card>
+            </Link>
 
             <Link href="/admin/workstation-management" className="block h-full">
             <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">

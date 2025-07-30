@@ -48,7 +48,8 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  netQuantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  packagingId: z.string().optional(),
 });
 
 
@@ -145,7 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.' };
   }
   
-  const { materialId, date, ddt, quantity, lotto } = validatedFields.data;
+  const { materialId, date, ddt, netQuantity, lotto, packagingId } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -156,21 +157,32 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
 
           const material = docSnap.data() as RawMaterial;
+          let tareWeight = 0;
+          if (packagingId && packagingId !== 'none') {
+            const packagingRef = doc(db, 'packaging', packagingId);
+            const packagingSnap = await transaction.get(packagingRef);
+            if (packagingSnap.exists()) {
+              tareWeight = packagingSnap.data().weightKg || 0;
+            }
+          }
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt,
-            quantity,
+            netQuantity: netQuantity,
+            tareWeight: tareWeight,
+            grossWeight: netQuantity + tareWeight,
+            packagingId: packagingId,
             lotto: lotto || null,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + quantity;
+          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
           let newWeightKg = material.currentWeightKg || 0;
           if (material.unitOfMeasure === 'kg') {
-              newWeightKg = newStockUnits;
+              newWeightKg = (material.currentWeightKg || 0) + newBatch.grossWeight;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += quantity * material.conversionFactor;
+              newWeightKg += netQuantity * material.conversionFactor + tareWeight;
           }
           
           transaction.update(materialRef, { 
@@ -218,24 +230,31 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             if (!oldBatch) {
                 throw new Error('Lotto da modificare non trovato.');
             }
+
+            let tareWeight = 0;
+            if (newBatchData.packagingId && newBatchData.packagingId !== 'none') {
+                const packagingRef = doc(db, 'packaging', newBatchData.packagingId);
+                const packagingSnap = await transaction.get(packagingRef);
+                if (packagingSnap.exists()) {
+                    tareWeight = packagingSnap.data().weightKg || 0;
+                }
+            }
             
-            const updatedBatch = {
+            const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
-                ...newBatchData,
+                ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
+                netQuantity: newBatchData.netQuantity,
+                tareWeight: tareWeight,
+                grossWeight: newBatchData.netQuantity + tareWeight,
+                packagingId: newBatchData.packagingId,
             };
 
-            const stockChange = updatedBatch.quantity - oldBatch.quantity;
+            const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            let newWeightKg = material.currentWeightKg || 0;
-            if (material.unitOfMeasure === 'kg') {
-                newWeightKg = newStockUnits;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg += stockChange * material.conversionFactor;
-            }
-
-            // Atomically remove the old batch and add the new one
+            let newWeightKg = (material.currentWeightKg || 0) + (updatedBatch.grossWeight - oldBatch.grossWeight);
+            
             transaction.update(materialRef, {
                 batches: arrayRemove(oldBatch),
             });
@@ -272,16 +291,10 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
                 throw new Error("Lotto da eliminare non trovato.");
             }
 
-            const stockChange = -batchToDelete.quantity;
+            const stockChange = -batchToDelete.netQuantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            let newWeightKg = (material.currentWeightKg || 0);
-
-            if (material.unitOfMeasure === 'kg') {
-                newWeightKg = newStockUnits;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg += stockChange * material.conversionFactor;
-            }
-             if (newWeightKg < 0) newWeightKg = 0;
+            let newWeightKg = (material.currentWeightKg || 0) - batchToDelete.grossWeight;
+            if (newWeightKg < 0) newWeightKg = 0;
 
 
             transaction.update(materialRef, { 
@@ -409,7 +422,9 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            quantity: stockUnits,
+            netQuantity: stockUnits,
+            grossWeight: stockUnits,
+            tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
         };
 
