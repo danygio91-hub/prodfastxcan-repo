@@ -439,6 +439,7 @@ export default function ScanJobPage() {
       return;
     }
     
+    // Check if anyone else is still working on this phase AFTER my period is closed.
     const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
     if (!isAnyoneElseWorking) {
         phaseToPause.status = 'paused';
@@ -503,7 +504,7 @@ export default function ScanJobPage() {
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
     const nextPhase = sortedPhases[currentPhaseIndex + 1];
 
-    if (nextPhase && nextPhase.status === 'pending') {
+    if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
       const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
       if (allPreviousPhasesCompleted) {
         nextPhase.materialReady = true;
@@ -539,7 +540,7 @@ export default function ScanJobPage() {
         const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToUpdate.id);
         const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
 
-        if (nextPhaseInJob && nextPhaseInJob.status === 'pending') {
+        if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && nextPhaseInJob.type !== 'preparation') {
             const allPreviousPhasesCompleted = sortedPhasesInJob.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
             if (allPreviousPhasesCompleted) {
                 nextPhaseInJob.materialReady = true;
@@ -1489,9 +1490,10 @@ export default function ScanJobPage() {
           
            {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
                 <div className="mb-4">
-                    <Button 
+                     <Button 
                       className="w-full bg-orange-500 hover:bg-orange-600 text-white" 
                       onClick={resetForNewScan}
+                      disabled={isAnyPhaseActiveForMe}
                      >
                         <MoveLeft className="mr-2 h-4 w-4" />
                         Abbandona e Scansiona Altra Commessa

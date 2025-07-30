@@ -485,13 +485,15 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // Unlock the next phase's material readiness
-        const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
-        const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        
-        if (nextPhase && nextPhase.status === 'pending') {
-          nextPhase.materialReady = true;
+        // Unlock the next phase's material readiness if it's NOT a preparation phase
+        if (phaseToStart.type !== 'preparation') {
+            const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+            const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
+            const nextPhase = sortedPhases[currentPhaseIndex + 1];
+            
+            if (nextPhase && nextPhase.status === 'pending') {
+              nextPhase.materialReady = true;
+            }
         }
         
         transaction.update(jobRef, jobToUpdate);
