@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type Packaging } from '@/lib/mock-data';
+import { type Packaging, type PackagingAssociation } from '@/lib/mock-data';
 import { getPackagingItems, savePackagingItem, deletePackagingItem } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
@@ -16,17 +16,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Archive, PlusCircle, Edit, Trash2, Loader2, Weight } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Archive, PlusCircle, Edit, Trash2, Loader2, Weight, Link2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
+
+const packagingAssociationTypes: PackagingAssociation[] = ['BOB', 'TUBI', 'GUAINA', 'PF3V0', 'PRODOTTO'];
 
 const packagingSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().optional(),
   weightKg: z.coerce.number().min(0, 'Il peso non può essere negativo.'),
+  associatedTypes: z.array(z.string()).optional(),
 });
 
 type PackagingFormValues = z.infer<typeof packagingSchema>;
@@ -41,7 +46,7 @@ export default function PackagingManagementPage() {
 
   const form = useForm<PackagingFormValues>({
     resolver: zodResolver(packagingSchema),
-    defaultValues: { id: undefined, name: "", description: "", weightKg: 0 },
+    defaultValues: { id: undefined, name: "", description: "", weightKg: 0, associatedTypes: [] },
   });
 
   const fetchData = async () => {
@@ -58,9 +63,12 @@ export default function PackagingManagementPage() {
   const handleOpenDialog = (item: Packaging | null = null) => {
     setEditingItem(item);
     if (item) {
-      form.reset(item);
+      form.reset({
+        ...item,
+        associatedTypes: item.associatedTypes || [],
+      });
     } else {
-      form.reset({ id: undefined, name: "", description: "", weightKg: 0 });
+      form.reset({ id: undefined, name: "", description: "", weightKg: 0, associatedTypes: [] });
     }
     setIsDialogOpen(true);
   };
@@ -74,7 +82,9 @@ export default function PackagingManagementPage() {
   const onSubmit = (values: PackagingFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
+      if (key === 'associatedTypes' && Array.isArray(value)) {
+        value.forEach(v => formData.append(key, v));
+      } else if (value !== undefined && value !== null) {
         formData.append(key, String(value));
       }
     });
@@ -108,7 +118,7 @@ export default function PackagingManagementPage() {
   
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={4} className="h-24 text-center">
+          <TableCell colSpan={5} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento imballi...</span>
@@ -143,7 +153,7 @@ export default function PackagingManagementPage() {
           <Card>
             <CardHeader>
               <CardTitle>Anagrafica Imballi</CardTitle>
-              <CardDescription>Elenco degli imballi e del loro peso (tara).</CardDescription>
+              <CardDescription>Elenco degli imballi, del loro peso (tara) e a cosa sono associati.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -153,6 +163,7 @@ export default function PackagingManagementPage() {
                       <TableHead>Nome Imballo</TableHead>
                       <TableHead>Descrizione</TableHead>
                       <TableHead>Peso (Kg)</TableHead>
+                      <TableHead>Associazione</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -163,6 +174,14 @@ export default function PackagingManagementPage() {
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.description || 'N/D'}</TableCell>
                           <TableCell>{item.weightKg.toFixed(3)}</TableCell>
+                           <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                                {item.associatedTypes && item.associatedTypes.length > 0 ? 
+                                item.associatedTypes.map(type => <Badge key={type} variant="outline">{type}</Badge>) :
+                                <span className="text-xs text-muted-foreground">Nessuna</span>
+                                }
+                            </div>
+                           </TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(item)}>
                               <Edit className="h-4 w-4" />
@@ -191,7 +210,7 @@ export default function PackagingManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center h-24">Nessun imballo trovato.</TableCell>
+                        <TableCell colSpan={5} className="text-center h-24">Nessun imballo trovato.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -209,7 +228,7 @@ export default function PackagingManagementPage() {
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
                 <FormField control={form.control} name="name" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nome</FormLabel>
@@ -234,6 +253,55 @@ export default function PackagingManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
+
+                <FormField
+                    control={form.control}
+                    name="associatedTypes"
+                    render={() => (
+                      <FormItem>
+                        <div className="mb-4">
+                          <FormLabel className="flex items-center gap-2"><Link2 className="h-4 w-4"/> Associazione</FormLabel>
+                          <FormDescription>
+                            Seleziona per cosa può essere usato questo imballo.
+                          </FormDescription>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 p-4 border rounded-md">
+                        {packagingAssociationTypes.map((item) => (
+                          <FormField
+                            key={item}
+                            control={form.control}
+                            name="associatedTypes"
+                            render={({ field }) => {
+                              return (
+                                <FormItem
+                                  key={item}
+                                  className="flex flex-row items-start space-x-3 space-y-0"
+                                >
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(item)}
+                                      onCheckedChange={(checked) => {
+                                        const currentValue = field.value || [];
+                                        return checked
+                                          ? field.onChange([...currentValue, item])
+                                          : field.onChange(currentValue.filter((value) => value !== item));
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal">
+                                    {item}
+                                  </FormLabel>
+                                </FormItem>
+                              )
+                            }}
+                          />
+                        ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
 
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>

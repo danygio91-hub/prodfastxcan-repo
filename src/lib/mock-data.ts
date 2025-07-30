@@ -1,6 +1,7 @@
 
 
 
+
 // --- Type Definitions ---
 
 export interface WorkPeriod {
@@ -101,11 +102,14 @@ export interface Workstation {
   departmentCode: Reparto;
 }
 
+export type PackagingAssociation = RawMaterialType | 'PRODOTTO';
+
 export interface Packaging {
   id: string;
   name: string;
   description?: string;
   weightKg: number;
+  associatedTypes?: PackagingAssociation[];
 }
 
 export interface RawMaterialBatch {

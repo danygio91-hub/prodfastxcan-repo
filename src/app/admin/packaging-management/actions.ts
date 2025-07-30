@@ -13,6 +13,7 @@ const packagingSchema = z.object({
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().optional(),
   weightKg: z.coerce.number().min(0, 'Il peso non può essere negativo.'),
+  associatedTypes: z.array(z.string()).optional(),
 });
 
 // --- Actions ---
@@ -24,7 +25,14 @@ export async function getPackagingItems(): Promise<Packaging[]> {
 }
 
 export async function savePackagingItem(formData: FormData) {
-  const rawData = Object.fromEntries(formData.entries());
+  const rawData = {
+    id: formData.get('id') || undefined,
+    name: formData.get('name'),
+    description: formData.get('description'),
+    weightKg: formData.get('weightKg'),
+    associatedTypes: formData.getAll('associatedTypes'),
+  };
+  
   const validatedFields = packagingSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
@@ -40,7 +48,11 @@ export async function savePackagingItem(formData: FormData) {
   const finalId = id || `pack-${Date.now()}`;
   const packagingRef = doc(db, 'packaging', finalId);
 
-  const fullData: Packaging = { id: finalId, ...dataToSave };
+  const fullData: Packaging = { 
+    id: finalId, 
+    ...dataToSave,
+    associatedTypes: dataToSave.associatedTypes || [],
+  };
   
   await setDoc(packagingRef, fullData, { merge: true });
   
