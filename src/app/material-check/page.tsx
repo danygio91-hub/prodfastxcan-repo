@@ -24,7 +24,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, PlayCircle, History, ArrowUpCircle, ArrowDownCircle, Camera } from 'lucide-react';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -52,7 +52,6 @@ export default function MaterialCheckPage() {
 
     const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'result'>('initial');
     const [foundMaterial, setFoundMaterial] = useState<RawMaterial | null>(null);
-    const [cameraError, setCameraError] = useState<string | null>(null);
     const [manualCode, setManualCode] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
@@ -63,6 +62,8 @@ export default function MaterialCheckPage() {
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = useState(true);
+
 
     useEffect(() => {
         if (!authLoading && operator && operator.reparto !== 'MAG' && operator.role !== 'superadvisor') {
@@ -111,7 +112,7 @@ export default function MaterialCheckPage() {
         }
 
         const startCamera = async () => {
-            setCameraError(null);
+            setHasCameraPermission(true);
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
                 streamRef.current = stream;
@@ -121,16 +122,16 @@ export default function MaterialCheckPage() {
                 }
 
             } catch (err) {
-                setCameraError("Accesso alla fotocamera negato o non disponibile. Controlla i permessi.");
+                setHasCameraPermission(false);
+                toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile. Controlla i permessi del browser." });
                 stopCamera(); 
-                setStep('initial');
             }
         };
 
         startCamera();
 
         return () => { stopCamera(); };
-    }, [step, stopCamera]);
+    }, [step, stopCamera, toast]);
     
      const triggerScan = async () => {
         if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -211,13 +212,6 @@ export default function MaterialCheckPage() {
                                 <CardDescription>Avvia la scansione o inserisci un codice per cercare una materia prima e visualizzarne i dettagli.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                {cameraError && (
-                                    <Alert variant="destructive" className="mb-4">
-                                        <AlertTriangle className="h-4 w-4" />
-                                        <AlertTitle>Errore Fotocamera</AlertTitle>
-                                        <AlertDescription>{cameraError}</AlertDescription>
-                                    </Alert>
-                                )}
                                 <Button onClick={() => setStep('scanning')} className="w-full" size="lg">
                                     <QrCode className="mr-2 h-5 w-5" />
                                     Avvia Scansione
@@ -269,18 +263,26 @@ export default function MaterialCheckPage() {
                             </CardHeader>
                             <CardContent className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
                                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                                <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                                    <div className="w-5/6 h-2/5 relative">
-                                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                                        <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                {!hasCameraPermission ? (
+                                    <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                                        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                                        <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
+                                        <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
                                     </div>
-                                </div>
+                                ) : (
+                                    <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                                        <div className="w-5/6 h-2/5 relative">
+                                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                            <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                        </div>
+                                    </div>
+                                )}
                             </CardContent>
                             <CardFooter className="flex-col gap-2">
-                                <Button onClick={triggerScan} disabled={isCapturing || !!cameraError} className="w-full h-12">
+                                <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
                                     {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                                     <span className="ml-2">{isCapturing ? 'Scansione...' : 'Scansiona Ora'}</span>
                                 </Button>
@@ -373,6 +375,3 @@ export default function MaterialCheckPage() {
         </AuthGuard>
     );
 }
-
-
-    

@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -18,9 +17,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, PlayCircle, Camera } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -59,14 +57,9 @@ export default function LoginForm() {
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
     const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-
-    // QR Simulator State
-    const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
-    const [simulatorInput, setSimulatorInput] = useState('');
 
     // Effect to handle PWA install prompt
     useEffect(() => {
@@ -174,7 +167,7 @@ export default function LoginForm() {
         toast({ title: 'Scansione...', description: 'Alla ricerca di un codice nel frame.' });
         
         try {
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
             const barcodes = await barcodeDetector.detect(videoRef.current);
 
             if (barcodes.length > 0) {
@@ -211,13 +204,6 @@ export default function LoginForm() {
             toast({ title: "Installazione Avviata", description: "L'app verrà aggiunta alla tua schermata principale." });
         }
         setInstallPrompt(null);
-    };
-
-    const handleSimulatorSubmit = () => {
-        localStorage.removeItem('login_redirect_path');
-        handleScannedData(simulatorInput);
-        setIsSimulatorOpen(false);
-        setSimulatorInput('');
     };
 
     const renderStep = () => {
@@ -261,13 +247,8 @@ export default function LoginForm() {
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
                             </Button>
-
-                             <Button onClick={() => setIsSimulatorOpen(true)} variant="secondary" size="sm">
-                                <PlayCircle className="mr-2 h-4 w-4" />
-                                Simula Scansione QR (Test)
-                            </Button>
                         </CardContent>
-                        {installPrompt && (
+                         {installPrompt && (
                             <CardFooter>
                                 <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground">
                                     <Download className="mr-2 h-4 w-4" />
@@ -352,31 +333,6 @@ export default function LoginForm() {
             <Card className="w-full max-w-md shadow-xl border-border/50 bg-card overflow-hidden">
                 {renderStep()}
             </Card>
-
-            <Dialog open={isSimulatorOpen} onOpenChange={setIsSimulatorOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Simulatore Scansione QR</DialogTitle>
-                        <DialogDescription>
-                            Incolla il contenuto del QR code per il login (formato: username@password).
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <Label htmlFor="simulator-input">Contenuto QR Code</Label>
-                        <Input 
-                            id="simulator-input"
-                            value={simulatorInput}
-                            onChange={(e) => setSimulatorInput(e.target.value)}
-                            placeholder="username@password"
-                            autoFocus
-                        />
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsSimulatorOpen(false)}>Annulla</Button>
-                        <Button onClick={handleSimulatorSubmit}>Simula e Accedi</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 }

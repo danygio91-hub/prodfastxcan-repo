@@ -18,9 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, PlayCircle, Camera } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -59,7 +58,6 @@ export default function LoginForm() {
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const router = useRouter();
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
     const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -251,7 +249,7 @@ export default function LoginForm() {
                                 Accedi con Password
                             </Button>
                         </CardContent>
-                        {installPrompt && (
+                         {installPrompt && (
                             <CardFooter>
                                 <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground">
                                     <Download className="mr-2 h-4 w-4" />
@@ -268,15 +266,15 @@ export default function LoginForm() {
                             <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
                             <CardDescription className="text-center">Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
                         </CardHeader>
-                        <CardContent className="relative flex items-center justify-center aspect-square bg-black rounded-lg overflow-hidden">
+                        <CardContent className="relative grid place-items-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                             <div className="absolute inset-0 grid place-items-center pointer-events-none">
                                 <div className="w-2/3 h-2/3 relative">
                                     <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
                                     <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
                                     <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
                                     <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                                    <div className="w-full h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
                                 </div>
                              </div>
                              {!hasCameraPermission && (
