@@ -1216,14 +1216,6 @@ export default function ScanJobPage() {
           <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJob.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
         )}
       </CardContent>
-      {!isAnyPhaseActiveForMe && !allPhasesCompleted && (
-          <CardFooter>
-            <Button variant="secondary" className="w-full" onClick={resetForNewScan}>
-                <MoveLeft className="mr-2 h-4 w-4" />
-                Esci e Scansiona Altra Commessa
-            </Button>
-          </CardFooter>
-      )}
     </Card>
   )};
 
@@ -1495,7 +1487,15 @@ export default function ScanJobPage() {
         <div className="space-y-6 max-w-4xl mx-auto">
           <OperatorNavMenu />
           
-            
+           {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
+                <div className="mb-4">
+                    <Button variant="secondary" className="w-full" onClick={resetForNewScan}>
+                        <MoveLeft className="mr-2 h-4 w-4" />
+                        Abbandona e Scansiona Altra Commessa
+                    </Button>
+                </div>
+            )}
+                
                 {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
                 {step === 'scanning' && (
                   <Card>
