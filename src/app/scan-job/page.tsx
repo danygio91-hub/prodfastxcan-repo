@@ -1489,7 +1489,10 @@ export default function ScanJobPage() {
           
            {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
                 <div className="mb-4">
-                    <Button variant="secondary" className="w-full" onClick={resetForNewScan}>
+                    <Button 
+                      className="w-full bg-orange-500 hover:bg-orange-600 text-white" 
+                      onClick={resetForNewScan}
+                     >
                         <MoveLeft className="mr-2 h-4 w-4" />
                         Abbandona e Scansiona Altra Commessa
                     </Button>
