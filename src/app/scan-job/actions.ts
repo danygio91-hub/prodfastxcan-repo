@@ -181,7 +181,7 @@ export async function closeMaterialSessionAndUpdateStock(
             throw new Error("Materia prima associata alla sessione non trovata.");
         }
         
-        const consumedWeight = sessionData.openingWeight - closingWeight;
+        const consumedWeight = sessionData.grossOpeningWeight - closingWeight;
         if (consumedWeight < 0) {
             throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
         }
@@ -219,7 +219,7 @@ export async function closeMaterialSessionAndUpdateStock(
                      const updatedConsumptions = (p.materialConsumptions || []).map(mc => {
                         if (
                           mc.materialId === sessionData.materialId &&
-                          mc.openingWeight === sessionData.openingWeight &&
+                          mc.grossOpeningWeight === sessionData.grossOpeningWeight &&
                           mc.closingWeight === undefined // Only close sessions that are open
                         ) {
                           return { ...mc, closingWeight };
@@ -390,10 +390,11 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
     
     if (consumptions.length > 0) {
         consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
+        // This is the closing weight, which is the gross opening weight for the next session
         return consumptions[0].closingWeight;
     }
 
-    // --- STRATEGY 2: If no usage found, find its initial loading quantity ---
+    // --- STRATEGY 2: If no usage found, find its initial loading gross weight ---
     const materialRef = doc(db, "rawMaterials", materialId);
     const materialSnap = await getDoc(materialRef);
 
@@ -409,9 +410,9 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
                     (phase.materialConsumptions || []).some(mc => mc.materialId === materialId && mc.lottoBobina === lotto)
                 );
             });
-            // If it has never been used, return its initial quantity.
+            // If it has never been used, return its initial gross weight.
             if (!hasBeenUsed) {
-                 return specificBatch.quantity;
+                 return specificBatch.grossWeight;
             }
         }
     }

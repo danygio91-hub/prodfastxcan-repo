@@ -48,7 +48,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  netQuantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  grossWeight: z.coerce.number().min(0, "Il peso lordo non può essere negativo."),
   packagingId: z.string().optional(),
 });
 
@@ -146,7 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.' };
   }
   
-  const { materialId, date, ddt, netQuantity, lotto, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, grossWeight, lotto, packagingId } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -165,14 +165,20 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               tareWeight = packagingSnap.data().weightKg || 0;
             }
           }
+
+          if (grossWeight < tareWeight) {
+              throw new Error("Il peso lordo non può essere inferiore al peso della tara.");
+          }
+          
+          const netQuantity = grossWeight - tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_MANUALE',
-            quantity: netQuantity, // Storing net quantity
+            netQuantity: netQuantity,
             tareWeight: tareWeight,
-            grossWeight: netQuantity + tareWeight,
+            grossWeight: grossWeight,
             packagingId: packagingId,
             lotto: lotto || null,
           };
@@ -240,19 +246,25 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                     tareWeight = packagingSnap.data().weightKg || 0;
                 }
             }
+
+            if (newBatchData.grossWeight < tareWeight) {
+                throw new Error("Il peso lordo non può essere inferiore al peso della tara.");
+            }
+            
+            const netQuantity = newBatchData.grossWeight - tareWeight;
             
             const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
                 ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
-                quantity: newBatchData.netQuantity,
+                netQuantity: netQuantity,
                 tareWeight: tareWeight,
-                grossWeight: newBatchData.netQuantity + tareWeight,
+                grossWeight: newBatchData.grossWeight,
                 packagingId: newBatchData.packagingId,
             };
 
-            const stockChange = updatedBatch.quantity - oldBatch.quantity;
+            const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
             let weightChange = 0;
@@ -300,7 +312,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
                 throw new Error("Lotto da eliminare non trovato.");
             }
 
-            const stockChange = -batchToDelete.quantity;
+            const stockChange = -batchToDelete.netQuantity;
             const newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
             let weightChange = 0;
@@ -439,7 +451,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             id: `batch-import-${Date.now()}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            quantity: stockUnits,
+            netQuantity: stockUnits,
             grossWeight: stockUnits, // Assuming imported stock is net, gross is same as net with 0 tare
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',

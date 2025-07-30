@@ -1,8 +1,3 @@
-
-
-
-
-
 // --- Type Definitions ---
 
 export interface WorkPeriod {
@@ -14,8 +9,9 @@ export interface WorkPeriod {
 export interface MaterialConsumption {
   materialId: string;
   materialCode: string;
-  openingWeight?: number;
-  closingWeight?: number;
+  grossOpeningWeight?: number; // Peso lordo all'apertura della sessione
+  netOpeningWeight?: number; // Peso netto calcolato
+  closingWeight?: number; // Peso lordo alla chiusura
   pcs?: number;
   lottoBobina?: string;
   packagingId?: string;
@@ -119,7 +115,7 @@ export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  quantity: number; // Net quantity
+  netQuantity: number; // Net quantity
   grossWeight: number; // Net + Tare
   tareWeight: number;
   packagingId?: string;
@@ -173,7 +169,8 @@ export type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 export interface ActiveMaterialSessionData {
     materialId: string;
     materialCode: string;
-    openingWeight: number;
+    grossOpeningWeight: number;
+    netOpeningWeight: number;
     originatorJobId: string;
     associatedJobs: { jobId: string; jobOrderPF: string }[];
     category: MaterialSessionCategory;
