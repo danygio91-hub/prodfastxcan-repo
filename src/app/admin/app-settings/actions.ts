@@ -48,6 +48,7 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/reports');
+    revalidatePath('/admin/raw-material-management');
     
     return { success: true, message: `Reset completato. ${jobsCount} commesse e ${withdrawalsCount} prelievi sono stati eliminati.` };
 
@@ -169,14 +170,16 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
           const materialData = materialDoc.data() as RawMaterial;
           const updates = materialUpdates.get(materialDoc.id)!;
 
-          let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+          const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
 
-          // If the material is measured in KG, its unit stock is its weight stock.
-          if (materialData.unitOfMeasure === 'kg') {
-            newUnits = newWeight;
+          // If consumedUnits is 0, it means it was a weight-only withdrawal (BOB/PF3V0),
+          // so we need to recalculate the units to add back based on the conversion factor.
+          if (updates.consumedUnits === 0 && materialData.conversionFactor && materialData.conversionFactor > 0) {
+             const unitsToAddBack = Math.round(updates.consumedWeight / materialData.conversionFactor);
+             newUnits += unitsToAddBack;
           }
-          
+
           transaction.update(materialDoc.ref, { 
             currentWeightKg: newWeight,
             currentStockUnits: newUnits,
@@ -420,3 +423,5 @@ export async function restoreDataFromBackup(backupJson: string, uid: string): Pr
         return { success: false, message: errorMessage };
     }
 }
+
+    
