@@ -52,7 +52,7 @@ declare class BarcodeDetector {
 
 const phaseMaterialSchema = z.object({
   grossOpeningWeight: z.coerce.number().positive("Il peso lordo di apertura deve essere un numero positivo."),
-  netOpeningWeight: z.coerce.number().positive("Il peso netto deve essere un numero positivo."),
+  netOpeningWeight: z.coerce.number().optional(),
   lottoBobina: z.string().optional(),
   packagingId: z.string().optional(),
 });
@@ -783,17 +783,28 @@ export default function ScanJobPage() {
   }, [stopCamera, toast, phaseForMaterialScan, getSessionByMaterialId]);
 
   const onPhaseMaterialSubmit = (values: PhaseMaterialFormValues) => {
-    if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase) return;
+    if (!activeJob || !phaseForMaterialScan || !scannedMaterialForPhase || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const selectedPackaging = packagingItems.find(p => p.id === values.packagingId);
+    
+    let netWeight = values.netOpeningWeight;
+    if (netWeight === undefined) {
+        const tare = selectedPackaging?.weightKg || 0;
+        netWeight = values.grossOpeningWeight - tare;
+    }
+    if (netWeight < 0) {
+        toast({ variant: 'destructive', title: 'Errore Peso', description: 'Il peso netto calcolato è negativo. Controlla il peso lordo e la tara.' });
+        return;
+    }
+
 
     try {
         const sessionData = {
             materialId: scannedMaterialForPhase.id,
             materialCode: scannedMaterialForPhase.code,
             grossOpeningWeight: values.grossOpeningWeight,
-            netOpeningWeight: values.netOpeningWeight,
+            netOpeningWeight: netWeight,
             originatorJobId: activeJob.id,
             associatedJobs: [{ jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }],
             packagingId: values.packagingId,
@@ -874,18 +885,29 @@ export default function ScanJobPage() {
 
   const handleLottoChange = useCallback(async (lotto: string) => {
     if (lotto && scannedMaterialForPhase) {
-      const lastWeightData = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
-      if (lastWeightData !== null) {
-        phaseMaterialForm.setValue('grossOpeningWeight', lastWeightData.grossWeight);
-        phaseMaterialForm.setValue('netOpeningWeight', lastWeightData.netWeight);
-        phaseMaterialForm.setValue('packagingId', lastWeightData.packagingId);
-        toast({ title: "Dati Storici Trovati", description: `Il peso e l'imballo sono stati pre-compilati.` });
-      } else {
-        phaseMaterialForm.setValue('grossOpeningWeight', undefined);
-        phaseMaterialForm.setValue('netOpeningWeight', undefined);
-      }
+        const lastWeightData = await findLastWeightForLotto(scannedMaterialForPhase.id, lotto);
+        const { setValue, trigger } = phaseMaterialForm;
+        
+        if (lastWeightData) {
+            const tare = packagingItems.find(p => p.id === lastWeightData.packagingId)?.weightKg || 0;
+            if (lastWeightData.isInitialLoad) {
+                setValue('netOpeningWeight', lastWeightData.netWeight);
+                setValue('grossOpeningWeight', lastWeightData.netWeight + tare, { shouldValidate: true });
+                // Lock grossOpeningWeight if it comes from historical initial load
+                // This logic needs to be handled in the JSX based on a state flag.
+            } else {
+                 setValue('grossOpeningWeight', lastWeightData.grossWeight, { shouldValidate: true });
+                 setValue('netOpeningWeight', lastWeightData.netWeight);
+            }
+            setValue('packagingId', lastWeightData.packagingId);
+            toast({ title: "Dati Storici Trovati", description: `Peso e imballo sono stati pre-compilati in base allo storico del lotto.` });
+        } else {
+             setValue('grossOpeningWeight', undefined);
+             setValue('netOpeningWeight', undefined);
+        }
+        trigger();
     }
-  }, [scannedMaterialForPhase, phaseMaterialForm, toast]);
+  }, [scannedMaterialForPhase, phaseMaterialForm, toast, packagingItems]);
 
 
   const handleLottoScanned = (scannedValue: string) => {
@@ -1368,7 +1390,7 @@ export default function ScanJobPage() {
                                     <SelectContent>
                                       <SelectItem value="none">Nessuna Tara</SelectItem>
                                       {filteredPackagingItems.map(item => (
-                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({Number(item.weightKg)} kg)</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
@@ -1386,7 +1408,6 @@ export default function ScanJobPage() {
                       </Form>
                   )
               )}
-              
           </DialogContent>
       </Dialog>
     )
@@ -1798,5 +1819,3 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
-
-    
