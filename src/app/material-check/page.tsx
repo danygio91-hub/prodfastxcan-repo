@@ -66,9 +66,17 @@ export default function MaterialCheckPage() {
 
 
     useEffect(() => {
-        if (!authLoading && operator && operator.reparto !== 'MAG' && operator.role !== 'superadvisor') {
-            toast({ variant: 'destructive', title: 'Accesso Negato', description: 'Non hai i permessi per accedere a questa pagina.' });
-            router.replace('/dashboard');
+        if (!authLoading && operator) {
+            const allowedAccessReparti = ['MAG', 'Collaudo', 'CG'];
+            const hasAccess = operator.role === 'superadvisor' || 
+                              (Array.isArray(operator.reparto) 
+                                ? operator.reparto.some(r => allowedAccessReparti.includes(r))
+                                : allowedAccessReparti.includes(operator.reparto));
+            
+            if (!hasAccess) {
+                toast({ variant: 'destructive', title: 'Accesso Negato', description: 'Non hai i permessi per accedere a questa pagina.' });
+                router.replace('/dashboard');
+            }
         }
     }, [operator, authLoading, router, toast]);
 
