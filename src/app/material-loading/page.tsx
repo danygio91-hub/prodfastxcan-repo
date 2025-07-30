@@ -124,7 +124,7 @@ export default function MaterialLoadingPage() {
         setStep('validate');
     };
 
-     useEffect(() => {
+    useEffect(() => {
         const shouldRunCamera = step === 'scan_material' || step === 'scan_lotto';
         
         if (shouldRunCamera) {
@@ -154,7 +154,7 @@ export default function MaterialLoadingPage() {
             stopCamera();
         }
         return () => stopCamera();
-    }, [step]);
+    }, [step, stopCamera, toast]);
 
 
     const triggerScan = useCallback(async () => {
