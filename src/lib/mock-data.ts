@@ -115,8 +115,9 @@ export interface RawMaterialBatch {
   id: string; // unique id for the batch
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
-  netQuantity: number; // Net quantity
-  grossWeight: number; // Net + Tare
+  quantity: number; // DEPRECATED in favor of netQuantity for clarity
+  netQuantity: number; // Net quantity from DDT or manual input
+  grossWeight: number; // Net + Tare, what's on the scale
   tareWeight: number;
   packagingId?: string;
   lotto?: string | null;

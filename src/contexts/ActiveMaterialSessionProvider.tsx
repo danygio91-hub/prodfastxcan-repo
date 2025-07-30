@@ -2,11 +2,14 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import type { ActiveMaterialSessionData, MaterialSessionCategory, RawMaterialType } from '@/lib/mock-data';
+import type { ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const BROADCAST_CHANNEL_NAME = 'material_session_channel';
+
+// Redefine MaterialSessionCategory locally as it's not exported from mock-data
+type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 
 interface ActiveMaterialSessionContextType {
   activeSessions: ActiveMaterialSessionData[];
