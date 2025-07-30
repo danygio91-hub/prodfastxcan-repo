@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -39,7 +40,14 @@ export default function DashboardPage() {
     });
   }, [toast]);
 
-  const hasMagAccess = operator && (operator.role === 'superadvisor' || (Array.isArray(operator.reparto) ? operator.reparto.includes('MAG') : operator.reparto === 'MAG'));
+  const allowedAccessReparti = ['MAG', 'CG', 'Collaudo'];
+  const hasMagAccess = operator && (
+    operator.role === 'superadvisor' || 
+    (Array.isArray(operator.reparto) 
+      ? operator.reparto.some(r => allowedAccessReparti.includes(r)) 
+      : allowedAccessReparti.includes(operator.reparto))
+  );
+
 
   return (
     <AuthGuard>
