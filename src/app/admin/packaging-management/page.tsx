@@ -19,6 +19,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Archive, PlusCircle, Edit, Trash2, Loader2, Weight } from 'lucide-react';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
+import AppShell from '@/components/layout/AppShell';
 
 const packagingSchema = z.object({
   id: z.string().optional(),
@@ -116,6 +118,8 @@ export default function PackagingManagementPage() {
   );
 
   return (
+    <AdminAuthGuard>
+      <AppShell>
         <div className="space-y-6">
           <AdminNavMenu />
           <div className="flex justify-between items-center">
@@ -243,5 +247,7 @@ export default function PackagingManagementPage() {
           </DialogContent>
         </Dialog>
       </div>
+    </AppShell>
+  </AdminAuthGuard>
   );
 }
