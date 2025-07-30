@@ -40,7 +40,7 @@ export default function DashboardPage() {
     });
   }, [toast]);
 
-  const allowedAccessReparti = ['MAG', 'CG', 'Collaudo'];
+  const allowedAccessReparti = ['MAG', 'Collaudo'];
   const hasMagAccess = operator && (
     operator.role === 'superadvisor' || 
     (Array.isArray(operator.reparto) 

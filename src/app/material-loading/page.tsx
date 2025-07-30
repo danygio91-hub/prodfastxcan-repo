@@ -68,7 +68,7 @@ export default function MaterialLoadingPage() {
     
     useEffect(() => {
         if (!authLoading && operator) {
-            const allowedAccessReparti = ['MAG', 'CG', 'Collaudo'];
+            const allowedAccessReparti = ['MAG', 'Collaudo'];
             const hasAccess = operator.role === 'superadvisor' || 
                               (Array.isArray(operator.reparto) 
                                 ? operator.reparto.some(r => allowedAccessReparti.includes(r))
