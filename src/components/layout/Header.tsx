@@ -41,8 +41,9 @@ export default function Header() {
   };
 
   const handleExitJobScreen = () => {
+    // This action only navigates away. The active phase (and banner) will persist.
+    // The user must explicitly pause or complete the phase via the status bar.
     if (!activeJob) return;
-    setActiveJobId(null);
     toast({ title: "Sei uscito dalla schermata della commessa", description: "La fase attiva rimane in corso in background."});
   };
 
@@ -73,8 +74,10 @@ export default function Header() {
             {showExitButton && (
                  <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button variant="destructive" size="icon" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
-                            <LogOut className="h-5 w-5" />
+                        <Button asChild variant="destructive" size="icon" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
+                           <Link href="/dashboard">
+                              <LogOut className="h-5 w-5" />
+                           </Link>
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
