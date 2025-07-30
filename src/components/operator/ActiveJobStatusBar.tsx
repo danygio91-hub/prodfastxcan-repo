@@ -12,6 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { updateJob } from '@/app/scan-job/actions';
 import { Play, Pause, Check, Activity } from 'lucide-react';
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import { cn } from '@/lib/utils';
 
 export default function ActiveJobStatusBar() {
   const { activeJob, isLoading } = useActiveJob();
@@ -19,7 +20,6 @@ export default function ActiveJobStatusBar() {
   const { toast } = useToast();
 
   const handleUpdateJob = async (updatedJob: JobOrder) => {
-    // Optimistic update is no longer needed due to real-time listener
     const result = await updateJob(updatedJob);
     if (!result.success) {
       toast({
@@ -27,7 +27,6 @@ export default function ActiveJobStatusBar() {
         title: "Errore di Sincronizzazione",
         description: result.message,
       });
-      // The real-time listener will eventually correct the state, but this informs the user of failure.
     }
   };
 
@@ -66,11 +65,8 @@ export default function ActiveJobStatusBar() {
     const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) {
         phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
-    } else {
-        toast({variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo da completare."})
-        return;
     }
-
+    
     const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
 
     if (!isAnyoneElseWorking) {
@@ -79,7 +75,6 @@ export default function ActiveJobStatusBar() {
     
     toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToUpdate.name}" è terminata.` });
     
-    // Check if all phases are now completed to conclude the job
     const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed');
     if (allPhasesCompleted) {
         jobToUpdate.status = 'completed';
@@ -94,11 +89,16 @@ export default function ActiveJobStatusBar() {
     return null;
   }
   
-  const myActivePhase = activeJob.phases.find(p => (p.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null));
+  // Find the last phase the operator interacted with that isn't completed yet.
+  const myRelevantPhase = [...(activeJob.phases || [])]
+    .sort((a,b) => b.sequence - a.sequence) // Check from last phase to first
+    .find(p => p.status !== 'completed' && (p.workPeriods || []).some(wp => wp.operatorId === operator.id));
 
-  if (!myActivePhase) {
-    return null; // Don't show the bar if the current operator isn't active on any phase
+  if (!myRelevantPhase) {
+    return null; // Don't show the bar if the operator has no active or paused phases.
   }
+
+  const isMyWorkActive = (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
@@ -106,17 +106,35 @@ export default function ActiveJobStatusBar() {
             <div className="flex items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                        Fase Attiva: {myActivePhase.name}
+                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                       {isMyWorkActive 
+                          ? <span className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                          : <span className="h-2 w-2 rounded-full bg-orange-500"></span>
+                       }
+                       {isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <>
-                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => handlePauseResume(myActivePhase.id)} disabled={activeJob.isProblemReported}>
-                            <Pause className="h-4 w-4" />
-                            <span className="sr-only">Pausa</span>
+                        <Button 
+                          variant="outline" 
+                          size="icon" 
+                          className={cn("h-9 w-9", !isMyWorkActive && "border-orange-500 text-orange-500 hover:bg-orange-500/10 hover:text-orange-600")}
+                          onClick={() => handlePauseResume(myRelevantPhase.id)} 
+                          disabled={activeJob.isProblemReported}
+                        >
+                          {isMyWorkActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                          <span className="sr-only">{isMyWorkActive ? 'Pausa' : 'Riprendi'}</span>
                         </Button>
-                        <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => handleCompletePhase(myActivePhase.id)} disabled={activeJob.isProblemReported}>
+
+                        <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-9 w-9" 
+                            onClick={() => handleCompletePhase(myRelevantPhase.id)} 
+                            disabled={activeJob.isProblemReported || !isMyWorkActive} // Can only complete if active
+                            title="Completa la tua attività per questa fase"
+                         >
                             <Check className="h-4 w-4" />
                             <span className="sr-only">Completa</span>
                         </Button>
