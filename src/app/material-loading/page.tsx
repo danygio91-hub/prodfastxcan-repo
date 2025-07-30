@@ -105,7 +105,7 @@ export default function MaterialLoadingPage() {
             setScannedMaterial(result);
             form.setValue('materialId', result.id);
             // Pre-set unit based on material type
-            if (result.type === 'BOB') {
+            if (result.type === 'BOB' || result.type === 'PF3V0') {
                 form.setValue('unit', 'kg');
             } else if (result.type === 'GUAINA') {
                 form.setValue('unit', 'mt');
@@ -406,7 +406,7 @@ export default function MaterialLoadingPage() {
                                                     )} />
                                                 )}
 
-                                                {scannedMaterial?.type === 'BOB' && (
+                                                {(scannedMaterial?.type === 'BOB' || scannedMaterial?.type === 'PF3V0') && (
                                                      <FormField control={form.control} name="unit" render={({ field }) => (<FormItem><FormControl><Input type="hidden" {...field} value="kg" /></FormControl></FormItem>)} />
                                                 )}
 
