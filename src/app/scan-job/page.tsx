@@ -1358,7 +1358,7 @@ export default function ScanJobPage() {
                                     <SelectContent>
                                       <SelectItem value="none">Nessuna Tara</SelectItem>
                                       {filteredPackagingItems.map(item => (
-                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({Number(item.weightKg)} kg)</SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>

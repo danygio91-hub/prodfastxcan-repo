@@ -173,7 +173,7 @@ export default function PackagingManagementPage() {
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.description || 'N/D'}</TableCell>
-                          <TableCell>{item.weightKg.toFixed(3)}</TableCell>
+                          <TableCell>{Number(item.weightKg)}</TableCell>
                            <TableCell>
                             <div className="flex flex-wrap gap-1">
                                 {item.associatedTypes && item.associatedTypes.length > 0 ? 
