@@ -154,7 +154,7 @@ export default function MaterialLoadingPage() {
             stopCamera();
         }
         return () => stopCamera();
-    }, [step, stopCamera, toast]);
+    }, [step]);
 
 
     const triggerScan = useCallback(async () => {
