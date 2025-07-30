@@ -4,10 +4,7 @@ const nextConfig = {
   // Firebase Studio environment.
   allowedDevOrigins: [
     "http://localhost:3000",
-    {
-      protocol: 'https',
-      hostname: '*.cloudworkstations.dev',
-    },
+    "https://*.cloudworkstations.dev",
   ],
   images: {
     remotePatterns: [
