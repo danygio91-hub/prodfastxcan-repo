@@ -24,7 +24,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
 import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera } from 'lucide-react';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, TestTube } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -185,7 +185,7 @@ export default function MaterialCheckPage() {
                 type: 'Carico' as const,
                 date: b.date,
                 description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-                quantity: b.quantity,
+                quantity: b.netQuantity,
                 unit: foundMaterial.unitOfMeasure.toUpperCase(),
                 id: b.id
             })),
@@ -228,6 +228,12 @@ export default function MaterialCheckPage() {
                                     <Keyboard className="mr-2 h-5 w-5" />
                                     Inserisci Codice Manualmente
                                 </Button>
+                                {process.env.NODE_ENV === 'development' && (
+                                <Button onClick={() => handleCodeSubmit('BOB-TEST-01')} variant="ghost" className="w-full text-muted-foreground">
+                                    <TestTube className="mr-2 h-4 w-4" />
+                                    Simula Scansione (BOB-TEST-01)
+                                </Button>
+                                )}
                             </CardContent>
                         </Card>
                     )}

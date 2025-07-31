@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity, getPackagingItems } from './actions';
 import type { RawMaterial, Packaging } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive } from 'lucide-react';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube } from 'lucide-react';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -262,7 +262,7 @@ export default function MaterialLoadingPage() {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
     
-    const renderScanUI = (title: string) => (
+    const renderScanUI = (title: string, onSimulate: () => void) => (
         <div className="text-center space-y-4">
             <h3 className="text-xl font-semibold">{title}</h3>
             {scannedMaterial && <p className="text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial.code}</span></p>}
@@ -289,8 +289,14 @@ export default function MaterialLoadingPage() {
             </div>
             <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
                 {isCapturing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-                <span className="ml-2">{isCapturing ? 'Scansione...' : 'Scansiona Ora'}</span>
+                <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Ora'}</span>
             </Button>
+            {process.env.NODE_ENV === 'development' && (
+                <Button onClick={onSimulate} variant="ghost" className="w-full text-muted-foreground">
+                    <TestTube className="mr-2 h-4 w-4" />
+                    Simula Scansione
+                </Button>
+            )}
         </div>
     );
 
@@ -328,8 +334,8 @@ export default function MaterialLoadingPage() {
                             </ol>
                             
                             <div className="mt-8">
-                                {step === 'scan_material' && renderScanUI('1. Scansiona il Codice Materiale')}
-                                {step === 'scan_lotto' && renderScanUI('2. Scansiona il Codice del Lotto')}
+                                {step === 'scan_material' && renderScanUI('1. Scansiona il Codice Materiale', () => handleMaterialScanned('BOB-TEST-01'))}
+                                {step === 'scan_lotto' && renderScanUI('2. Scansiona il Codice del Lotto', () => handleLottoScanned('LOTTO-TEST-123'))}
                                 {step === 'validate' && (
                                      <div className="text-center space-y-4">
                                         <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
@@ -460,7 +466,7 @@ export default function MaterialLoadingPage() {
                                                             <SelectItem value="none">Nessuna Tara</SelectItem>
                                                             {filteredPackagingItems.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
-                                                                    {item.name} ({item.weightKg.toFixed(3)} kg)
+                                                                    {item.name} ({item.weightKg} kg)
                                                                 </SelectItem>
                                                             ))}
                                                         </SelectContent>
