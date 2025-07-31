@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -19,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera } from 'lucide-react';
+import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera, TestTube } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions {
@@ -248,6 +247,17 @@ export default function LoginForm() {
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
                             </Button>
+                            
+                            {process.env.NODE_ENV === 'development' && (
+                                <Button
+                                    onClick={() => handleScannedData("Daniel@Filapara.9!")}
+                                    variant="ghost"
+                                    className="text-muted-foreground"
+                                >
+                                    <TestTube className="mr-2 h-4 w-4" />
+                                    Simula Scansione QR (Test)
+                                </Button>
+                            )}
                         </CardContent>
                          {installPrompt && (
                             <CardFooter>
