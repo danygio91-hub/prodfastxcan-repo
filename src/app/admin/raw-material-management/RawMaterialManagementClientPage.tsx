@@ -106,17 +106,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', netQuantity: 0, packagingId: 'none' },
   });
   
-  const watchedNetQuantity = batchForm.watch('netQuantity');
-  const watchedPackagingId = batchForm.watch('packagingId');
-
-  useEffect(() => {
-    const selectedPackaging = packagingItems.find(p => p.id === watchedPackagingId);
-    const tareWeight = selectedPackaging?.weightKg || 0;
-    const grossWeight = (watchedNetQuantity || 0) + tareWeight;
-    // This doesn't need to be in the form state, just for display
-  }, [watchedNetQuantity, watchedPackagingId, packagingItems]);
-
-
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
   
   const filteredMaterials = useMemo(() => {
@@ -742,7 +731,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="space-y-1">
                           <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
                           <p className="p-2 bg-muted rounded-md font-mono">
-                            {((batchForm.watch('netQuantity') || 0) + (packagingItems.find(p => p.id === batchForm.watch('packagingId'))?.weightKg || 0)).toFixed(3)}
+                            {(
+                              (Number(batchForm.watch('netQuantity')) || 0) +
+                              (packagingItems.find(p => p.id === batchForm.watch('packagingId'))?.weightKg || 0)
+                            ).toFixed(3)}
                           </p>
                         </div>
                         
@@ -863,4 +855,5 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
