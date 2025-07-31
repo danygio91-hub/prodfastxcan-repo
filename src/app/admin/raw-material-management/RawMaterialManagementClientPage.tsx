@@ -12,8 +12,8 @@ import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials } from './actions';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging } from '@/lib/mock-data';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, getPackagingItems } from './actions';
 
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -63,7 +63,8 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  grossWeight: z.coerce.number().min(0, "Il peso lordo non può essere negativo."),
+  packagingId: z.string().optional(),
 });
 
 type BatchFormValues = z.infer<typeof batchFormSchema>;
@@ -89,6 +90,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
+  const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -100,7 +102,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', grossWeight: 0, packagingId: 'none' },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
@@ -119,6 +121,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const refreshData = () => {
     router.refresh();
   };
+  
+  useEffect(() => {
+    getPackagingItems().then(setPackagingItems);
+  }, []);
 
   useEffect(() => {
     setMaterials(initialMaterials);
@@ -159,10 +165,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         lotto: batch.lotto || '',
         date: format(parseISO(batch.date), 'yyyy-MM-dd'),
         ddt: batch.ddt,
-        quantity: batch.quantity,
+        grossWeight: batch.grossWeight,
+        packagingId: batch.packagingId || 'none'
       });
     } else {
-      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0 });
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', grossWeight: 0, packagingId: 'none' });
     }
     setIsBatchFormDialogOpen(true);
   };
@@ -188,7 +195,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             type: 'Scarico' as const,
             date: w.withdrawalDate.toISOString(),
             description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
-            quantity: -(w.consumedWeight),
+            quantity: -((w.consumedWeight) || 0),
             unit: 'KG',
             id: w.id
         }))
@@ -691,7 +698,35 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>N° Lotto (Fornitore)</FormLabel> <FormControl><Input placeholder="Numero lotto opzionale" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                        <FormField control={batchForm.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità (in {(selectedMaterial?.unitOfMeasure || 'n').toUpperCase()})</FormLabel> <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                        
+                        <FormField
+                          control={batchForm.control}
+                          name="packagingId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
+                               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                  <SelectItem value="none">Nessuna Tara</SelectItem>
+                                  {packagingItems.map(item => (
+                                    <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        
+                        <FormField control={batchForm.control} name="grossWeight" render={({ field }) => (
+                           <FormItem>
+                            <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Lordo (KG)</FormLabel>
+                             <FormControl><Input type="number" step="any" placeholder="Peso letto sulla bilancia" {...field} value={field.value ?? ''} /></FormControl>
+                             <FormMessage />
+                           </FormItem>
+                         )} />
+                        
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button>
                             <Button type="submit">{editingBatch ? 'Salva Modifiche' : 'Aggiungi Lotto'}</Button>
@@ -792,7 +827,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             </div>
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock Calcolato (KG)</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
+                                <p className="text-2xl font-bold">{(selectedMaterial.currentWeightKg ?? 0).toFixed(2)}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background col-span-2">
                                 <Label>Fattore Conversione</Label>
@@ -809,8 +844,3 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
-
-
-
-
-
