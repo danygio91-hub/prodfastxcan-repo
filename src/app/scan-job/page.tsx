@@ -146,12 +146,12 @@ export default function ScanJobPage() {
 
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
-    defaultValues: { grossOpeningWeight: undefined, netOpeningWeight: undefined, lottoBobina: '', packagingId: 'none' },
+    defaultValues: { grossOpeningWeight: 0, netOpeningWeight: 0, lottoBobina: '', packagingId: 'none' },
   });
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
     resolver: zodResolver(tubiGuainaWithdrawalSchema),
-    defaultValues: { quantity: undefined, unit: 'mt' },
+    defaultValues: { quantity: 0, unit: 'mt' },
   });
 
   const closingWeightForm = useForm<ClosingWeightFormValues>({
@@ -707,8 +707,8 @@ export default function ScanJobPage() {
     setPhaseForMaterialScan(phase);
     setScannedMaterialForPhase(null);
     setManualMaterialCode('');
-    phaseMaterialForm.reset({ grossOpeningWeight: undefined, lottoBobina: '', packagingId: 'none' });
-    tubiGuainaWithdrawalForm.reset({ quantity: undefined, unit: 'mt' });
+    phaseMaterialForm.reset({ grossOpeningWeight: 0, lottoBobina: '', packagingId: 'none' });
+    tubiGuainaWithdrawalForm.reset({ quantity: 0, unit: 'mt' });
     setIsHistoricalLotto(false);
     
     const items = await getPackagingItems();
@@ -907,8 +907,8 @@ export default function ScanJobPage() {
             toast({ title: "Dati Storici Trovati", description: `Peso e imballo pre-compilati dall'ultimo utilizzo.` });
         } else {
              setIsHistoricalLotto(false);
-             setValue('grossOpeningWeight', undefined);
-             setValue('netOpeningWeight', undefined);
+             setValue('grossOpeningWeight', 0);
+             setValue('netOpeningWeight', 0);
              setValue('packagingId', 'none');
         }
         trigger();
