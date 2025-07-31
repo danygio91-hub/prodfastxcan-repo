@@ -48,7 +48,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  grossWeight: z.coerce.number().min(0, "Il peso lordo non può essere negativo."),
+  netQuantity: z.coerce.number().min(0, "Il peso netto non può essere negativo."),
   packagingId: z.string().optional(),
 });
 
@@ -146,7 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.' };
   }
   
-  const { materialId, date, ddt, grossWeight, lotto, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, netQuantity, lotto, packagingId } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -166,11 +166,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
 
-          if (grossWeight < tareWeight) {
-              throw new Error("Il peso lordo non può essere inferiore al peso della tara.");
-          }
-          
-          const netQuantity = grossWeight - tareWeight;
+          const grossWeight = netQuantity + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
@@ -247,20 +243,16 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 }
             }
 
-            if (newBatchData.grossWeight < tareWeight) {
-                throw new Error("Il peso lordo non può essere inferiore al peso della tara.");
-            }
-            
-            const netQuantity = newBatchData.grossWeight - tareWeight;
+            const grossWeight = newBatchData.netQuantity + tareWeight;
             
             const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
                 ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
-                netQuantity: netQuantity,
+                netQuantity: newBatchData.netQuantity,
                 tareWeight: tareWeight,
-                grossWeight: newBatchData.grossWeight,
+                grossWeight: grossWeight,
                 packagingId: newBatchData.packagingId,
             };
 

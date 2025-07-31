@@ -64,7 +64,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  grossWeight: z.coerce.number().min(0, "Il peso lordo non può essere negativo."),
+  netQuantity: z.coerce.number().min(0, "Il peso netto non può essere negativo."),
   packagingId: z.string().optional(),
 });
 
@@ -103,9 +103,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', grossWeight: 0, packagingId: 'none' },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', netQuantity: 0, packagingId: 'none' },
   });
   
+  const watchedNetQuantity = batchForm.watch('netQuantity');
+  const watchedPackagingId = batchForm.watch('packagingId');
+
+  useEffect(() => {
+    const selectedPackaging = packagingItems.find(p => p.id === watchedPackagingId);
+    const tareWeight = selectedPackaging?.weightKg || 0;
+    const grossWeight = (watchedNetQuantity || 0) + tareWeight;
+    // This doesn't need to be in the form state, just for display
+  }, [watchedNetQuantity, watchedPackagingId, packagingItems]);
+
+
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
   
   const filteredMaterials = useMemo(() => {
@@ -166,11 +177,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         lotto: batch.lotto || '',
         date: format(parseISO(batch.date), 'yyyy-MM-dd'),
         ddt: batch.ddt,
-        grossWeight: batch.grossWeight,
+        netQuantity: batch.netQuantity,
         packagingId: batch.packagingId || 'none'
       });
     } else {
-      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', grossWeight: 0, packagingId: 'none' });
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', netQuantity: 0, packagingId: 'none' });
     }
     setIsBatchFormDialogOpen(true);
   };
@@ -720,13 +731,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           )}
                         />
                         
-                        <FormField control={batchForm.control} name="grossWeight" render={({ field }) => (
+                         <FormField control={batchForm.control} name="netQuantity" render={({ field }) => (
                            <FormItem>
-                            <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Lordo (KG)</FormLabel>
-                             <FormControl><Input type="number" step="any" placeholder="Peso letto sulla bilancia" {...field} value={field.value ?? ''} /></FormControl>
+                            <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Netto (KG)</FormLabel>
+                             <FormControl><Input type="number" step="any" placeholder="Peso del materiale senza tara" {...field} value={field.value ?? ''} /></FormControl>
                              <FormMessage />
                            </FormItem>
                          )} />
+
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
+                          <p className="p-2 bg-muted rounded-md font-mono">
+                            {((batchForm.watch('netQuantity') || 0) + (packagingItems.find(p => p.id === batchForm.watch('packagingId'))?.weightKg || 0)).toFixed(3)}
+                          </p>
+                        </div>
                         
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button>
@@ -845,3 +863,4 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
