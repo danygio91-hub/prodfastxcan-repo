@@ -81,7 +81,7 @@ export default function ProductionConsoleClientPage() {
   useEffect(() => {
     setIsLoading(true);
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "suspended"]));
+    const q = query(jobsRef, where("status", "in", ["production", "suspended", "completed"]));
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const jobs: JobOrder[] = [];
@@ -153,7 +153,8 @@ export default function ProductionConsoleClientPage() {
     'Pronto per Finitura',
     'In Lavorazione',
     'Sospesa',
-    'Problema'
+    'Problema',
+    'Completata'
   ];
 
   return (
