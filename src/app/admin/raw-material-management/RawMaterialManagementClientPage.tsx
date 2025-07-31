@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -180,7 +180,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             type: 'Carico' as const,
             date: b.date,
             description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-            quantity: b.quantity,
+            quantity: b.netQuantity,
             unit: material.unitOfMeasure.toUpperCase(),
             id: b.id
         })),
@@ -535,7 +535,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell>{material.description}</TableCell>
                             <TableCell>{material.currentStockUnits}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
-                            <TableCell>{material.currentWeightKg.toFixed(2)}</TableCell>
+                            <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
                                 <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -809,6 +809,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
