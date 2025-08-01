@@ -39,9 +39,9 @@ export async function getRawMaterialByCode(code: string): Promise<RawMaterial | 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   lotto: z.string().min(1, "Il lotto è obbligatorio."),
-  date: z.string().min(1, "La data è obbligatoria."),
+  date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().optional(),
-  netQuantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   unit: z.enum(['n', 'kg', 'mt']),
   packagingId: z.string().optional(),
 });
@@ -54,7 +54,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, netQuantity, lotto, unit, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, packagingId } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   
@@ -81,19 +81,19 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
-            quantity: netQuantity, // This is the NET quantity
+            netQuantity: quantity,
             tareWeight: tareWeight,
-            grossWeight: netQuantity + tareWeight, // Gross is net + tare
+            grossWeight: quantity + tareWeight,
             packagingId: packagingId,
             lotto: lotto || undefined,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
+          const newStockUnits = (material.currentStockUnits || 0) + quantity;
           let newWeightKg = material.currentWeightKg || 0;
           if (material.unitOfMeasure === 'kg') {
-            newWeightKg += netQuantity;
+            newWeightKg += quantity;
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newWeightKg += netQuantity * material.conversionFactor;
+            newWeightKg += quantity * material.conversionFactor;
           }
           
           transaction.update(materialRef, { 
@@ -113,7 +113,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      return { success: true, message: 'Lotto aggiunto con successo. Stock netto aggiornato.', updatedMaterial: finalMaterialState };
+      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
