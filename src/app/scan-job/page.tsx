@@ -1174,12 +1174,11 @@ export default function ScanJobPage() {
                     const canPausePhase = !activeJob.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
                     const canResumePhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
                     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
-                    const canScanMaterial = operatorHasPermissionForDepartment && (phase.requiresMaterialScan || phase.requiresMaterialSearch);
                     const anyOperatorActive = phase.workPeriods.some(wp => wp.end === null);
                     const otherOperatorsActive = phase.workPeriods.some(wp => wp.operatorId !== operator?.id && wp.end === null);
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob} 
-                                      permissions={{canScanMaterial, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
+                                      permissions={{canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
                                       handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase}}
                                       />
                 })}
@@ -1222,7 +1221,7 @@ export default function ScanJobPage() {
 
 
                     return <PhaseCard key={phase.id} phase={phase} job={activeJob}
-                                      permissions={{canScanMaterial: false, canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
+                                      permissions={{canStartPhase, canPausePhase, canResumePhase, canCompletePhase, operatorHasPermissionForDepartment, isPhaseOwner, isSuperadvisor, anyOperatorActive, otherOperatorsActive}}
                                       handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}}
                                       />
                 })}
@@ -1680,7 +1679,6 @@ function PhaseCard({ phase, job, permissions, handlers }: {
     phase: JobPhase,
     job: JobOrder,
     permissions: {
-        canScanMaterial: boolean,
         canStartPhase: boolean,
         canPausePhase: boolean,
         canResumePhase: boolean,
@@ -1722,6 +1720,10 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         handlers.setPhaseForQualityProblem(phase);
         handlers.openQualityProblemDialog(true);
     };
+
+    const shouldShowAddMaterialButton =
+        (phase.requiresMaterialScan || phase.requiresMaterialSearch) &&
+        phase.status === 'pending';
 
     return (
         <Card key={phase.id} className={`p-4 bg-card/50 ${!permissions.operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
@@ -1784,7 +1786,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
             </div>
             
             <div className="mt-3 flex flex-wrap gap-2">
-            {(phase.requiresMaterialScan || phase.requiresMaterialSearch) && !phase.materialReady && (
+            {shouldShowAddMaterialButton && (
                 <Button size="sm" onClick={() => handlers.handleOpenMaterialScanDialog(phase)} variant="default" disabled={!permissions.operatorHasPermissionForDepartment}>
                     <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                 </Button>
