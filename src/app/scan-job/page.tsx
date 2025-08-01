@@ -698,10 +698,9 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobId(null);
-    activeSessions.forEach(s => closeSession(s.materialId));
     setPhaseForPhaseScan(null);
     setStep('initial');
-  }
+  };
 
   const handleOpenMaterialScanDialog = async (phase: JobPhase) => {
     setPhaseForMaterialScan(phase);
@@ -1722,8 +1721,8 @@ function PhaseCard({ phase, job, permissions, handlers }: {
     };
 
     const shouldShowAddMaterialButton =
-        (phase.requiresMaterialScan || phase.requiresMaterialSearch) &&
-        phase.status !== 'completed';
+      (phase.requiresMaterialScan || phase.requiresMaterialSearch) &&
+      phase.status !== 'completed';
 
     return (
         <Card key={phase.id} className={`p-4 bg-card/50 ${!permissions.operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
@@ -1787,7 +1786,12 @@ function PhaseCard({ phase, job, permissions, handlers }: {
             
             <div className="mt-3 flex flex-wrap gap-2">
             {shouldShowAddMaterialButton && (
-                <Button size="sm" onClick={() => handlers.handleOpenMaterialScanDialog(phase)} variant="default" disabled={!permissions.operatorHasPermissionForDepartment}>
+                 <Button
+                    size="sm"
+                    onClick={() => handlers.handleOpenMaterialScanDialog(phase)}
+                    variant="default"
+                    disabled={!permissions.operatorHasPermissionForDepartment || phase.status === 'completed'}
+                >
                     <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                 </Button>
             )}
