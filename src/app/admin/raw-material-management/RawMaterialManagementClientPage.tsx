@@ -64,7 +64,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  netQuantity: z.coerce.number().min(0, "Il peso netto non può essere negativo."),
+  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
   packagingId: z.string().optional(),
 });
 
@@ -103,7 +103,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const batchForm = useForm<BatchFormValues>({
     resolver: zodResolver(batchFormSchema),
-    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', netQuantity: 0, packagingId: 'none' },
+    defaultValues: { materialId: '', batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0, packagingId: 'none' },
   });
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
@@ -166,11 +166,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         lotto: batch.lotto || '',
         date: format(parseISO(batch.date), 'yyyy-MM-dd'),
         ddt: batch.ddt,
-        netQuantity: batch.netQuantity,
+        quantity: batch.netQuantity,
         packagingId: batch.packagingId || 'none'
       });
     } else {
-      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', netQuantity: 0, packagingId: 'none' });
+      batchForm.reset({ materialId: material.id, batchId: undefined, lotto: '', date: format(new Date(), 'yyyy-MM-dd'), ddt: '', quantity: 0, packagingId: 'none' });
     }
     setIsBatchFormDialogOpen(true);
   };
@@ -700,43 +700,55 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data Ricezione</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         <FormField control={batchForm.control} name="ddt" render={({ field }) => ( <FormItem> <FormLabel>Documento di Trasporto (DDT)</FormLabel> <FormControl><Input placeholder="Numero DDT" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                         
-                        <FormField
-                          control={batchForm.control}
-                          name="packagingId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
-                               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                                <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
-                                <SelectContent>
-                                  <SelectItem value="none">Nessuna Tara</SelectItem>
-                                  {packagingItems.map(item => (
-                                    <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                         <FormField control={batchForm.control} name="netQuantity" render={({ field }) => (
-                           <FormItem>
-                            <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Netto (KG)</FormLabel>
-                             <FormControl><Input type="number" step="any" placeholder="Peso del materiale senza tara" {...field} value={field.value ?? ''} /></FormControl>
-                             <FormMessage />
-                           </FormItem>
-                         )} />
+                        {selectedMaterial?.unitOfMeasure === 'kg' ? (
+                          <>
+                            <FormField
+                              control={batchForm.control}
+                              name="packagingId"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
+                                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
+                                    <SelectContent>
+                                      <SelectItem value="none">Nessuna Tara</SelectItem>
+                                      {packagingItems.map(item => (
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <FormField control={batchForm.control} name="quantity" render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Netto (KG)</FormLabel>
+                                <FormControl><Input type="number" step="any" placeholder="Peso del materiale senza tara" {...field} value={field.value ?? ''} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
 
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
-                          <p className="p-2 bg-muted rounded-md font-mono">
-                            {(
-                              (Number(batchForm.watch('netQuantity')) || 0) +
-                              (packagingItems.find(p => p.id === batchForm.watch('packagingId'))?.weightKg || 0)
-                            ).toFixed(3)}
-                          </p>
-                        </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
+                              <p className="p-2 bg-muted rounded-md font-mono">
+                                {(
+                                  (Number(batchForm.watch('quantity')) || 0) +
+                                  (packagingItems.find(p => p.id === batchForm.watch('packagingId'))?.weightKg || 0)
+                                ).toFixed(3)}
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                           <FormField control={batchForm.control} name="quantity" render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex items-center"><PackagePlus className="mr-2 h-4 w-4" />Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                                <FormControl><Input type="number" step="1" placeholder="Numero di pezzi o metri" {...field} value={field.value ?? ''} /></FormControl>
+                                <FormMessage />
+                            </FormItem>
+                           )} />
+                        )}
                         
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button>
@@ -855,6 +867,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 

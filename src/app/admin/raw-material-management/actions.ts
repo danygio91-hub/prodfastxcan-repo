@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging } from '@/lib/mock-data';
 import { format } from 'date-fns';
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
@@ -48,7 +48,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  netQuantity: z.coerce.number().min(0, "Il peso netto non può essere negativo."),
+  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
   packagingId: z.string().optional(),
 });
 
@@ -146,7 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.' };
   }
   
-  const { materialId, date, ddt, netQuantity, lotto, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, packagingId } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -158,7 +158,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 
           const material = docSnap.data() as RawMaterial;
           let tareWeight = 0;
-          if (packagingId && packagingId !== 'none') {
+          
+          if (material.unitOfMeasure === 'kg' && packagingId && packagingId !== 'none') {
             const packagingRef = doc(db, 'packaging', packagingId);
             const packagingSnap = await transaction.get(packagingRef);
             if (packagingSnap.exists()) {
@@ -166,26 +167,26 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
 
-          const grossWeight = netQuantity + tareWeight;
+          const grossWeight = quantity + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_MANUALE',
-            netQuantity: netQuantity,
+            netQuantity: quantity,
             tareWeight: tareWeight,
             grossWeight: grossWeight,
             packagingId: packagingId,
             lotto: lotto || null,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
+          const newStockUnits = (material.currentStockUnits || 0) + quantity;
           let newWeightKg = material.currentWeightKg || 0;
           
           if (material.unitOfMeasure === 'kg') {
-              newWeightKg = (material.currentWeightKg || 0) + netQuantity;
+              newWeightKg = newStockUnits; // For KG items, units and weight are the same
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += netQuantity * material.conversionFactor;
+              newWeightKg += quantity * material.conversionFactor;
           }
           
           transaction.update(materialRef, { 
@@ -235,22 +236,22 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             }
 
             let tareWeight = 0;
-            if (newBatchData.packagingId && newBatchData.packagingId !== 'none') {
+            if (material.unitOfMeasure === 'kg' && newBatchData.packagingId && newBatchData.packagingId !== 'none') {
                 const packagingRef = doc(db, 'packaging', newBatchData.packagingId);
                 const packagingSnap = await transaction.get(packagingRef);
                 if (packagingSnap.exists()) {
                     tareWeight = packagingSnap.data().weightKg || 0;
                 }
             }
-
-            const grossWeight = newBatchData.netQuantity + tareWeight;
+            
+            const grossWeight = newBatchData.quantity + tareWeight;
             
             const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
                 ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
-                netQuantity: newBatchData.netQuantity,
+                netQuantity: newBatchData.quantity,
                 tareWeight: tareWeight,
                 grossWeight: grossWeight,
                 packagingId: newBatchData.packagingId,
