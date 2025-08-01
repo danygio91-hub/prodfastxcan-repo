@@ -1723,7 +1723,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
 
     const shouldShowAddMaterialButton =
         (phase.requiresMaterialScan || phase.requiresMaterialSearch) &&
-        phase.status === 'pending';
+        phase.status !== 'completed';
 
     return (
         <Card key={phase.id} className={`p-4 bg-card/50 ${!permissions.operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
