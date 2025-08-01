@@ -188,7 +188,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             type: 'Carico' as const,
             date: b.date,
             description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-            quantity: b.netQuantity || 0,
+            quantity: b.netQuantity,
             unit: material.unitOfMeasure.toUpperCase(),
             id: b.id
         })),
@@ -855,6 +855,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
