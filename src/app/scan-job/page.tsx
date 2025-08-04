@@ -60,7 +60,7 @@ type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
 
 const tubiGuainaWithdrawalSchema = z.object({
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  unit: z.enum(['n', 'kg', 'mt'], { required_error: "Selezionare l'unità di misura." }),
+  unit: z.enum(['n', 'mt'], { required_error: "Selezionare l'unità di misura." }),
 });
 type TubiGuainaWithdrawalFormValues = z.infer<typeof tubiGuainaWithdrawalSchema>;
 
@@ -1337,36 +1337,28 @@ export default function ScanJobPage() {
               )}
 
               {materialScanStep === 'form' && scannedMaterialForPhase && (
-                  scannedMaterialForPhase.type === 'GUAINA' ? (
+                  scannedMaterialForPhase.type === 'GUAINA' || scannedMaterialForPhase.type === 'TUBI' ? (
                        <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
                               <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                               <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => ( <FormItem><FormControl><Input type="hidden" {...field} value="mt" /></FormControl></FormItem>)} />
+                               
+                               <FormField
+                                control={tubiGuainaWithdrawalForm.control}
+                                name="unit"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormControl>
+                                            <Input type="hidden" {...field} value={scannedMaterialForPhase.type === 'GUAINA' ? 'mt' : 'n'} />
+                                        </FormControl>
+                                    </FormItem>
+                                )}
+                                />
                                <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
                                   <FormItem>
-                                      <FormLabel>Metri da Prelevare (MT)</FormLabel>
+                                      <FormLabel>Quantità da Prelevare ({scannedMaterialForPhase.unitOfMeasure.toUpperCase()})</FormLabel>
                                       <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
                                       <FormMessage />
                                   </FormItem>
-                              )} />
-                              <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
-                          </form>
-                      </Form>
-                  ) : scannedMaterialForPhase.type === 'TUBI' ? (
-                       <Form {...tubiGuainaWithdrawalForm}>
-                          <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                              <FormField control={tubiGuainaWithdrawalForm.control} name="unit" render={({ field }) => (
-                                  <FormItem className="space-y-3"><FormLabel>Prelievo per unità o peso?</FormLabel>
-                                  <FormControl>
-                                      <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex gap-4">
-                                          <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="n" /></FormControl><FormLabel className="font-normal">N° Pezzi</FormLabel></FormItem>
-                                          <FormItem className="flex items-center space-x-2"><FormControl><RadioGroupItem value="kg" /></FormControl><FormLabel className="font-normal">KG</FormLabel></FormItem>
-                                      </RadioGroup>
-                                  </FormControl><FormMessage /></FormItem>
-                              )} />
-                              <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
-                                  <FormItem><FormLabel>Quantità da Prelevare ({tubiGuainaWithdrawalForm.watch('unit')?.toUpperCase()})</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
                               )} />
                               <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
                           </form>

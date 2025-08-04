@@ -258,7 +258,7 @@ const tubiGuainaWithdrawalSchema = z.object({
   jobOrderPF: z.string(),
   phaseId: z.string(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'kg', 'mt']),
+  unit: z.enum(['n', 'mt']), // Removed 'kg'
 });
 
 export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
@@ -268,7 +268,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
   
-  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit } = validated.data;
+  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity } = validated.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   const jobRef = doc(db, 'jobOrders', jobId);
   
@@ -283,23 +283,16 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         const material = materialDoc.data() as RawMaterial;
         const job = jobDoc.data() as JobOrder;
         
-        let consumedWeight = 0;
-        let unitsConsumed = 0;
+        const unitsConsumed = quantity;
+        const consumedWeight = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
+        
         let newStockUnits = material.currentStockUnits ?? 0;
         let currentWeightKg = material.currentWeightKg ?? 0;
-
-        if (unit === 'kg') {
-            consumedWeight = quantity;
-            unitsConsumed = material.conversionFactor && material.conversionFactor > 0 ? Math.round(consumedWeight / material.conversionFactor) : 0;
-        } else { // unit is 'n' or 'mt'
-            unitsConsumed = quantity;
-            consumedWeight = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
-        }
 
         if (newStockUnits < unitsConsumed) {
             throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${unitsConsumed}.`);
         }
-        if (currentWeightKg < consumedWeight) {
+         if (consumedWeight > 0 && currentWeightKg < consumedWeight) {
              throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
@@ -511,4 +504,5 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+
 
