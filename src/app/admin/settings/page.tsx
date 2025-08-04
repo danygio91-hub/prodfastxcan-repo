@@ -8,7 +8,7 @@ import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Save, Loader2, Boxes, GitMerge, Archive } from 'lucide-react';
-import { type Reparto } from '@/lib/mock-data';
+import { type Reparto, reparti } from '@/lib/mock-data';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -47,8 +47,6 @@ export default function AdminCompanySettingsPage() {
       }
     });
   };
-
-  const departmentCodes = Object.keys(departments) as Reparto[];
 
   return (
     <AdminAuthGuard>
@@ -118,7 +116,7 @@ export default function AdminCompanySettingsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {departmentCodes.length > 0 ? departmentCodes.map(code => (
+                  {reparti.length > 0 ? reparti.map(code => (
                     <div key={code} className="flex items-center gap-4">
                       <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
                       <Input
