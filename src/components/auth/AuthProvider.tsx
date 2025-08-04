@@ -132,6 +132,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fullLogout]);
 
+  // Effect for auto-logout on mobile devices when app is backgrounded
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      // A simple regex to check for mobile user agents.
+      const isMobile = typeof navigator !== 'undefined' && /Mobi|Android/i.test(navigator.userAgent);
+      
+      const currentUser = userRef.current;
+      const currentOperator = operatorRef.current;
+      
+      // We only want to auto-logout on mobile devices for non-admin users when the page is hidden.
+      if (isMobile && document.visibilityState === 'hidden' && currentUser && currentOperator && currentOperator.role !== 'admin') {
+          console.log("App hidden on mobile, logging out user.");
+          fullLogout();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fullLogout]);
+
+
   // Effect to handle fetching auth state from Firebase
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
