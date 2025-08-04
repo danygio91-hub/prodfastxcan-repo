@@ -29,7 +29,8 @@ function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qual
 }
 
 export default async function JobReportDetailPage({ params }: { params: { jobId: string } }) {
-  const report = await getJobDetailReport(params.jobId);
+  const { jobId } = params;
+  const report = await getJobDetailReport(jobId);
 
   if (!report) {
     notFound();
