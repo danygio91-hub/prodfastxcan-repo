@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -258,7 +257,7 @@ const tubiGuainaWithdrawalSchema = z.object({
   jobOrderPF: z.string(),
   phaseId: z.string(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'mt']), // Removed 'kg'
+  unit: z.enum(['n', 'mt']),
 });
 
 export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
@@ -506,3 +505,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 }
 
 
+
+
+    
