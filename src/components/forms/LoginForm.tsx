@@ -92,20 +92,6 @@ export default function LoginForm() {
             setStep('manual_login');
         }
     }, [toast]);
-
-    const handleScannedData = useCallback(async (data: string) => {
-        const [username, password] = data.split('@');
-        if (username && password) {
-             performLogin(username, password);
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'Dati QR non Validi',
-                description: 'Il formato del QR code per il login non è corretto.',
-            });
-            setStep('initial');
-        }
-    }, [performLogin, toast]);
     
     const handleQrLoginClick = (targetPath: string | null) => {
       if (targetPath) {
@@ -172,7 +158,17 @@ export default function LoginForm() {
 
             if (barcodes.length > 0) {
                 stopCamera();
-                handleScannedData(barcodes[0].rawValue);
+                const [username, password] = barcodes[0].rawValue.split('@');
+                if (username && password) {
+                     performLogin(username, password);
+                } else {
+                    toast({
+                        variant: 'destructive',
+                        title: 'Dati QR non Validi',
+                        description: 'Il formato del QR code per il login non è corretto.',
+                    });
+                    setStep('initial');
+                }
             } else {
                 toast({ variant: 'destructive', title: 'Nessun Codice Trovato', description: 'Assicurati che il codice sia ben visibile e riprova.' });
             }
@@ -247,17 +243,6 @@ export default function LoginForm() {
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
                             </Button>
-                            
-                            {process.env.NODE_ENV === 'development' && (
-                                <Button
-                                    onClick={() => handleScannedData("Daniel@Filapara.9!")}
-                                    variant="ghost"
-                                    className="text-muted-foreground"
-                                >
-                                    <TestTube className="mr-2 h-4 w-4" />
-                                    Simula Scansione QR (Test)
-                                </Button>
-                            )}
                         </CardContent>
                          {installPrompt && (
                             <CardFooter>

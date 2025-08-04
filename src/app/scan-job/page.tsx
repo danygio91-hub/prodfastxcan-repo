@@ -698,8 +698,6 @@ export default function ScanJobPage() {
 
   const resetForNewScan = () => {
     setActiveJobId(null);
-    setPhaseForPhaseScan(null);
-    setStep('initial');
   };
 
   const handleOpenMaterialScanDialog = async (phase: JobPhase) => {
