@@ -20,12 +20,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from '@/components/ui/switch';
 import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X } from 'lucide-react';
+import AppShell from '@/components/layout/AppShell';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
 
 const materialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA'];
 
@@ -215,369 +217,373 @@ export default function WorkPhaseManagementClientPage() {
   );
 
   return (
-        <div className="space-y-6">
-          <AdminNavMenu />
-          <div className="flex justify-between items-center">
-            <header>
-                <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-                <Workflow className="h-8 w-8 text-primary" />
-                Gestione Fasi di Lavorazione
-                </h1>
-                <p className="text-muted-foreground mt-2">
-                Definisci le fasi "modello" e la loro sequenza per i cicli di lavorazione delle commesse.
-                </p>
-            </header>
-            <div className="flex items-center gap-2">
-                <Button onClick={handleExport} variant="outline" disabled={isLoading || phases.length === 0}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Esporta
-                </Button>
-                <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Aggiungi
-                </Button>
-            </div>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="flex justify-between items-center gap-4 flex-wrap">
-                <div>
-                  <CardTitle>Elenco Fasi Standard</CardTitle>
-                  <CardDescription>Queste sono le fasi disponibili per la configurazione dei cicli di lavoro.</CardDescription>
-                </div>
+    <AdminAuthGuard>
+        <AppShell>
+            <div className="space-y-6">
+            <AdminNavMenu />
+            <div className="flex justify-between items-center">
+                <header>
+                    <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                    <Workflow className="h-8 w-8 text-primary" />
+                    Gestione Fasi di Lavorazione
+                    </h1>
+                    <p className="text-muted-foreground mt-2">
+                    Definisci le fasi "modello" e la loro sequenza per i cicli di lavorazione delle commesse.
+                    </p>
+                </header>
                 <div className="flex items-center gap-2">
-                  {isOrderChanged && (
-                    <Button onClick={handleSaveOrder} disabled={isPending}>
-                       {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ListOrdered className="mr-2 h-4 w-4" />}
-                       Salva Ordine
+                    <Button onClick={handleExport} variant="outline" disabled={isLoading || phases.length === 0}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Esporta
                     </Button>
-                  )}
-                  {selectedRows.length > 0 && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                           <Button variant="destructive" disabled={isPending}>
-                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                              Elimina ({selectedRows.length})
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} fasi.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDeleteSelected}>Continua</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                  )}
+                    <Button onClick={() => handleOpenDialog()} disabled={isLoading}>
+                    <PlusCircle className="mr-2 h-4 w-4" />
+                    Aggiungi
+                    </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead padding="checkbox">
-                         <Checkbox
-                            checked={!isLoading && selectedRows.length > 0 && selectedRows.length === phases.length ? true : !isLoading && selectedRows.length > 0 ? 'indeterminate' : false}
-                            onCheckedChange={handleSelectAll}
-                            aria-label="Seleziona tutte"
-                            disabled={isLoading}
-                          />
-                      </TableHead>
-                      <TableHead className="w-[100px]">Sequenza</TableHead>
-                      <TableHead>Nome Fase</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Scansione Mat.</TableHead>
-                      <TableHead>Descrizione</TableHead>
-                      <TableHead>Reparti</TableHead>
-                      <TableHead className="text-right">Azioni</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading ? renderLoading() : phases.length > 0 ? (
-                      phases.map((phase) => (
-                        <TableRow key={phase.id} data-state={selectedRows.includes(phase.id) && "selected"}>
-                          <TableCell padding="checkbox">
-                             <Checkbox
-                                checked={selectedRows.includes(phase.id)}
-                                onCheckedChange={() => handleSelectRow(phase.id)}
-                                aria-label={`Seleziona la fase ${phase.name}`}
-                              />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                                type="number"
-                                value={phase.sequence}
-                                onChange={(e) => handleSequenceChange(phase.id, e.target.value)}
-                                className="w-16 h-8 text-center"
-                             />
-                          </TableCell>
-                          <TableCell className="font-medium">{phase.name}</TableCell>
-                           <TableCell>
-                            <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
-                              {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
-                          </TableCell>
-                          <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                                {(phase.departmentCodes || []).map(code => (
-                                    <Badge key={code} variant="secondary">{departmentMap[code] || code}</Badge>
-                                ))}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right space-x-2">
-                            <Button variant="outline" size="icon" onClick={() => handleOpenDialog(phase)}>
-                              <Edit className="h-4 w-4" />
+            </div>
+
+            <Card>
+                <CardHeader>
+                <div className="flex justify-between items-center gap-4 flex-wrap">
+                    <div>
+                    <CardTitle>Elenco Fasi Standard</CardTitle>
+                    <CardDescription>Queste sono le fasi disponibili per la configurazione dei cicli di lavoro.</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                    {isOrderChanged && (
+                        <Button onClick={handleSaveOrder} disabled={isPending}>
+                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ListOrdered className="mr-2 h-4 w-4" />}
+                        Salva Ordine
+                        </Button>
+                    )}
+                    {selectedRows.length > 0 && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                            <Button variant="destructive" disabled={isPending}>
+                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                                Elimina ({selectedRows.length})
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="icon">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Questa azione non può essere annullata. La fase verrà eliminata.
-                                  </AlertDialogDescription>
+                                    <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} fasi.
+                                    </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
-                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDelete(phase.id)}>Continua</AlertDialogAction>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDeleteSelected}>Continua</AlertDialogAction>
                                 </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-center h-24">Nessuna fase definita.</TableCell>
-                      </TableRow>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        
+                    </div>
+                </div>
+                </CardHeader>
+                <CardContent>
+                <div className="overflow-x-auto">
+                    <Table>
+                    <TableHeader>
+                        <TableRow>
+                        <TableHead padding="checkbox">
+                            <Checkbox
+                                checked={!isLoading && selectedRows.length > 0 && selectedRows.length === phases.length ? true : !isLoading && selectedRows.length > 0 ? 'indeterminate' : false}
+                                onCheckedChange={handleSelectAll}
+                                aria-label="Seleziona tutte"
+                                disabled={isLoading}
+                            />
+                        </TableHead>
+                        <TableHead className="w-[100px]">Sequenza</TableHead>
+                        <TableHead>Nome Fase</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Scansione Mat.</TableHead>
+                        <TableHead>Descrizione</TableHead>
+                        <TableHead>Reparti</TableHead>
+                        <TableHead className="text-right">Azioni</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {isLoading ? renderLoading() : phases.length > 0 ? (
+                        phases.map((phase) => (
+                            <TableRow key={phase.id} data-state={selectedRows.includes(phase.id) && "selected"}>
+                            <TableCell padding="checkbox">
+                                <Checkbox
+                                    checked={selectedRows.includes(phase.id)}
+                                    onCheckedChange={() => handleSelectRow(phase.id)}
+                                    aria-label={`Seleziona la fase ${phase.name}`}
+                                />
+                            </TableCell>
+                            <TableCell>
+                                <Input
+                                    type="number"
+                                    value={phase.sequence}
+                                    onChange={(e) => handleSequenceChange(phase.id, e.target.value)}
+                                    className="w-16 h-8 text-center"
+                                />
+                            </TableCell>
+                            <TableCell className="font-medium">{phase.name}</TableCell>
+                            <TableCell>
+                                <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
+                                {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
+                                </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                                {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
+                            </TableCell>
+                            <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
+                            <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                    {(phase.departmentCodes || []).map(code => (
+                                        <Badge key={code} variant="secondary">{departmentMap[code] || code}</Badge>
+                                    ))}
+                                </div>
+                            </TableCell>
+                            <TableCell className="text-right space-x-2">
+                                <Button variant="outline" size="icon" onClick={() => handleOpenDialog(phase)}>
+                                <Edit className="h-4 w-4" />
+                                </Button>
+                                <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="icon">
+                                    <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Questa azione non può essere annullata. La fase verrà eliminata.
+                                    </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDelete(phase.id)}>Continua</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                                </AlertDialog>
+                            </TableCell>
+                            </TableRow>
+                        ))
+                        ) : (
+                        <TableRow>
+                            <TableCell colSpan={8} className="text-center h-24">Nessuna fase definita.</TableCell>
+                        </TableRow>
+                        )}
+                    </TableBody>
+                    </Table>
+                </div>
+                </CardContent>
+            </Card>
+            
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
-            <DialogHeader>
-              <DialogTitle>{editingPhase ? "Modifica Fase" : "Aggiungi Nuova Fase"}</DialogTitle>
-              <DialogDescription>
-                {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard."}
-              </DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
-                <FormField control={form.control} name="name" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nome Fase</FormLabel>
-                    <FormControl><Input placeholder="Es. Saldatura Manuale" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Descrizione</FormLabel>
-                    <FormControl><Textarea placeholder="Descrivi lo scopo e le attività principali di questa fase." {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                 <FormField
-                    control={form.control}
-                    name="type"
-                    render={({ field }) => (
-                    <FormItem className="space-y-3">
-                        <FormLabel>Tipo di Fase</FormLabel>
-                        <FormControl>
-                        <RadioGroup
-                            onValueChange={field.onChange}
-                            defaultValue={field.value}
-                            className="flex flex-col space-y-1"
-                        >
-                            <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl><RadioGroupItem value="preparation" /></FormControl>
-                                <FormLabel className="font-normal">Preparazione</FormLabel>
-                            </FormItem>
-                             <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl><RadioGroupItem value="production" /></FormControl>
-                                <FormLabel className="font-normal">Produzione</FormLabel>
-                            </FormItem>
-                            <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl><RadioGroupItem value="quality" /></FormControl>
-                                <FormLabel className="font-normal">Controllo Qualità</FormLabel>
-                            </FormItem>
-                            <FormItem className="flex items-center space-x-3 space-y-0">
-                                <FormControl><RadioGroupItem value="packaging" /></FormControl>
-                                <FormLabel className="font-normal">Packaging</FormLabel>
-                            </FormItem>
-                        </RadioGroup>
-                        </FormControl>
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
+                <DialogHeader>
+                <DialogTitle>{editingPhase ? "Modifica Fase" : "Aggiungi Nuova Fase"}</DialogTitle>
+                <DialogDescription>
+                    {editingPhase ? "Modifica i dettagli della fase." : "Compila i campi per aggiungere una nuova fase standard."}
+                </DialogDescription>
+                </DialogHeader>
+                <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-4">
+                    <FormField control={form.control} name="name" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Nome Fase</FormLabel>
+                        <FormControl><Input placeholder="Es. Saldatura Manuale" {...field} /></FormControl>
                         <FormMessage />
                     </FormItem>
-                    )}
-                />
-                {form.watch('type') !== 'quality' && (
-                 <div className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="requiresMaterialScan"
-                      render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                          <FormLabel className="text-base">
-                              Richiede Scansione Materiale
-                          </FormLabel>
-                          <FormDescription>
-                              Se attiva, l'operatore dovrà scansionare un materiale per avviare questa fase.
-                          </FormDescription>
-                          </div>
-                          <FormControl>
-                          <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                          />
-                          </FormControl>
-                      </FormItem>
-                      )}
-                  />
-                    <FormField
-                      control={form.control}
-                      name="requiresMaterialSearch"
-                      render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                          <FormLabel className="text-base">
-                              Richiede Ricerca Materiale
-                          </FormLabel>
-                          <FormDescription>
-                             Se attiva, l'operatore cercherà il materiale manualmente.
-                          </FormDescription>
-                          </div>
-                          <FormControl>
-                          <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                          />
-                          </FormControl>
-                      </FormItem>
-                      )}
-                  />
-                  {(form.watch('requiresMaterialScan') || form.watch('requiresMaterialSearch')) && (
-                      <FormField
-                          control={form.control}
-                          name="allowedMaterialTypes"
-                          render={({ field }) => (
-                              <FormItem>
-                                  <div className="mb-4">
-                                      <FormLabel>Tipi di Materiale Ammessi</FormLabel>
-                                      <FormDescription>
-                                          Seleziona quali tipi di materiale sono permessi per questa fase.
-                                      </FormDescription>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                                      {materialTypes.map((type) => (
-                                          <FormField
-                                              key={type}
-                                              control={form.control}
-                                              name="allowedMaterialTypes"
-                                              render={({ field }) => {
-                                                  return (
-                                                      <FormItem key={type} className="flex flex-row items-start space-x-3 space-y-0">
-                                                          <FormControl>
-                                                              <Checkbox
-                                                                  checked={field.value?.includes(type)}
-                                                                  onCheckedChange={(checked) => {
-                                                                      return checked
-                                                                          ? field.onChange([...(field.value || []), type])
-                                                                          : field.onChange(
-                                                                                (field.value || []).filter(
-                                                                                    (value) => value !== type
-                                                                                )
-                                                                            )
-                                                                  }}
-                                                              />
-                                                          </FormControl>
-                                                          <FormLabel className="font-normal">{type}</FormLabel>
-                                                      </FormItem>
-                                                  )
-                                              }}
-                                          />
-                                      ))}
-                                  </div>
-                                  <FormMessage />
-                              </FormItem>
-                          )}
-                      />
-                  )}
-                 </div>
-                )}
-                <FormField
-                  control={form.control}
-                  name="departmentCodes"
-                  render={({ field }) => (
+                    )} />
+                    <FormField control={form.control} name="description" render={({ field }) => (
                     <FormItem>
-                        <div className="mb-4">
-                            <FormLabel>Reparti di Competenza</FormLabel>
-                            <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
-                        </div>
-                      <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                        {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
-                           <FormItem
-                            key={repartoCode}
-                            className="flex flex-row items-center space-x-3 space-y-0"
-                          >
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value?.includes(repartoCode)}
-                                onCheckedChange={(checked) => {
-                                  const value = field.value || [];
-                                  return checked
-                                    ? field.onChange([...value, repartoCode])
-                                    : field.onChange(
-                                        value.filter(
-                                          (code) => code !== repartoCode
-                                        )
-                                      );
-                                }}
-                              />
-                            </FormControl>
-                            <FormLabel className="font-normal text-sm">
-                              {departmentMap[repartoCode] || repartoCode}
-                            </FormLabel>
-                          </FormItem>
-                        ))}
-                      </div>
-                      <FormMessage />
+                        <FormLabel>Descrizione</FormLabel>
+                        <FormControl><Textarea placeholder="Descrivi lo scopo e le attività principali di questa fase." {...field} /></FormControl>
+                        <FormMessage />
                     </FormItem>
-                  )}
-                />
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
-                  <Button type="submit" disabled={isPending}>
-                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                    {editingPhase ? "Salva Modifiche" : "Aggiungi Fase"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                    )} />
+                    <FormField
+                        control={form.control}
+                        name="type"
+                        render={({ field }) => (
+                        <FormItem className="space-y-3">
+                            <FormLabel>Tipo di Fase</FormLabel>
+                            <FormControl>
+                            <RadioGroup
+                                onValueChange={field.onChange}
+                                defaultValue={field.value}
+                                className="flex flex-col space-y-1"
+                            >
+                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                    <FormControl><RadioGroupItem value="preparation" /></FormControl>
+                                    <FormLabel className="font-normal">Preparazione</FormLabel>
+                                </FormItem>
+                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                    <FormControl><RadioGroupItem value="production" /></FormControl>
+                                    <FormLabel className="font-normal">Produzione</FormLabel>
+                                </FormItem>
+                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                    <FormControl><RadioGroupItem value="quality" /></FormControl>
+                                    <FormLabel className="font-normal">Controllo Qualità</FormLabel>
+                                </FormItem>
+                                <FormItem className="flex items-center space-x-3 space-y-0">
+                                    <FormControl><RadioGroupItem value="packaging" /></FormControl>
+                                    <FormLabel className="font-normal">Packaging</FormLabel>
+                                </FormItem>
+                            </RadioGroup>
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    {form.watch('type') !== 'quality' && (
+                    <div className="space-y-4">
+                        <FormField
+                        control={form.control}
+                        name="requiresMaterialScan"
+                        render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                            <FormLabel className="text-base">
+                                Richiede Scansione Materiale
+                            </FormLabel>
+                            <FormDescription>
+                                Se attiva, l'operatore dovrà scansionare un materiale per avviare questa fase.
+                            </FormDescription>
+                            </div>
+                            <FormControl>
+                            <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                            />
+                            </FormControl>
+                        </FormItem>
+                        )}
+                    />
+                        <FormField
+                        control={form.control}
+                        name="requiresMaterialSearch"
+                        render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                            <FormLabel className="text-base">
+                                Richiede Ricerca Materiale
+                            </FormLabel>
+                            <FormDescription>
+                                Se attiva, l'operatore cercherà il materiale manualmente.
+                            </FormDescription>
+                            </div>
+                            <FormControl>
+                            <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                            />
+                            </FormControl>
+                        </FormItem>
+                        )}
+                    />
+                    {(form.watch('requiresMaterialScan') || form.watch('requiresMaterialSearch')) && (
+                        <FormField
+                            control={form.control}
+                            name="allowedMaterialTypes"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <div className="mb-4">
+                                        <FormLabel>Tipi di Materiale Ammessi</FormLabel>
+                                        <FormDescription>
+                                            Seleziona quali tipi di materiale sono permessi per questa fase.
+                                        </FormDescription>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                                        {materialTypes.map((type) => (
+                                            <FormField
+                                                key={type}
+                                                control={form.control}
+                                                name="allowedMaterialTypes"
+                                                render={({ field }) => {
+                                                    return (
+                                                        <FormItem key={type} className="flex flex-row items-start space-x-3 space-y-0">
+                                                            <FormControl>
+                                                                <Checkbox
+                                                                    checked={field.value?.includes(type)}
+                                                                    onCheckedChange={(checked) => {
+                                                                        return checked
+                                                                            ? field.onChange([...(field.value || []), type])
+                                                                            : field.onChange(
+                                                                                    (field.value || []).filter(
+                                                                                        (value) => value !== type
+                                                                                    )
+                                                                                )
+                                                                    }}
+                                                                />
+                                                            </FormControl>
+                                                            <FormLabel className="font-normal">{type}</FormLabel>
+                                                        </FormItem>
+                                                    )
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    )}
+                    </div>
+                    )}
+                    <FormField
+                    control={form.control}
+                    name="departmentCodes"
+                    render={({ field }) => (
+                        <FormItem>
+                            <div className="mb-4">
+                                <FormLabel>Reparti di Competenza</FormLabel>
+                                <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
+                            </div>
+                        <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                            {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
+                            <FormItem
+                                key={repartoCode}
+                                className="flex flex-row items-center space-x-3 space-y-0"
+                            >
+                                <FormControl>
+                                <Checkbox
+                                    checked={field.value?.includes(repartoCode)}
+                                    onCheckedChange={(checked) => {
+                                    const value = field.value || [];
+                                    return checked
+                                        ? field.onChange([...value, repartoCode])
+                                        : field.onChange(
+                                            value.filter(
+                                            (code) => code !== repartoCode
+                                            )
+                                        );
+                                    }}
+                                />
+                                </FormControl>
+                                <FormLabel className="font-normal text-sm">
+                                {departmentMap[repartoCode] || repartoCode}
+                                </FormLabel>
+                            </FormItem>
+                            ))}
+                        </div>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                    <DialogFooter>
+                    <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
+                    <Button type="submit" disabled={isPending}>
+                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                        {editingPhase ? "Salva Modifiche" : "Aggiungi Fase"}
+                    </Button>
+                    </DialogFooter>
+                </form>
+                </Form>
+            </DialogContent>
+            </Dialog>
+        </div>
+    </AppShell>
+  </AdminAuthGuard>
   );
 }
