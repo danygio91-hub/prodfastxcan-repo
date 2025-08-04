@@ -43,6 +43,9 @@ export default function WorkstationManagementClientPage() {
     resolver: zodResolver(workstationSchema),
     defaultValues: { id: undefined, name: "", departmentCode: 'CP' },
   });
+  
+  const operationalReparti = reparti.filter(r => r !== 'N/D');
+
 
   const fetchWorkstations = async () => {
     setIsLoading(true);
@@ -234,7 +237,7 @@ export default function WorkstationManagementClientPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {reparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
+                        {operationalReparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <FormMessage />
