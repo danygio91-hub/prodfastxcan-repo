@@ -48,7 +48,7 @@ const batchFormSchema = z.object({
   lotto: z.string().optional(),
   date: z.string().min(1, "La data è obbligatoria."),
   ddt: z.string().min(1, "Il DDT è obbligatorio."),
-  quantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
+  netQuantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
   packagingId: z.string().optional(),
 });
 
@@ -146,7 +146,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.' };
   }
   
-  const { materialId, date, ddt, quantity, lotto, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, netQuantity, lotto, packagingId } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -167,26 +167,26 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
 
-          const grossWeight = quantity + tareWeight;
+          const grossWeight = netQuantity + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_MANUALE',
-            netQuantity: quantity,
+            netQuantity: netQuantity,
             tareWeight: tareWeight,
             grossWeight: grossWeight,
             packagingId: packagingId,
             lotto: lotto || null,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + quantity;
+          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
           let newWeightKg = material.currentWeightKg || 0;
           
           if (material.unitOfMeasure === 'kg') {
               newWeightKg = newStockUnits; // For KG items, units and weight are the same
           } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += quantity * material.conversionFactor;
+              newWeightKg += netQuantity * material.conversionFactor;
           }
           
           transaction.update(materialRef, { 
@@ -244,14 +244,14 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 }
             }
             
-            const grossWeight = newBatchData.quantity + tareWeight;
+            const grossWeight = newBatchData.netQuantity + tareWeight;
             
             const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
                 ddt: newBatchData.ddt,
                 lotto: newBatchData.lotto || null,
                 date: new Date(newBatchData.date).toISOString(),
-                netQuantity: newBatchData.quantity,
+                netQuantity: newBatchData.netQuantity,
                 tareWeight: tareWeight,
                 grossWeight: grossWeight,
                 packagingId: newBatchData.packagingId,
