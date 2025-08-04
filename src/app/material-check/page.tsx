@@ -228,12 +228,6 @@ export default function MaterialCheckPage() {
                                     <Keyboard className="mr-2 h-5 w-5" />
                                     Inserisci Codice Manualmente
                                 </Button>
-                                {process.env.NODE_ENV === 'development' && (
-                                <Button onClick={() => handleCodeSubmit('BOB-TEST-01')} variant="ghost" className="w-full text-muted-foreground">
-                                    <TestTube className="mr-2 h-4 w-4" />
-                                    Simula Scansione (BOB-TEST-01)
-                                </Button>
-                                )}
                             </CardContent>
                         </Card>
                     )}

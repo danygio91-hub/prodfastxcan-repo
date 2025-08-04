@@ -984,12 +984,6 @@ export default function ScanJobPage() {
                 <Keyboard className="mr-2 h-5 w-5" />
                 Inserisci Codice Manualmente
             </Button>
-             {process.env.NODE_ENV === 'development' && (
-                <Button onClick={() => handleScannedData('ODL-001/24@ART-001@10')} variant="ghost" className="w-full text-muted-foreground">
-                    <TestTube className="mr-2 h-4 w-4" />
-                    Simula Scansione Commessa
-                </Button>
-            )}
         </CardContent>
     </Card>
   );
@@ -1286,12 +1280,6 @@ export default function ScanJobPage() {
                   <div className="py-4 space-y-4">
                       <Button onClick={() => setMaterialScanStep('scanning')} className="w-full"><QrCode className="mr-2 h-4 w-4" /> Scansiona QR/Barcode</Button>
                       <Button onClick={() => setMaterialScanStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2 h-4 w-4" /> Inserisci Manualmente</Button>
-                       {process.env.NODE_ENV === 'development' && (
-                        <Button onClick={() => handleMaterialCodeSubmit('BOB-TEST-01')} variant="ghost" className="w-full text-muted-foreground">
-                            <TestTube className="mr-2 h-4 w-4" />
-                            Simula Scansione Materiale
-                        </Button>
-                       )}
                   </div>
               )}
               
@@ -1442,11 +1430,6 @@ export default function ScanJobPage() {
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Lotto</span>
                 </Button>
-                 {process.env.NODE_ENV === 'development' && (
-                    <Button onClick={() => handleLottoScanned('LOTTO-TEST-123')} variant="ghost" className="text-muted-foreground">
-                        <TestTube className="mr-2 h-4 w-4" /> Simula
-                    </Button>
-                )}
                 <Button variant="outline" onClick={() => setIsLottoScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
@@ -1466,11 +1449,6 @@ export default function ScanJobPage() {
                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                    <span className="ml-2">Scansiona Fase</span>
                 </Button>
-                {process.env.NODE_ENV === 'development' && phaseForPhaseScan && (
-                    <Button onClick={() => handleLocalPhaseScanResult(phaseForPhaseScan.name)} variant="ghost" className="text-muted-foreground">
-                         <TestTube className="mr-2 h-4 w-4" /> Simula Scansione Fase
-                    </Button>
-                )}
                 <Button variant="outline" onClick={() => setIsPhaseScanDialogOpen(false)}>Annulla</Button>
             </DialogFooter>
         </DialogContent>
