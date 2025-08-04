@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { GitMerge, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
+import AppShell from '@/components/layout/AppShell';
 
 const workCycleSchema = z.object({
   id: z.string().optional(),
@@ -33,7 +35,7 @@ const workCycleSchema = z.object({
 
 type WorkCycleFormValues = z.infer<typeof workCycleSchema>;
 
-export default function WorkCycleManagementClientPage() {
+function WorkCycleManagementContent() {
   const [cycles, setCycles] = useState<WorkCycle[]>([]);
   const [phaseTemplates, setPhaseTemplates] = useState<WorkPhaseTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -352,5 +354,15 @@ export default function WorkCycleManagementClientPage() {
           </DialogContent>
         </Dialog>
       </div>
+  );
+}
+
+export default function WorkCycleManagementPage() {
+  return (
+    <AdminAuthGuard>
+      <AppShell>
+        <WorkCycleManagementContent />
+      </AppShell>
+    </AdminAuthGuard>
   );
 }
