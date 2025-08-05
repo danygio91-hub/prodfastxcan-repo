@@ -7,13 +7,12 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter, usePathname } from 'next/navigation';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
 const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
-const FORCE_LOGOUT_TIMESTAMP_KEY = 'force_logout_timestamp';
 
 interface AuthContextType {
   user: User | null;
@@ -48,9 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
-    // Clear only the active job ID, but PERSIST the material session.
     if (currentOperator?.id) {
         localStorage.removeItem(`${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${currentOperator.id}`);
+        localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
     }
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
     
@@ -100,37 +99,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchOperatorProfile]);
 
   useEffect(() => {
-    const handleForcedLogout = (event: MessageEvent) => {
-        // IMPORTANT: Only logout if the current user is NOT an admin.
-        if (operatorRef.current?.role !== 'admin' && event.data?.type === 'FORCE_LOGOUT' && event.data?.timestamp) {
-            fullLogout();
-        }
-    };
+    // This listener handles the forced logout mechanism.
+    const logoutTriggerRef = doc(db, 'system', 'logoutTrigger');
     
-    let channel: BroadcastChannel | null = null;
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel('auth_channel');
-      channel.addEventListener('message', handleForcedLogout);
-    }
-
-    const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
-    const forceLogoutTimestamp = localStorage.getItem(FORCE_LOGOUT_TIMESTAMP_KEY);
-
-    if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > lastLoginTimestamp)) {
-        // IMPORTANT: Only logout if the current user is NOT an admin.
-        if (operatorRef.current?.role !== 'admin') {
-            console.log("Forced logout triggered by admin reset.");
-            fullLogout();
-        }
-    }
-    
-    return () => {
-      if (channel) {
-        channel.removeEventListener('message', handleForcedLogout);
-        channel.close();
+    const unsubscribe = onSnapshot(logoutTriggerRef, (docSnap) => {
+      const currentOperator = operatorRef.current;
+      // We only care about this if a non-admin user is logged in.
+      if (!currentOperator || currentOperator.role === 'admin') {
+        return;
       }
-    }
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const forceLogoutTimestamp = data.timestamp;
+        const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
+
+        if (forceLogoutTimestamp && lastLoginTimestamp && forceLogoutTimestamp > parseInt(lastLoginTimestamp, 10)) {
+            console.log("Forced logout signal received from admin. Logging out operator.");
+            fullLogout();
+        }
+      }
+    });
+
+    return () => unsubscribe();
   }, [fullLogout]);
+
 
   // Effect for auto-logout on mobile devices when app is backgrounded
   useEffect(() => {
@@ -219,3 +212,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+    

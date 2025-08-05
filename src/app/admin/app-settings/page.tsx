@@ -34,8 +34,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 // Helper function to trigger a global logout for all clients
 function triggerGlobalLogout() {
   const timestamp = Date.now().toString();
-  localStorage.setItem('force_logout_timestamp', timestamp);
-
+  
   // Clear all session keys from localStorage
   Object.keys(localStorage).forEach(key => {
     if (key.startsWith('prodtime_tracker_active_material_sessions_') || key.startsWith('prodtime_tracker_active_job_id_')) {
@@ -277,7 +276,7 @@ export default function AdminAppSettingsPage() {
         });
         if (result.success) {
           triggerGlobalLogout();
-          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti (escluso l\'admin) verranno disconnessi per resettare le loro sessioni attive.', variant: 'default' });
+          toast({ title: 'Logout Forzato', description: 'Tutti gli operatori (escluso l\'admin) verranno disconnessi per resettare le loro sessioni attive.', variant: 'default' });
         }
     });
   };
@@ -559,3 +558,5 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
+
+    

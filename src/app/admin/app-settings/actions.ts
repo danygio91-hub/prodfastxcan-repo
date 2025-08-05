@@ -318,7 +318,7 @@ export async function resetAllActiveSessions(uid: string): Promise<{ success: bo
     const logoutTriggerRef = doc(db, 'system', 'logoutTrigger');
     await updateDoc(logoutTriggerRef, { timestamp: new Date().getTime() });
     
-    return { success: true, message: 'Segnale di reset sessioni inviato. Tutti gli operatori verranno disconnessi per pulire il loro stato locale.' };
+    return { success: true, message: 'Segnale di reset sessioni inviato. Tutti gli operatori verranno disconnessi.' };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Errore nel reset delle sessioni:", error);
@@ -504,4 +504,6 @@ export async function resetCompletedJobOrders(uid: string): Promise<{ success: b
     return { success: false, message: errorMessage };
   }
 }
+    
+
     
