@@ -145,7 +145,7 @@ export default function LoginForm() {
             return;
         }
 
-        if (!('BarcodeDetector' in window)) {
+        if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
             toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
             return;
         }
@@ -269,7 +269,7 @@ export default function LoginForm() {
                                     </TooltipTrigger>
                                     {!installPrompt && (
                                         <TooltipContent>
-                                        <p>L'installazione non è ancora disponibile.</p>
+                                        <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
                                         </TooltipContent>
                                     )}
                                 </Tooltip>
