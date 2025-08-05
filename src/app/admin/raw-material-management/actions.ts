@@ -260,12 +260,13 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
             let newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
-            let newWeightKg = (material.currentWeightKg || 0);
-
+            let newWeightKg;
             if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg += stockChange * material.conversionFactor;
+                 newWeightKg = (material.currentWeightKg || 0) + (stockChange * material.conversionFactor);
+            } else {
+                newWeightKg = material.currentWeightKg;
             }
 
             const updatedBatches = existingBatches.map(b => b.id === batchId ? updatedBatch : b);
@@ -305,17 +306,18 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
 
             const stockChange = -batchToDelete.netQuantity;
             let newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            
-            let newWeightKg = (material.currentWeightKg || 0);
-             if (material.unitOfMeasure === 'kg') {
+            let newWeightKg;
+
+            if (material.unitOfMeasure === 'kg') {
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg += stockChange * material.conversionFactor;
+                newWeightKg = (material.currentWeightKg || 0) + (stockChange * material.conversionFactor);
+            } else {
+                newWeightKg = (material.currentWeightKg || 0); // No weight change if no factor
             }
 
             if (newWeightKg < 0) newWeightKg = 0;
             if (newStockUnits < 0) newStockUnits = 0;
-
 
             transaction.update(materialRef, { 
                 batches: arrayRemove(batchToDelete),
