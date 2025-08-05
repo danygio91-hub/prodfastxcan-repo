@@ -5,6 +5,7 @@ const nextConfig = {
   allowedDevOrigins: [
     "http://localhost:3000",
     "https://*.cloudworkstations.dev",
+    "https://6000-firebase-studio-1749643731577.cluster-ombtxv25tbd6yrjpp3lukp6zhc.cloudworkstations.dev",
   ],
   images: {
     remotePatterns: [
