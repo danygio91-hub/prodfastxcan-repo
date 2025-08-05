@@ -30,6 +30,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+      </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
           <ActiveJobProvider>
