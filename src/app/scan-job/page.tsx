@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -1378,11 +1379,10 @@ export default function ScanJobPage() {
                           </form>
                       </Form>
                   ) : scannedMaterialForPhase.type === 'TUBI' ? (
-                       <Form {...tubiGuainaWithdrawalForm}>
+                      <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
-                               
-                               <FormField
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <FormField
                                   control={tubiGuainaWithdrawalForm.control}
                                   name="unit"
                                   render={({ field }) => (
@@ -1417,7 +1417,7 @@ export default function ScanJobPage() {
                   ) : (
                       <Form {...phaseMaterialForm}>
                           <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
                               
                               <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
                                   <FormItem>
@@ -1733,7 +1733,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
       }
     }
     
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
@@ -1874,5 +1874,3 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
-
-    
