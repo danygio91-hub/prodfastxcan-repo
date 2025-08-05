@@ -22,7 +22,8 @@ export default function AppShell({ children }: AppShellProps) {
         {children}
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t border-border">
-        © {new Date().getFullYear()} ProdFast Xcan. Tutti i diritti riservati.
+        <p>© {new Date().getFullYear()} ProdFast Xcan. Tutti i diritti riservati.</p>
+        <p className="mt-1 text-xs font-mono">Versione: pfx-stable-0508</p>
       </footer>
       <ThemeToggler />
       {operator && operator.role !== 'admin' && (
