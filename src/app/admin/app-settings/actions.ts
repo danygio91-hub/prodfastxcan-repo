@@ -260,7 +260,7 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
         status: 'pending' as const,
         workPeriods: [],
         materialConsumption: null,
-        materialReady: true, // Always ready for now
+        materialReady: phase.type === 'preparation',
       }));
       
       batch.update(docSnap.ref, {
@@ -478,7 +478,7 @@ export async function resetCompletedJobOrders(uid: string): Promise<{ success: b
             workPeriods: [],
             materialConsumptions: [],
             qualityResult: null,
-            materialReady: true, // Always ready for now
+            materialReady: phase.type === 'preparation',
         }));
         
         transaction.update(jobDoc.ref, {
