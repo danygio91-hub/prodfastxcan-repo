@@ -1,4 +1,5 @@
 
+
 import { collection, getDocs, doc, setDoc, query, where } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';

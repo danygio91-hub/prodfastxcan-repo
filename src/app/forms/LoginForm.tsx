@@ -62,6 +62,11 @@ export default function LoginForm() {
     const { user, operator, loading: authLoading } = useAuth();
     const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
+    const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
+        resolver: zodResolver(manualLoginSchema),
+        defaultValues: { username: "", password: "" },
+    });
+
     // Effect to handle PWA install prompt
     useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
@@ -159,19 +164,17 @@ export default function LoginForm() {
 
             if (barcodes.length > 0) {
                 stopCamera();
-                try {
-                    const decodedData = atob(barcodes[0].rawValue);
-                    const [username, password] = decodedData.split('@');
-                    if (username && password) {
-                         performLogin(username, password);
-                    } else {
-                        throw new Error('Invalid format after decoding.');
-                    }
-                } catch (e) {
-                     toast({
+                const username = barcodes[0].rawValue;
+                // NEW LOGIC: Instead of logging in, pre-fill the username and switch to manual login step
+                if (username) {
+                   manualForm.setValue('username', username);
+                   setStep('manual_login');
+                   toast({ title: 'Utente Riconosciuto', description: 'Inserisci la password per continuare.' });
+                } else {
+                    toast({
                         variant: 'destructive',
-                        title: 'Dati QR non Validi o non Cifrati',
-                        description: 'Il formato del QR code non è corretto o non è codificato in Base64.',
+                        title: 'Dati QR non Validi',
+                        description: 'Il QR code per il login non contiene un nome utente valido.',
                     });
                     setStep('initial');
                 }
@@ -185,11 +188,6 @@ export default function LoginForm() {
         }
     };
 
-
-    const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
-        resolver: zodResolver(manualLoginSchema),
-        defaultValues: { username: "", password: "" },
-    });
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
         localStorage.removeItem('login_redirect_path');
@@ -221,7 +219,7 @@ export default function LoginForm() {
                         <CardContent className="flex flex-col gap-4">
                             <Button onClick={() => handleQrLoginClick(null)} size="lg" className="h-14 text-lg">
                                <QrCode className="mr-3 h-6 w-6" />
-                                Accesso Standard (QR)
+                                Accesso Rapido (QR)
                             </Button>
 
                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -281,8 +279,8 @@ export default function LoginForm() {
                 return (
                     <div>
                          <CardHeader>
-                            <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
-                            <CardDescription className="text-center">Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
+                            <CardTitle className="text-center font-headline">Scansione QR Utente</CardTitle>
+                            <CardDescription className="text-center">Inquadra il QR code del tuo badge per pre-compilare il nome utente.</CardDescription>
                         </CardHeader>
                         <CardContent className="relative grid place-items-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
