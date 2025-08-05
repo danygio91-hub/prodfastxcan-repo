@@ -63,7 +63,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending',
-            materialReady: false, // Start all phases as not ready by default
+            materialReady: true, // Material is always ready for now
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
@@ -77,15 +77,6 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     }).filter((p): p is JobPhase => p !== null);
     
     phases = phases.sort((a, b) => a.sequence - b.sequence);
-    
-    // The very first phase in the sequence is made ready only if it does not require any material interaction.
-    // This allows the workflow to start. If it requires material, user action will make it ready.
-    if (phases.length > 0) {
-        const firstPhase = phases[0];
-        if (!firstPhase.requiresMaterialScan && !firstPhase.requiresMaterialSearch) {
-            firstPhase.materialReady = true;
-        }
-    }
     
     return phases;
 }

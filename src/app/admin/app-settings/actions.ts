@@ -260,17 +260,9 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
         status: 'pending' as const,
         workPeriods: [],
         materialConsumption: null,
-        materialReady: !(phase.requiresMaterialScan || phase.requiresMaterialSearch),
+        materialReady: true, // Always ready for now
       }));
       
-      // Ensure first production phase is ready if no prep phase requires scan
-      if (!updatedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch))) {
-          const firstProdPhase = updatedPhases.find(p => p.sequence === 1);
-          if (firstProdPhase) {
-              firstProdPhase.materialReady = true;
-          }
-      }
-
       batch.update(docSnap.ref, {
         status: 'planned',
         overallStartTime: null,
@@ -486,14 +478,9 @@ export async function resetCompletedJobOrders(uid: string): Promise<{ success: b
             workPeriods: [],
             materialConsumptions: [],
             qualityResult: null,
-            materialReady: !(phase.requiresMaterialScan || phase.requiresMaterialSearch),
+            materialReady: true, // Always ready for now
         }));
-        if (!updatedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch))) {
-            const firstProdPhase = updatedPhases.find(p => p.sequence === 1);
-            if (firstProdPhase) {
-                firstProdPhase.materialReady = true;
-            }
-        }
+        
         transaction.update(jobDoc.ref, {
           status: 'planned',
           overallStartTime: null,

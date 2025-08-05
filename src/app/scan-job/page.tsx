@@ -1810,7 +1810,9 @@ function PhaseCard({ phase, job, permissions, handlers }: {
                     size="sm"
                     onClick={() => handlers.handleOpenMaterialScanDialog(phase)}
                     variant="default"
-                    disabled={!permissions.operatorHasPermissionForDepartment || phase.status === 'completed'}
+                    disabled={true} // Temporarily disabled
+                    className="opacity-50 cursor-not-allowed"
+                    title="Funzionalità temporaneamente disabilitata"
                 >
                     <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                 </Button>
