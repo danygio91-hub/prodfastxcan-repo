@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  experimental: {
+    // This is required to allow the Next.js dev server to accept requests from any
+    // domain, which is necessary for the Firebase Studio environment.
+    allowedDevOrigins: [
+      "https://*.cloudworkstations.dev",
+      "https://*.googleusercontent.com",
+    ],
+  },
   async headers() {
     return [
       {
@@ -8,7 +16,7 @@ const nextConfig = {
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Origin', value: '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT' },
+          { key: 'Access-control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT' },
           { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version' },
         ],
       },
