@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, MaterialWithdrawal, RawMaterial, JobPhase } from '@/lib/mock-data';
 
 // The seedDatabase function was moved to the client component
 // at /src/app/admin/app-settings/page.tsx to resolve permission errors
@@ -472,7 +472,7 @@ export async function resetCompletedJobOrders(uid: string): Promise<{ success: b
       // Reset the completed jobs
       for (const jobDoc of completedJobsSnapshot.docs) {
         const job = jobDoc.data() as JobOrder;
-        const updatedPhases = (job.phases || []).map(phase => ({
+        const updatedPhases: JobPhase[] = (job.phases || []).map(phase => ({
             ...phase,
             status: 'pending' as const,
             workPeriods: [],
