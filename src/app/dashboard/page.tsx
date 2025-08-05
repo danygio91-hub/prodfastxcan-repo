@@ -7,38 +7,11 @@ import AppShell from '@/components/layout/AppShell';
 import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
 export default function DashboardPage() {
-  const { toast } = useToast();
   const { operator } = useAuth();
-
-  const handleClockIn = React.useCallback(() => {
-    toast({
-      title: "Timbratura Registrata",
-      description: "Ingresso registrato con successo.",
-    });
-  }, [toast]);
-
-  const handleClockOut = React.useCallback(() => {
-    toast({
-      title: "Timbratura Registrata",
-      description: "Uscita registrata con successo.",
-    });
-  }, [toast]);
 
   const allowedAccessReparti = ['MAG', 'Collaudo'];
   const hasMagAccess = operator && (
@@ -90,32 +63,12 @@ export default function DashboardPage() {
               icon={Users}
               href="/operator"
             />
-             <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <DashboardItem
-                  title="Timbratrice"
-                  description="Registra l'orario di ingresso o di uscita dal turno di lavoro."
-                  icon={Clock}
-                />
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Seleziona Azione Timbratura</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Vuoi registrare un orario di ingresso o di uscita?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Annulla</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleClockIn}>
-                    Registra Entrata
-                  </AlertDialogAction>
-                  <AlertDialogAction onClick={handleClockOut}>
-                    Registra Uscita
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <DashboardItem
+              title="Timbratrice"
+              description="Registra l'orario di ingresso o di uscita dal turno di lavoro."
+              icon={Clock}
+              className="opacity-50 cursor-not-allowed"
+            />
             <DashboardItem
               title="Segnala Problema"
               description="Segnala eventuali problemi riscontrati durante la produzione."
