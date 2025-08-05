@@ -97,7 +97,8 @@ export default function MaterialCheckPage() {
             return;
         }
         setIsSearching(true);
-        toast({ title: "Ricerca in corso", description: `Ricerca materia prima: ${trimmedCode}...` });
+        // Do not reveal the scanned code in the toast message for security.
+        toast({ title: "Ricerca in corso", description: `Sto cercando la materia prima...` });
         
         const result = await getRawMaterialByCode(trimmedCode);
         
