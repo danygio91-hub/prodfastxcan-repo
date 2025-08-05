@@ -521,7 +521,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <TableHead>Codice</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Descrizione</TableHead>
-                        <TableHead>Stock</TableHead>
+                        <TableHead>Stock Unità</TableHead>
                         <TableHead>Unità Misura</TableHead>
                         <TableHead>Stock (KG)</TableHead>
                         <TableHead className="text-right">Azioni</TableHead>
@@ -541,7 +541,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.unitOfMeasure === 'kg' ? '—' : material.currentStockUnits}</TableCell>
+                            <TableCell>{material.currentStockUnits}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
