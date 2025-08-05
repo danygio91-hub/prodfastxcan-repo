@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import * as React from "react";
@@ -132,7 +133,7 @@ export default function ProblemReportForm({ onSuccess, onCancel, showTitle = tru
               )}
             />
 
-            {watchedProblemType === 'ALTRO' && (
+            {watchedProblemType && (
               <FormField
                 control={form.control}
                 name="notes"

@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera, TestTube } from 'lucide-react';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
@@ -206,7 +207,7 @@ export default function LoginForm() {
         switch (step) {
             case 'initial':
                 return (
-                    <div>
+                    <>
                         <CardHeader className="items-center text-center">
                             <Image src="/logo.png" alt="PFXcan Logo" width={150} height={100} unoptimized={true} priority={true} />
                             <CardTitle className="text-2xl font-headline">Benvenuto in PFXcan</CardTitle>
@@ -244,15 +245,32 @@ export default function LoginForm() {
                                 Accedi con Password
                             </Button>
                         </CardContent>
-                         {installPrompt && (
-                            <CardFooter>
-                                <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground">
-                                    <Download className="mr-2 h-4 w-4" />
-                                    Installa App sul dispositivo
-                                </Button>
-                            </CardFooter>
-                        )}
-                    </div>
+                        <CardFooter>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="w-full">
+                                        <Button
+                                            onClick={handleInstallClick}
+                                            variant="ghost"
+                                            size="sm"
+                                            className="w-full text-muted-foreground"
+                                            disabled={!installPrompt}
+                                        >
+                                            <Download className="mr-2 h-4 w-4" />
+                                            Installa App sul dispositivo
+                                        </Button>
+                                        </div>
+                                    </TooltipTrigger>
+                                    {!installPrompt && (
+                                        <TooltipContent>
+                                        <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
+                                        </TooltipContent>
+                                    )}
+                                </Tooltip>
+                            </TooltipProvider>
+                        </CardFooter>
+                    </>
                 );
             case 'camera':
                 return (
