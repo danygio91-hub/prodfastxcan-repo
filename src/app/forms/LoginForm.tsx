@@ -246,22 +246,28 @@ export default function LoginForm() {
                             </Button>
                         </CardContent>
                         <CardFooter>
-                           <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="w-full">
-                                    <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground" disabled={!installPrompt}>
-                                        <Download className="mr-2 h-4 w-4" />
-                                        Installa App sul dispositivo
-                                    </Button>
-                                  </div>
-                                </TooltipTrigger>
-                                {!installPrompt && (
-                                <TooltipContent>
-                                  <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
-                                </TooltipContent>
-                                )}
-                              </Tooltip>
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="w-full">
+                                        <Button
+                                            onClick={handleInstallClick}
+                                            variant="ghost"
+                                            size="sm"
+                                            className="w-full text-muted-foreground"
+                                            disabled={!installPrompt}
+                                        >
+                                            <Download className="mr-2 h-4 w-4" />
+                                            Installa App sul dispositivo
+                                        </Button>
+                                        </div>
+                                    </TooltipTrigger>
+                                    {!installPrompt && (
+                                        <TooltipContent>
+                                        <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
+                                        </TooltipContent>
+                                    )}
+                                </Tooltip>
                             </TooltipProvider>
                         </CardFooter>
                     </>
