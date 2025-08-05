@@ -257,7 +257,7 @@ const tubiGuainaWithdrawalSchema = z.object({
   jobOrderPF: z.string(),
   phaseId: z.string(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'mt']),
+  unit: z.enum(['n', 'mt', 'kg']),
 });
 
 export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
@@ -267,7 +267,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
   
-  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity } = validated.data;
+  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit } = validated.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   const jobRef = doc(db, 'jobOrders', jobId);
   
@@ -282,8 +282,16 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         const material = materialDoc.data() as RawMaterial;
         const job = jobDoc.data() as JobOrder;
         
-        const unitsConsumed = quantity;
-        const consumedWeight = material.conversionFactor && material.conversionFactor > 0 ? quantity * material.conversionFactor : 0;
+        let unitsConsumed = 0;
+        let consumedWeight = 0;
+
+        if (unit === 'kg') {
+          consumedWeight = quantity;
+          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? Math.round(quantity / material.conversionFactor) : 0;
+        } else { // 'n' or 'mt'
+          unitsConsumed = quantity;
+          consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
+        }
         
         let newStockUnits = material.currentStockUnits ?? 0;
         let currentWeightKg = material.currentWeightKg ?? 0;
@@ -503,8 +511,5 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
-
-
 
     

@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -60,7 +59,7 @@ type PhaseMaterialFormValues = z.infer<typeof phaseMaterialSchema>;
 
 const tubiGuainaWithdrawalSchema = z.object({
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  unit: z.enum(['n', 'mt'], { required_error: "Selezionare l'unità di misura." }),
+  unit: z.enum(['n', 'mt', 'kg'], { required_error: "Selezionare l'unità di misura." }),
 });
 type TubiGuainaWithdrawalFormValues = z.infer<typeof tubiGuainaWithdrawalSchema>;
 
@@ -151,7 +150,6 @@ export default function ScanJobPage() {
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
     resolver: zodResolver(tubiGuainaWithdrawalSchema),
-    defaultValues: { quantity: 0, unit: 'mt' },
   });
 
   const closingWeightForm = useForm<ClosingWeightFormValues>({
@@ -1001,6 +999,23 @@ export default function ScanJobPage() {
     </div>
   );
 
+  const handleScanJobSubmit = async (data: string) => {
+    stopCamera();
+    const parts = data.split('@');
+    if (parts.length !== 3) {
+      toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
+      return;
+    }
+    const [ordinePF, codice, qta] = parts;
+    const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
+
+    if ('error' in result) {
+      toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+    } else {
+      handleStartOverallJob(result);
+    }
+  };
+
   const renderJobDetailsCard = (job: JobOrder) => {
     return (
       <Card className="mt-6 shadow-lg">
@@ -1337,25 +1352,61 @@ export default function ScanJobPage() {
               )}
 
               {materialScanStep === 'form' && scannedMaterialForPhase && (
-                  scannedMaterialForPhase.type === 'GUAINA' || scannedMaterialForPhase.type === 'TUBI' ? (
+                  scannedMaterialForPhase.type === 'GUAINA' ? (
                        <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
                               <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
-                               
-                               <FormField
-                                control={tubiGuainaWithdrawalForm.control}
-                                name="unit"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormControl>
-                                            <Input type="hidden" {...field} value={scannedMaterialForPhase.type === 'GUAINA' ? 'mt' : 'n'} />
-                                        </FormControl>
-                                    </FormItem>
-                                )}
+                                <FormField
+                                    control={tubiGuainaWithdrawalForm.control}
+                                    name="unit"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormControl>
+                                                <Input type="hidden" {...field} value={'mt'} />
+                                            </FormControl>
+                                        </FormItem>
+                                    )}
                                 />
                                <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
                                   <FormItem>
-                                      <FormLabel>Quantità da Prelevare ({scannedMaterialForPhase.unitOfMeasure.toUpperCase()})</FormLabel>
+                                      <FormLabel>Quantità da Prelevare (MT)</FormLabel>
+                                      <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
+                                      <FormMessage />
+                                  </FormItem>
+                              )} />
+                              <DialogFooter><Button type="submit" disabled={tubiGuainaWithdrawalForm.formState.isSubmitting}><Send className="mr-2 h-4 w-4" />Registra Prelievo</Button></DialogFooter>
+                          </form>
+                      </Form>
+                  ) : scannedMaterialForPhase.type === 'TUBI' ? (
+                       <Form {...tubiGuainaWithdrawalForm}>
+                          <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
+                               
+                               <FormField
+                                  control={tubiGuainaWithdrawalForm.control}
+                                  name="unit"
+                                  render={({ field }) => (
+                                      <FormItem className="space-y-3">
+                                          <FormLabel>Prelievo per unità o peso?</FormLabel>
+                                          <FormControl>
+                                              <RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="flex space-x-4">
+                                                  <FormItem className="flex items-center space-x-3 space-y-0">
+                                                      <FormControl><RadioGroupItem value="n" /></FormControl>
+                                                      <FormLabel className="font-normal">N° Pezzi</FormLabel>
+                                                  </FormItem>
+                                                  <FormItem className="flex items-center space-x-3 space-y-0">
+                                                      <FormControl><RadioGroupItem value="kg" /></FormControl>
+                                                      <FormLabel className="font-normal">KG</FormLabel>
+                                                  </FormItem>
+                                              </RadioGroup>
+                                          </FormControl>
+                                          <FormMessage />
+                                      </FormItem>
+                                  )}
+                              />
+                              <FormField control={tubiGuainaWithdrawalForm.control} name="quantity" render={({ field }) => (
+                                  <FormItem>
+                                      <FormLabel>Quantità da Prelevare</FormLabel>
                                       <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
                                       <FormMessage />
                                   </FormItem>
@@ -1366,7 +1417,7 @@ export default function ScanJobPage() {
                   ) : (
                       <Form {...phaseMaterialForm}>
                           <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                               
                               <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
                                   <FormItem>
@@ -1530,17 +1581,18 @@ export default function ScanJobPage() {
             )}
                 
                 {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
+                
                 {step === 'scanning' && (
                   <Card>
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" />Scansiona Commessa</CardTitle>
-                        <CardDescription>Inquadra il QR code della commessa per iniziare.</CardDescription>
+                          <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" />Scansiona Commessa</CardTitle>
+                          <CardDescription>Inquadra il QR code della commessa per iniziare.</CardDescription>
                       </CardHeader>
                       <CardContent>
-                          {renderScanArea(handleScannedData)}
+                           {renderScanArea(handleScanJobSubmit)}
                       </CardContent>
                       <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
+                           <Button onClick={() => triggerScan(handleScanJobSubmit)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
                               {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
                               <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
                            </Button>
@@ -1681,7 +1733,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
       }
     }
     
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
@@ -1822,3 +1874,5 @@ function PhaseCard({ phase, job, permissions, handlers }: {
         </Card>
     );
 }
+
+    
