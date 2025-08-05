@@ -159,14 +159,19 @@ export default function LoginForm() {
 
             if (barcodes.length > 0) {
                 stopCamera();
-                const [username, password] = barcodes[0].rawValue.split('@');
-                if (username && password) {
-                     performLogin(username, password);
-                } else {
-                    toast({
+                try {
+                    const decodedData = atob(barcodes[0].rawValue);
+                    const [username, password] = decodedData.split('@');
+                    if (username && password) {
+                         performLogin(username, password);
+                    } else {
+                        throw new Error('Invalid format after decoding.');
+                    }
+                } catch (e) {
+                     toast({
                         variant: 'destructive',
-                        title: 'Dati QR non Validi',
-                        description: 'Il formato del QR code per il login non è corretto.',
+                        title: 'Dati QR non Validi o non Cifrati',
+                        description: 'Il formato del QR code non è corretto o non è codificato in Base64.',
                     });
                     setStep('initial');
                 }
@@ -220,7 +225,7 @@ export default function LoginForm() {
                             </Button>
 
                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <Button variant="secondary" className="h-20 flex-col gap-1 text-secondary-foreground" disabled>
+                                <Button variant="secondary" className="h-20 flex-col gap-1 text-secondary-foreground opacity-50 cursor-not-allowed" disabled>
                                     <Clock className="h-6 w-6" />
                                     Timbratura
                                 </Button>
@@ -245,7 +250,7 @@ export default function LoginForm() {
                                 Accedi con Password
                             </Button>
                         </CardContent>
-                        <CardFooter>
+                         <CardFooter>
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -264,7 +269,7 @@ export default function LoginForm() {
                                     </TooltipTrigger>
                                     {!installPrompt && (
                                         <TooltipContent>
-                                        <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
+                                        <p>L'installazione non è ancora disponibile.</p>
                                         </TooltipContent>
                                     )}
                                 </Tooltip>
