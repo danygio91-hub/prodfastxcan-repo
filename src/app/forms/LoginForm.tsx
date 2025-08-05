@@ -243,15 +243,13 @@ export default function LoginForm() {
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
                             </Button>
-                        </CardContent>
-                         {installPrompt && (
-                            <CardFooter>
+                             {installPrompt && (
                                 <Button onClick={handleInstallClick} variant="ghost" size="sm" className="w-full text-muted-foreground">
                                     <Download className="mr-2 h-4 w-4" />
                                     Installa App sul dispositivo
                                 </Button>
-                            </CardFooter>
-                        )}
+                            )}
+                        </CardContent>
                     </div>
                 );
             case 'camera':
