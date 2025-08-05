@@ -220,7 +220,7 @@ export default function LoginForm() {
                             </Button>
 
                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <Button onClick={() => handleQrLoginClick('/clock-in-out')} variant="secondary" className="h-20 flex-col gap-1 text-secondary-foreground">
+                                <Button variant="secondary" className="h-20 flex-col gap-1 text-secondary-foreground" disabled>
                                     <Clock className="h-6 w-6" />
                                     Timbratura
                                 </Button>
