@@ -180,7 +180,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             lotto: lotto || null,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + netQuantity;
+          let newStockUnits = (material.currentStockUnits || 0) + netQuantity;
           let newWeightKg = material.currentWeightKg || 0;
           
           if (material.unitOfMeasure === 'kg') {
@@ -258,22 +258,20 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             };
 
             const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
-            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
+            let newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
-            let weightChange = 0;
+            let newWeightKg = (material.currentWeightKg || 0);
+
             if (material.unitOfMeasure === 'kg') {
-                weightChange = stockChange;
+                newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                weightChange = stockChange * material.conversionFactor;
+                newWeightKg += stockChange * material.conversionFactor;
             }
 
-            let newWeightKg = (material.currentWeightKg || 0) + weightChange;
+            const updatedBatches = existingBatches.map(b => b.id === batchId ? updatedBatch : b);
             
             transaction.update(materialRef, {
-                batches: arrayRemove(oldBatch),
-            });
-            transaction.update(materialRef, {
-                batches: arrayUnion(updatedBatch),
+                batches: updatedBatches,
                 currentStockUnits: newStockUnits,
                 currentWeightKg: newWeightKg
             });
@@ -306,17 +304,17 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             }
 
             const stockChange = -batchToDelete.netQuantity;
-            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
+            let newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
-            let weightChange = 0;
+            let newWeightKg = (material.currentWeightKg || 0);
              if (material.unitOfMeasure === 'kg') {
-                weightChange = stockChange;
+                newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
-                weightChange = stockChange * material.conversionFactor;
+                newWeightKg += stockChange * material.conversionFactor;
             }
 
-            let newWeightKg = (material.currentWeightKg || 0) + weightChange;
             if (newWeightKg < 0) newWeightKg = 0;
+            if (newStockUnits < 0) newStockUnits = 0;
 
 
             transaction.update(materialRef, { 
@@ -430,7 +428,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        const stockUnits = validData.stock ?? 0;
+        let stockUnits = validData.stock ?? 0;
         const conversionFactor = unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null);
         
         let stockKg = 0;
