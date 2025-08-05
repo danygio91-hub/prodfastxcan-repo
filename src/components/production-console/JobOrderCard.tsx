@@ -98,7 +98,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
-  const canForceFinish = overallStatus === 'Pronto per Produzione';
+  const canForceFinish = overallStatus === 'Pronto per Produzione' || overallStatus === 'In Lavorazione';
 
   return (
     <Card 
