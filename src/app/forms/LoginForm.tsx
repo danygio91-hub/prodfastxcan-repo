@@ -164,17 +164,29 @@ export default function LoginForm() {
 
             if (barcodes.length > 0) {
                 stopCamera();
-                const username = barcodes[0].rawValue;
-                // NEW LOGIC: Instead of logging in, pre-fill the username and switch to manual login step
-                if (username) {
-                   manualForm.setValue('username', username);
-                   setStep('manual_login');
-                   toast({ title: 'Utente Riconosciuto', description: 'Inserisci la password per continuare.' });
+                let decodedValue = '';
+                if (typeof window !== 'undefined') {
+                    try {
+                        decodedValue = atob(barcodes[0].rawValue);
+                    } catch (e) {
+                         toast({
+                            variant: 'destructive',
+                            title: 'Errore Decodifica QR',
+                            description: 'Il QR code non sembra essere in un formato Base64 valido.',
+                        });
+                        setStep('initial');
+                        return;
+                    }
+                }
+                
+                const [username, password] = decodedValue.split('@');
+                if (username && password) {
+                     performLogin(username, password);
                 } else {
                     toast({
                         variant: 'destructive',
                         title: 'Dati QR non Validi',
-                        description: 'Il QR code per il login non contiene un nome utente valido.',
+                        description: 'Il formato del QR code per il login non è corretto.',
                     });
                     setStep('initial');
                 }
@@ -219,7 +231,7 @@ export default function LoginForm() {
                         <CardContent className="flex flex-col gap-4">
                             <Button onClick={() => handleQrLoginClick(null)} size="lg" className="h-14 text-lg">
                                <QrCode className="mr-3 h-6 w-6" />
-                                Accesso Rapido (QR)
+                                Accesso Standard (QR)
                             </Button>
 
                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -279,8 +291,8 @@ export default function LoginForm() {
                 return (
                     <div>
                          <CardHeader>
-                            <CardTitle className="text-center font-headline">Scansione QR Utente</CardTitle>
-                            <CardDescription className="text-center">Inquadra il QR code del tuo badge per pre-compilare il nome utente.</CardDescription>
+                            <CardTitle className="text-center font-headline">Scansione QR Code</CardTitle>
+                            <CardDescription className="text-center">Inquadra il QR code e premi il pulsante per scansionare.</CardDescription>
                         </CardHeader>
                         <CardContent className="relative grid place-items-center aspect-square bg-black rounded-lg overflow-hidden">
                              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
