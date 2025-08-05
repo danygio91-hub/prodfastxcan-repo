@@ -27,8 +27,8 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
   try {
     await ensureAdmin(uid);
     const jobsBatch = writeBatch(db);
-    const jobsRef = collection(db, "jobOrders");
-    const jobsSnapshot = await getDocs(jobsRef);
+    const jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended"]));
+    const jobsSnapshot = await getDocs(jobsQuery);
     jobsSnapshot.forEach(doc => jobsBatch.delete(doc.ref));
     await jobsBatch.commit();
     const jobsCount = jobsSnapshot.size;
@@ -42,7 +42,7 @@ export async function resetAllJobOrders(uid: string): Promise<{ success: boolean
 
 
     if (jobsCount === 0 && withdrawalsCount === 0) {
-      return { success: true, message: 'Nessuna commessa o prelievo trovato. Il database è già pulito.' };
+      return { success: true, message: 'Nessuna commessa (escluse le completate) o prelievo trovato. Il database è già pulito.' };
     }
 
     revalidatePath('/admin/data-management');
@@ -423,6 +423,98 @@ export async function restoreDataFromBackup(backupJson: string, uid: string): Pr
     }
 }
 
-    
+export async function resetCompletedJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
 
+    const jobsQuery = query(collection(db, "jobOrders"), where("status", "==", "completed"));
+    const completedJobsSnapshot = await getDocs(jobsQuery);
+
+    if (completedJobsSnapshot.empty) {
+      return { success: true, message: 'Nessuna commessa completata da resettare.' };
+    }
+
+    const completedJobIds = completedJobsSnapshot.docs.map(d => d.id);
+
+    // Find all withdrawals associated with the completed jobs
+    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", completedJobIds));
+    const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+
+    const withdrawalsToDelete = withdrawalsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as MaterialWithdrawal));
+    
+    await runTransaction(db, async (transaction) => {
+      // Restore stock from the withdrawals
+      const materialUpdates = new Map<string, { consumedWeight: number; consumedUnits: number }>();
+      for (const withdrawal of withdrawalsToDelete) {
+        const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
+        update.consumedWeight += (withdrawal.consumedWeight as number) || 0;
+        if (typeof (withdrawal as any).consumedUnits === 'number') {
+            update.consumedUnits += (withdrawal as any).consumedUnits;
+        }
+        materialUpdates.set(withdrawal.materialId, update);
+      }
+      
+      const materialIds = Array.from(materialUpdates.keys());
+      const materialDocs = materialIds.length > 0
+          ? await Promise.all(materialIds.map(id => transaction.get(doc(db, 'rawMaterials', id))))
+          : [];
+
+      for (const materialDoc of materialDocs) {
+        if (materialDoc.exists()) {
+          const materialData = materialDoc.data() as RawMaterial;
+          const updates = materialUpdates.get(materialDoc.id)!;
+          const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+          let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+          if (materialData.unitOfMeasure === 'kg') {
+            newUnits = newWeight;
+          }
+          transaction.update(materialDoc.ref, { currentWeightKg: newWeight, currentStockUnits: newUnits });
+        }
+      }
+
+      // Delete the withdrawals
+      for (const withdrawal of withdrawalsToDelete) {
+        transaction.delete(doc(db, 'materialWithdrawals', withdrawal.id));
+      }
+
+      // Reset the completed jobs
+      for (const jobDoc of completedJobsSnapshot.docs) {
+        const job = jobDoc.data() as JobOrder;
+        const updatedPhases = (job.phases || []).map(phase => ({
+            ...phase,
+            status: 'pending' as const,
+            workPeriods: [],
+            materialConsumptions: [],
+            qualityResult: null,
+            materialReady: !(phase.requiresMaterialScan || phase.requiresMaterialSearch),
+        }));
+        if (!updatedPhases.some(p => p.type === 'preparation' && (p.requiresMaterialScan || p.requiresMaterialSearch))) {
+            const firstProdPhase = updatedPhases.find(p => p.sequence === 1);
+            if (firstProdPhase) {
+                firstProdPhase.materialReady = true;
+            }
+        }
+        transaction.update(jobDoc.ref, {
+          status: 'planned',
+          overallStartTime: null,
+          overallEndTime: null,
+          isProblemReported: false,
+          phases: updatedPhases,
+        });
+      }
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/reports');
+    revalidatePath('/admin/raw-material-management');
+
+    return { success: true, message: `Reset completato. ${completedJobIds.length} commesse completate sono state resettate e lo stock è stato ripristinato.` };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Errore nel reset delle commesse completate:", error);
+    return { success: false, message: errorMessage };
+  }
+}
     
