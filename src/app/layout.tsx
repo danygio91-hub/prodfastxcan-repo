@@ -20,6 +20,7 @@ const ptSans = PT_Sans({
 export const metadata: Metadata = {
   title: 'ProdFast Xcan',
   description: 'Applicazione per il Tracciamento dei Tempi di Produzione',
+  manifest: '/manifest.json',
 };
 
 export default function RootLayout({
