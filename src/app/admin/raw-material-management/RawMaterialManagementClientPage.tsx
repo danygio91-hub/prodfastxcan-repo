@@ -541,7 +541,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.currentStockUnits}</TableCell>
+                            <TableCell>{material.unitOfMeasure === 'kg' ? '—' : material.currentStockUnits}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
@@ -846,7 +846,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
+                                <p className="text-2xl font-bold">{selectedMaterial.unitOfMeasure === 'kg' ? '—' : selectedMaterial.currentStockUnits ?? 0}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock Calcolato (KG)</Label>
@@ -873,3 +873,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
 
+
+
+    

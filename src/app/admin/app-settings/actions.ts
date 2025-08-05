@@ -135,7 +135,6 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
     const deletedCount = withdrawals.length;
 
     await runTransaction(db, async (transaction) => {
-      // Group withdrawals by materialId to reduce reads
       const materialUpdates = new Map<string, { consumedWeight: number, consumedUnits: number }>();
 
       for (const withdrawal of withdrawals) {
@@ -150,10 +149,8 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
         materialUpdates.set(withdrawal.materialId, update);
       }
 
-      // Read all material documents
       const materialIds = Array.from(materialUpdates.keys());
       if (materialIds.length === 0) {
-        // If there are no materials to update, we still need to delete the withdrawals.
         for (const withdrawalDoc of withdrawalsSnapshot.docs) {
           transaction.delete(withdrawalDoc.ref);
         }
@@ -163,7 +160,6 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
       const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
       const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
-      // Apply updates
       for (let i = 0; i < materialDocs.length; i++) {
         const materialDoc = materialDocs[i];
         if (materialDoc.exists()) {
@@ -173,9 +169,13 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
 
-          // If consumedUnits is 0, it means it was a weight-only withdrawal (BOB/PF3V0),
-          // so we need to recalculate the units to add back based on the conversion factor.
-          if (updates.consumedUnits === 0 && materialData.conversionFactor && materialData.conversionFactor > 0) {
+          // If the material is measured in KG, the units and weight are the same.
+          // This ensures that when a weight-only withdrawal is reset, the units are also correctly restored.
+          if (materialData.unitOfMeasure === 'kg') {
+            newUnits = newWeight;
+          }
+          // This handles cases where only weight was consumed (e.g., old BOB withdrawals) and we need to restore units.
+          else if (updates.consumedUnits === 0 && materialData.conversionFactor && materialData.conversionFactor > 0) {
              const unitsToAddBack = Math.round(updates.consumedWeight / materialData.conversionFactor);
              newUnits += unitsToAddBack;
           }
@@ -187,7 +187,6 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
         }
       }
       
-      // Delete all withdrawals
       for (const withdrawalDoc of withdrawalsSnapshot.docs) {
         transaction.delete(withdrawalDoc.ref);
       }
@@ -423,5 +422,7 @@ export async function restoreDataFromBackup(backupJson: string, uid: string): Pr
         return { success: false, message: errorMessage };
     }
 }
+
+    
 
     
