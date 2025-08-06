@@ -3,6 +3,17 @@
   "projects": {
     "default": "prodfastxcan"
   },
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "frameworksBackend": {
+      "region": "us-central1"
+    }
+  },
   "firestore": {
     "rules": "firestore.rules"
   }
