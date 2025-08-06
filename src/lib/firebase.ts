@@ -1,4 +1,3 @@
-
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
@@ -6,7 +5,7 @@ import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration for the "prodfastxcan" project.
 const firebaseConfig = {
-  apiKey: "AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU",
+  apiKey: "AIzaSyClGHZv_Q5MuagJfF-xzkdO3dAr6qCEuTQ",
   authDomain: "prodfastxcan.firebaseapp.com",
   projectId: "prodfastxcan",
   storageBucket: "prodfastxcan.appspot.com",
