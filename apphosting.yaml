@@ -8,3 +8,23 @@ runConfig:
   # Increase this value if you'd like to automatically spin up
   # more instances in response to increased traffic.
   maxInstances: 1
+
+# Specifies the build and serve configuration for the Next.js app.
+# This ensures that App Hosting knows how to properly build and run the application.
+build:
+  # The command to build the Next.js application.
+  # This script is defined in package.json.
+  run: npm run build
+  # The output directory where the built, standalone application will be located.
+  # Next.js creates this directory with all necessary files to run the app.
+  outputDir: .next/standalone
+
+# The command to start the web server for the built application.
+# It runs the server.js file located in the standalone output directory.
+serve:
+  # Specifies the script to run to start the server.
+  # It uses the node binary to execute the server file.
+  run: node .next/standalone/server.js
+  # Specifies where static assets (like images, CSS, and JS) are located.
+  # This allows App Hosting to serve them efficiently.
+  staticDir: .next/static
