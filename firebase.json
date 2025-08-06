@@ -5,15 +5,5 @@
   },
   "firestore": {
     "rules": "firestore.rules"
-  },
-  "hosting": {
-    "site": "prodfastxcan",
-    "public": "out",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ]
   }
 }
-
