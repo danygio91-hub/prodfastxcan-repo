@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
+  output: 'export',
   experimental: {
     // This is required to allow the Next.js dev server to accept requests from any
     // domain, which is necessary for the Firebase Studio environment.
