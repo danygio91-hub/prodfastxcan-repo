@@ -1,3 +1,4 @@
+
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
@@ -9,7 +10,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU",
   authDomain: "prodfastxcan.firebaseapp.com",
   projectId: "prodfastxcan",
-  storageBucket: "prodfastxcan.appspot.com",
+  storageBucket: "prodfastxcan.firebasestorage.app",
   messagingSenderId: "724257897568",
   appId: "1:724257897568:web:2054074f18364ed0e91705",
   measurementId: "G-8XZHSKPWPP"
