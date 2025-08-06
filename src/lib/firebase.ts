@@ -1,3 +1,4 @@
+
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
@@ -17,7 +18,7 @@ const firebaseConfig = {
 
 // Initialize Firebase
 let app;
-// Prevent Firebase from initializing multiple times, which can happen in development environments
+// Prevent Firebase from initializing multiple times, which can happen in a dev environment
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
 } else {
