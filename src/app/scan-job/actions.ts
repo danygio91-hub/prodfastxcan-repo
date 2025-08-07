@@ -510,5 +510,3 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
-    

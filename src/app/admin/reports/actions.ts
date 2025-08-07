@@ -145,6 +145,7 @@ export async function getOperatorsReport() {
 
         const getTimeInInterval = (interval: { start: Date, end: Date }) => {
             return operatorPeriods.reduce((acc, period) => {
+                if (!period.start) return acc;
                 const periodStart = new Date(period.start);
                 // If a period is still active, its end time is 'now'.
                 const periodEnd = period.end ? new Date(period.end) : new Date();
@@ -522,7 +523,10 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
         const totalTimeMs = getTotalMilliseconds(job);
         const totalTimeMinutes = totalTimeMs / (1000 * 60);
-        const minutesPerPiece = job.qta > 0 ? totalTimeMinutes / job.qta : 0;
+        
+        if (job.qta <= 0) continue; // Skip jobs with no quantity to avoid division by zero
+        
+        const minutesPerPiece = totalTimeMinutes / job.qta;
         
         const phaseDetails = (job.phases || []).map(phase => {
             const phaseTimeMs = getPhaseTimeMilliseconds(phase);
@@ -530,7 +534,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             return {
                 name: phase.name,
                 totalTimeMinutes: phaseTimeMinutes,
-                minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
+                minutesPerPiece: phaseTimeMinutes / job.qta,
             };
         });
 
