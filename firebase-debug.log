@@ -633,3 +633,86 @@ Type error: Type '({ id: string; name: string; status: string; materialReady: bo
 [debug] [2025-08-07T06:19:25.321Z] Error: ENOENT: no such file or directory, open '/home/user/studio/.next/export-marker.json'
 [error] 
 [error] Error: An unexpected error has occurred.
+[debug] [2025-08-07T06:30:33.927Z] ----------------------------------------------------------------------
+[debug] [2025-08-07T06:30:33.947Z] Command:       /nix/store/ws50yvm6vzlzf7jzz6n7xh4szddrack1-nodejs-20.19.1/bin/node /nix/store/fsdlxfaxdgx27856x49qycgdsyx5jxd3-firebase-tools-14.11.2/lib/node_modules/firebase-tools/lib/bin/firebase.js deploy --only hosting --project=prodfastxcan
+[debug] [2025-08-07T06:30:33.948Z] CLI Version:   14.11.2
+[debug] [2025-08-07T06:30:33.957Z] Platform:      linux
+[debug] [2025-08-07T06:30:33.957Z] Node Version:  v20.19.1
+[debug] [2025-08-07T06:30:33.958Z] Time:          Thu Aug 07 2025 06:30:33 GMT+0000 (Coordinated Universal Time)
+[debug] [2025-08-07T06:30:33.958Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-08-07T06:30:38.537Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"projects"}
+[debug] [2025-08-07T06:30:38.660Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-08-07T06:30:38.683Z] > authorizing via signed-in user (dany.gio91@gmail.com)
+[debug] [2025-08-07T06:30:38.705Z] [iam] checking project prodfastxcan for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-08-07T06:30:38.761Z] Checked if tokens are valid: false, expires at: 1754548632259
+[debug] [2025-08-07T06:30:38.766Z] Checked if tokens are valid: false, expires at: 1754548632259
+[debug] [2025-08-07T06:30:38.785Z] > refreshing access token with scopes: []
+[debug] [2025-08-07T06:30:38.843Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-08-07T06:30:38.849Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-08-07T06:30:40.415Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-08-07T06:30:40.423Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-08-07T06:30:40.549Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions [none]
+[debug] [2025-08-07T06:30:40.549Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions x-goog-quota-user=projects/prodfastxcan
+[debug] [2025-08-07T06:30:40.549Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-08-07T06:30:41.493Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions 200
+[debug] [2025-08-07T06:30:41.496Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-08-07T06:30:41.507Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:30:41.507Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:30:41.507Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan [none]
+[debug] [2025-08-07T06:30:42.027Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan 200
+[debug] [2025-08-07T06:30:42.036Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan {"projectId":"prodfastxcan","projectNumber":"724257897568","displayName":"ProdFastXcan","name":"projects/prodfastxcan","resources":{"hostingSite":"prodfastxcan"},"state":"ACTIVE","etag":"1_0ffd2fc6-a82b-4a40-bf99-8a4715118a86"}
+[debug] [2025-08-07T06:31:14.503Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:14.503Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:14.507Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites pageToken=&pageSize=10
+[debug] [2025-08-07T06:31:15.313Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites 200
+[debug] [2025-08-07T06:31:15.320Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites {"sites":[{"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"},{"name":"projects/prodfastxcan/sites/prodfastxcan-work","defaultUrl":"https://prodfastxcan-work.web.app","type":"USER_SITE"}]}
+[debug] [2025-08-07T06:31:15.321Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:15.328Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:15.329Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config [none]
+[debug] [2025-08-07T06:31:15.973Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config 200
+[debug] [2025-08-07T06:31:15.977Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config {"projectId":"prodfastxcan","appId":"1:724257897568:web:2054074f18364ed0e91705","storageBucket":"prodfastxcan.firebasestorage.app","apiKey":"AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU","authDomain":"prodfastxcan.firebaseapp.com","messagingSenderId":"724257897568","measurementId":"G-8XZHSKPWPP"}
+[info] 
+   Thank you for trying our early preview of Next.js support on Firebase Hosting.
+   During the preview, support is best-effort and breaking changes can be expected. Proceed with caution.
+
+   Documentation: https://firebase.google.com/docs/hosting/frameworks/nextjs
+   File a bug: https://github.com/firebase/firebase-tools/issues/new?template=bug_report.md
+   Submit a feature request: https://github.com/firebase/firebase-tools/issues/new?template=feature_request.md
+
+   We'd love to learn from you. Express your interest in helping us shape the future of Firebase Hosting: https://goo.gle/41enW5X
+
+[debug] [2025-08-07T06:31:29.455Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:29.458Z] Checked if tokens are valid: true, expires at: 1754551839424
+[debug] [2025-08-07T06:31:29.461Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan [none]
+[debug] [2025-08-07T06:31:30.233Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan 200
+[debug] [2025-08-07T06:31:30.233Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan {"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"}
+[info]   ▲ Next.js 14.2.3
+
+[info] 
+
+[info]    Creating an optimized production build ...
+
+[info]  ✓ Compiled successfully
+
+[info]    Linting and checking validity of types ...
+
+[info] Failed to compile.
+
+
+[info] ./src/app/admin/data-management/actions.ts:58:9
+Type error: Type '({ id: string; name: string; status: "pending"; materialReady: boolean; workPeriods: never[]; sequence: number; type: "preparation" | "production" | "quality" | "packaging"; requiresMaterialScan: boolean | undefined; ... 4 more ...; departmentCodes: Reparto[]; } | null)[]' is not assignable to type 'JobPhase[]'.
+  Type '{ id: string; name: string; status: "pending"; materialReady: boolean; workPeriods: never[]; sequence: number; type: "preparation" | "production" | "quality" | "packaging"; requiresMaterialScan: boolean | undefined; ... 4 more ...; departmentCodes: Reparto[]; } | null' is not assignable to type 'JobPhase'.
+    Type 'null' is not assignable to type 'JobPhase'.
+
+  56 |     const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
+  57 |
+> 58 |     let phases: JobPhase[] = phaseTemplateIds.map(templateId => {
+     |         ^
+  59 |         const template = allTemplatesMap.get(templateId);
+  60 |         if (!template) return null;
+  61 |
+
+[debug] [2025-08-07T06:33:26.987Z] Error: ENOENT: no such file or directory, open '/home/user/studio/.next/export-marker.json'
+[error] 
+[error] Error: An unexpected error has occurred.
