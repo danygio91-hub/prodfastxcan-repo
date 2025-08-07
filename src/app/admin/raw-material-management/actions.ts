@@ -71,7 +71,12 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   return list;
 }
 
-export async function saveRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; savedMaterial?: RawMaterial; }> {
+export async function saveRawMaterial(formData: FormData): Promise<{
+    success: boolean;
+    message: string;
+    savedMaterial?: RawMaterial;
+    errors?: any;
+}> {
   const rawData = Object.fromEntries(formData.entries());
   const validatedFields = rawMaterialFormSchema.safeParse(rawData);
 
