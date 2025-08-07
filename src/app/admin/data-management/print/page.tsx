@@ -3,7 +3,7 @@
 
 import type { JobOrder } from '@/lib/mock-data';
 import { notFound, useSearchParams } from 'next/navigation';
-import { QRCodeSVG } from 'react-qr-code';
+import QRCode from 'react-qr-code';
 import { PrintButton } from './PrintButton';
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -62,7 +62,7 @@ export default function ODLPrintPage() {
                     <h2 className="text-xl text-gray-700">ORDINE DI LAVORO (ODL)</h2>
                 </div>
                 <div className="w-24 h-24 p-1 border">
-                     <QRCodeSVG value={qrValue} size={94} />
+                     <QRCode value={qrValue} size={94} style={{ height: "auto", maxWidth: "100%", width: "100%" }} viewBox={`0 0 256 256`} />
                 </div>
             </div>
             

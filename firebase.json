@@ -1,4 +1,3 @@
-
 {
   "projects": {
     "default": "prodfastxcan"
@@ -9,7 +8,10 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
-    ]
+    ],
+    "frameworksBackend": {
+      "region": "europe-west1"
+    }
   },
   "firestore": {
     "rules": "firestore.rules"

@@ -52,7 +52,7 @@ export async function login(username: string, password_used: string): Promise<vo
  */
 export async function logout(): Promise<void> {
   try {
-    await signOut(auth);
+    await auth.signOut();
   } catch (error) {
     console.error("Error signing out from Firebase:", error);
     throw error;
