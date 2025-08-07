@@ -55,9 +55,12 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     const allTemplates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
     const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
 
-    let phases: JobPhase[] = phaseTemplateIds.map(templateId => {
+    const phases = phaseTemplateIds.map((templateId): JobPhase | null => {
         const template = allTemplatesMap.get(templateId);
-        if (!template) return null;
+        if (!template) {
+            console.warn(`Phase template with id ${templateId} not found in a work cycle.`);
+            return null;
+        }
 
         return {
             id: template.id,
@@ -74,9 +77,8 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             qualityResult: null,
             departmentCodes: template.departmentCodes || [],
         };
-    }).filter((p): p is JobPhase => p !== null);
-    
-    phases = phases.sort((a, b) => a.sequence - b.sequence);
+    }).filter((p): p is JobPhase => p !== null)
+      .sort((a, b) => a.sequence - b.sequence);
     
     return phases;
 }
