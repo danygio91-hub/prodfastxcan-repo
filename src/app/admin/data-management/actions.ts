@@ -597,9 +597,3 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
-
-    
-
-    
-
-    

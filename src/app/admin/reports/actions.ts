@@ -40,7 +40,7 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   return periods.reduce((acc, period) => {
     const end = period.end ? new Date(period.end) : new Date(); // Use now for active periods
     const start = new Date(period.start);
-    if (isNaN(start.getTime()) || (period.end && isNaN(end.getTime()))) return acc;
+    if (isNaN(start.getTime()) || (period.end === null && isNaN(end.getTime())) || (period.end && isNaN(new Date(period.end).getTime()))) return acc;
     return acc + differenceInMilliseconds(end, start);
   }, 0);
 }
