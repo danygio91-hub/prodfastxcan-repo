@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Packaging } from '@/lib/mock-data';
+import type { Packaging, PackagingAssociation } from '@/lib/mock-data';
 
 // --- Schemas ---
 const packagingSchema = z.object({
@@ -51,7 +51,7 @@ export async function savePackagingItem(formData: FormData) {
   const fullData: Packaging = { 
     id: finalId, 
     ...dataToSave,
-    associatedTypes: dataToSave.associatedTypes || [],
+    associatedTypes: (dataToSave.associatedTypes || []) as PackagingAssociation[],
   };
   
   await setDoc(packagingRef, fullData, { merge: true });
