@@ -87,7 +87,9 @@ export default function LoginForm() {
         try {
             await login(username, password_used);
         } catch (error) {
-            localStorage.removeItem('login_redirect_path');
+            useEffect(() => {
+                localStorage.removeItem('login_redirect_path');
+            }, []);
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
                 title: "Accesso Fallito",
@@ -164,22 +166,7 @@ export default function LoginForm() {
 
             if (barcodes.length > 0) {
                 stopCamera();
-                let decodedValue = '';
-                if (typeof window !== 'undefined') {
-                    try {
-                        decodedValue = atob(barcodes[0].rawValue);
-                    } catch (e) {
-                         toast({
-                            variant: 'destructive',
-                            title: 'Errore Decodifica QR',
-                            description: 'Il QR code non sembra essere in un formato Base64 valido.',
-                        });
-                        setStep('initial');
-                        return;
-                    }
-                }
-                
-                const [username, password] = decodedValue.split('@');
+                const [username, password] = barcodes[0].rawValue.split('@');
                 if (username && password) {
                      performLogin(username, password);
                 } else {
@@ -202,7 +189,9 @@ export default function LoginForm() {
 
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
-        localStorage.removeItem('login_redirect_path');
+        useEffect(() => {
+            localStorage.removeItem('login_redirect_path');
+        }, []);
         performLogin(values.username, values.password);
     };
     

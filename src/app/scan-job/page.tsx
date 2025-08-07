@@ -1742,7 +1742,8 @@ function PhaseCard({ phase, job, permissions, handlers }: {
 
     const shouldShowAddMaterialButton =
       (phase.requiresMaterialScan || phase.requiresMaterialSearch) &&
-      phase.status !== 'completed';
+      phase.status !== 'completed' &&
+      phase.materialConsumptions.length === 0;
 
     return (
         <Card key={phase.id} className={`p-4 bg-card/50 ${!permissions.operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
@@ -1810,8 +1811,7 @@ function PhaseCard({ phase, job, permissions, handlers }: {
                     size="sm"
                     onClick={() => handlers.handleOpenMaterialScanDialog(phase)}
                     variant="default"
-                    disabled={true} // Temporarily disabled
-                    className="opacity-50 cursor-not-allowed"
+                    disabled={!permissions.operatorHasPermissionForDepartment}
                 >
                     <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
                 </Button>

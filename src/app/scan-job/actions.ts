@@ -89,11 +89,10 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     const jobRef = doc(db, "jobOrders", jobData.id);
 
     try {
-        const sortedPhases = [...jobData.phases].sort((a, b) => a.sequence - b.sequence);
-        const lastPhaseInSequence = sortedPhases[sortedPhases.length - 1];
+        const allPhasesCompleted = jobData.phases.length > 0 && jobData.phases.every(p => p.status === 'completed');
 
-        // A job is completed if its last phase is completed, AND there is no open problem report.
-        if (lastPhaseInSequence?.status === 'completed' && !jobData.isProblemReported && jobData.status !== 'suspended') {
+        // A job is completed if ALL its phases are completed, AND there is no open problem report.
+        if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
             if (!jobData.overallEndTime) {
                 jobData.overallEndTime = new Date();

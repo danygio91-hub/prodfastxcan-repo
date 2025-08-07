@@ -79,7 +79,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         type,
         requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
         requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
-        allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[] | undefined) || [],
+        allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[]) || [],
     };
 
     if (id) {

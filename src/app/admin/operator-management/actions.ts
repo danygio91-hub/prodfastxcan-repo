@@ -45,7 +45,7 @@ export async function getOperators(): Promise<Operator[]> {
   return operatorList;
 }
 
-export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>) {
+export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>): Promise<{ success: boolean; message: string; errors?: any }> {
   
   const validatedFields = operatorFormSchema.safeParse(rawData);
 
@@ -57,7 +57,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>) 
     };
   }
   
-  let repartiToSave: Reparto[] = [];
+  let repartiToSave: Reparto[];
   if (validatedFields.data.role === 'admin') {
       repartiToSave = ['N/D'];
   } else if (validatedFields.data.role === 'superadvisor') {

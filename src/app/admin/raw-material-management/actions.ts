@@ -396,17 +396,12 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
     for (const row of data) {
         const validated = importSchema.safeParse(row);
         
-        if (!validated.success) {
+        if (!validated.success || !validated.data.code) {
             skippedCount++;
             continue;
         }
 
         const { data: validData } = validated;
-
-        if (!validData.code) {
-          skippedCount++;
-          continue;
-        }
         
         const trimmedCode = validData.code.trim();
         const normalizedCode = trimmedCode.toLowerCase();
@@ -503,7 +498,3 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
-
-    
-
-    

@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
@@ -38,9 +39,13 @@ function formatDuration(ms: number): string {
 
 function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   return periods.reduce((acc, period) => {
-    const end = period.end ? new Date(period.end) : new Date(); // Use now for active periods
     const start = new Date(period.start);
-    if (isNaN(start.getTime()) || (period.end === null && isNaN(end.getTime())) || (period.end && isNaN(new Date(period.end).getTime()))) return acc;
+    if (isNaN(start.getTime())) return acc;
+    
+    // If a period is still active, its end time is 'now'.
+    const end = period.end ? new Date(period.end) : new Date();
+    if (isNaN(end.getTime())) return acc;
+
     return acc + differenceInMilliseconds(end, start);
   }, 0);
 }
@@ -80,7 +85,7 @@ export async function getJobsReport() {
 
 
     return jobs.map(job => {
-        const allWorkPeriods = job.phases.flatMap(p => p.workPeriods || []);
+        const allWorkPeriods = (job.phases || []).flatMap(p => p.workPeriods || []);
         const timeElapsedMs = calculateTimeForPeriods(allWorkPeriods);
         
         const operatorIds = [...new Set(allWorkPeriods.map(p => p.operatorId))];
@@ -125,7 +130,7 @@ export async function getOperatorsReport() {
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const allWorkPeriods = jobs.flatMap(job => 
-        job.phases.flatMap(phase => 
+        (job.phases || []).flatMap(phase => 
             (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))
         )
     );

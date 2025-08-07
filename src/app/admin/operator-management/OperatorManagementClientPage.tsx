@@ -111,7 +111,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
         nome: operator.nome,
         cognome: operator.cognome || '',
         email: operator.email || '',
-        reparto: Array.isArray(operator.reparto) ? operator.reparto : [operator.reparto],
+        reparto: Array.isArray(operator.reparto) ? operator.reparto : (operator.reparto ? [operator.reparto] : []),
         role: operator.role,
       });
     } else {
@@ -211,7 +211,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                 <TableBody>
                   {operators.length > 0 ? (
                     operators.map((op) => {
-                      const opReparti = Array.isArray(op.reparto) ? op.reparto : [op.reparto];
+                      const opReparti = Array.isArray(op.reparto) ? op.reparto : (op.reparto ? [op.reparto] : []);
                       const validReparti = op.role === 'superadvisor' ? ['Officina'] : opReparti.filter(r => reparti.includes(r));
                       
                       return (

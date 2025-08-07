@@ -56,7 +56,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     const allTemplates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
     const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
 
-    const phases = phaseTemplateIds.map((templateId): JobPhase | null => {
+    const phases: JobPhase[] = phaseTemplateIds.map((templateId): JobPhase | null => {
         const template = allTemplatesMap.get(templateId);
         if (!template) {
             console.warn(`Phase template with id ${templateId} not found in a work cycle.`);
@@ -142,6 +142,10 @@ export async function processAndValidateImport(data: any[]): Promise<{
         }
         
         const { data: validData } = validated;
+        if (!validData.ordinePF) {
+            skippedCount++;
+            continue;
+        }
         const sanitizedId = sanitizeDocumentId(validData.ordinePF);
         
         const jobRef = doc(db, "jobOrders", sanitizedId);
@@ -406,7 +410,6 @@ export async function createMultipleODLs(jobIds: string[]): Promise<{ success: b
     const counterRef = doc(db, 'counters', `odl_${year}`);
 
     try {
-        const jobsToProcessRefs = jobIds.map(id => doc(db, "jobOrders", id));
         const jobsSnaps = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
         const jobsDataMap = new Map(jobsSnaps.docs.map(d => [d.id, d.data() as JobOrder]));
 
@@ -522,10 +525,9 @@ export async function cancelMultipleODLs(jobIds: string[]): Promise<{ success: b
 
   // We can't use a transaction here for reads as we are doing a write batch,
   // so we fetch all documents first.
-  const jobsToProcessRefs = jobIds.map(id => doc(db, "jobOrders", id));
-  const jobDocs = await Promise.all(jobsToProcessRefs.map(ref => getDoc(ref)));
+  const jobDocs = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
 
-  for (const docSnap of jobDocs) {
+  for (const docSnap of jobDocs.docs) {
     if (docSnap.exists() && docSnap.data().status === 'production') {
       batch.update(docSnap.ref, { status: 'planned', odlCreationDate: null });
       canceledCount++;
@@ -606,6 +608,3 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
-
-
-    

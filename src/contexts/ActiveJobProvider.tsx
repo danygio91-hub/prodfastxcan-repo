@@ -39,6 +39,21 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     setActiveJobIdState(storedJobId);
   }, [operator, authLoading]);
 
+  const setActiveJobId = useCallback((jobId: string | null) => {
+    if (!operator) return; 
+
+    setActiveJobIdState(jobId);
+    try {
+      const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
+      if (jobId) {
+        localStorage.setItem(storageKey, jobId);
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    } catch (error) {
+      console.error("Failed to save active job ID to localStorage", error);
+    }
+  }, [operator]);
 
   // Effect to listen for real-time updates on the active job
   useEffect(() => {
@@ -80,24 +95,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [activeJobId]);
-
-
-  const setActiveJobId = useCallback((jobId: string | null) => {
-    if (!operator) return; 
-
-    setActiveJobIdState(jobId);
-    try {
-      const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
-      if (jobId) {
-        localStorage.setItem(storageKey, jobId);
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-    } catch (error) {
-      console.error("Failed to save active job ID to localStorage", error);
-    }
-  }, [operator]);
+  }, [activeJobId, setActiveJobId]);
   
   const setActiveJob = useCallback((job: JobOrder | null) => {
     setActiveJobState(job);
