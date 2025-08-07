@@ -422,7 +422,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             unitOfMeasure = 'kg';
         } else if (rawUoM === 'm' || rawUoM === 'mt') {
             unitOfMeasure = 'mt';
-        } else if (rawUoM === 'n') {
+        } else {
             unitOfMeasure = 'n';
         }
 

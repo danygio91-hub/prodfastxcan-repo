@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -89,7 +90,7 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     const jobRef = doc(db, "jobOrders", jobData.id);
 
     try {
-        const allPhasesCompleted = jobData.phases.length > 0 && jobData.phases.every(p => p.status === 'completed');
+        const allPhasesCompleted = (jobData.phases || []).length > 0 && (jobData.phases || []).every(p => p.status === 'completed');
 
         // A job is completed if ALL its phases are completed, AND there is no open problem report.
         if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {

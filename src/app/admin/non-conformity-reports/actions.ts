@@ -62,9 +62,9 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
                 date: new Date(report.reportDate).toISOString(),
                 ddt: `NC-APPROVATA`,
                 netQuantity: report.quantity,
-                lotto: report.lotto,
                 grossWeight: report.quantity, // Assume net = gross for NC approval
                 tareWeight: 0,
+                lotto: report.lotto,
             };
 
             const updatedBatches = [...existingBatches, newBatch];
