@@ -19,7 +19,7 @@ const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
+  departmentCodes: z.array(z.enum(reparti as [string, ...string[]])).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),

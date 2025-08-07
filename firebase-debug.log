@@ -1259,3 +1259,89 @@ Type error: 'validData.code' is possibly 'undefined'.
 [debug] [2025-08-07T08:32:07.683Z] Error: ENOENT: no such file or directory, open '/home/user/studio/.next/export-marker.json'
 [error] 
 [error] Error: An unexpected error has occurred.
+[debug] [2025-08-07T11:17:21.037Z] ----------------------------------------------------------------------
+[debug] [2025-08-07T11:17:21.123Z] Command:       /nix/store/ws50yvm6vzlzf7jzz6n7xh4szddrack1-nodejs-20.19.1/bin/node /home/user/.global_modules/bin/firebase deploy --only hosting --project=prodfastxcan
+[debug] [2025-08-07T11:17:21.138Z] CLI Version:   14.12.0
+[debug] [2025-08-07T11:17:21.146Z] Platform:      linux
+[debug] [2025-08-07T11:17:21.146Z] Node Version:  v20.19.1
+[debug] [2025-08-07T11:17:21.159Z] Time:          Thu Aug 07 2025 11:17:21 GMT+0000 (Coordinated Universal Time)
+[debug] [2025-08-07T11:17:21.171Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-08-07T11:17:29.209Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"projects"}
+[debug] [2025-08-07T11:17:29.381Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform","https://www.googleapis.com/auth/userinfo.email"]
+[debug] [2025-08-07T11:17:29.394Z] > authorizing via signed-in user (dany.gio91@gmail.com)
+[debug] [2025-08-07T11:17:29.395Z] [iam] checking project prodfastxcan for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-08-07T11:17:29.423Z] Checked if tokens are valid: false, expires at: 1754558854669
+[debug] [2025-08-07T11:17:29.431Z] Checked if tokens are valid: false, expires at: 1754558854669
+[debug] [2025-08-07T11:17:29.432Z] > refreshing access token with scopes: []
+[debug] [2025-08-07T11:17:29.518Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2025-08-07T11:17:29.518Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-08-07T11:17:31.316Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2025-08-07T11:17:31.323Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2025-08-07T11:17:31.428Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions [none]
+[debug] [2025-08-07T11:17:31.433Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions x-goog-quota-user=projects/prodfastxcan
+[debug] [2025-08-07T11:17:31.440Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-08-07T11:17:32.230Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions 200
+[debug] [2025-08-07T11:17:32.231Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/prodfastxcan:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-08-07T11:17:32.252Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:17:32.253Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:17:32.298Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan [none]
+[debug] [2025-08-07T11:17:32.666Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan 200
+[debug] [2025-08-07T11:17:32.676Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/prodfastxcan {"projectId":"prodfastxcan","projectNumber":"724257897568","displayName":"ProdFastXcan","name":"projects/prodfastxcan","resources":{"hostingSite":"prodfastxcan"},"state":"ACTIVE","etag":"1_0ffd2fc6-a82b-4a40-bf99-8a4715118a86"}
+[debug] [2025-08-07T11:18:11.114Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:11.115Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:11.118Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites pageToken=&pageSize=10
+[debug] [2025-08-07T11:18:11.938Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites 200
+[debug] [2025-08-07T11:18:11.940Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites {"sites":[{"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"},{"name":"projects/prodfastxcan/sites/prodfastxcan-work","defaultUrl":"https://prodfastxcan-work.web.app","type":"USER_SITE"}]}
+[debug] [2025-08-07T11:18:11.942Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:11.942Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:11.943Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config [none]
+[debug] [2025-08-07T11:18:12.660Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config 200
+[debug] [2025-08-07T11:18:12.664Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/-/webApps/1:724257897568:web:2054074f18364ed0e91705/config {"projectId":"prodfastxcan","appId":"1:724257897568:web:2054074f18364ed0e91705","storageBucket":"prodfastxcan.firebasestorage.app","apiKey":"AIzaSyCa40ioQz_fkKUWIXEKaLdNB4qct785uoU","authDomain":"prodfastxcan.firebaseapp.com","messagingSenderId":"724257897568","measurementId":"G-8XZHSKPWPP"}
+[info] 
+   Thank you for trying our early preview of Next.js support on Firebase Hosting.
+   During the preview, support is best-effort and breaking changes can be expected. Proceed with caution.
+
+   Documentation: https://firebase.google.com/docs/hosting/frameworks/nextjs
+   File a bug: https://github.com/firebase/firebase-tools/issues/new?template=bug_report.md
+   Submit a feature request: https://github.com/firebase/firebase-tools/issues/new?template=feature_request.md
+
+   We'd love to learn from you. Express your interest in helping us shape the future of Firebase Hosting: https://goo.gle/41enW5X
+
+[debug] [2025-08-07T11:18:35.537Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:35.538Z] Checked if tokens are valid: true, expires at: 1754569050339
+[debug] [2025-08-07T11:18:35.538Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan [none]
+[debug] [2025-08-07T11:18:36.325Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan 200
+[debug] [2025-08-07T11:18:36.329Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/prodfastxcan/sites/prodfastxcan {"name":"projects/prodfastxcan/sites/prodfastxcan","defaultUrl":"https://prodfastxcan.web.app","appId":"1:724257897568:web:2054074f18364ed0e91705","type":"DEFAULT_SITE"}
+[info]   ▲ Next.js 14.2.3
+
+[info] 
+
+[info]    Creating an optimized production build ...
+
+[info]  ✓ Compiled successfully
+
+[info]    Linting and checking validity of types ...
+
+[info] Failed to compile.
+
+./src/app/admin/work-phase-management/actions.ts:22:35
+Type error: No overload matches this call.
+  Overload 1 of 2, '(values: readonly [string, ...string[]], params?: RawCreateParams): ZodEnum<[string, ...string[]]>', gave the following error.
+    Argument of type 'Reparto[]' is not assignable to parameter of type 'readonly [string, ...string[]]'.
+      Source provides no match for required element at position 0 in target.
+  Overload 2 of 2, '(values: [string, ...string[]], params?: RawCreateParams): ZodEnum<[string, ...string[]]>', gave the following error.
+    Argument of type 'Reparto[]' is not assignable to parameter of type '[string, ...string[]]'.
+      Source provides no match for required element at position 0 in target.
+
+  20 |   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
+  21 |   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
+> 22 |   departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
+     |                                   ^
+  23 |   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
+  24 |   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  25 |   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+
+[debug] [2025-08-07T11:23:01.277Z] Error: ENOENT: no such file or directory, open '/home/user/studio/.next/export-marker.json'
+[error] 
+[error] Error: An unexpected error has occurred.
