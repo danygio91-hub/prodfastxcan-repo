@@ -62,7 +62,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         return {
             id: template.id,
             name: template.name,
-            status: 'pending',
+            status: 'pending' as const,
             materialReady: template.type === 'preparation',
             workPeriods: [],
             sequence: template.sequence,
@@ -595,5 +595,7 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
+
+    
 
     
