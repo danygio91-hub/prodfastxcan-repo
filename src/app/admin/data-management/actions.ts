@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -153,9 +154,17 @@ export async function processAndValidateImport(data: any[]): Promise<{
         let odlToAssign: string | null = null;
         if (validData.numeroODLInternoImport) {
             const odlString = String(validData.numeroODLInternoImport);
-            const match = odlString.match(/\d+/); // Extract first sequence of digits
-            if (match) {
-                 odlToAssign = `${match[0]}/${shortYear}`;
+            // Handle scientific notation from Excel (e.g., 2.02401e+6)
+            if (odlString.toLowerCase().includes('e+')) {
+                const num = parseFloat(odlString);
+                if (!isNaN(num)) {
+                    odlToAssign = `${Math.round(num)}/${shortYear}`;
+                }
+            } else {
+                const match = odlString.match(/\d+/); // Extract first sequence of digits
+                if (match) {
+                     odlToAssign = `${match[0]}/${shortYear}`;
+                }
             }
         }
         
@@ -597,3 +606,6 @@ export async function getJobDetailReport(jobId: string): Promise<JobOrder | null
     // Convert Firestore Timestamps to JS Dates
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
 }
+
+
+    
