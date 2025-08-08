@@ -1,0 +1,31 @@
+# Specifies the version of the App Hosting platform.
+specVersion: v1alpha1
+
+# Specifies the region where the backend is hosted.
+region: europe-west1
+
+# Defines the build and run settings for the application.
+# Next.js applications have a single run command.
+run:
+  # Specifies the command to run the application.
+  # This should be the 'start' script from package.json.
+  command: npm run start
+  # Specifies the scaling settings for the backend.
+  scaling:
+    # The minimum number of instances to keep running.
+    minInstances: 0
+
+# Defines the build settings for the application.
+build:
+  # Specifies the command to build the application.
+  # This should be the 'build' script from package.json.
+  command: npm run build
+  # Specifies the output directory of the build.
+  # For Next.js, this is typically '.next'.
+  outputDir: .next
+
+# Specifies the environment variables for the application.
+# Environment variables can be defined here.
+# env:
+#   - variable: MY_API_KEY
+#     value: "my-api-key"
