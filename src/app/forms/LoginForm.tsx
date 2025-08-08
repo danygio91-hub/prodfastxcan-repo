@@ -87,9 +87,7 @@ export default function LoginForm() {
         try {
             await login(username, password_used);
         } catch (error) {
-            useEffect(() => {
-                localStorage.removeItem('login_redirect_path');
-            }, []);
+            localStorage.removeItem('login_redirect_path');
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
             toast({
                 title: "Accesso Fallito",
@@ -189,9 +187,7 @@ export default function LoginForm() {
 
 
     const onManualSubmit = (values: z.infer<typeof manualLoginSchema>) => {
-        useEffect(() => {
-            localStorage.removeItem('login_redirect_path');
-        }, []);
+        localStorage.removeItem('login_redirect_path');
         performLogin(values.username, values.password);
     };
     
