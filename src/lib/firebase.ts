@@ -3,15 +3,15 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-// Your web app's Firebase configuration for the "prodfastxcan" project.
+// Your web app's Firebase configuration for the "prodfastxcanwork" project.
 const firebaseConfig = {
-  apiKey: "AIzaSyClGHZv_Q5MuagJfF-xzkdO3dAr6qCEuTQ",
-  authDomain: "prodfastxcan.firebaseapp.com",
-  projectId: "prodfastxcan",
-  storageBucket: "prodfastxcan.appspot.com",
-  messagingSenderId: "724257897568",
-  appId: "1:724257897568:web:2054074f18364ed0e91705",
-  measurementId: "G-8XZHSKPWPP"
+  "projectId": "prodfastxcanwork",
+  "appId": "1:793652075129:web:10e9f4b5714498875792a8",
+  "storageBucket": "prodfastxcanwork.firebasestorage.app",
+  "apiKey": "AIzaSyBOVtLee0ERy-ZEcdQVaaZnM6F0TWL7zIo",
+  "authDomain": "prodfastxcanwork.firebaseapp.com",
+  "measurementId": "",
+  "messagingSenderId": "793652075129"
 };
 
 

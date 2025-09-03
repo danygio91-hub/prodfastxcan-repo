@@ -1,7 +1,7 @@
 
 {
   "projects": {
-    "default": "prodfastxcan"
+    "default": "prodfastxcanwork"
   },
   "hosting": {
     "source": ".",
@@ -12,7 +12,7 @@
     ],
     "frameworksBackend": {
       "region": "europe-west1",
-      "projectId": "prodfastxcan"
+      "projectId": "prodfastxcanwork"
     }
   },
   "firestore": {
