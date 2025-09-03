@@ -203,11 +203,6 @@ export default function LoginForm() {
         setInstallPrompt(null);
     };
 
-    const handleDeveloperLogin = () => {
-        // Use the correct email for the admin login
-        performLogin('daniel@prodfastxcan.app', 'Filapara.9!');
-    };
-
     const renderStep = () => {
         switch (step) {
             case 'initial':
@@ -251,7 +246,6 @@ export default function LoginForm() {
                             </Button>
                         </CardContent>
                          <CardFooter className="flex-col gap-2">
-                             <Button onClick={handleDeveloperLogin} variant="link" className="text-destructive">Accesso Sviluppatore (Admin)</Button>
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
