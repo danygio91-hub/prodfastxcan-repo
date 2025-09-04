@@ -165,6 +165,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setOperator(operatorProfile);
           storeOperator(operatorProfile);
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());
+
+          // Perform redirect after login
+           const targetPath = localStorage.getItem('login_redirect_path');
+           localStorage.removeItem('login_redirect_path'); // Clean up
+
+          if (targetPath) {
+              router.replace(targetPath);
+          } else if (operatorProfile.role === 'admin' || operatorProfile.role === 'supervisor') {
+              router.replace('/admin/dashboard');
+          } else {
+              router.replace('/dashboard');
+          }
+          
         } else {
           console.error(`Auth consistency error: Firebase user ${firebaseUser.email} exists but has no matching operator profile. Forcing logout.`);
           await fullLogout();
@@ -178,7 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchOperatorProfile, fullLogout]);
+  }, [fetchOperatorProfile, fullLogout, router]);
 
 
   return (

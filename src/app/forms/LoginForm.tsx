@@ -52,7 +52,6 @@ type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
-    const [isLoading, setIsLoading] = useState(false);
     const [isScanning, setIsScanning] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -81,10 +80,10 @@ export default function LoginForm() {
     }, []);
 
     const performLogin = useCallback(async (username: string, password_used: string) => {
-        setIsLoading(true);
         setStep('logging_in');
         try {
             await login(username, password_used);
+            // On success, the AuthProvider's onAuthStateChanged listener will handle the redirect.
         } catch (error) {
             localStorage.removeItem('login_redirect_path');
             const errorMessage = error instanceof Error ? error.message : "Credenziali non valide o utente non trovato.";
@@ -93,7 +92,6 @@ export default function LoginForm() {
                 description: errorMessage,
                 variant: "destructive",
             });
-            setIsLoading(false); 
             setStep('manual_login');
         }
     }, [toast]);
@@ -320,9 +318,9 @@ export default function LoginForm() {
                                     <FormField control={manualForm.control} name="password" render={({ field }) => ( <FormItem> <FormLabel className="flex items-center"><Lock className="mr-2 h-5 w-5" />Password</FormLabel> <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
                                 </CardContent>
                                 <CardFooter className="flex-col gap-4">
-                                    <Button type="submit" className="w-full" disabled={isLoading || authLoading}>
-                                        {(isLoading || authLoading) ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
-                                        {(isLoading || authLoading) ? "Verifica..." : "Accedi"}
+                                    <Button type="submit" className="w-full" disabled={authLoading}>
+                                        {authLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <LogIn className="mr-2 h-5 w-5" />}
+                                        {authLoading ? "Verifica..." : "Accedi"}
                                     </Button>
                                     <Button variant="link" size="sm" onClick={() => setStep('initial')}>Torna all'accesso rapido</Button>
                                 </CardFooter>
