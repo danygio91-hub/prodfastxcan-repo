@@ -42,9 +42,9 @@ export default function AdminDashboardPage() {
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <item.icon className="h-10 w-10 text-primary" />
-                       <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                       <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                           <ArrowRight className="h-5 w-5" />
-                       </Button>
+                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="flex-grow">

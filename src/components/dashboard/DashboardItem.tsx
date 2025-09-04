@@ -34,17 +34,14 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
                         <Icon className="h-7 w-7 text-primary" />
                         <span>{title}</span>
                     </div>
+                     <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ArrowRight className="h-5 w-5" />
+                    </div>
                 </CardTitle>
             </CardHeader>
             <CardContent className="flex-grow">
                 <CardDescription>{description}</CardDescription>
             </CardContent>
-            <CardFooter>
-                <Button variant="link" className="p-0 h-auto text-primary">
-                    Vai alla funzione
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-            </CardFooter>
         </>
     );
 
