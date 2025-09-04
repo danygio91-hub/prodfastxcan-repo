@@ -3,7 +3,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowRight } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from '../ui/button';
@@ -29,15 +29,15 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
     const cardContent = (
         <>
             <CardHeader>
-                <div className="flex items-center justify-between">
-                    <Icon className="h-10 w-10 text-primary" />
+                 <div className="flex justify-between items-start">
+                    <Icon className="h-10 w-10 text-primary mb-4" />
                     <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                         <ArrowRight className="h-5 w-5" />
                     </div>
                 </div>
             </CardHeader>
             <CardContent className="flex-grow">
-                <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
+                <CardTitle className="text-xl font-headline mb-2">{title}</CardTitle>
                 <CardDescription>{description}</CardDescription>
             </CardContent>
         </>
