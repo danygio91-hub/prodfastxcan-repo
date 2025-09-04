@@ -328,7 +328,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                   <FormField
                     control={form.control}
                     name="reparto"
-                    render={() => (
+                    render={({ field }) => (
                       <FormItem>
                         <div className="mb-4">
                           <FormLabel>Reparti di Competenza</FormLabel>
@@ -337,38 +337,28 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                           </FormDescription>
                         </div>
                         {departments.map((item) => (
-                          <FormField
+                           <FormItem
                             key={item.id}
-                            control={form.control}
-                            name="reparto"
-                            render={({ field }) => {
-                              return (
-                                <FormItem
-                                  key={item.id}
-                                  className="flex flex-row items-start space-x-3 space-y-0"
-                                >
-                                  <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(item.code)}
-                                      onCheckedChange={(checked) => {
-                                        const currentValue = field.value || [];
-                                        return checked
-                                          ? field.onChange([...currentValue, item.code])
-                                          : field.onChange(
-                                              currentValue.filter(
-                                                (value) => value !== item.code
-                                              )
-                                            )
-                                      }}
-                                    />
-                                  </FormControl>
-                                  <FormLabel className="font-normal">
-                                    {item.name}
-                                  </FormLabel>
-                                </FormItem>
-                              )
-                            }}
-                          />
+                            className="flex flex-row items-start space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(item.code)}
+                                onCheckedChange={(checked) => {
+                                  const currentValue = field.value || [];
+                                  const newValue = checked
+                                    ? [...currentValue, item.code]
+                                    : currentValue.filter(
+                                        (value) => value !== item.code
+                                      );
+                                  field.onChange(newValue);
+                                }}
+                              />
+                            </FormControl>
+                            <FormLabel className="font-normal">
+                              {item.name}
+                            </FormLabel>
+                          </FormItem>
                         ))}
                         <FormMessage />
                       </FormItem>
