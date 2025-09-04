@@ -16,7 +16,6 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
     { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
     { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer },
-    { href: '/admin/department-permissions', label: 'Gestione Permessi Reparto', description: 'Definisci quali tipi di fase ogni reparto può eseguire.', icon: LockKeyhole },
   ];
 
   return (
