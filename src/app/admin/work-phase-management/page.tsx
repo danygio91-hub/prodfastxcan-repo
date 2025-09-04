@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type WorkPhaseTemplate, type Reparto, reparti, RawMaterialType } from '@/lib/mock-data';
+import { type WorkPhaseTemplate, type Reparto, RawMaterialType } from '@/lib/mock-data';
 import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdere
 import AppShell from '@/components/layout/AppShell';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 
+const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'Collaudo', 'Officina', 'N/D'];
 const materialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA'];
 
 const workPhaseSchema = z.object({
