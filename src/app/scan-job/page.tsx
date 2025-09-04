@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -1381,7 +1380,7 @@ export default function ScanJobPage() {
                   ) : scannedMaterialForPhase.type === 'TUBI' ? (
                       <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                               <FormField
                                   control={tubiGuainaWithdrawalForm.control}
                                   name="unit"
@@ -1417,7 +1416,7 @@ export default function ScanJobPage() {
                   ) : (
                       <Form {...phaseMaterialForm}>
                           <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                               
                               <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
                                   <FormItem>
