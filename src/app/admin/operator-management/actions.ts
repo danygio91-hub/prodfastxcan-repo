@@ -1,12 +1,11 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { type Operator, type Reparto, reparti } from '@/lib/mock-data';
+import { type Operator, type Department } from '@/lib/mock-data';
 
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
@@ -44,6 +43,15 @@ export async function getOperators(): Promise<Operator[]> {
   return operatorList;
 }
 
+export async function getDepartments(): Promise<Department[]> {
+  const col = collection(db, "departments");
+  const snapshot = await getDocs(col);
+  if (snapshot.empty) {
+      return [];
+  }
+  return snapshot.docs.map(d => d.data() as Department);
+}
+
 export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>): Promise<{ success: boolean; message: string; errors?: any }> {
   
   const validatedFields = operatorFormSchema.safeParse(rawData);
@@ -56,16 +64,6 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
     };
   }
   
-  let repartiToSave: Reparto[];
-  if (validatedFields.data.role === 'admin') {
-      repartiToSave = ['N/D'];
-  } else if (validatedFields.data.role === 'supervisor') {
-      repartiToSave = ['Officina']; 
-  } else {
-      repartiToSave = (validatedFields.data.reparto || []).filter(r => (reparti as readonly string[]).includes(r)) as Reparto[];
-  }
-
-
   const { id, email } = validatedFields.data;
   const nome = validatedFields.data.nome.trim();
   const role = validatedFields.data.role;
@@ -73,7 +71,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
   
   const dataToSave: Partial<Operator> = {
       nome,
-      reparto: repartiToSave,
+      reparto: validatedFields.data.reparto || [],
       role,
       nome_normalized,
       email: email.trim().toLowerCase(), // Use the provided email
@@ -93,7 +91,6 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
       id: newId,
       ...dataToSave,
       stato: 'inattivo', // Default state for new operators
-      password: '1234', // Default password for new operators
       privacySigned: false, // Default privacy status
     } as Operator;
     await setDoc(operatorRef, newOperator);

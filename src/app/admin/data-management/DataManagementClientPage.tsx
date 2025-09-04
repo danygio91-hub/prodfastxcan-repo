@@ -54,14 +54,12 @@ type OdlFormValues = z.infer<typeof odlFormSchema>;
 interface DataManagementClientPageProps {
   plannedJobOrders: JobOrder[];
   productionJobOrders: JobOrder[];
-  departmentMap: { [key in Reparto]?: string };
   workCycles: WorkCycle[];
 }
 
 export default function DataManagementClientPage({
   plannedJobOrders,
   productionJobOrders,
-  departmentMap,
   workCycles,
 }: DataManagementClientPageProps) {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -519,8 +517,9 @@ export default function DataManagementClientPage({
                             <TableCell>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
-                                        <Button variant="link" className={cn("p-0 h-auto hover:underline", !job.workCycleId && "text-destructive")}>
-                                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D'}
+                                        <Button variant="outline" className={cn("w-full justify-between", !job.workCycleId && "text-destructive")}>
+                                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'Seleziona...'}
+                                             <GitMerge className="ml-2 h-4 w-4 opacity-50" />
                                         </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent>
@@ -750,5 +749,3 @@ export default function DataManagementClientPage({
       </div>
   );
 }
-
-    

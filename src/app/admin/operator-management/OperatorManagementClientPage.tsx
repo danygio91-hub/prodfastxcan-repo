@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -9,7 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Operator, type Reparto, reparti } from '@/lib/mock-data';
+import { type Operator, type Department } from '@/lib/mock-data';
 import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 import type { StatoOperatore, OperatorRole } from '@/lib/mock-data';
@@ -66,10 +65,12 @@ const StatusBadge = ({ status }: { status: StatoOperatore }) => (
 
 interface OperatorManagementClientPageProps {
   initialOperators: Operator[];
+  initialDepartments: Department[];
 }
 
-export default function OperatorManagementClientPage({ initialOperators }: OperatorManagementClientPageProps) {
+export default function OperatorManagementClientPage({ initialOperators, initialDepartments }: OperatorManagementClientPageProps) {
   const [operators, setOperators] = useState<Operator[]>(initialOperators);
+  const [departments, setDepartments] = useState<Department[]>(initialDepartments);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const { toast } = useToast();
@@ -88,8 +89,10 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
 
   const watchedRole = form.watch('role');
   const roles: OperatorRole[] = ['admin', 'supervisor', 'operator'];
-  const operationalReparti = reparti.filter(r => r !== 'N/D' && r !== 'Officina');
 
+  useEffect(() => {
+    setDepartments(initialDepartments);
+  }, [initialDepartments]);
 
   useEffect(() => {
     if (watchedRole === 'admin' || watchedRole === 'supervisor') {
@@ -108,7 +111,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
         id: operator.id,
         nome: operator.nome,
         email: operator.email || '',
-        reparto: Array.isArray(operator.reparto) ? operator.reparto : (operator.reparto ? [operator.reparto] : []),
+        reparto: Array.isArray(operator.reparto) ? operator.reparto : [],
         role: operator.role,
       });
     } else {
@@ -154,7 +157,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
         'ID': op.id,
         'Nome': op.nome,
         'Email': op.email,
-        'Reparto': Array.isArray(op.reparto) ? op.reparto.join(', ') : op.reparto,
+        'Reparto': Array.isArray(op.reparto) ? op.reparto.map(r => departments.find(d => d.code === r)?.name || r).join(', ') : '',
         'Ruolo': op.role,
         'Stato': op.stato,
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
@@ -207,8 +210,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                 <TableBody>
                   {operators.length > 0 ? (
                     operators.map((op) => {
-                      const opReparti = Array.isArray(op.reparto) ? op.reparto : (op.reparto ? [op.reparto] : []);
-                      const validReparti = op.role === 'supervisor' ? ['Officina'] : opReparti.filter(r => reparti.includes(r));
+                      const opReparti = Array.isArray(op.reparto) ? op.reparto : [];
                       
                       return (
                       <TableRow key={op.id}>
@@ -216,7 +218,7 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                         <TableCell>{op.email}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {validReparti.map(r => <Badge key={r} variant="secondary">{r}</Badge>)}
+                            {opReparti.map(r => <Badge key={r} variant="secondary">{departments.find(d => d.code === r)?.name || r}</Badge>)}
                           </div>
                         </TableCell>
                         <TableCell className="capitalize">{op.role}</TableCell>
@@ -331,34 +333,34 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                             Seleziona uno o più reparti (max 3).
                           </FormDescription>
                         </div>
-                        {operationalReparti.map((item) => (
+                        {departments.map((item) => (
                           <FormField
-                            key={item}
+                            key={item.id}
                             control={form.control}
                             name="reparto"
                             render={({ field }) => {
                               return (
                                 <FormItem
-                                  key={item}
+                                  key={item.id}
                                   className="flex flex-row items-start space-x-3 space-y-0"
                                 >
                                   <FormControl>
                                     <Checkbox
-                                      checked={field.value?.includes(item)}
+                                      checked={field.value?.includes(item.code)}
                                       onCheckedChange={(checked) => {
                                         const currentValue = field.value || [];
                                         return checked
-                                          ? field.onChange([...currentValue, item])
+                                          ? field.onChange([...currentValue, item.code])
                                           : field.onChange(
                                               currentValue.filter(
-                                                (value) => value !== item
+                                                (value) => value !== item.code
                                               )
                                             )
                                       }}
                                     />
                                   </FormControl>
                                   <FormLabel className="font-normal">
-                                    {item}
+                                    {item.name}
                                   </FormLabel>
                                 </FormItem>
                               )

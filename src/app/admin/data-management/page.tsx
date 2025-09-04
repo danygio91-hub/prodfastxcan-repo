@@ -3,7 +3,6 @@ import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
-import { getDepartmentMap } from '@/app/admin/settings/actions';
 import { Loader2 } from 'lucide-react';
 import { Suspense } from 'react';
 
@@ -13,19 +12,16 @@ async function DataManagementData() {
   const [
     planned, 
     production, 
-    departments, 
     cycles
   ] = await Promise.all([
     getPlannedJobOrders(),
     getProductionJobOrders(),
-    getDepartmentMap(),
     getWorkCycles(),
   ]);
 
   return <DataManagementClientPage 
     plannedJobOrders={planned}
     productionJobOrders={production}
-    departmentMap={departments}
     workCycles={cycles}
   />;
 }
@@ -47,5 +43,3 @@ export default async function AdminDataManagementCommessePage() {
     </AdminAuthGuard>
   );
 }
-
-    

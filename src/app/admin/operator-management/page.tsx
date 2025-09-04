@@ -2,15 +2,18 @@
 import OperatorManagementClientPage from './OperatorManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getOperators } from './actions';
+import { getOperators, getDepartments } from './actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 async function OperatorManagementData() {
-  const operators = await getOperators();
-  return <OperatorManagementClientPage initialOperators={operators} />;
+  const [operators, departments] = await Promise.all([
+    getOperators(),
+    getDepartments(),
+  ]);
+  return <OperatorManagementClientPage initialOperators={operators} initialDepartments={departments} />;
 }
 
 export default async function AdminOperatorManagementPage() {

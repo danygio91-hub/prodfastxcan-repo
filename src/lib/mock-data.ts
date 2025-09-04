@@ -1,4 +1,11 @@
+
 // --- Type Definitions ---
+
+export interface Department {
+  id: string;
+  code: string;
+  name: string;
+}
 
 export interface WorkPeriod {
   start: Date;
@@ -32,7 +39,7 @@ export interface JobPhase {
   materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
-  departmentCodes: Reparto[];
+  departmentCodes: string[];
 }
 
 export interface JobOrder {
@@ -60,18 +67,16 @@ export interface JobOrder {
   odlCreationDate?: Date;
 }
 
-export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D' | 'Officina' | 'Collaudo';
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
 export type OperatorRole = 'admin' | 'supervisor' | 'operator';
 
-export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D', 'Officina', 'Collaudo'];
 export const roles: OperatorRole[] = ['admin', 'supervisor', 'operator'];
 
 export interface Operator {
   id: string;
   uid?: string;
   nome: string;
-  reparto: Reparto | Reparto[];
+  reparto: string[]; // Department codes
   stato: StatoOperatore;
   password?: string;
   role: OperatorRole;
@@ -84,7 +89,7 @@ export interface WorkPhaseTemplate {
   id: string;
   name: string;
   description: string;
-  departmentCodes: Reparto[];
+  departmentCodes: string[];
   sequence: number;
   type: 'preparation' | 'production' | 'quality' | 'packaging';
   requiresMaterialScan?: boolean;
@@ -95,7 +100,7 @@ export interface WorkPhaseTemplate {
 export interface Workstation {
   id: string;
   name: string;
-  departmentCode: Reparto;
+  departmentCode: string;
 }
 
 export type PackagingAssociation = RawMaterialType | 'PRODOTTO';
@@ -211,20 +216,19 @@ export interface ProductionProblemReport {
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
-    { id: 'op-1', nome: 'Daniel', reparto: 'N/D', stato: 'inattivo', password: 'Filapara.9!', role: 'admin', privacySigned: false, nome_normalized: 'daniel' },
-    { id: 'op-2', nome: 'Ruben', reparto: 'Officina', stato: 'inattivo', password: '1234', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben' },
-    { id: 'op-3', nome: 'Giovanna', reparto: 'BF', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false, nome_normalized: 'giovanna' },
-    { id: 'op-4', nome: 'Paola', reparto: 'MAG', stato: 'inattivo', password: '1234', role: 'operator', privacySigned: false, nome_normalized: 'paola' },
+    { id: 'op-1', nome: 'Daniel', reparto: [], stato: 'inattivo', role: 'admin', privacySigned: false, nome_normalized: 'daniel' },
+    { id: 'op-2', nome: 'Ruben', reparto: [], stato: 'inattivo', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben' },
+    { id: 'op-3', nome: 'Giovanna', reparto: ['BF'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'giovanna' },
+    { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola' },
 ];
-export const initialDepartmentMap: { [key in Reparto]: string } = {
-    CP: 'Assemblaggio Componenti Elettronici',
-    CG: 'Controllo Qualità',
-    BF: 'Burattatura e Finitura',
-    MAG: 'Magazzino',
-    Collaudo: 'Collaudo e Test Funzionali',
-    'N/D': 'Non Definito',
-    Officina: 'Officina',
-};
+export const initialDepartments: Department[] = [
+    { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici' },
+    { id: 'CG', code: 'CG', name: 'Controllo Qualità' },
+    { id: 'BF', code: 'BF', name: 'Burattatura e Finitura' },
+    { id: 'MAG', code: 'MAG', name: 'Magazzino' },
+    { id: 'Collaudo', code: 'Collaudo', name: 'Collaudo e Test Funzionali' },
+    { id: 'Officina', code: 'Officina', name: 'Officina' },
+];
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
     { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },
     { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['TUBI'] },
