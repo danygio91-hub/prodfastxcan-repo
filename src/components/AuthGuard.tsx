@@ -21,7 +21,9 @@ export default function AuthGuard({ children }: AuthGuardProps) {
                 router.replace('/');
             } else if (operator && !operator.privacySigned && operator.role !== 'admin') {
                 // Logged in but privacy not signed (and not an admin), redirect to operator page to force signature
-                router.replace('/operator');
+                if (router.pathname !== '/operator') {
+                  router.replace('/operator');
+                }
             }
         }
     }, [user, operator, loading, router]);
