@@ -49,6 +49,15 @@ export default function AdminCompanySettingsPage() {
     });
   };
 
+  const navItems = [
+    { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users },
+    { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Aggiungi, modifica e importa le materie prime.', icon: Boxes },
+    { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow },
+    { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
+    { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
+    { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer },
+  ];
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -65,46 +74,50 @@ export default function AdminCompanySettingsPage() {
             </p>
           </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <Link href="/admin/operator-management" className="block h-full">
-                <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                    <CardHeader>
-                        <CardTitle className="flex items-center justify-between">
-                             <div className="flex items-center gap-3">
-                                <Users className="h-7 w-7 text-primary" />
-                                <span>Gestione Operatori</span>
-                            </div>
-                           <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                                <ArrowRight className="h-5 w-5" />
-                           </Button>
-                        </CardTitle>
-                        <CardDescription>
-                          Aggiungi, modifica o rimuovi gli operatori e i loro permessi.
-                        </CardDescription>
-                    </CardHeader>
-                </Card>
-            </Link>
-            
-            <Link href="/admin/raw-material-management" className="block h-full">
-                <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                    <CardHeader>
-                        <CardTitle className="flex items-center justify-between">
-                             <div className="flex items-center gap-3">
-                                <Boxes className="h-7 w-7 text-primary" />
-                                <span>Gestione Materie Prime</span>
-                            </div>
-                           <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                                <ArrowRight className="h-5 w-5" />
-                           </Button>
-                        </CardTitle>
-                        <CardDescription>
-                          Aggiungi, modifica e importa le materie prime.
-                        </CardDescription>
-                    </CardHeader>
-                </Card>
-            </Link>
-
-
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+             <div className="space-y-8">
+                {navItems.slice(0, 3).map((item) => (
+                    <Link href={item.href} key={item.href} className="block h-full">
+                        <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
+                            <CardHeader>
+                                <CardTitle className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <item.icon className="h-7 w-7 text-primary" />
+                                        <span>{item.label}</span>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                                        <ArrowRight className="h-5 w-5" />
+                                    </Button>
+                                </CardTitle>
+                                <CardDescription>{item.description}</CardDescription>
+                            </CardHeader>
+                        </Card>
+                    </Link>
+                ))}
+             </div>
+             <div className="space-y-8">
+                 {navItems.slice(3, 6).map((item) => (
+                    <Link href={item.href} key={item.href} className="block h-full">
+                        <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
+                             <CardHeader>
+                                <CardTitle className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <item.icon className="h-7 w-7 text-primary" />
+                                        <span>{item.label}</span>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                                        <ArrowRight className="h-5 w-5" />
+                                    </Button>
+                                </CardTitle>
+                                <CardDescription>{item.description}</CardDescription>
+                            </CardHeader>
+                        </Card>
+                    </Link>
+                ))}
+             </div>
+          </div>
+          
+          <div className="pt-4">
             <form onSubmit={handleFormSubmit}>
               <Card>
                 <CardHeader>
@@ -119,7 +132,7 @@ export default function AdminCompanySettingsPage() {
                 <CardContent className="space-y-4">
                   {reparti.length > 0 ? reparti.map(code => (
                     <div key={code} className="flex items-center gap-4">
-                      <Label htmlFor={`reparto-${code}`} className="w-1/4 font-semibold">{code}</Label>
+                      <Label htmlFor={`reparto-${code}`} className="w-1/4 sm:w-1/6 font-semibold">{code}</Label>
                       <Input
                         id={`reparto-${code}`}
                         name={code}
@@ -131,90 +144,15 @@ export default function AdminCompanySettingsPage() {
                   )) : <p className="text-muted-foreground">Caricamento reparti...</p>}
                 </CardContent>
                 <CardFooter>
-                    <Button type="submit" disabled={isPending} className="w-full">
+                    <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
                         {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Salva Modifiche
                     </Button>
                 </CardFooter>
               </Card>
             </form>
-
-            <Link href="/admin/work-phase-management" className="block h-full">
-             <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <Workflow className="h-7 w-7 text-primary" />
-                            <span>Gestione Fasi di Lavorazione</span>
-                        </div>
-                        <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                            <ArrowRight className="h-5 w-5" />
-                        </Button>
-                    </CardTitle>
-                    <CardDescription>
-                        Definisci le fasi standard per ogni reparto.
-                    </CardDescription>
-                </CardHeader>
-            </Card>
-            </Link>
-
-            <Link href="/admin/work-cycle-management" className="block h-full">
-             <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <GitMerge className="h-7 w-7 text-primary" />
-                            <span>Gestione Cicli di Lavorazione</span>
-                        </div>
-                        <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                            <ArrowRight className="h-5 w-5" />
-                        </Button>
-                    </CardTitle>
-                    <CardDescription>
-                        Crea cicli di lavorazione standard per le commesse.
-                    </CardDescription>
-                </CardHeader>
-            </Card>
-            </Link>
-
-            <Link href="/admin/packaging-management" className="block h-full">
-                <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                    <CardHeader>
-                        <CardTitle className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <Archive className="h-7 w-7 text-primary" />
-                                <span>Gestione Imballi (Tare)</span>
-                            </div>
-                           <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                                <ArrowRight className="h-5 w-5" />
-                           </Button>
-                        </CardTitle>
-                        <CardDescription>
-                          Definisci le tare da associare alle materie prime.
-                        </CardDescription>
-                    </CardHeader>
-                </Card>
-            </Link>
-
-            <Link href="/admin/workstation-management" className="block h-full">
-            <Card className="h-full hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                <CardHeader>
-                    <CardTitle className="flex items-center justify-between">
-                         <div className="flex items-center gap-3">
-                            <Computer className="h-7 w-7 text-primary" />
-                            <span>Gestione Postazioni di Lavoro</span>
-                        </div>
-                        <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                            <ArrowRight className="h-5 w-5" />
-                        </Button>
-                    </CardTitle>
-                    <CardDescription>
-                       Configura e assegna le postazioni di lavoro e i macchinari.
-                    </CardDescription>
-                </CardHeader>
-            </Card>
-            </Link>
           </div>
+
         </div>
       </AppShell>
     </AdminAuthGuard>
