@@ -1,10 +1,9 @@
-
 "use client";
 
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive } from 'lucide-react';
+import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive, LockKeyhole } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 export default function AdminCompanySettingsPage() {
@@ -17,6 +16,7 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
     { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
     { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer },
+    { href: '/admin/department-permissions', label: 'Gestione Permessi Reparto', description: 'Definisci quali tipi di fase ogni reparto può eseguire.', icon: LockKeyhole },
   ];
 
   return (
