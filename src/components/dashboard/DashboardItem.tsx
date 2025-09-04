@@ -29,15 +29,17 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
     const cardContent = (
         <>
             <CardHeader>
-                <div className="flex items-center justify-between">
-                  <Icon className="h-10 w-10 text-primary" />
+              <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-3 text-xl font-headline">
+                      <Icon className="h-6 w-6 text-primary" />
+                      <span>{title}</span>
+                  </CardTitle>
                    <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                       <ArrowRight className="h-5 w-5" />
                    </div>
                 </div>
             </CardHeader>
-            <CardContent className="flex-grow">
-                <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
+            <CardContent className="flex-grow pt-0">
                 <CardDescription>{description}</CardDescription>
             </CardContent>
         </>
