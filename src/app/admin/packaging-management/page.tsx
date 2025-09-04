@@ -10,7 +10,6 @@ import { useToast } from '@/hooks/use-toast';
 import { type Packaging, type PackagingAssociation } from '@/lib/mock-data';
 import { getPackagingItems, savePackagingItem, deletePackagingItem } from './actions';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -131,7 +130,6 @@ export default function PackagingManagementPage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <AdminNavMenu />
           <div className="flex justify-between items-center">
             <header>
               <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">

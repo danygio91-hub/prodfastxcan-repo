@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -24,7 +23,6 @@ export default async function OperatorReportDetailPage({ params }: { params: { o
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
-          <AdminNavMenu />
 
           <Button asChild variant="outline" className="w-fit">
             <Link href="/admin/reports">

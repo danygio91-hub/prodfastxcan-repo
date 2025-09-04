@@ -11,7 +11,6 @@ import { useToast } from '@/hooks/use-toast';
 import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
 import { getWorkCycles, saveWorkCycle, deleteWorkCycle, getWorkPhaseTemplates, deleteSelectedWorkCycles } from './actions';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -163,7 +162,6 @@ function WorkCycleManagementContent() {
 
   return (
         <div className="space-y-6">
-          <AdminNavMenu />
           <div className="flex justify-between items-center">
             <header>
               <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
