@@ -1,52 +1,16 @@
 
 "use client";
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Save, Loader2, Boxes, GitMerge, Archive } from 'lucide-react';
-import { type Reparto } from '@/lib/mock-data';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
+import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Boxes, GitMerge, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
-import { getDepartmentMap, updateDepartmentNames } from './actions';
 
 export default function AdminCompanySettingsPage() {
-  const [departments, setDepartments] = useState<{ [key in Reparto]?: string }>({});
-  const [isPending, startTransition] = useTransition();
-  const { toast } = useToast();
-
-  useEffect(() => {
-    getDepartmentMap().then(setDepartments);
-  }, []);
-
-  const handleInputChange = (code: Reparto, value: string) => {
-    setDepartments(prev => ({ ...prev, [code]: value }));
-  };
-
-  const handleFormSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    startTransition(async () => {
-      const result = await updateDepartmentNames(formData);
-      if (result.success) {
-        toast({
-          title: 'Successo',
-          description: result.message,
-        });
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'Errore',
-          description: result.message,
-        });
-      }
-    });
-  };
 
   const navItems = [
     { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users },
