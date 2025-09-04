@@ -180,24 +180,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, [fetchOperatorProfile, fullLogout]);
 
-  // Effect to handle routing based on auth state
-  useEffect(() => {
-    if (loading) return;
-
-    if (user && operator && pathname === '/') {
-      const redirectPath = localStorage.getItem('login_redirect_path');
-      
-      if (redirectPath) {
-        // Immediately remove to prevent re-use
-        localStorage.removeItem('login_redirect_path'); 
-        router.replace(redirectPath);
-      } else {
-        const isOperator = operator.role === 'operator' || operator.role === 'supervisor';
-        router.replace(isOperator ? '/dashboard' : '/admin/dashboard');
-      }
-    }
-  }, [user, operator, loading, pathname, router]);
-
 
   return (
     <AuthContext.Provider value={{ user, operator, loading, logout: fullLogout, refetchOperator }}>
