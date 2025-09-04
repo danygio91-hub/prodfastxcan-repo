@@ -1140,7 +1140,7 @@ export default function ScanJobPage() {
     
     const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality' || p.type === 'packaging');
     
-    const isMagazzinoOrSuperadvisor = operator?.role === 'superadvisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG'));
+    const isMagazzinoOrSuperadvisor = operator?.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG'));
 
     const sortedPhases = [...activeJob.phases].sort((a,b) => a.sequence - b.sequence);
     const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
@@ -1173,7 +1173,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
-                    const isSuperadvisor = operator?.role === 'superadvisor';
+                    const isSuperadvisor = operator?.role === 'supervisor';
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
                     const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
                     const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator?.id && wp.end === null);
@@ -1210,7 +1210,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
-                    const isSuperadvisor = operator?.role === 'superadvisor';
+                    const isSuperadvisor = operator?.role === 'supervisor';
                     const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
 
                     let operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));

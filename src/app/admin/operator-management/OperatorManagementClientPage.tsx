@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -221,7 +222,11 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                         <TableCell>{op.email}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {opReparti.map(r => <Badge key={r} variant="secondary">{departments.find(d => d.code === r)?.name || r}</Badge>)}
+                            {op.role === 'supervisor' ? (
+                               <Badge variant="secondary">Officina</Badge>
+                            ) : (
+                                opReparti.map(r => <Badge key={r} variant="secondary">{departments.find(d => d.code === r)?.name || r}</Badge>)
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="capitalize">{op.role}</TableCell>
