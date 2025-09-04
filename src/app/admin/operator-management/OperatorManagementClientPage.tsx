@@ -328,7 +328,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                   <FormField
                     control={form.control}
                     name="reparto"
-                    render={() => (
+                    render={({ field }) => (
                       <FormItem>
                         <div className="mb-4">
                           <FormLabel>Reparti di Competenza</FormLabel>
@@ -336,40 +336,32 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                             Seleziona uno o più reparti (max 3).
                           </FormDescription>
                         </div>
-                        {departments.map((item) => (
-                           <FormField
-                            key={item.id}
-                            control={form.control}
-                            name="reparto"
-                            render={({ field }) => {
-                              return (
+                        <div className="space-y-2">
+                            {departments.map((item) => (
                                 <FormItem
-                                  key={item.id}
-                                  className="flex flex-row items-start space-x-3 space-y-0 my-2"
+                                key={item.id}
+                                className="flex flex-row items-start space-x-3 space-y-0"
                                 >
-                                  <FormControl>
+                                <FormControl>
                                     <Checkbox
-                                      checked={field.value?.includes(item.code)}
-                                      onCheckedChange={(checked) => {
+                                    checked={field.value?.includes(item.code)}
+                                    onCheckedChange={(checked) => {
                                         const currentValue = field.value || [];
-                                        return checked
-                                          ? field.onChange([...currentValue, item.code])
-                                          : field.onChange(
-                                              currentValue.filter(
-                                                (value) => value !== item.code
-                                              )
-                                            )
-                                      }}
+                                        const newValue = checked
+                                        ? [...currentValue, item.code]
+                                        : currentValue.filter(
+                                            (value) => value !== item.code
+                                        );
+                                        field.onChange(newValue);
+                                    }}
                                     />
-                                  </FormControl>
-                                  <FormLabel className="font-normal">
+                                </FormControl>
+                                <FormLabel className="font-normal">
                                     {item.name}
-                                  </FormLabel>
+                                </FormLabel>
                                 </FormItem>
-                              )
-                            }}
-                          />
-                        ))}
+                            ))}
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}
