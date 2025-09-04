@@ -18,15 +18,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { ListTodo, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
 const departmentSchema = z.object({
   id: z.string().optional(),
-  code: z.string().min(1, 'Il codice è obbligatorio.').max(10, 'Il codice non può superare i 10 caratteri.'),
-  name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
+  code: z.string().min(1, "Il codice è obbligatorio.").max(10, "Il codice non può superare i 10 caratteri."),
+  name: z.string().min(3, "Il nome deve avere almeno 3 caratteri."),
 });
 
 type DepartmentFormValues = z.infer<typeof departmentSchema>;
