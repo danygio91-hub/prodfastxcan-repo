@@ -313,10 +313,10 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
 export async function resetAllActiveSessions(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    // The action now writes a global timestamp to Firestore to trigger a logout
-    // on all active non-admin clients.
+    // This action writes/updates a global timestamp to Firestore to trigger a logout
+    // on all active non-admin clients. Using setDoc with merge:true handles both creation and update.
     const logoutTriggerRef = doc(db, 'system', 'logoutTrigger');
-    await updateDoc(logoutTriggerRef, { timestamp: new Date().getTime() });
+    await setDoc(logoutTriggerRef, { timestamp: new Date().getTime() }, { merge: true });
     
     return { success: true, message: 'Segnale di reset sessioni inviato. Tutti gli operatori verranno disconnessi.' };
   } catch (error) {
