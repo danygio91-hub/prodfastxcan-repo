@@ -21,7 +21,7 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
   ({ title, description, icon: Icon, href, className, onClick, ...rest }, ref) => {
     
     const cardClasses = cn(
-        "hover:shadow-lg hover:border-primary/50 transition-all duration-300 group flex flex-col h-full",
+        "hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 group flex flex-col h-full",
         { 'cursor-pointer': !!href || !!onClick },
         className
     );
@@ -29,17 +29,15 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
     const cardContent = (
         <>
             <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <Icon className="h-7 w-7 text-primary" />
-                        <span>{title}</span>
-                    </div>
-                     <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ArrowRight className="h-5 w-5" />
-                    </div>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <Icon className="h-10 w-10 text-primary" />
+                   <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ArrowRight className="h-5 w-5" />
+                   </div>
+                </div>
             </CardHeader>
             <CardContent className="flex-grow">
+                <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
                 <CardDescription>{description}</CardDescription>
             </CardContent>
         </>
