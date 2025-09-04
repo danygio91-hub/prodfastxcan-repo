@@ -2,13 +2,11 @@
 "use client";
 
 import React from 'react';
-import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import AdminNavMenu from '@/components/admin/AdminNavMenu';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Building2, ListTodo, Users, Workflow, Computer, ArrowRight, Boxes, GitMerge, Archive } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive } from 'lucide-react';
+import DashboardItem from '@/components/dashboard/DashboardItem';
 
 export default function AdminCompanySettingsPage() {
 
@@ -40,24 +38,13 @@ export default function AdminCompanySettingsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {navItems.map((item) => (
-                <Link href={item.href} key={item.href} className="block h-full">
-                    <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group flex flex-col h-full">
-                        <CardHeader>
-                            <CardTitle className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <item.icon className="h-7 w-7 text-primary" />
-                                    <span>{item.label}</span>
-                                </div>
-                                <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <ArrowRight className="h-5 w-5" />
-                                </div>
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex-grow">
-                             <CardDescription>{item.description}</CardDescription>
-                        </CardContent>
-                    </Card>
-                </Link>
+                <DashboardItem
+                  key={item.href}
+                  href={item.href}
+                  title={item.label}
+                  description={item.description}
+                  icon={item.icon}
+                />
               ))}
             </div>
         </div>
