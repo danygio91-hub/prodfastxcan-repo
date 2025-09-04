@@ -211,7 +211,7 @@ export default function WorkPhaseManagementClientPage() {
   
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={8} className="h-24 text-center">
+          <TableCell colSpan={9} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento fasi...</span>
@@ -302,6 +302,7 @@ export default function WorkPhaseManagementClientPage() {
                         <TableHead>Nome Fase</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>Scansione Mat.</TableHead>
+                        <TableHead>Ricerca Mat.</TableHead>
                         <TableHead>Descrizione</TableHead>
                         <TableHead>Reparti</TableHead>
                         <TableHead className="text-right">Azioni</TableHead>
@@ -332,8 +333,11 @@ export default function WorkPhaseManagementClientPage() {
                                 {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
                                 </Badge>
                             </TableCell>
-                            <TableCell className="text-center">
+                             <TableCell className="text-center">
                                 {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
+                            </TableCell>
+                             <TableCell className="text-center">
+                                {phase.requiresMaterialSearch ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
                             </TableCell>
                             <TableCell className="max-w-sm truncate">{phase.description}</TableCell>
                             <TableCell>
@@ -371,7 +375,7 @@ export default function WorkPhaseManagementClientPage() {
                         ))
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={8} className="text-center h-24">Nessuna fase definita.</TableCell>
+                            <TableCell colSpan={9} className="text-center h-24">Nessuna fase definita.</TableCell>
                         </TableRow>
                         )}
                     </TableBody>
