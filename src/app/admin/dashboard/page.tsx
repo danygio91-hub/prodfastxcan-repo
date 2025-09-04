@@ -9,6 +9,7 @@ import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert, Timer } from 'lucide-react';
+import DashboardItem from '@/components/dashboard/DashboardItem';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
@@ -37,22 +38,13 @@ export default function AdminDashboardPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {navItems.map((item) => (
-              <Link href={item.href} key={item.href} className="block h-full">
-                <Card className="hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 flex flex-col h-full group">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <item.icon className="h-10 w-10 text-primary" />
-                       <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                          <ArrowRight className="h-5 w-5" />
-                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="flex-grow">
-                    <CardTitle className="text-xl font-headline mb-1">{item.label}</CardTitle>
-                    <CardDescription>{item.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              </Link>
+               <DashboardItem
+                key={item.href}
+                href={item.href}
+                title={item.label}
+                description={item.description}
+                icon={item.icon}
+              />
             ))}
           </div>
         </div>
