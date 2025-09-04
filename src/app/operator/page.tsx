@@ -14,7 +14,7 @@ import { Users, User, Mail, Factory, FileLock, Check, Loader2, ArrowLeft } from 
 import { type Operator, type Reparto } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
-import { getDepartmentMap } from '@/app/admin/settings/actions';
+import { getDepartmentMap } from './actions';
 import PrivacyForm from './PrivacyForm';
 import { Badge } from '@/components/ui/badge';
 

@@ -4,6 +4,8 @@
 import { revalidatePath } from 'next/cache';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { type Reparto, initialDepartmentMap } from '@/lib/mock-data';
+
 
 export async function signPrivacyPolicy(operatorId: string): Promise<{ success: boolean; message: string }> {
   const operatorRef = doc(db, "operators", operatorId);
@@ -27,4 +29,14 @@ export async function signPrivacyPolicy(operatorId: string): Promise<{ success: 
     console.error("Error signing privacy policy:", error);
     return { success: false, message: 'Errore durante la firma dell\'informativa.' };
   }
+}
+
+
+export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
+    const docRef = doc(db, "configuration", "departmentMap");
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as { [key in Reparto]: string };
+    }
+    return initialDepartmentMap;
 }
