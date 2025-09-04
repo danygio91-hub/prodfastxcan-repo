@@ -9,8 +9,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type WorkPhaseTemplate, type Reparto, RawMaterialType } from '@/lib/mock-data';
-import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartmentMap, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
+import { type WorkPhaseTemplate, RawMaterialType, type Department } from '@/lib/mock-data';
+import { getWorkPhaseTemplates, saveWorkPhaseTemplate, deleteWorkPhaseTemplate, getDepartments, deleteSelectedWorkPhaseTemplates, updatePhasesOrder } from './actions';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -28,14 +28,14 @@ import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdere
 import AppShell from '@/components/layout/AppShell';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 
-const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'Collaudo', 'Officina', 'N/D'];
 const materialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA'];
 
+// Base schema without department enum
 const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCodes: z.array(z.enum(reparti)).min(1, 'Selezionare almeno un reparto.'),
+  departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging'], { required_error: 'Specificare il tipo di fase' }),
   requiresMaterialScan: z.boolean().default(false).optional(),
   requiresMaterialSearch: z.boolean().default(false).optional(),
@@ -47,10 +47,10 @@ type WorkPhaseFormValues = z.infer<typeof workPhaseSchema>;
 
 export default function WorkPhaseManagementClientPage() {
   const [phases, setPhases] = useState<WorkPhaseTemplate[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
-  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isOrderChanged, setIsOrderChanged] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -61,17 +61,20 @@ export default function WorkPhaseManagementClientPage() {
     defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] },
   });
   
-  const fetchPhases = async () => {
+  const fetchAllData = async () => {
     setIsLoading(true);
-    const data = await getWorkPhaseTemplates();
-    setPhases(data);
+    const [phasesData, departmentsData] = await Promise.all([
+      getWorkPhaseTemplates(),
+      getDepartments(),
+    ]);
+    setPhases(phasesData);
+    setDepartments(departmentsData);
     setIsOrderChanged(false); // Reset change tracker
     setIsLoading(false);
   };
 
   useEffect(() => {
-    fetchPhases();
-    getDepartmentMap().then(setDepartmentMap);
+    fetchAllData();
   }, []);
 
   const handleOpenDialog = (phase: WorkPhaseTemplate | null = null) => {
@@ -122,7 +125,7 @@ export default function WorkPhaseManagementClientPage() {
       });
 
       if (result.success) {
-        await fetchPhases();
+        await fetchAllData();
         handleCloseDialog();
       }
     });
@@ -136,7 +139,7 @@ export default function WorkPhaseManagementClientPage() {
             description: result.message,
             variant: result.success ? "default" : "destructive",
         });
-        if (result.success) await fetchPhases();
+        if (result.success) await fetchAllData();
     });
   };
 
@@ -149,7 +152,7 @@ export default function WorkPhaseManagementClientPage() {
             variant: result.success ? "default" : "destructive",
         });
         if (result.success) {
-            await fetchPhases();
+            await fetchAllData();
             setSelectedRows([]);
         }
     });
@@ -177,7 +180,7 @@ export default function WorkPhaseManagementClientPage() {
             variant: result.success ? "default" : "destructive",
         });
         if (result.success) {
-            await fetchPhases();
+            await fetchAllData();
         }
     });
   };
@@ -191,13 +194,14 @@ export default function WorkPhaseManagementClientPage() {
   };
 
   const handleExport = () => {
+    const departmentNameMap = new Map(departments.map(d => [d.code, d.name]));
     const dataToExport = phases.map(phase => ({
         'Sequenza': phase.sequence,
         'Tipo': phase.type === 'production' ? 'Produzione' : 'Preparazione',
         'Richiede Scansione Materiale': phase.requiresMaterialScan ? 'Sì' : 'No',
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
-        'Reparti': (phase.departmentCodes || []).map(code => departmentMap[code] || code).join(', '),
+        'Reparti': (phase.departmentCodes || []).map(code => departmentNameMap.get(code) || code).join(', '),
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -335,7 +339,7 @@ export default function WorkPhaseManagementClientPage() {
                             <TableCell>
                                 <div className="flex flex-wrap gap-1">
                                     {(phase.departmentCodes || []).map(code => (
-                                        <Badge key={code} variant="secondary">{departmentMap[code] || code}</Badge>
+                                        <Badge key={code} variant="secondary">{(departments.find(d => d.code === code))?.name || code}</Badge>
                                     ))}
                                 </div>
                             </TableCell>
@@ -531,44 +535,52 @@ export default function WorkPhaseManagementClientPage() {
                     </div>
                     )}
                     <FormField
-                    control={form.control}
-                    name="departmentCodes"
-                    render={({ field }) => (
+                      control={form.control}
+                      name="departmentCodes"
+                      render={() => (
                         <FormItem>
-                            <div className="mb-4">
-                                <FormLabel>Reparti di Competenza</FormLabel>
-                                <FormDescription>Seleziona uno o più reparti per questa fase.</FormDescription>
-                            </div>
-                        <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
-                            {reparti.filter(r => r !== 'N/D' && r !== 'Officina').map((repartoCode) => (
-                            <FormItem
-                                key={repartoCode}
-                                className="flex flex-row items-center space-x-3 space-y-0"
-                            >
-                                <FormControl>
-                                <Checkbox
-                                    checked={field.value?.includes(repartoCode)}
-                                    onCheckedChange={(checked) => {
-                                    const value = field.value || [];
-                                    return checked
-                                        ? field.onChange([...value, repartoCode])
-                                        : field.onChange(
-                                            value.filter(
-                                            (code) => code !== repartoCode
-                                            )
-                                        );
-                                    }}
+                          <div className="mb-4">
+                            <FormLabel>Reparti di Competenza</FormLabel>
+                            <FormDescription>
+                              Seleziona uno o più reparti per questa fase.
+                            </FormDescription>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
+                            {departments
+                              .filter(d => d.code !== 'N/D' && d.code !== 'Officina')
+                              .map((dept) => (
+                                <FormField
+                                  key={dept.id}
+                                  control={form.control}
+                                  name="departmentCodes"
+                                  render={({ field }) => (
+                                    <FormItem
+                                      key={dept.id}
+                                      className="flex flex-row items-center space-x-3 space-y-0"
+                                    >
+                                      <FormControl>
+                                        <Checkbox
+                                          checked={field.value?.includes(dept.code)}
+                                          onCheckedChange={(checked) => {
+                                            const currentValue = field.value || [];
+                                            const newValue = checked
+                                              ? [...currentValue, dept.code]
+                                              : currentValue.filter((value) => value !== dept.code);
+                                            field.onChange(newValue);
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormLabel className="font-normal text-sm">
+                                        {dept.name}
+                                      </FormLabel>
+                                    </FormItem>
+                                  )}
                                 />
-                                </FormControl>
-                                <FormLabel className="font-normal text-sm">
-                                {departmentMap[repartoCode] || repartoCode}
-                                </FormLabel>
-                            </FormItem>
-                            ))}
-                        </div>
-                        <FormMessage />
+                              ))}
+                          </div>
+                          <FormMessage />
                         </FormItem>
-                    )}
+                      )}
                     />
                     <DialogFooter>
                     <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>

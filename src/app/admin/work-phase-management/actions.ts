@@ -12,6 +12,7 @@ import {
   reparti,
   initialDepartmentMap,
   type RawMaterialType, // Import RawMaterialType
+  type Department,
 } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -19,7 +20,7 @@ const workPhaseSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
-  departmentCodes: z.array(z.enum(reparti as [string, ...string[]])).min(1, 'Selezionare almeno un reparto.'),
+  departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
@@ -36,17 +37,15 @@ export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
   return list;
 }
 
-export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
-  const docRef = doc(db, "configuration", "departmentMap");
-  const docSnap = await getDoc(docRef);
-
-  if (docSnap.exists()) {
-    return docSnap.data() as { [key in Reparto]: string };
-  } else {
-    // Return initial map if not found in DB
-    return initialDepartmentMap;
+export async function getDepartments(): Promise<Department[]> {
+  const col = collection(db, "departments");
+  const snapshot = await getDocs(col);
+  if (snapshot.empty) {
+      return [];
   }
+  return snapshot.docs.map(d => d.data() as Department);
 }
+
 
 export async function saveWorkPhaseTemplate(formData: FormData) {
     const rawData = {
@@ -60,7 +59,12 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
     };
 
-    const validatedFields = workPhaseSchema.safeParse(rawData);
+    // We can't use the enum from mock-data anymore as it's dynamic
+    const dynamicWorkPhaseSchema = workPhaseSchema.extend({
+        departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
+    });
+
+    const validatedFields = dynamicWorkPhaseSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
         return {
