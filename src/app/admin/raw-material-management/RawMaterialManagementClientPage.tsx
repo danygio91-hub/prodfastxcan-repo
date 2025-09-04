@@ -15,7 +15,6 @@ import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type 
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials } from './actions';
 import { getPackagingItems } from '@/app/material-loading/actions';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -434,8 +433,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   return (
       <div className="space-y-6">
-        <AdminNavMenu />
-        <div className="flex justify-between items-center flex-wrap gap-4">
+        <div className="flex justify-between items-start flex-wrap gap-4">
           <header>
               <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <Boxes className="h-8 w-8 text-primary" />
@@ -445,7 +443,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
               Aggiungi, modifica o importa in blocco le materie prime.
               </p>
           </header>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 pt-2">
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
               <Button onClick={handleExport} variant="outline" disabled={materials.length === 0}>
               <Download className="mr-2 h-4 w-4" />

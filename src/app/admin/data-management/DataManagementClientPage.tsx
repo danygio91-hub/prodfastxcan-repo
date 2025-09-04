@@ -6,7 +6,6 @@ import * as XLSX from 'xlsx';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -361,8 +360,7 @@ export default function DataManagementClientPage({
 
   return (
       <div className="space-y-6">
-        <AdminNavMenu />
-        <div className="flex justify-between items-center gap-2 flex-wrap">
+        <div className="flex justify-between items-start gap-4 flex-wrap">
             <header>
                 <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
                     <ListChecks className="h-8 w-8 text-primary" />
@@ -370,7 +368,7 @@ export default function DataManagementClientPage({
                 </h1>
                 <p className="text-muted-foreground mt-1">Importa, visualizza e invia le commesse in produzione.</p>
             </header>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pt-2">
                  <input
                     type="file"
                     ref={fileInputRef}

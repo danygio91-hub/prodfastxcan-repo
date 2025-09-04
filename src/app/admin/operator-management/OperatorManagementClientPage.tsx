@@ -13,7 +13,6 @@ import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 import type { StatoOperatore, OperatorRole } from '@/lib/mock-data';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -170,28 +169,32 @@ export default function OperatorManagementClientPage({ initialOperators, initial
 
   return (
       <div className="space-y-6">
-        <AdminNavMenu />
-
-        <div className="flex justify-end gap-2">
-          <Button onClick={handleExport} variant="outline" disabled={operators.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
-              Esporta Operatori
-          </Button>
-          <Button onClick={() => handleOpenDialog()}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Aggiungi Operatore
-          </Button>
+        <div className="flex justify-between items-start gap-4 flex-wrap">
+           <header>
+              <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                <Users className="h-8 w-8 text-primary" />
+                Gestione Operatori
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Aggiungi, modifica o elimina gli account degli operatori.
+              </p>
+            </header>
+          <div className="flex items-center gap-2 pt-2">
+            <Button onClick={handleExport} variant="outline" disabled={operators.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                Esporta Operatori
+            </Button>
+            <Button onClick={() => handleOpenDialog()}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Aggiungi Operatore
+            </Button>
+          </div>
         </div>
 
         <Card>
           <CardHeader>
-            <div className="flex items-center space-x-3">
-              <Users className="h-8 w-8 text-primary" />
-              <div>
-                <CardTitle className="text-2xl font-headline">Gestione Operatori</CardTitle>
-                <CardDescription>Aggiungi, modifica o elimina gli account degli operatori.</CardDescription>
-              </div>
-            </div>
+            <CardTitle>Elenco Operatori</CardTitle>
+            <CardDescription>Aggiungi, modifica o elimina gli account degli operatori.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

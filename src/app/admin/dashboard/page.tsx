@@ -2,10 +2,8 @@
 "use client";
 
 import React from 'react';
-import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert, Timer } from 'lucide-react';
@@ -27,8 +25,6 @@ export default function AdminDashboardPage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-8">
-          <AdminNavMenu />
-
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Amministrazione</h1>
             <p className="text-muted-foreground">

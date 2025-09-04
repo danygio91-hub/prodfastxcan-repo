@@ -3,7 +3,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User } from 'lucide-react';
@@ -159,7 +158,6 @@ export default function ProductionConsoleClientPage() {
   return (
     <>
       <div className="space-y-6">
-        <AdminNavMenu />
         <header>
             <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
                 <Briefcase className="h-8 w-8 text-primary" />

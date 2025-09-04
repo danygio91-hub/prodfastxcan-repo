@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React from 'react';
@@ -7,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -26,7 +25,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { cn } from '@/lib/utils';
 
+const adminNavItems = [
+  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
+  { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
+  { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
+  { href: '/admin/reports', label: 'Report', icon: BarChart3 },
+  { href: '/admin/production-time-analysis', label: 'Analisi Tempi', icon: Timer },
+  { href: '/admin/non-conformity-reports', label: 'Non Conformità', icon: ShieldAlert },
+  { href: '/admin/settings', label: 'Configurazione Azienda', icon: Building2 },
+  { href: '/admin/app-settings', label: 'Gestione App', icon: Settings },
+];
 
 export default function Header() {
   const { operator, logout } = useAuth();
@@ -35,18 +46,16 @@ export default function Header() {
   const { toast } = useToast();
   
   const operatorName = operator ? operator.nome : null;
+  const isAdminPage = pathname.startsWith('/admin');
 
   const handleRefresh = () => {
     window.location.reload();
   };
 
   const handleExitJobScreen = () => {
-    // This action only navigates away. The active phase (and banner) will persist.
-    // The user must explicitly pause or complete the phase via the status bar.
     if (!activeJob) return;
     toast({ title: "Sei uscito dalla schermata della commessa", description: "La fase attiva rimane in corso in background."});
   };
-
 
   const getInitials = (name: string | null) => {
     if (!name) return 'OP';
@@ -56,19 +65,54 @@ export default function Header() {
     return `${firstInitial}${lastInitial}`.toUpperCase();
   };
   
-  const avatarName = operator ? operator.nome + (operator.cognome ? ` ${operator.cognome}` : '') : 'Operatore';
+  const avatarName = operator ? operator.nome : 'Operatore';
   const displayInitials = getInitials(avatarName);
   
   const showExitButton = pathname === '/scan-job' && activeJob;
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
             <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
                 <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
             </Link>
         </div>
+
+        {isAdminPage && (
+          <div className="flex-1 flex items-center justify-center">
+             <TooltipProvider delayDuration={0}>
+                <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
+                {adminNavItems.map((item) => {
+                    const isActive = pathname.startsWith(item.href);
+                    return (
+                    <Tooltip key={item.href}>
+                        <TooltipTrigger asChild>
+                        <Link href={item.href} passHref>
+                            <Button
+                            variant={isActive ? 'default' : 'ghost'}
+                            size="icon"
+                            className={cn(
+                                "h-10 w-10",
+                                !isActive && "text-muted-foreground hover:bg-muted/50"
+                            )}
+                            aria-label={item.label}
+                            >
+                            <item.icon className="h-5 w-5" />
+                            </Button>
+                        </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                        <p>{item.label}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    );
+                })}
+                </div>
+            </TooltipProvider>
+          </div>
+        )}
+
         <div className="flex items-center space-x-2">
           <TooltipProvider delayDuration={0}>
             {showExitButton && (

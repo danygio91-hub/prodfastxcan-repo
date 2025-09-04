@@ -4,7 +4,6 @@
 import React from 'react';
 import * as XLSX from 'xlsx';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -59,8 +58,6 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
     
   return (
       <div className="space-y-6">
-        <AdminNavMenu />
-
         <header className="space-y-2">
           <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <Timer className="h-8 w-8 text-primary" />

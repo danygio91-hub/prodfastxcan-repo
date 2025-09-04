@@ -4,7 +4,6 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
@@ -24,8 +23,6 @@ export default function AdminCompanySettingsPage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-8">
-          <AdminNavMenu />
-
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <Building2 className="h-8 w-8 text-primary" />

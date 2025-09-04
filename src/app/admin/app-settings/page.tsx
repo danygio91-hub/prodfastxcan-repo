@@ -4,7 +4,6 @@
 import React, { useState, useTransition, useRef } from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download, Upload, Undo } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
@@ -297,8 +296,6 @@ export default function AdminAppSettingsPage() {
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-8">
-            <AdminNavMenu />
-
             <header className="space-y-2">
                 <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
                     <Settings className="h-8 w-8 text-primary" />
@@ -558,5 +555,3 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
-
-    

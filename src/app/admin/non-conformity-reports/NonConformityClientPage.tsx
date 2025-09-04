@@ -6,7 +6,6 @@ import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 
-import AdminNavMenu from '@/components/admin/AdminNavMenu';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -357,8 +356,6 @@ export default function NonConformityClientPage({ initialIncomingReports, initia
 
     return (
         <div className="space-y-6">
-            <AdminNavMenu />
-
             <header>
                 <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
                     <ShieldAlert className="h-8 w-8 text-destructive" />
