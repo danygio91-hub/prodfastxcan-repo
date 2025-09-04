@@ -279,7 +279,7 @@ function WorkCycleManagementContent() {
           </Card>
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
+          <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => {if (isPending) e.preventDefault();}}>
             <DialogHeader>
               <DialogTitle>{editingCycle ? "Modifica Ciclo" : "Aggiungi Nuovo Ciclo"}</DialogTitle>
               <DialogDescription>
@@ -311,28 +311,33 @@ function WorkCycleManagementContent() {
                         <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
                         <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
                       </div>
-                      <FormControl>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
-                          {phaseTemplates.map((item) => (
-                              <div key={item.id} className="flex flex-row items-center space-x-3 space-y-0">
-                                <Checkbox
-                                    id={`phase-${item.id}`}
-                                    checked={field.value?.includes(item.id)}
-                                    onCheckedChange={(checked) => {
-                                        const currentValue = field.value || [];
-                                        const newValue = checked
-                                            ? [...currentValue, item.id]
-                                            : currentValue.filter((value) => value !== item.id);
-                                        field.onChange(newValue);
-                                    }}
-                                />
-                                <FormLabel htmlFor={`phase-${item.id}`} className="font-normal text-sm cursor-pointer">
-                                    {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
-                                </FormLabel>
-                              </div>
-                          ))}
-                        </div>
-                      </FormControl>
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
+                        {phaseTemplates.map((item) => (
+                           <FormItem
+                            key={item.id}
+                            className="flex flex-row items-center space-x-3 space-y-0"
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value?.includes(item.id)}
+                                onCheckedChange={(checked) => {
+                                  const currentValue = field.value || [];
+                                  return checked
+                                    ? field.onChange([...currentValue, item.id])
+                                    : field.onChange(
+                                        currentValue.filter(
+                                          (value) => value !== item.id
+                                        )
+                                      );
+                                }}
+                              />
+                            </FormControl>
+                             <FormLabel className="font-normal text-sm cursor-pointer">
+                                {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
+                            </FormLabel>
+                          </FormItem>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
