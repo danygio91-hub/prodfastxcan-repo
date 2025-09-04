@@ -17,7 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { GitMerge, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
@@ -278,7 +278,6 @@ function WorkCycleManagementContent() {
             </CardContent>
           </Card>
         
-
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => {if (!isPending) e.preventDefault();}} onEscapeKeyDown={(e) => {if (!isPending) handleCloseDialog();}}>
             <DialogHeader>
@@ -306,7 +305,7 @@ function WorkCycleManagementContent() {
                 <FormField
                   control={form.control}
                   name="phaseTemplateIds"
-                  render={({ field }) => (
+                  render={() => (
                     <FormItem>
                       <div className="mb-4">
                         <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
@@ -314,29 +313,40 @@ function WorkCycleManagementContent() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
                         {phaseTemplates.map((item) => (
-                           <FormItem
+                           <FormField
                             key={item.id}
-                            className="flex flex-row items-center space-x-3 space-y-0"
-                           >
-                            <FormControl>
-                                <Checkbox
-                                    checked={field.value?.includes(item.id)}
-                                    onCheckedChange={(checked) => {
-                                        const currentValue = field.value || [];
+                            control={form.control}
+                            name="phaseTemplateIds"
+                            render={({ field }) => {
+                              return (
+                                <FormItem
+                                  key={item.id}
+                                  className="flex flex-row items-center space-x-3 space-y-0"
+                                >
+                                  <FormControl>
+                                    <Checkbox
+                                      checked={field.value?.includes(item.id)}
+                                      onCheckedChange={(checked) => {
                                         return checked
-                                        ? field.onChange([...currentValue, item.id])
-                                        : field.onChange(
-                                            currentValue.filter(
+                                          ? field.onChange([
+                                              ...(field.value || []),
+                                              item.id,
+                                            ])
+                                          : field.onChange(
+                                              (field.value || []).filter(
                                                 (value) => value !== item.id
-                                            )
+                                              )
                                             );
-                                    }}
-                                />
-                            </FormControl>
-                            <FormLabel className="font-normal text-sm">
-                                {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
-                            </FormLabel>
-                          </FormItem>
+                                      }}
+                                    />
+                                  </FormControl>
+                                  <FormLabel className="font-normal text-sm">
+                                    {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
+                                  </FormLabel>
+                                </FormItem>
+                              );
+                            }}
+                          />
                         ))}
                       </div>
                       <FormMessage />
