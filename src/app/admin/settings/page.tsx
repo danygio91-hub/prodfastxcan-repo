@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useTransition } from 'react';
@@ -74,83 +73,65 @@ export default function AdminCompanySettingsPage() {
             </p>
           </header>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-             <div className="space-y-8">
-                {navItems.slice(0, 3).map((item) => (
-                    <Link href={item.href} key={item.href} className="block h-full">
-                        <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                            <CardHeader>
-                                <CardTitle className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <item.icon className="h-7 w-7 text-primary" />
-                                        <span>{item.label}</span>
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                                        <ArrowRight className="h-5 w-5" />
-                                    </Button>
-                                </CardTitle>
-                                <CardDescription>{item.description}</CardDescription>
-                            </CardHeader>
-                        </Card>
-                    </Link>
-                ))}
-             </div>
-             <div className="space-y-8">
-                 {navItems.slice(3, 6).map((item) => (
-                    <Link href={item.href} key={item.href} className="block h-full">
-                        <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
-                             <CardHeader>
-                                <CardTitle className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <item.icon className="h-7 w-7 text-primary" />
-                                        <span>{item.label}</span>
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
-                                        <ArrowRight className="h-5 w-5" />
-                                    </Button>
-                                </CardTitle>
-                                <CardDescription>{item.description}</CardDescription>
-                            </CardHeader>
-                        </Card>
-                    </Link>
-                ))}
-             </div>
-          </div>
-          
-          <div className="pt-4">
-            <form onSubmit={handleFormSubmit}>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-3">
-                    <ListTodo className="h-7 w-7 text-primary" />
-                    Gestione/Nomi Reparti
-                  </CardTitle>
-                  <CardDescription>
-                    Modifica i nomi visualizzati per ogni reparto.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {reparti.length > 0 ? reparti.map(code => (
-                    <div key={code} className="flex items-center gap-4">
-                      <Label htmlFor={`reparto-${code}`} className="w-1/4 sm:w-1/6 font-semibold">{code}</Label>
-                      <Input
-                        id={`reparto-${code}`}
-                        name={code}
-                        value={departments[code] || ''}
-                        onChange={(e) => handleInputChange(code, e.target.value)}
-                        className="bg-background"
-                      />
-                    </div>
-                  )) : <p className="text-muted-foreground">Caricamento reparti...</p>}
-                </CardContent>
-                <CardFooter>
-                    <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
-                        {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Salva Modifiche
-                    </Button>
-                </CardFooter>
-              </Card>
-            </form>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+            {/* Colonna di Sinistra con le schede di navigazione */}
+            <div className="space-y-8">
+              {navItems.map((item) => (
+                <Link href={item.href} key={item.href} className="block h-full">
+                    <Card className="hover:shadow-lg hover:border-primary/50 transition-all duration-300 group">
+                        <CardHeader>
+                            <CardTitle className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <item.icon className="h-7 w-7 text-primary" />
+                                    <span>{item.label}</span>
+                                </div>
+                                <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary transition-colors">
+                                    <ArrowRight className="h-5 w-5" />
+                                </Button>
+                            </CardTitle>
+                            <CardDescription>{item.description}</CardDescription>
+                        </CardHeader>
+                    </Card>
+                </Link>
+              ))}
+            </div>
+            
+            {/* Colonna di Destra con la gestione reparti */}
+            <div className="space-y-8">
+                <form onSubmit={handleFormSubmit}>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-3">
+                        <ListTodo className="h-7 w-7 text-primary" />
+                        Gestione/Nomi Reparti
+                      </CardTitle>
+                      <CardDescription>
+                        Modifica i nomi visualizzati per ogni reparto.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {reparti.length > 0 ? reparti.map(code => (
+                        <div key={code} className="flex items-center gap-4">
+                          <Label htmlFor={`reparto-${code}`} className="w-1/4 sm:w-1/5 font-semibold">{code}</Label>
+                          <Input
+                            id={`reparto-${code}`}
+                            name={code}
+                            value={departments[code] || ''}
+                            onChange={(e) => handleInputChange(code, e.target.value)}
+                            className="bg-background"
+                          />
+                        </div>
+                      )) : <p className="text-muted-foreground">Caricamento reparti...</p>}
+                    </CardContent>
+                    <CardFooter>
+                        <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
+                            {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                            Salva Modifiche
+                        </Button>
+                    </CardFooter>
+                  </Card>
+                </form>
+            </div>
           </div>
 
         </div>
