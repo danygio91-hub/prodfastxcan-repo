@@ -314,27 +314,29 @@ function WorkCycleManagementContent() {
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
                         {phaseTemplates.map((item) => (
-                          <div
+                           <FormItem
                             key={item.id}
                             className="flex flex-row items-center space-x-3 space-y-0"
-                          >
-                            <Checkbox
-                              id={`phase-${item.id}`}
-                              checked={field.value?.includes(item.id)}
-                              onCheckedChange={(checked) => {
-                                const value = field.value || [];
-                                return checked
-                                  ? field.onChange([...value, item.id])
-                                  : field.onChange(value.filter((id) => id !== item.id));
-                              }}
-                            />
-                            <label
-                              htmlFor={`phase-${item.id}`}
-                              className="font-normal text-sm"
-                            >
-                              {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
-                            </label>
-                          </div>
+                           >
+                            <FormControl>
+                                <Checkbox
+                                    checked={field.value?.includes(item.id)}
+                                    onCheckedChange={(checked) => {
+                                        const currentValue = field.value || [];
+                                        return checked
+                                        ? field.onChange([...currentValue, item.id])
+                                        : field.onChange(
+                                            currentValue.filter(
+                                                (value) => value !== item.id
+                                            )
+                                            );
+                                    }}
+                                />
+                            </FormControl>
+                            <FormLabel className="font-normal text-sm">
+                                {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
+                            </FormLabel>
+                          </FormItem>
                         ))}
                       </div>
                       <FormMessage />
