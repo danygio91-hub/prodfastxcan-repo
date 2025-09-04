@@ -213,12 +213,12 @@ export default function ReportsClientPage({
       <div className="space-y-6">
         <AdminNavMenu />
 
-        <header className="space-y-2">
+        <header>
           <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <BarChart3 className="h-8 w-8 text-primary" />
               Reportistica Avanzata
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mt-1">
             Analizza le performance di produzione per commesse, operatori e prelievi di materiale.
           </p>
         </header>
@@ -243,10 +243,7 @@ export default function ReportsClientPage({
             <Card>
               <CardHeader>
                   <div className="flex justify-between items-center">
-                      <div>
-                          <CardTitle>Riepilogo Lavorazioni per Commessa</CardTitle>
-                          <CardDescription>Elenco delle commesse in lavorazione o completate.</CardDescription>
-                      </div>
+                      <CardTitle className="font-headline">Riepilogo Lavorazioni per Commessa</CardTitle>
                       <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
                           <Download className="mr-2 h-4 w-4" />
                           Esporta Excel
@@ -299,10 +296,7 @@ export default function ReportsClientPage({
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <div>
-                      <CardTitle>Riepilogo Ore per Operatore</CardTitle>
-                      <CardDescription>Sommario delle ore di lavoro registrate dagli operatori.</CardDescription>
-                  </div>
+                    <CardTitle className="font-headline">Riepilogo Ore per Operatore</CardTitle>
                     <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
                       <Download className="mr-2 h-4 w-4" />
                       Esporta Excel
@@ -359,10 +353,7 @@ export default function ReportsClientPage({
                 <Card>
                   <CardHeader>
                       <div className="flex justify-between items-center flex-wrap gap-4">
-                          <div>
-                              <CardTitle>Report Prelievi da Magazzino</CardTitle>
-                              <CardDescription>Elenco degli scarichi di materiale per commessa, raggruppati per tipo.</CardDescription>
-                          </div>
+                          <CardTitle className="font-headline">Report Prelievi da Magazzino</CardTitle>
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="relative w-full sm:w-auto">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

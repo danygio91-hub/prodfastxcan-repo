@@ -362,18 +362,27 @@ export default function DataManagementClientPage({
   return (
       <div className="space-y-6">
         <AdminNavMenu />
-        <div className="flex justify-end items-center gap-2 flex-wrap">
-              <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept=".xlsx, .xls"
-              className="hidden"
-            />
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
-              {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              Importa da Excel
-            </Button>
+        <div className="flex justify-between items-center gap-2 flex-wrap">
+            <header>
+                <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                    <ListChecks className="h-8 w-8 text-primary" />
+                    Gestione Dati Commesse
+                </h1>
+                <p className="text-muted-foreground mt-1">Importa, visualizza e invia le commesse in produzione.</p>
+            </header>
+            <div className="flex items-center gap-2">
+                 <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                />
+                <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
+                {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                Importa da Excel
+                </Button>
+            </div>
         </div>
 
         <Tabs defaultValue="planned" className="mt-6">
@@ -391,14 +400,8 @@ export default function DataManagementClientPage({
                 <Card className="shadow-lg">
                 <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center space-x-3">
-                        <ListChecks className="h-8 w-8 text-primary" />
-                        <div>
-                        <CardTitle className="text-2xl font-headline mb-1">Gestione Dati Commesse</CardTitle>
-                        <CardDescription>Commesse inserite in attesa di essere inviate in produzione.</CardDescription>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                        <CardTitle className="font-headline">Elenco Commesse Pianificate</CardTitle>
+                        <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
                         <Download className="mr-2 h-4 w-4" />
                         Esporta
@@ -558,13 +561,7 @@ export default function DataManagementClientPage({
                 <Card className="shadow-lg">
                     <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-4">
-                        <div className="flex items-center space-x-3">
-                            <Briefcase className="h-8 w-8 text-primary" />
-                            <div>
-                            <CardTitle className="text-2xl font-headline mb-1">Commesse in Produzione</CardTitle>
-                            <CardDescription>Commesse per cui è stato creato un ODL. Per annullarlo, usa l'azione qui sotto.</CardDescription>
-                            </div>
-                        </div>
+                        <CardTitle className="font-headline">Commesse in Produzione</CardTitle>
                         <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
                             <Download className="mr-2 h-4 w-4" />

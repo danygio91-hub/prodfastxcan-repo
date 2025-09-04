@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -161,17 +160,15 @@ export default function ProductionConsoleClientPage() {
     <>
       <div className="space-y-6">
         <AdminNavMenu />
-        <div className="flex justify-between items-center gap-4 flex-wrap">
-          <div className='space-y-2'>
-              <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-                  <Briefcase className="h-8 w-8 text-primary" />
-                  Console Controllo Produzione
-              </h1>
-              <p className="text-muted-foreground">
-                  Panoramica in tempo reale delle commesse inviate in produzione.
-              </p>
-          </div>
-        </div>
+        <header>
+            <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                <Briefcase className="h-8 w-8 text-primary" />
+                Console Controllo Produzione
+            </h1>
+            <p className="text-muted-foreground mt-1">
+                Panoramica in tempo reale delle commesse inviate in produzione.
+            </p>
+        </header>
         
         <Card className="p-2 mb-6">
           <div className="flex flex-wrap items-center justify-center gap-2">

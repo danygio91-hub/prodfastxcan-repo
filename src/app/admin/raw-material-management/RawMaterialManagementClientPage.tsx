@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -442,7 +441,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
               <Boxes className="h-8 w-8 text-primary" />
               Gestione Materie Prime
               </h1>
-              <p className="text-muted-foreground mt-2">
+              <p className="text-muted-foreground mt-1">
               Aggiungi, modifica o importa in blocco le materie prime.
               </p>
           </header>
@@ -467,8 +466,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             <CardHeader>
                 <div className="flex justify-between items-center flex-wrap gap-4">
                     <div>
-                    <CardTitle>Elenco Materie Prime</CardTitle>
-                    <CardDescription>Queste sono le materie prime disponibili a magazzino, con stock totale calcolato dai lotti ricevuti.</CardDescription>
+                    <CardTitle className="font-headline">Elenco Materie Prime</CardTitle>
+                    <CardDescription>Queste sono le materie prime disponibili a magazzino.</CardDescription>
                     </div>
                      <div className="flex items-center gap-2">
                         {selectedRows.length > 0 && (
@@ -867,12 +866,3 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
-
-
-
-
-
-
-
-
-    
