@@ -19,8 +19,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             if (!user) {
                 // Not logged in, redirect to login page
                 router.replace('/');
-            } else if (operator && !operator.privacySigned) {
-                // Logged in but privacy not signed, redirect to operator page to force signature
+            } else if (operator && !operator.privacySigned && operator.role !== 'admin') {
+                // Logged in but privacy not signed (and not an admin), redirect to operator page to force signature
                 router.replace('/operator');
             }
         }
@@ -35,8 +35,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
         );
     }
     
-    // If privacy is not signed, show loader while redirecting
-    if (!operator.privacySigned) {
+    // If privacy is not signed (and not an admin), show loader while redirecting
+    if (!operator.privacySigned && operator.role !== 'admin') {
         return (
             <div className="flex h-screen w-full items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin" />
