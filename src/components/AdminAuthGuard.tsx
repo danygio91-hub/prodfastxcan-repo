@@ -1,21 +1,6 @@
 
 "use client";
 
-import React from 'react';
-
-// Temporarily disabled for direct access.
-// The original logic is preserved in comments for easy restoration.
-
-interface AdminAuthGuardProps {
-  children: React.ReactNode;
-}
-
-export default function AdminAuthGuard({ children }: AdminAuthGuardProps) {
-  return <>{children}</>;
-}
-
-
-/*
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './auth/AuthProvider';
@@ -48,4 +33,3 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps) {
 
   return <>{children}</>;
 }
-*/
