@@ -305,49 +305,32 @@ function WorkCycleManagementContent() {
                 <FormField
                   control={form.control}
                   name="phaseTemplateIds"
-                  render={() => (
+                  render={({ field }) => (
                     <FormItem>
                       <div className="mb-4">
                         <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
                         <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
-                        {phaseTemplates.map((item) => (
-                           <FormField
-                            key={item.id}
-                            control={form.control}
-                            name="phaseTemplateIds"
-                            render={({ field }) => {
-                              return (
-                                <FormItem
-                                  key={item.id}
-                                  className="flex flex-row items-center space-x-3 space-y-0"
-                                >
+                          {phaseTemplates.map((item) => (
+                              <FormItem key={item.id} className="flex flex-row items-center space-x-3 space-y-0">
                                   <FormControl>
-                                    <Checkbox
-                                      checked={field.value?.includes(item.id)}
-                                      onCheckedChange={(checked) => {
-                                        return checked
-                                          ? field.onChange([
-                                              ...(field.value || []),
-                                              item.id,
-                                            ])
-                                          : field.onChange(
-                                              (field.value || []).filter(
-                                                (value) => value !== item.id
-                                              )
-                                            );
-                                      }}
-                                    />
+                                      <Checkbox
+                                          checked={field.value?.includes(item.id)}
+                                          onCheckedChange={(checked) => {
+                                              const currentValue = field.value || [];
+                                              const newValue = checked
+                                                  ? [...currentValue, item.id]
+                                                  : currentValue.filter((value) => value !== item.id);
+                                              field.onChange(newValue);
+                                          }}
+                                      />
                                   </FormControl>
                                   <FormLabel className="font-normal text-sm">
-                                    {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
+                                      {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
                                   </FormLabel>
-                                </FormItem>
-                              );
-                            }}
-                          />
-                        ))}
+                              </FormItem>
+                          ))}
                       </div>
                       <FormMessage />
                     </FormItem>
