@@ -1,10 +1,12 @@
+
 "use client";
 
 import React from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowRight } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { Button } from '../ui/button';
 
 export interface DashboardItemProps {
   title: string;
@@ -19,27 +21,30 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
   ({ title, description, icon: Icon, href, className, onClick, ...rest }, ref) => {
     
     const cardClasses = cn(
-        "hover:shadow-lg transition-shadow duration-300 h-full flex flex-col group",
+        "hover:shadow-lg hover:border-primary/50 transition-all duration-300 group flex flex-col h-full",
         { 'cursor-pointer': !!href || !!onClick },
         className
     );
 
     const cardContent = (
         <>
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <Icon className="h-10 w-10 text-primary" />
-                {(href || onClick) && (
-                  <div className="text-muted-foreground group-hover:text-primary transition-colors">
-                    <ArrowRight className="h-5 w-5" />
-                  </div>
-                )}
-              </div>
+            <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <Icon className="h-7 w-7 text-primary" />
+                        <span>{title}</span>
+                    </div>
+                </CardTitle>
             </CardHeader>
             <CardContent className="flex-grow">
-              <CardTitle className="text-xl font-headline mb-1">{title}</CardTitle>
-              <CardDescription>{description}</CardDescription>
+                <CardDescription>{description}</CardDescription>
             </CardContent>
+            <CardFooter>
+                <Button variant="link" className="p-0 h-auto text-primary">
+                    Vai alla funzione
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+            </CardFooter>
         </>
     );
 

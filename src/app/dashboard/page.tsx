@@ -29,13 +29,13 @@ export default function DashboardPage() {
         <div className="space-y-8">
           <OperatorNavMenu />
           <header className="space-y-2">
-            <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard</h1>
+            <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Operatore</h1>
             <p className="text-muted-foreground">
-              Accedi alle funzioni di ProdFastXcan.
+              Seleziona un'opzione qui sotto per accedere alle funzioni di ProdFastXcan.
             </p>
           </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <DashboardItem
               title="Scansione Commessa PF"
               description="Scansiona un QR code della commessa per iniziare o continuare il lavoro."
@@ -60,7 +60,7 @@ export default function DashboardPage() {
             )}
             <DashboardItem
               title="Dati Operatore"
-              description="Visualizza e gestisci le informazioni dell'operatore."
+              description="Visualizza e gestisci le informazioni del tuo profilo utente."
               icon={Users}
               href="/operator"
             />
