@@ -115,11 +115,6 @@ export default function LoginForm() {
     }, []);
 
     useEffect(() => {
-        if (step !== 'camera') {
-            stopCamera();
-            return;
-        }
-
         const startCamera = async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
@@ -136,8 +131,12 @@ export default function LoginForm() {
             }
         };
 
-        startCamera();
-
+        if (step === 'camera') {
+          startCamera();
+        } else {
+          stopCamera();
+        }
+        
         return () => {
             stopCamera();
         };
