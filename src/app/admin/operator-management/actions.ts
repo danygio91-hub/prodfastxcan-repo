@@ -14,12 +14,11 @@ const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
-  cognome: z.string().optional(),
   email: z.string().email("L'email è obbligatoria e deve essere valida.").refine(email => email.endsWith('@prodfastxcan.app'), {
     message: "L'email deve terminare con @prodfastxcan.app",
   }),
   reparto: z.array(z.string()).max(3, "Massimo 3 reparti.").optional(),
-  role: z.enum(['admin', 'superadvisor', 'operator'], {
+  role: z.enum(['admin', 'supervisor', 'operator'], {
     errorMap: () => ({ message: 'Selezionare un ruolo valido.' }),
   }),
 }).refine(data => {
@@ -60,7 +59,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
   let repartiToSave: Reparto[];
   if (validatedFields.data.role === 'admin') {
       repartiToSave = ['N/D'];
-  } else if (validatedFields.data.role === 'superadvisor') {
+  } else if (validatedFields.data.role === 'supervisor') {
       repartiToSave = ['Officina']; 
   } else {
       repartiToSave = (validatedFields.data.reparto || []).filter(r => (reparti as readonly string[]).includes(r)) as Reparto[];
@@ -69,13 +68,11 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
 
   const { id, email } = validatedFields.data;
   const nome = validatedFields.data.nome.trim();
-  const cognome = (validatedFields.data.cognome || '').trim();
   const role = validatedFields.data.role;
   const nome_normalized = nome.toLowerCase();
   
   const dataToSave: Partial<Operator> = {
       nome,
-      cognome,
       reparto: repartiToSave,
       role,
       nome_normalized,

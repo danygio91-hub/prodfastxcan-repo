@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
@@ -36,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fullLogout = useCallback(async () => {
     const currentOperator = operatorRef.current;
-    if (currentOperator?.id && currentOperator?.role !== 'admin' && currentOperator?.role !== 'superadvisor') {
+    if (currentOperator?.id && currentOperator?.role !== 'admin' && currentOperator?.role !== 'supervisor') {
       try {
         const operatorDocRef = doc(db, "operators", currentOperator.id);
         await updateDoc(operatorDocRef, { stato: 'inattivo' });
@@ -155,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         const operatorProfile = await fetchOperatorProfile(firebaseUser);
         if (operatorProfile) {
-          if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin' && operatorProfile.role !== 'superadvisor') {
+          if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin' && operatorProfile.role !== 'supervisor') {
             const operatorDocRef = doc(db, "operators", operatorProfile.id);
             await updateDoc(operatorDocRef, { stato: 'attivo' });
             operatorProfile.stato = 'attivo';
@@ -191,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('login_redirect_path'); 
         router.replace(redirectPath);
       } else {
-        const isOperator = operator.role === 'operator' || operator.role === 'superadvisor';
+        const isOperator = operator.role === 'operator' || operator.role === 'supervisor';
         router.replace(isOperator ? '/dashboard' : '/admin/dashboard');
       }
     }

@@ -33,12 +33,11 @@ import { useRouter } from 'next/navigation';
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, "Il nome è obbligatorio."),
-  cognome: z.string().optional(),
   email: z.string().email("Formato email non valido.").refine(email => email.endsWith('@prodfastxcan.app'), {
     message: "L'email deve terminare con @prodfastxcan.app",
   }),
   reparto: z.array(z.string()).max(3, "Puoi selezionare al massimo 3 reparti.").optional(),
-  role: z.enum(['admin', 'superadvisor', 'operator']),
+  role: z.enum(['admin', 'supervisor', 'operator']),
 }).refine(data => {
     if (data.role === 'operator') {
         return data.reparto && data.reparto.length > 0;
@@ -81,7 +80,6 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
     defaultValues: {
       id: undefined,
       nome: "",
-      cognome: "",
       email: "",
       reparto: [],
       role: 'operator',
@@ -89,12 +87,12 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
   });
 
   const watchedRole = form.watch('role');
-  const roles: OperatorRole[] = ['admin', 'superadvisor', 'operator'];
+  const roles: OperatorRole[] = ['admin', 'supervisor', 'operator'];
   const operationalReparti = reparti.filter(r => r !== 'N/D' && r !== 'Officina');
 
 
   useEffect(() => {
-    if (watchedRole === 'admin' || watchedRole === 'superadvisor') {
+    if (watchedRole === 'admin' || watchedRole === 'supervisor') {
       form.setValue('reparto', []);
     }
   }, [watchedRole, form]);
@@ -109,13 +107,12 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
       form.reset({
         id: operator.id,
         nome: operator.nome,
-        cognome: operator.cognome || '',
         email: operator.email || '',
         reparto: Array.isArray(operator.reparto) ? operator.reparto : (operator.reparto ? [operator.reparto] : []),
         role: operator.role,
       });
     } else {
-      form.reset({ id: undefined, nome: "", cognome: "", email: "", reparto: [], role: 'operator' });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator' });
     }
     setIsDialogOpen(true);
   };
@@ -156,7 +153,6 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
     const dataToExport = operators.map(op => ({
         'ID': op.id,
         'Nome': op.nome,
-        'Cognome': op.cognome,
         'Email': op.email,
         'Reparto': Array.isArray(op.reparto) ? op.reparto.join(', ') : op.reparto,
         'Ruolo': op.role,
@@ -212,11 +208,11 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
                   {operators.length > 0 ? (
                     operators.map((op) => {
                       const opReparti = Array.isArray(op.reparto) ? op.reparto : (op.reparto ? [op.reparto] : []);
-                      const validReparti = op.role === 'superadvisor' ? ['Officina'] : opReparti.filter(r => reparti.includes(r));
+                      const validReparti = op.role === 'supervisor' ? ['Officina'] : opReparti.filter(r => reparti.includes(r));
                       
                       return (
                       <TableRow key={op.id}>
-                        <TableCell className="font-medium">{op.nome} {op.cognome}</TableCell>
+                        <TableCell className="font-medium">{op.nome}</TableCell>
                         <TableCell>{op.email}</TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
@@ -293,22 +289,13 @@ export default function OperatorManagementClientPage({ initialOperators }: Opera
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <FormField control={form.control} name="nome" render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Nome</FormLabel>
-                        <FormControl><Input placeholder="Es. Mario" {...field} /></FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )} />
-                    <FormField control={form.control} name="cognome" render={({ field }) => (
-                    <FormItem>
-                        <FormLabel>Cognome</FormLabel>
-                        <FormControl><Input placeholder="Es. Rossi" {...field} /></FormControl>
-                        <FormMessage />
-                    </FormItem>
-                    )} />
-                </div>
+                <FormField control={form.control} name="nome" render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Nome</FormLabel>
+                    <FormControl><Input placeholder="Es. Mario" {...field} /></FormControl>
+                    <FormMessage />
+                </FormItem>
+                )} />
                 <FormField control={form.control} name="email" render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center"><Mail className="mr-2 h-4 w-4"/>Email (per il login)</FormLabel>

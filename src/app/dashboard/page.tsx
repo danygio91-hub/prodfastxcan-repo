@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React from 'react';
@@ -15,7 +16,7 @@ export default function DashboardPage() {
 
   const allowedAccessReparti = ['MAG', 'Collaudo'];
   const hasMagAccess = operator && (
-    operator.role === 'superadvisor' || 
+    operator.role === 'supervisor' || 
     (Array.isArray(operator.reparto) 
       ? operator.reparto.some(r => allowedAccessReparti.includes(r)) 
       : allowedAccessReparti.includes(operator.reparto))

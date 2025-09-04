@@ -120,7 +120,7 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
 export async function resolveJobProblem(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string; }> {
   try {
     const operator = await ensureAdmin(uid); // Re-use ensureAdmin for role check
-    if (operator.role !== 'admin' && operator.role !== 'superadvisor') {
+    if (operator.role !== 'admin' && operator.role !== 'supervisor') {
       throw new Error('Permessi non sufficienti.');
     }
 
