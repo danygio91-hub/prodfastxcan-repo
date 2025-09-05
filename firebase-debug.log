@@ -2269,3 +2269,13 @@ INFO: Connected to new websocket client
 [debug] [2025-09-05T09:43:15.161Z] Sep 05, 2025 9:43:15 AM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected non-HTTP/2 connection.
  {"metadata":{"emulator":{"name":"firestore"},"message":"Sep 05, 2025 9:43:15 AM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead\nINFO: Detected non-HTTP/2 connection.\n"}}
+[debug] [2025-09-05T09:43:16.770Z] Sep 05, 2025 9:43:16 AM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+INFO: Detected HTTP/2 connection.
+ {"metadata":{"emulator":{"name":"firestore"},"message":"Sep 05, 2025 9:43:16 AM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead\nINFO: Detected HTTP/2 connection.\n"}}
+[debug] [2025-09-05T09:43:20.347Z] <<< [apiv2][status] PUT http://127.0.0.1:8080/emulator/v1/projects/demo-app:securityRules 200
+[debug] [2025-09-05T09:43:20.352Z] <<< [apiv2][body] PUT http://127.0.0.1:8080/emulator/v1/projects/demo-app:securityRules {"issues":[{"sourcePosition":{"fileName":"security.rules","line":49,"column":11,"currentOffset":1744,"endOffset":1744},"description":"Missing 'match' keyword before path.","severity":"ERROR"},{"sourcePosition":{"fileName":"security.rules","line":50,"column":7,"currentOffset":1773,"endOffset":1777},"description":"Unexpected 'where'.","severity":"ERROR"},{"sourcePosition":{"fileName":"security.rules","line":50,"column":7,"currentOffset":1773,"endOffset":1777},"description":"mismatched input 'where' expecting {'{', '/', PATH_SEGMENT}","severity":"ERROR"},{"sourcePosition":{"fileName":"security.rules","line":73,"column":1,"currentOffset":2647,"endOffset":2647},"description":"Unexpected '}'.","severity":"ERROR"}]}
+[warn] ⚠  firestore.rules:49:11 - ERROR Missing 'match' keyword before path. 
+[warn] ⚠  firestore.rules:50:7 - ERROR Unexpected 'where'. 
+[warn] ⚠  firestore.rules:50:7 - ERROR mismatched input 'where' expecting {'{', '/', PATH_SEGMENT} 
+[warn] ⚠  firestore.rules:73:1 - ERROR Unexpected '}'. 
+[info] ✔  firestore: Rules updated. 

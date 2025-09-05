@@ -347,7 +347,7 @@ export default function ScanJobPage() {
       if (!activeJob || !operator || !phaseForPhaseScan) return;
   
       // --- VALIDATION LOGIC ---
-      if (scannedId.trim() !== phaseForPhaseScan.name) {
+      if (scannedId.trim().toLowerCase() !== phaseForPhaseScan.name.toLowerCase()) {
           toast({
               variant: "destructive",
               title: "Scansione Fase Errata",
