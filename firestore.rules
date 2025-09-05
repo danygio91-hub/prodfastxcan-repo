@@ -2,117 +2,72 @@
 rules_version = '2';
 
 service cloud.firestore {
-    match /databases/{database}/documents {
+  match /databases/{database}/documents {
 
-          // Helper function to check if a user is an admin
-              function isAdmin(userId) {
-                      return exists(/databases/$(database)/documents/operators/$(userId)) &&
-                                   get(/databases/$(database)/documents/operators/$(userId)).data.role == 'admin';
-              }
-
-                  // Helper function to check if a user is authenticated
-                      function isAuthenticated() {
-                              return request.auth != null;
-                      }
-                          
-                              // Helper function to get user role
-                                  function getUserRole(userId) {
-                                          return get(/databases/$(database)/documents/operators/$(userId)).data.role;
-                                  }
-
-                                      // Deny all access by default
-                                          match /{document=**} {
-                                                  allow read, write: if false;
-                                          }
-                                              
-                                                  // Operators collection
-                                                      match /operators/{operatorId} {
-                                                              // Admins can read/write any operator
-                                                                    // A user can read/update their own profile
-                                                                          allow read, update: if isAdmin(request.auth.uid) || request.auth.uid == get(/databases/$(database)/documents/operators/$(operatorId)).data.uid;
-                                                                                // Admins can create/delete operators
-                                                                                      allow create, delete: if isAdmin(request.auth.uid);
-                                                      }
-                                                          
-                                                              // Configuration collections (like departmentMap, workPhaseTemplates, etc.)
-                                                                  match /configuration/{docId} {
-                                                                          allow read: if isAuthenticated();
-                                                                                allow write: if isAdmin(request.auth.uid);
-                                                                  }
-                                                                      
-                                                                          match /workPhaseTemplates/{docId} {
-                                                                                    allow read: if isAuthenticated();
-                                                                                            allow write: if isAdmin(request.auth.uid);
-                                                                          }
-                                                                              
-                                                                                   match /workstations/{docId} {
-                                                                                            allow read: if isAuthenticated();
-                                                                                                    allow write: if isAdmin(request.auth.uid);
-                                                                                   }
-
-                                                                                       match /workCycles/{docId} {
-                                                                                                allow read: if isAuthenticated();
-                                                                                                        allow write: if isAdmin(request.auth.uid);
-                                                                                       }
-
-                                                                                           // JobOrders collection
-                                                                                               match /jobOrders/{jobId} {
-                                                                                                      // Any authenticated user can read job orders
-                                                                                                            allow read: if isAuthenticated();
-                                                                                                                  // Only admins can create/delete job orders. 
-                                                                                                                        // Operators update them via server actions which run with admin privileges implicitly.
-                                                                                                                              allow create, delete: if isAdmin(request.auth.uid);
-                                                                                                                                    // Operators can update jobs, but this should be tightened further
-                                                                                                                                          // to only allow specific field updates (e.g., status, phases).
-                                                                                                                                                // For now, allow any authenticated user to update.
-                                                                                                                                                      allow update: if isAuthenticated();
-                                                                                               }
-                                                                                                   
-                                                                                                       // RawMaterials collection
-                                                                                                           match /rawMaterials/{materialId} {
-                                                                                                                  allow read: if isAuthenticated();
-                                                                                                                        // Only admins can create new material definitions or delete them.
-                                                                                                                              allow create, delete: if isAdmin(request.auth.uid);
-                                                                                                                                    // Any authenticated user can update (e.g., add a batch, which updates stock)
-                                                                                                                                          allow update: if isAuthenticated();
-                                                                                                           }
-                                                                                                               
-                                                                                                                   // MaterialWithdrawals collection
-                                                                                                                       match /materialWithdrawals/{withdrawalId} {
-                                                                                                                              allow read: if isAuthenticated();
-                                                                                                                                    // Only authenticated users can create withdrawals (this is done via server actions)
-                                                                                                                                          allow create: if isAuthenticated();
-                                                                                                                                                // Only admins can delete withdrawal history
-                                                                                                                                                      allow delete: if isAdmin(request.auth.uid);
-                                                                                                                       }
-                                                                                                                           
-                                                                                                                               // NonConformityReports collection
-                                                                                                                                   match /nonConformityReports/{reportId} {
-                                                                                                                                           allow read, create: if isAuthenticated();
-                                                                                                                                                  allow update, delete: if isAdmin(request.auth.uid);
-                                                                                                                                   }
-
-                                                                                                                                       // Counters collection (for ODLs)
-                                                                                                                                           match /counters/{counterId} {
-                                                                                                                                                    allow read: if isAuthenticated();
-                                                                                                                                                            allow write: if isAdmin(request.auth.uid);
-                                                                                                                                           }
+    // Helper function to check if a user is an admin or supervisor
+    function isAdmin(userId) {
+      return get(/databases/$(database)/documents/operators/$(userId)).data.role in ['admin', 'supervisor'];
     }
-}
 
-                                                                                                                                           }
-                                                                                                                                   }
-                                                                                                                       }
-                                                                                                           }
-                                                                                               }
-                                                                                       }
-                                                                                   }
-                                                                          }
-                                                                  }
-                                                      }
-                                          }
-                                  }
-                      }
-              }
+    // Helper function to check if a user is logged in
+    function isSignedIn() {
+      return request.auth != null;
     }
+
+    // Operators can be read by any signed-in user, but only modified by admins or themselves.
+    match /operators/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin(request.auth.uid);
+      allow delete: if isAdmin(request.auth.uid);
+    }
+    
+    // Only signed-in users can access job orders
+    match /jobOrders/{jobId} {
+        allow read, write: if isSignedIn();
+    }
+
+    // Raw materials can be read by signed-in users, but only modified by admins/supervisors
+    match /rawMaterials/{materialId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isAdmin(request.auth.uid);
+    }
+
+    // Withdrawals can be read by signed-in users, but only created/modified by them, and only deleted by admins
+     match /materialWithdrawals/{withdrawalId} {
+      allow read, create: if isSignedIn();
+      allow update: if isSignedIn(); // Operator can update their own work
+      allow delete: if isAdmin(request.auth.uid);
+    }
+    
+    // Configuration can be read by anyone signed in, but only written by admins.
+    match /configuration/{configId} {
+        allow read: if isSignedIn();
+        allow write: if isAdmin(request.auth.uid);
+    }
+    
+    // Workstations and templates can be read by anyone signed in, written by admins
+    match /{collection}/{docId} 
+      where collection in ['workstations', 'workPhaseTemplates', 'workCycles', 'departments', 'packaging'] {
+        allow read: if isSignedIn();
+        allow write: if isAdmin(request.auth.uid);
+    }
+    
+    // System settings can only be accessed by admins
+    match /system/{docId} {
+        allow read, write: if isAdmin(request.auth.uid);
+    }
+    
+     // Problem reports can be created by any signed-in user, but only managed by admin/supervisor
+    match /productionProblemReports/{reportId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isAdmin(request.auth.uid);
+    }
+    
+    // Non-conformity reports can be created by any signed-in user, but only managed by admin/supervisor
+    match /nonConformityReports/{reportId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isAdmin(request.auth.uid);
+    }
+
+  }
 }
