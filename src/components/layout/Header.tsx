@@ -46,6 +46,7 @@ export default function Header() {
   const { toast } = useToast();
   
   const operatorName = operator ? operator.nome : null;
+  const isAdmin = operator?.role === 'admin';
   const isAdminPage = pathname.startsWith('/admin');
 
   const handleRefresh = () => {
@@ -70,11 +71,13 @@ export default function Header() {
   
   const showExitButton = pathname === '/scan-job' && activeJob;
 
+  const homeLink = isAdmin ? '/admin/dashboard' : '/dashboard';
+
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="flex items-center text-xl font-bold font-headline text-primary">
+            <Link href={homeLink} className="flex items-center text-xl font-bold font-headline text-primary">
                 <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
             </Link>
         </div>
