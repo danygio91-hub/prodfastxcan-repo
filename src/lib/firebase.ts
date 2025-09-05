@@ -7,10 +7,9 @@ import { getAuth } from "firebase/auth";
 const firebaseConfig = {
   "projectId": "prodfastxcanwork",
   "appId": "1:793652075129:web:10e9f4b5714498875792a8",
-  "storageBucket": "prodfastxcanwork.firebasestorage.app",
+  "storageBucket": "prodfastxcanwork.appspot.com",
   "apiKey": "AIzaSyBOVtLee0ERy-ZEcdQVaaZnM6F0TWL7zIo",
   "authDomain": "prodfastxcanwork.firebaseapp.com",
-  "measurementId": "",
   "messagingSenderId": "793652075129"
 };
 
