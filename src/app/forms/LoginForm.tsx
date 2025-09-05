@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -260,7 +259,7 @@ export default function LoginForm() {
                                     </TooltipTrigger>
                                     {!installPrompt && (
                                         <TooltipContent>
-                                        <p>L'installazione non è ancora disponibile per questo dispositivo.</p>
+                                        <p>L'app è già installata o il browser non supporta l'installazione.</p>
                                         </TooltipContent>
                                     )}
                                 </Tooltip>
