@@ -21,13 +21,13 @@ export const metadata: Metadata = {
   title: 'ProdFast Xcan',
   description: 'Applicazione per il Tracciamento dei Tempi di Produzione',
   manifest: '/manifest.json',
+  icons: {
+    apple: "/icon-192x192.png",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  themeColor: '#3F51B5',
 };
 
 
@@ -38,10 +38,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it" suppressHydrationWarning>
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icon-192x192.png"></link>
-      </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
           <ActiveJobProvider>
