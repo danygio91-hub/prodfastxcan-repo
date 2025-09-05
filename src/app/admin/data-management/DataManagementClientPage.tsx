@@ -41,7 +41,7 @@ import { type JobOrder, type Reparto, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle } from './actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
@@ -50,17 +50,12 @@ const odlFormSchema = z.object({
 });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
 
-interface DataManagementClientPageProps {
-  plannedJobOrders: JobOrder[];
-  productionJobOrders: JobOrder[];
-  workCycles: WorkCycle[];
-}
+export default function DataManagementClientPage() {
+  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
+  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-export default function DataManagementClientPage({
-  plannedJobOrders,
-  productionJobOrders,
-  workCycles,
-}: DataManagementClientPageProps) {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
@@ -76,6 +71,32 @@ export default function DataManagementClientPage({
     resolver: zodResolver(odlFormSchema),
   });
 
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [planned, production, cycles] = await Promise.all([
+        getPlannedJobOrders(),
+        getProductionJobOrders(),
+        getWorkCycles(),
+      ]);
+      setPlannedJobOrders(planned);
+      setProductionJobOrders(production);
+      setWorkCycles(cycles);
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Errore nel Caricamento",
+        description: "Impossibile caricare i dati delle commesse.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
   const workCyclesMap = useMemo(() => {
     const map = new Map<string, string>();
     workCycles.forEach(cycle => {
@@ -84,9 +105,9 @@ export default function DataManagementClientPage({
     return map;
   }, [workCycles]);
   
-  const refreshData = () => {
-    router.refresh();
-  };
+  const refreshData = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleExportPlanned = () => {
     const dataToExport = plannedJobOrders.map(job => ({
@@ -357,6 +378,15 @@ export default function DataManagementClientPage({
       refreshData();
     }
   };
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="ml-4 text-muted-foreground">Caricamento dati commesse...</p>
+      </div>
+    );
+  }
 
   return (
       <div className="space-y-6">
