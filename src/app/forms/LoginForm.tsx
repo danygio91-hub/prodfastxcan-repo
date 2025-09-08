@@ -58,26 +58,11 @@ export default function LoginForm() {
     const streamRef = useRef<MediaStream | null>(null);
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
-    const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
     const manualForm = useForm<z.infer<typeof manualLoginSchema>>({
         resolver: zodResolver(manualLoginSchema),
         defaultValues: { username: "", password: "" },
     });
-
-    // Effect to handle PWA install prompt
-    useEffect(() => {
-        const handleBeforeInstallPrompt = (e: Event) => {
-            e.preventDefault();
-            setInstallPrompt(e as BeforeInstallPromptEvent);
-        };
-
-        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-        return () => {
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        };
-    }, []);
 
     const performLogin = useCallback(async (username: string, password_used: string) => {
         setStep('logging_in');
@@ -186,18 +171,6 @@ export default function LoginForm() {
         localStorage.removeItem('login_redirect_path');
         performLogin(values.username, values.password);
     };
-    
-    const handleInstallClick = async () => {
-        if (!installPrompt) {
-            return;
-        }
-        await installPrompt.prompt();
-        const { outcome } = await installPrompt.userChoice;
-        if (outcome === 'accepted') {
-            toast({ title: "Installazione Avviata", description: "L'app verrà aggiunta alla tua schermata principale." });
-        }
-        setInstallPrompt(null);
-    };
 
     const renderStep = () => {
         switch (step) {
@@ -241,31 +214,6 @@ export default function LoginForm() {
                                 Accedi con Password
                             </Button>
                         </CardContent>
-                         <CardFooter className="flex-col gap-2">
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div className="w-full">
-                                        <Button
-                                            onClick={handleInstallClick}
-                                            variant="ghost"
-                                            size="sm"
-                                            className="w-full text-muted-foreground"
-                                            disabled={!installPrompt}
-                                        >
-                                            <Download className="mr-2 h-4 w-4" />
-                                            Installa App sul dispositivo
-                                        </Button>
-                                        </div>
-                                    </TooltipTrigger>
-                                    {!installPrompt && (
-                                        <TooltipContent>
-                                        <p>L'app è già installata o il browser non supporta l'installazione.</p>
-                                        </TooltipContent>
-                                    )}
-                                </Tooltip>
-                            </TooltipProvider>
-                        </CardFooter>
                     </>
                 );
             case 'camera':

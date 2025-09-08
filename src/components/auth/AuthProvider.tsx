@@ -7,7 +7,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
@@ -30,7 +30,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [operator, setOperator] = useState<Operator | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
 
   const operatorRef = useRef(operator);
   operatorRef.current = operator;

@@ -8,6 +8,7 @@ import { ActiveJobProvider } from '@/contexts/ActiveJobProvider';
 import { ActiveMaterialSessionProvider } from '@/contexts/ActiveMaterialSessionProvider';
 import { PT_Sans } from 'next/font/google';
 import { cn } from '@/lib/utils';
+import PwaInstaller from '@/components/PwaInstaller';
 
 const ptSans = PT_Sans({
   subsets: ['latin'],
@@ -50,6 +51,7 @@ export default function RootLayout({
               >
                 {children}
                 <Toaster />
+                <PwaInstaller />
               </ThemeProvider>
             </ActiveMaterialSessionProvider>
           </ActiveJobProvider>
