@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -15,7 +16,7 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow },
     { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
     { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
-    // { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer },
+    { href: '#', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer, disabled: true },
   ];
 
   return (
@@ -35,11 +36,12 @@ export default function AdminCompanySettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {navItems.map((item) => (
                 <DashboardItem
-                  key={item.href}
-                  href={item.href}
+                  key={item.label}
+                  href={item.disabled ? undefined : item.href}
                   title={item.label}
                   description={item.description}
                   icon={item.icon}
+                  className={item.disabled ? "opacity-50 cursor-not-allowed hover:shadow-none hover:border-border" : ""}
                 />
               ))}
             </div>
