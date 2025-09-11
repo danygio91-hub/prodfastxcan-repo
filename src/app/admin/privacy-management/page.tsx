@@ -12,28 +12,13 @@ import { getPrivacyPolicy, savePrivacyPolicy } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
-
-// A simple rich text editor component. In a real app, you'd use a library like TipTap or TinyMCE.
-function SimpleRichTextEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  // This is a simple implementation. For a real app, a proper rich text editor would be needed.
-  return (
-    <div className="prose dark:prose-invert max-w-none">
-        <textarea
-            value={value.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?p>/gi, '').replace(/<\/?strong>/gi, '')}
-            onChange={(e) => {
-                const htmlValue = e.target.value.split('\n').map(p => `<p>${p}</p>`).join('');
-                onChange(htmlValue);
-            }}
-            className="w-full h-80 p-4 border rounded-md bg-background"
-            placeholder="Scrivi qui il testo dell'informativa..."
-        />
-    </div>
-  );
-}
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 
 
 export default function PrivacyManagementPage() {
   const [policy, setPolicy] = useState<{ content: string, lastUpdated: string | null }>({ content: '', lastUpdated: null });
+  const [editedContent, setEditedContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
   const { user } = useAuth();
@@ -44,6 +29,8 @@ export default function PrivacyManagementPage() {
     try {
         const data = await getPrivacyPolicy();
         setPolicy(data);
+        // Convert simple HTML to text for textarea
+        setEditedContent(data.content.replace(/<p>/g, '').replace(/<\/p>/g, '\n\n').replace(/<strong>/g, '').replace(/<\/strong>/g, '').trim());
     } catch (error) {
         toast({
             variant: "destructive",
@@ -61,7 +48,14 @@ export default function PrivacyManagementPage() {
   const handleSave = () => {
     if (!user) return;
     startTransition(async () => {
-      const result = await savePrivacyPolicy(policy.content, user.uid);
+      // Convert text back to simple HTML
+      const htmlContent = editedContent
+        .split('\n')
+        .filter(p => p.trim() !== '')
+        .map(p => `<p>${p}</p>`)
+        .join('');
+        
+      const result = await savePrivacyPolicy(htmlContent, user.uid);
       toast({
         title: result.success ? "Operazione Completata" : "Operazione Fallita",
         description: result.message,
@@ -90,7 +84,7 @@ export default function PrivacyManagementPage() {
 
           <Card>
             <CardHeader>
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-2">
                 <div>
                     <CardTitle>Editor Informativa</CardTitle>
                     <CardDescription>
@@ -99,7 +93,7 @@ export default function PrivacyManagementPage() {
                             : "Nessuna modifica ancora salvata."}
                     </CardDescription>
                 </div>
-                <Button onClick={handleSave} disabled={isPending || isLoading}>
+                <Button onClick={handleSave} disabled={isPending || isLoading || editedContent === policy.content}>
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
                     Salva e Richiedi Nuova Firma
                 </Button>
@@ -107,13 +101,16 @@ export default function PrivacyManagementPage() {
             </CardHeader>
             <CardContent>
               {isLoading ? (
-                <div className="flex items-center justify-center h-48">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <div className="space-y-2">
+                  <Skeleton className="h-40 w-full" />
                 </div>
               ) : (
-                <div className="p-4 border rounded-md">
-                     <div dangerouslySetInnerHTML={{ __html: policy.content }} />
-                </div>
+                <Textarea
+                    value={editedContent}
+                    onChange={(e) => setEditedContent(e.target.value)}
+                    className="w-full h-80 p-4 border rounded-md bg-background"
+                    placeholder="Scrivi qui il testo dell'informativa..."
+                />
               )}
             </CardContent>
           </Card>
