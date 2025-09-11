@@ -82,6 +82,7 @@ export interface Operator {
   password?: string;
   role: OperatorRole;
   privacySigned?: boolean;
+  privacyVersion?: number; // Timestamp of the signed policy
   nome_normalized?: string;
   email?: string;
 }
@@ -245,3 +246,12 @@ export const initialWorkstations: Workstation[] = [
     { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
     { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
 ];
+export const initialDepartmentMap: Record<string, string> = {
+    CP: 'Assemblaggio Componenti Elettronici',
+    CG: 'Controllo Qualità',
+    BF: 'Burattatura e Finitura',
+    MAG: 'Magazzino',
+    Collaudo: 'Collaudo e Test Funzionali',
+    Officina: 'Officina',
+    'N/D': 'Non Definito',
+};
