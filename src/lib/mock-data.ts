@@ -255,3 +255,8 @@ export const initialDepartmentMap: Record<string, string> = {
     Officina: 'Officina',
     'N/D': 'Non Definito',
 };
+
+export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D'];
+export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D';
+
+    

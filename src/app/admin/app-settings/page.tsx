@@ -50,7 +50,7 @@ function triggerGlobalLogout() {
 
 export default function AdminAppSettingsPage() {
   const { user } = useAuth();
-  const [isPending, startTransition] = useTransition();
+  const [isSeeding, setIsSeeding] = useState(false);
   const [isResettingJobs, startResetJobsTransition] = useTransition();
   const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
   const [isResettingMaterialHistory, startResetMaterialHistoryTransition] = useTransition();
@@ -66,64 +66,64 @@ export default function AdminAppSettingsPage() {
 
   const { toast } = useToast();
 
-  const handleSeedDatabase = () => {
-    startTransition(async () => {
-      const seedDatabaseClientSide = async (): Promise<{ success: boolean; message: string; }> => {
-        try {
-          const operatorsRef = collection(db, "operators");
-          const operatorsSnap = await getDocs(operatorsRef);
-          
-          if (!operatorsSnap.empty) {
-              return { success: false, message: 'Il database sembra essere già popolato. Nessuna operazione eseguita.' };
-          }
-          
-          const batch = writeBatch(db);
-          let totalOperations = 0;
-
-          initialOperators.forEach(op => {
-              const docRef = doc(db, "operators", op.id);
-              batch.set(docRef, op);
-              totalOperations++;
-          });
-
-          const departmentMapDocRef = doc(db, "configuration", "departmentMap");
-          batch.set(departmentMapDocRef, initialDepartmentMap);
-          totalOperations++;
-
-          initialWorkPhaseTemplates.forEach(phase => {
-              const docRef = doc(db, "workPhaseTemplates", phase.id);
-              batch.set(docRef, phase);
-              totalOperations++;
-          });
-
-          initialWorkstations.forEach(ws => {
-              const docRef = doc(db, "workstations", ws.id);
-              batch.set(docRef, ws);
-              totalOperations++;
-          });
-          
-          await batch.commit();
-          return { success: true, message: `Database popolato con successo con ${totalOperations} documenti.` };
-
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error("Errore nel seeding del database:", error);
-          let userFriendlyMessage = `Si è verificato un errore: ${errorMessage}`;
-          if (errorMessage.toLowerCase().includes('permission-denied') || errorMessage.toLowerCase().includes('insufficient permissions')) {
-            userFriendlyMessage = "Errore di permessi. Assicurati che le regole di sicurezza di Firestore permettano la scrittura. Per lo sviluppo, puoi impostarle temporaneamente su 'allow read, write: if true;' nella console di Firebase.";
-          }
-          return { success: false, message: userFriendlyMessage };
+  const handleSeedDatabase = async () => {
+    setIsSeeding(true);
+    const seedDatabaseClientSide = async (): Promise<{ success: boolean; message: string; }> => {
+      try {
+        const operatorsRef = collection(db, "operators");
+        const operatorsSnap = await getDocs(operatorsRef);
+        
+        if (!operatorsSnap.empty) {
+            return { success: false, message: 'Il database sembra essere già popolato. Nessuna operazione eseguita.' };
         }
-      };
-      
-      const result = await seedDatabaseClientSide();
-       toast({
-          title: result.success ? "Operazione Completata" : "Operazione Fallita",
-          description: result.message,
-          variant: result.success ? "default" : "destructive",
-          duration: result.success ? 5000 : 9000,
+        
+        const batch = writeBatch(db);
+        let totalOperations = 0;
+
+        initialOperators.forEach(op => {
+            const docRef = doc(db, "operators", op.id);
+            batch.set(docRef, op);
+            totalOperations++;
         });
-    });
+
+        const departmentMapDocRef = doc(db, "configuration", "departmentMap");
+        batch.set(departmentMapDocRef, initialDepartmentMap);
+        totalOperations++;
+
+        initialWorkPhaseTemplates.forEach(phase => {
+            const docRef = doc(db, "workPhaseTemplates", phase.id);
+            batch.set(docRef, phase);
+            totalOperations++;
+        });
+
+        initialWorkstations.forEach(ws => {
+            const docRef = doc(db, "workstations", ws.id);
+            batch.set(docRef, ws);
+            totalOperations++;
+        });
+        
+        await batch.commit();
+        return { success: true, message: `Database popolato con successo con ${totalOperations} documenti.` };
+
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error("Errore nel seeding del database:", error);
+        let userFriendlyMessage = `Si è verificato un errore: ${errorMessage}`;
+        if (errorMessage.toLowerCase().includes('permission-denied') || errorMessage.toLowerCase().includes('insufficient permissions')) {
+          userFriendlyMessage = "Errore di permessi. Assicurati che le regole di sicurezza di Firestore permettano la scrittura. Per lo sviluppo, puoi impostarle temporaneamente su 'allow read, write: if true;' nella console di Firebase.";
+        }
+        return { success: false, message: userFriendlyMessage };
+      }
+    };
+    
+    const result = await seedDatabaseClientSide();
+      toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+        duration: result.success ? 5000 : 9000,
+      });
+    setIsSeeding(false);
   }
 
   const handleBackup = () => {
@@ -369,8 +369,8 @@ export default function AdminAppSettingsPage() {
                          <p className="text-sm text-muted-foreground">Aggiunge dati di esempio solo se il database è vuoto.</p>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                             <Button variant="outline" className="w-full" disabled={isPending}>
-                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                             <Button variant="outline" className="w-full" disabled={isSeeding}>
+                              {isSeeding ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                               Popola Database Iniziale
                             </Button>
                           </AlertDialogTrigger>
@@ -383,8 +383,8 @@ export default function AdminAppSettingsPage() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleSeedDatabase} disabled={isPending}>
-                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                              <AlertDialogAction onClick={handleSeedDatabase} disabled={isSeeding}>
+                                {isSeeding ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                 Sì, popola il database
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -555,3 +555,5 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
+
+    
