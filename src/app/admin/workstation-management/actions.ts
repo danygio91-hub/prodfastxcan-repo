@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -8,7 +9,6 @@ import { db } from '@/lib/firebase';
 import { 
     type Workstation, 
     type Reparto, 
-    reparti,
     initialDepartmentMap 
 } from '@/lib/mock-data';
 
@@ -16,9 +16,7 @@ import {
 const workstationSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
-  departmentCode: z.enum(reparti, {
-    errorMap: () => ({ message: 'Selezionare un reparto valido.' }),
-  }),
+  departmentCode: z.string().min(1, 'Selezionare un reparto.'),
 });
 
 // --- Actions ---

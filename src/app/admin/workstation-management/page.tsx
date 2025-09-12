@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Workstation, type Reparto, reparti } from '@/lib/mock-data';
+import { type Workstation, type Reparto } from '@/lib/mock-data';
 import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartmentMap } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import { Computer, PlusCircle, Edit, Trash2, Download, Loader2 } from 'lucide-re
 const workstationSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(3, 'Il nome deve avere almeno 3 caratteri.'),
-  departmentCode: z.enum(reparti),
+  departmentCode: z.string().min(1, 'Selezionare un reparto.'),
 });
 
 type WorkstationFormValues = z.infer<typeof workstationSchema>;
@@ -43,7 +43,7 @@ export default function WorkstationManagementClientPage() {
     defaultValues: { id: undefined, name: "", departmentCode: 'CP' },
   });
   
-  const operationalReparti = reparti.filter(r => r !== 'N/D');
+  const operationalReparti = Object.keys(departmentMap).filter(r => r !== 'N/D') as Reparto[];
 
 
   const fetchWorkstations = async () => {
@@ -107,7 +107,7 @@ export default function WorkstationManagementClientPage() {
     const dataToExport = workstations.map(ws => ({
         'ID': ws.id,
         'Nome Postazione': ws.name,
-        'Reparto': departmentMap[ws.departmentCode] || ws.departmentCode,
+        'Reparto': departmentMap[ws.departmentCode as Reparto] || ws.departmentCode,
     }));
     const ws_data = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -170,7 +170,7 @@ export default function WorkstationManagementClientPage() {
                       workstations.map((ws) => (
                         <TableRow key={ws.id}>
                           <TableCell className="font-medium">{ws.name}</TableCell>
-                          <TableCell>{departmentMap[ws.departmentCode] || ws.departmentCode}</TableCell>
+                          <TableCell>{departmentMap[ws.departmentCode as Reparto] || ws.departmentCode}</TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(ws)}>
                               <Edit className="h-4 w-4" />
