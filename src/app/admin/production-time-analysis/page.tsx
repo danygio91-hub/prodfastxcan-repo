@@ -8,12 +8,9 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function ProductionTimeAnalysisData() {
-  const report = await getProductionTimeAnalysisReport();
-  return <ProductionTimeAnalysisClientPage report={report} />;
-}
-
 export default async function AdminProductionTimeAnalysisPage() {
+  const report = await getProductionTimeAnalysisReport();
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -23,7 +20,7 @@ export default async function AdminProductionTimeAnalysisPage() {
             <p className="ml-4 text-muted-foreground">Caricamento analisi tempi...</p>
           </div>
         }>
-          <ProductionTimeAnalysisData />
+          <ProductionTimeAnalysisClientPage report={report} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

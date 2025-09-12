@@ -8,21 +8,13 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function ReportsData() {
+export default async function AdminReportsPage() {
   const [jobsReport, operatorsReport, withdrawalsReport] = await Promise.all([
     getJobsReport(),
     getOperatorsReport(),
     getMaterialWithdrawals()
   ]);
 
-  return <ReportsClientPage
-            initialJobsReport={jobsReport}
-            initialOperatorsReport={operatorsReport}
-            initialWithdrawalsReport={withdrawalsReport}
-          />
-}
-
-export default async function AdminReportsPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -32,7 +24,11 @@ export default async function AdminReportsPage() {
             <p className="ml-4 text-muted-foreground">Caricamento report...</p>
           </div>
         }>
-          <ReportsData />
+          <ReportsClientPage
+            initialJobsReport={jobsReport}
+            initialOperatorsReport={operatorsReport}
+            initialWithdrawalsReport={withdrawalsReport}
+          />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

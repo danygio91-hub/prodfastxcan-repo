@@ -8,15 +8,12 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function OperatorManagementData() {
+export default async function AdminOperatorManagementPage() {
   const [operators, departments] = await Promise.all([
     getOperators(),
     getDepartments(),
   ]);
-  return <OperatorManagementClientPage initialOperators={operators} initialDepartments={departments} />;
-}
 
-export default async function AdminOperatorManagementPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -26,7 +23,7 @@ export default async function AdminOperatorManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento operatori...</p>
           </div>
         }>
-          <OperatorManagementData />
+          <OperatorManagementClientPage initialOperators={operators} initialDepartments={departments} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

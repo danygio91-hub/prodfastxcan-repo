@@ -8,19 +8,12 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function NonConformityData() {
+export default async function NonConformityReportsPage() {
   const [incomingReports, productionReports] = await Promise.all([
     getIncomingNonConformityReports(),
     getProductionProblemReports(),
   ]);
 
-  return <NonConformityClientPage 
-            initialIncomingReports={incomingReports} 
-            initialProductionReports={productionReports}
-         />;
-}
-
-export default function NonConformityReportsPage() {
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -30,7 +23,10 @@ export default function NonConformityReportsPage() {
             <p className="ml-4 text-muted-foreground">Caricamento non conformità...</p>
           </div>
         }>
-          <NonConformityData />
+          <NonConformityClientPage 
+            initialIncomingReports={incomingReports} 
+            initialProductionReports={productionReports}
+         />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

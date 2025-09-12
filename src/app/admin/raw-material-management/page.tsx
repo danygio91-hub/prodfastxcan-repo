@@ -8,12 +8,9 @@ import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
-async function RawMaterialData() {
-  const materials = await getRawMaterials();
-  return <RawMaterialManagementClientPage initialMaterials={materials} />;
-}
-
 export default async function AdminRawMaterialManagementPage() {
+  const materials = await getRawMaterials();
+  
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -23,7 +20,7 @@ export default async function AdminRawMaterialManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento materie prime...</p>
           </div>
         }>
-          <RawMaterialData />
+          <RawMaterialManagementClientPage initialMaterials={materials} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>
