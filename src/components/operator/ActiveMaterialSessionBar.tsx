@@ -6,7 +6,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
-import { useActiveMaterialSession, type ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
+import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
+import type { ActiveMaterialSessionData } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';

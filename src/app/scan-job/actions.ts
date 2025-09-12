@@ -5,8 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType } from '@/lib/mock-data';
-import type { ActiveMaterialSessionData } from '@/contexts/ActiveMaterialSessionProvider';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 
