@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory, FileLock, Check, Loader2, ArrowLeft } from 'lucide-react';
-import { type Operator, type Reparto } from '@/lib/mock-data';
+import type { Operator, Reparto } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { getDepartmentMap } from './actions';
@@ -20,14 +20,14 @@ import { Badge } from '@/components/ui/badge';
 
 export default function OperatorDataPage() {
   const { operator, loading } = useAuth();
-  const [departmentMap, setDepartmentMap] = React.useState<{ [key in Reparto]?: string }>({});
+  const [departmentMap, setDepartmentMap] = React.useState<Record<string, string>>({});
   const router = useRouter();
   
   React.useEffect(() => {
     getDepartmentMap().then(setDepartmentMap);
   }, []);
 
-  const getFullDepartmentName = (repartoCode: Reparto) => {
+  const getFullDepartmentName = (repartoCode: string) => {
     return departmentMap[repartoCode] || repartoCode;
   }
 
@@ -99,3 +99,5 @@ export default function OperatorDataPage() {
     </AuthGuard>
   );
 }
+
+    

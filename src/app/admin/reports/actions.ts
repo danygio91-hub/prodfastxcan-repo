@@ -34,7 +34,7 @@ function formatDuration(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function calculateTimeForPeriods(periods: WorkPeriod[]): number {
@@ -174,7 +174,7 @@ export async function getOperatorsReport() {
             if (Array.isArray(operator.reparto)) {
                 return operator.reparto.join(', ');
             }
-            return operator.reparto;
+            return operator.reparto || 'N/D';
         };
 
         return {
@@ -562,5 +562,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
+    
 
     
