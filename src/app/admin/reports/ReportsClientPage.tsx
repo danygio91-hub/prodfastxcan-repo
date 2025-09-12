@@ -70,7 +70,7 @@ export default function ReportsClientPage({
   const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>(initialOperatorsReport);
   const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>(initialWithdrawalsReport);
   
-  const [isPendingWithdrawals, startTransitionWithdrawals] = useTransition();
+  const [isPendingWithdrawals, setIsPendingWithdrawals] = useState(false);
 
   const [date, setDate] = React.useState<DateRange | undefined>({
     from: subDays(new Date(), 29),
@@ -84,10 +84,10 @@ export default function ReportsClientPage({
 
 
   const fetchWithdrawals = React.useCallback(async () => {
-    startTransitionWithdrawals(async () => {
-      const data = await getMaterialWithdrawals({ from: date?.from, to: date?.to });
-      setWithdrawalsReport(data);
-    });
+    setIsPendingWithdrawals(true);
+    const data = await getMaterialWithdrawals({ from: date?.from, to: date?.to });
+    setWithdrawalsReport(data);
+    setIsPendingWithdrawals(false);
   }, [date]);
   
   // This useEffect is now just for date changes for withdrawals
