@@ -71,7 +71,7 @@ export default function DepartmentManagementPage() {
     form.reset();
   };
 
-  const onSubmit = (values: DepartmentFormValues) => {
+  const onSubmit = async (values: DepartmentFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (value) formData.append(key, value);
