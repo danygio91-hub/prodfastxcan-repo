@@ -146,7 +146,7 @@ export default function ScanJobPage() {
 
   const phaseMaterialForm = useForm<PhaseMaterialFormValues>({
     resolver: zodResolver(phaseMaterialSchema),
-    defaultValues: { grossOpeningWeight: 0, netOpeningWeight: 0, lottoBobina: '', packagingId: 'none' },
+    defaultValues: { grossOpeningWeight: 0, lottoBobina: '', packagingId: 'none' },
   });
   
   const tubiGuainaWithdrawalForm = useForm<TubiGuainaWithdrawalFormValues>({
@@ -210,7 +210,7 @@ export default function ScanJobPage() {
 
   const handleStartOverallJob = useCallback((jobToStart: JobOrder) => {
     if (!jobToStart || !operator) return;
-     if (jobToStart.isProblemReported && operator.role !== 'superadvisor' && operator.role !== 'admin') {
+     if (jobToStart.isProblemReported && operator.role !== 'supervisor' && operator.role !== 'admin') {
       toast({
         variant: "destructive",
         title: "Lavorazione Bloccata",
@@ -379,7 +379,7 @@ export default function ScanJobPage() {
   };
 
   const handleForceStartPhase = (phaseId: string) => {
-    if (!activeJob || !operator || operator.role !== 'superadvisor') {
+    if (!activeJob || !operator || operator.role !== 'supervisor') {
         toast({ variant: 'destructive', title: 'Permesso Negato', description: "Solo un supervisore può forzare l'avvio di una fase." });
         return;
     }
@@ -518,7 +518,7 @@ export default function ScanJobPage() {
     
     const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
 
-    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'superadvisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
@@ -626,7 +626,7 @@ export default function ScanJobPage() {
       action: <ThumbsUp className="text-primary" />
     });
     
-    if (operator.role !== 'superadvisor') {
+    if (operator.role !== 'supervisor') {
       setActiveJobId(null);
     }
   };
@@ -1066,7 +1066,7 @@ export default function ScanJobPage() {
                 {job.isProblemReported ? (
                     <AlertDialogFooter>
                         <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                        { (operator?.role === 'superadvisor' || operator?.role === 'admin') && (
+                        { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
                           <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                              <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                           </AlertDialogAction>
@@ -1875,4 +1875,3 @@ function PhaseCard({ phase, job, permissions, handlers }: {
       </Card>
     );
 }
-
