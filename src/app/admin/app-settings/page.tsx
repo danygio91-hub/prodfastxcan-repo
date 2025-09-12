@@ -51,16 +51,16 @@ function triggerGlobalLogout() {
 export default function AdminAppSettingsPage() {
   const { user } = useAuth();
   const [isSeeding, setIsSeeding] = useState(false);
-  const [isResettingJobs, startResetJobsTransition] = useTransition();
-  const [isResettingMaterials, startResetMaterialsTransition] = useTransition();
-  const [isResettingMaterialHistory, startResetMaterialHistoryTransition] = useTransition();
-  const [isResettingPrivacy, startResetPrivacyTransition] = useTransition();
-  const [isResettingWithdrawals, startResetWithdrawalsTransition] = useTransition();
-  const [isResettingWork, startResetWorkTransition] = useTransition();
-  const [isResettingSessions, startResetSessionsTransition] = useTransition();
-  const [isResettingCompleted, startResettingCompletedTransition] = useTransition();
-  const [isBackingUp, startBackupTransition] = useTransition();
-  const [isRestoring, startRestoreTransition] = useTransition();
+  const [isResettingJobs, setIsResettingJobs] = useState(false);
+  const [isResettingMaterials, setIsResettingMaterials] = useState(false);
+  const [isResettingMaterialHistory, setIsResettingMaterialHistory] = useState(false);
+  const [isResettingPrivacy, setIsResettingPrivacy] = useState(false);
+  const [isResettingWithdrawals, setIsResettingWithdrawals] = useState(false);
+  const [isResettingWork, setIsResettingWork] = useState(false);
+  const [isResettingSessions, setIsResettingSessions] = useState(false);
+  const [isResettingCompleted, setIsResettingCompleted] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -126,26 +126,26 @@ export default function AdminAppSettingsPage() {
     setIsSeeding(false);
   }
 
-  const handleBackup = () => {
-    startBackupTransition(async () => {
-        toast({ title: "Avvio del Backup", description: "Preparazione dei dati in corso..." });
-        const result = await backupAllData();
+  const handleBackup = async () => {
+    setIsBackingUp(true);
+    toast({ title: "Avvio del Backup", description: "Preparazione dei dati in corso..." });
+    const result = await backupAllData();
 
-        if (result.success && result.data) {
-            try {
-                const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(result.data, null, 2))}`;
-                const link = document.createElement("a");
-                link.href = jsonString;
-                link.download = `pfxcan_backup_${new Date().toISOString().split('T')[0]}.json`;
-                link.click();
-                toast({ title: "Backup Completato", description: "Il file di backup è stato scaricato." });
-            } catch (e) {
-                toast({ variant: "destructive", title: "Errore Download", description: "Impossibile creare il file di backup da scaricare." });
-            }
-        } else {
-            toast({ variant: "destructive", title: "Backup Fallito", description: result.message });
+    if (result.success && result.data) {
+        try {
+            const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(result.data, null, 2))}`;
+            const link = document.createElement("a");
+            link.href = jsonString;
+            link.download = `pfxcan_backup_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            toast({ title: "Backup Completato", description: "Il file di backup è stato scaricato." });
+        } catch (e) {
+            toast({ variant: "destructive", title: "Errore Download", description: "Impossibile creare il file di backup da scaricare." });
         }
-    });
+    } else {
+        toast({ variant: "destructive", title: "Backup Fallito", description: result.message });
+    }
+    setIsBackingUp(false);
   };
 
   const handleRestoreTrigger = () => {
@@ -157,139 +157,142 @@ export default function AdminAppSettingsPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         const content = e.target?.result;
         if (typeof content === 'string') {
-            startRestoreTransition(async () => {
-                if (!user) return;
-                toast({ title: 'Ripristino in corso', description: 'Cancellazione dei dati attuali...' });
-                const result = await restoreDataFromBackup(content, user.uid);
-                toast({
-                    title: result.success ? "Ripristino Completato" : "Ripristino Fallito",
-                    description: result.message,
-                    variant: result.success ? "default" : "destructive",
-                });
-                if (result.success) {
-                    triggerGlobalLogout();
-                    toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
-                }
+            setIsRestoring(true);
+            if (!user) {
+              setIsRestoring(false);
+              return;
+            };
+            toast({ title: 'Ripristino in corso', description: 'Cancellazione dei dati attuali...' });
+            const result = await restoreDataFromBackup(content, user.uid);
+            toast({
+                title: result.success ? "Ripristino Completato" : "Ripristino Fallito",
+                description: result.message,
+                variant: result.success ? "default" : "destructive",
             });
+            if (result.success) {
+                triggerGlobalLogout();
+                toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+            }
+            setIsRestoring(false);
         }
     };
     reader.readAsText(file);
     event.target.value = ''; // Reset input
   };
 
-  const handleResetJobOrders = () => {
+  const handleResetJobOrders = async () => {
     if (!user) return;
-    startResetJobsTransition(async () => {
-        const result = await resetAllJobOrders(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-          triggerGlobalLogout();
-          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
-        }
+    setIsResettingJobs(true);
+    const result = await resetAllJobOrders(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+      triggerGlobalLogout();
+      toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+    }
+    setIsResettingJobs(false);
   };
 
-  const handleResetRawMaterials = () => {
+  const handleResetRawMaterials = async () => {
     if (!user) return;
-    startResetMaterialsTransition(async () => {
-        const result = await resetAllRawMaterials(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-         if (result.success) {
-          triggerGlobalLogout();
-          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
-        }
+    setIsResettingMaterials(true);
+    const result = await resetAllRawMaterials(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+      if (result.success) {
+      triggerGlobalLogout();
+      toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+    }
+    setIsResettingMaterials(false);
   };
   
-  const handleResetMaterialHistory = () => {
+  const handleResetMaterialHistory = async () => {
     if (!user) return;
-    startResetMaterialHistoryTransition(async () => {
-        const result = await resetRawMaterialHistory(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
+    setIsResettingMaterialHistory(true);
+    const result = await resetRawMaterialHistory(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    setIsResettingMaterialHistory(false);
   };
 
-  const handleResetWithdrawals = () => {
+  const handleResetWithdrawals = async () => {
     if (!user) return;
-    startResetWithdrawalsTransition(async () => {
-        const result = await resetAllWithdrawals(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
+    setIsResettingWithdrawals(true);
+    const result = await resetAllWithdrawals(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    setIsResettingWithdrawals(false);
   };
 
-  const handleResetPrivacy = () => {
+  const handleResetPrivacy = async () => {
     if (!user) return;
-    startResetPrivacyTransition(async () => {
-        const result = await resetAllPrivacySignatures(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
+    setIsResettingPrivacy(true);
+    const result = await resetAllPrivacySignatures(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    setIsResettingPrivacy(false);
   };
 
-  const handleResetWork = () => {
+  const handleResetWork = async () => {
     if (!user) return;
-    startResetWorkTransition(async () => {
-        const result = await resetAllWorkInProgress(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-          triggerGlobalLogout();
-          toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
-        }
+    setIsResettingWork(true);
+    const result = await resetAllWorkInProgress(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+      triggerGlobalLogout();
+      toast({ title: 'Logout Forzato', description: 'Tutti gli utenti verranno disconnessi per applicare le modifiche.', variant: 'default' });
+    }
+    setIsResettingWork(false);
   };
   
-  const handleResetSessions = () => {
+  const handleResetSessions = async () => {
     if (!user) return;
-    startResetSessionsTransition(async () => {
-        const result = await resetAllActiveSessions(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-          triggerGlobalLogout();
-          toast({ title: 'Logout Forzato', description: 'Tutti gli operatori (escluso l\'admin) verranno disconnessi per resettare le loro sessioni attive.', variant: 'default' });
-        }
+    setIsResettingSessions(true);
+    const result = await resetAllActiveSessions(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+      triggerGlobalLogout();
+      toast({ title: 'Logout Forzato', description: 'Tutti gli operatori (escluso l\'admin) verranno disconnessi per resettare le loro sessioni attive.', variant: 'default' });
+    }
+    setIsResettingSessions(false);
   };
 
-  const handleResetCompleted = () => {
+  const handleResetCompleted = async () => {
     if (!user) return;
-    startResettingCompletedTransition(async () => {
-        const result = await resetCompletedJobOrders(user.uid);
-        toast({
-            title: result.success ? "Operazione Completata" : "Operazione Fallita",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
+    setIsResettingCompleted(true);
+    const result = await resetCompletedJobOrders(user.uid);
+    toast({
+        title: result.success ? "Operazione Completata" : "Operazione Fallita",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    setIsResettingCompleted(false);
   };
 
   return (
@@ -555,5 +558,3 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
-
-    
