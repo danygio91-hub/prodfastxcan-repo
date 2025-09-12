@@ -21,6 +21,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Computer, PlusCircle, Edit, Trash2, Download, Loader2 } from 'lucide-react';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
+import AppShell from '@/components/layout/AppShell';
 
 const workstationSchema = z.object({
   id: z.string().optional(),
@@ -30,10 +32,12 @@ const workstationSchema = z.object({
 
 type WorkstationFormValues = z.infer<typeof workstationSchema>;
 
-export default function WorkstationManagementClientPage() {
+
+function WorkstationManagementContent() {
   const [workstations, setWorkstations] = useState<Workstation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isPending, setIsPending] = useState(false);
   const [editingWorkstation, setEditingWorkstation] = useState<Workstation | null>(null);
   const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
   const { toast } = useToast();
@@ -79,7 +83,8 @@ export default function WorkstationManagementClientPage() {
     Object.entries(values).forEach(([key, value]) => {
       if (value) formData.append(key, value);
     });
-
+    
+    setIsPending(true);
     const result = await saveWorkstation(formData);
     toast({
       title: result.success ? "Successo" : "Errore",
@@ -91,9 +96,11 @@ export default function WorkstationManagementClientPage() {
       await fetchWorkstations();
       handleCloseDialog();
     }
+    setIsPending(false);
   };
 
   const handleDelete = async (id: string) => {
+    setIsPending(true);
     const result = await deleteWorkstation(id);
     toast({
       title: result.success ? "Successo" : "Errore",
@@ -101,6 +108,7 @@ export default function WorkstationManagementClientPage() {
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) await fetchWorkstations();
+    setIsPending(false);
   };
   
   const handleExport = () => {
@@ -172,12 +180,12 @@ export default function WorkstationManagementClientPage() {
                           <TableCell className="font-medium">{ws.name}</TableCell>
                           <TableCell>{departmentMap[ws.departmentCode as Reparto] || ws.departmentCode}</TableCell>
                           <TableCell className="text-right space-x-2">
-                            <Button variant="outline" size="icon" onClick={() => handleOpenDialog(ws)}>
+                            <Button variant="outline" size="icon" onClick={() => handleOpenDialog(ws)} disabled={isPending}>
                               <Edit className="h-4 w-4" />
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="icon">
+                                <Button variant="destructive" size="icon" disabled={isPending}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </AlertDialogTrigger>
@@ -209,7 +217,7 @@ export default function WorkstationManagementClientPage() {
           </Card>
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => { if (!isPending) handleCloseDialog() }}>
             <DialogHeader>
               <DialogTitle>{editingWorkstation ? "Modifica Postazione" : "Aggiungi Nuova Postazione"}</DialogTitle>
               <DialogDescription>
@@ -242,8 +250,11 @@ export default function WorkstationManagementClientPage() {
                   </FormItem>
                 )} />
                 <DialogFooter>
-                  <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
-                  <Button type="submit">{editingWorkstation ? "Salva Modifiche" : "Aggiungi Postazione"}</Button>
+                  <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
+                  <Button type="submit" disabled={isPending}>
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                    {editingWorkstation ? "Salva Modifiche" : "Aggiungi Postazione"}
+                  </Button>
                 </DialogFooter>
               </form>
             </Form>
@@ -251,4 +262,14 @@ export default function WorkstationManagementClientPage() {
         </Dialog>
       </div>
   );
+}
+
+export default function WorkstationManagementPage() {
+    return (
+        <AdminAuthGuard>
+            <AppShell>
+                <WorkstationManagementContent />
+            </AppShell>
+        </AdminAuthGuard>
+    )
 }
