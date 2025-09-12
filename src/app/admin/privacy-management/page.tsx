@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect } from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,7 @@ export default function PrivacyManagementPage() {
   const [policy, setPolicy] = useState<{ content: string, lastUpdated: string | null }>({ content: '', lastUpdated: null });
   const [editedContent, setEditedContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -45,27 +45,27 @@ export default function PrivacyManagementPage() {
     fetchPolicy();
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!user) return;
-    startTransition(async () => {
-      // Convert text back to simple HTML
-      const htmlContent = editedContent
-        .split('\n')
-        .filter(p => p.trim() !== '')
-        .map(p => `<p>${p}</p>`)
-        .join('');
-        
-      const result = await savePrivacyPolicy(htmlContent, user.uid);
-      toast({
-        title: result.success ? "Operazione Completata" : "Operazione Fallita",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-        duration: 9000,
-      });
-      if (result.success) {
-        await fetchPolicy();
-      }
+    setIsPending(true);
+    // Convert text back to simple HTML
+    const htmlContent = editedContent
+      .split('\n')
+      .filter(p => p.trim() !== '')
+      .map(p => `<p>${p}</p>`)
+      .join('');
+      
+    const result = await savePrivacyPolicy(htmlContent, user.uid);
+    toast({
+      title: result.success ? "Operazione Completata" : "Operazione Fallita",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+      duration: 9000,
     });
+    if (result.success) {
+      await fetchPolicy();
+    }
+    setIsPending(false);
   };
 
   return (
