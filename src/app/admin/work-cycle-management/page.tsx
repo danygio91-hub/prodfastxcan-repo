@@ -40,7 +40,7 @@ function WorkCycleManagementContent() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCycle, setEditingCycle] = useState<WorkCycle | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<WorkCycleFormValues>({
@@ -88,46 +88,46 @@ function WorkCycleManagementContent() {
     formData.append('description', values.description);
     values.phaseTemplateIds.forEach(id => formData.append('phaseTemplateIds', id));
 
-    startTransition(async () => {
-      const result = await saveWorkCycle(formData);
-      toast({
+    setIsPending(true);
+    const result = await saveWorkCycle(formData);
+    toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
-      });
+    });
 
-      if (result.success) {
+    if (result.success) {
         await fetchCycles();
         handleCloseDialog();
-      }
-    });
+    }
+    setIsPending(false);
   };
 
   const handleDelete = async (id: string) => {
-    startTransition(async () => {
-      const result = await deleteWorkCycle(id);
-      toast({
+    setIsPending(true);
+    const result = await deleteWorkCycle(id);
+    toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
-      });
-      if (result.success) await fetchCycles();
     });
+    if (result.success) await fetchCycles();
+    setIsPending(false);
   };
   
   const handleDeleteSelected = async () => {
-    startTransition(async () => {
-        const result = await deleteSelectedWorkCycles(selectedRows);
-        toast({
-            title: result.success ? "Successo" : "Errore",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-            await fetchCycles();
-            setSelectedRows([]);
-        }
+    setIsPending(true);
+    const result = await deleteSelectedWorkCycles(selectedRows);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+        await fetchCycles();
+        setSelectedRows([]);
+    }
+    setIsPending(false);
   };
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
@@ -366,3 +366,5 @@ export default function WorkCycleManagementPage() {
     </AdminAuthGuard>
   );
 }
+
+    

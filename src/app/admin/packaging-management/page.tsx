@@ -40,7 +40,7 @@ export default function PackagingManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Packaging | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<PackagingFormValues>({
@@ -78,7 +78,7 @@ export default function PackagingManagementPage() {
     form.reset();
   };
 
-  const onSubmit = (values: PackagingFormValues) => {
+  const onSubmit = async (values: PackagingFormValues) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (key === 'associatedTypes' && Array.isArray(value)) {
@@ -87,32 +87,32 @@ export default function PackagingManagementPage() {
         formData.append(key, String(value));
       }
     });
-
-    startTransition(async () => {
-      const result = await savePackagingItem(formData);
-      toast({
+    
+    setIsPending(true);
+    const result = await savePackagingItem(formData);
+    toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
-      });
+    });
 
-      if (result.success) {
+    if (result.success) {
         await fetchData();
         handleCloseDialog();
-      }
-    });
+    }
+    setIsPending(false);
   };
 
-  const handleDelete = (id: string) => {
-    startTransition(async () => {
-      const result = await deletePackagingItem(id);
-      toast({
+  const handleDelete = async (id: string) => {
+    setIsPending(true);
+    const result = await deletePackagingItem(id);
+    toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
-      });
-      if (result.success) await fetchData();
     });
+    if (result.success) await fetchData();
+    setIsPending(false);
   };
   
   const renderLoading = () => (
@@ -317,3 +317,5 @@ export default function PackagingManagementPage() {
   </AdminAuthGuard>
   );
 }
+
+    

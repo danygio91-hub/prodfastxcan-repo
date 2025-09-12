@@ -36,7 +36,7 @@ interface NonConformityClientPageProps {
 export default function NonConformityClientPage({ initialIncomingReports, initialProductionReports }: NonConformityClientPageProps) {
     const [incomingReports, setIncomingReports] = useState<NonConformityReport[]>(initialIncomingReports);
     const [productionReports, setProductionReports] = useState<ProductionProblemReport[]>(initialProductionReports);
-    const [isPending, startTransition] = useTransition();
+    const [isPending, setIsPending] = useState(false);
     const [selectedIncomingRows, setSelectedIncomingRows] = useState<string[]>([]);
     const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
 
@@ -52,62 +52,62 @@ export default function NonConformityClientPage({ initialIncomingReports, initia
         setProductionReports(initialProductionReports);
     }, [initialIncomingReports, initialProductionReports]);
 
-    const handleApprove = (reportId: string) => {
-        startTransition(async () => {
-            const result = await approveNonConformity(reportId);
-            toast({
-                title: result.success ? "Operazione Completata" : "Errore",
-                description: result.message,
-                variant: result.success ? "default" : "destructive",
-            });
-            if (result.success) {
-                refreshData();
-            }
+    const handleApprove = async (reportId: string) => {
+        setIsPending(true);
+        const result = await approveNonConformity(reportId);
+        toast({
+            title: result.success ? "Operazione Completata" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+            refreshData();
+        }
+        setIsPending(false);
     };
 
-    const handleConfirmReturn = (reportId: string) => {
-        startTransition(async () => {
-            const result = await confirmReturn(reportId);
-             toast({
-                title: result.success ? "Operazione Completata" : "Errore",
-                description: result.message,
-                variant: result.success ? "default" : "destructive",
-            });
-            if (result.success) {
-                refreshData();
-            }
+    const handleConfirmReturn = async (reportId: string) => {
+        setIsPending(true);
+        const result = await confirmReturn(reportId);
+         toast({
+            title: result.success ? "Operazione Completata" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+            refreshData();
+        }
+        setIsPending(false);
     };
     
-    const handleDeleteIncomingSelected = () => {
-        startTransition(async () => {
-            const result = await deleteIncomingNonConformityReports(selectedIncomingRows);
-            toast({
-                title: result.success ? "Operazione Completata" : "Errore",
-                description: result.message,
-                variant: result.success ? "default" : "destructive",
-            });
-            if (result.success) {
-                setSelectedIncomingRows([]);
-                refreshData();
-            }
+    const handleDeleteIncomingSelected = async () => {
+        setIsPending(true);
+        const result = await deleteIncomingNonConformityReports(selectedIncomingRows);
+        toast({
+            title: result.success ? "Operazione Completata" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+            setSelectedIncomingRows([]);
+            refreshData();
+        }
+        setIsPending(false);
     }
     
-    const handleDeleteProductionSelected = () => {
-        startTransition(async () => {
-            const result = await deleteProductionProblemReports(selectedProductionRows);
-            toast({
-                title: result.success ? "Operazione Completata" : "Errore",
-                description: result.message,
-                variant: result.success ? "default" : "destructive",
-            });
-            if (result.success) {
-                setSelectedProductionRows([]);
-                refreshData();
-            }
+    const handleDeleteProductionSelected = async () => {
+        setIsPending(true);
+        const result = await deleteProductionProblemReports(selectedProductionRows);
+        toast({
+            title: result.success ? "Operazione Completata" : "Errore",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
         });
+        if (result.success) {
+            setSelectedProductionRows([]);
+            refreshData();
+        }
+        setIsPending(false);
     }
 
     const handleSelectAllIncoming = (checked: boolean | 'indeterminate') => {
@@ -387,3 +387,5 @@ export default function NonConformityClientPage({ initialIncomingReports, initia
         </div>
     );
 }
+
+    

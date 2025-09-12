@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useTransition } from 'react';
@@ -19,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -53,7 +52,7 @@ export default function WorkPhaseManagementClientPage() {
   const [editingPhase, setEditingPhase] = useState<WorkPhaseTemplate | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isOrderChanged, setIsOrderChanged] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<WorkPhaseFormValues>({
@@ -116,46 +115,46 @@ export default function WorkPhaseManagementClientPage() {
     (values.allowedMaterialTypes || []).forEach(type => formData.append('allowedMaterialTypes', type));
 
 
-    startTransition(async () => {
-      const result = await saveWorkPhaseTemplate(formData);
-      toast({
+    setIsPending(true);
+    const result = await saveWorkPhaseTemplate(formData);
+    toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
-      });
+    });
 
-      if (result.success) {
+    if (result.success) {
         await fetchAllData();
         handleCloseDialog();
-      }
-    });
+    }
+    setIsPending(false);
   };
 
   const handleDelete = async (id: string) => {
-    startTransition(async () => {
-        const result = await deleteWorkPhaseTemplate(id);
-        toast({
-            title: result.success ? "Successo" : "Errore",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) await fetchAllData();
+    setIsPending(true);
+    const result = await deleteWorkPhaseTemplate(id);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) await fetchAllData();
+    setIsPending(false);
   };
 
   const handleDeleteSelected = async () => {
-    startTransition(async () => {
-        const result = await deleteSelectedWorkPhaseTemplates(selectedRows);
-        toast({
-            title: result.success ? "Successo" : "Errore",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-            await fetchAllData();
-            setSelectedRows([]);
-        }
+    setIsPending(true);
+    const result = await deleteSelectedWorkPhaseTemplates(selectedRows);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+        await fetchAllData();
+        setSelectedRows([]);
+    }
+    setIsPending(false);
   };
 
   const handleSequenceChange = (id: string, newSequence: string) => {
@@ -171,18 +170,18 @@ export default function WorkPhaseManagementClientPage() {
   };
 
   const handleSaveOrder = async () => {
-    startTransition(async () => {
-        const phasesToUpdate = phases.map(({ id, sequence }) => ({ id, sequence }));
-        const result = await updatePhasesOrder(phasesToUpdate);
-        toast({
-            title: result.success ? "Successo" : "Errore",
-            description: result.message,
-            variant: result.success ? "default" : "destructive",
-        });
-        if (result.success) {
-            await fetchAllData();
-        }
+    setIsPending(true);
+    const phasesToUpdate = phases.map(({ id, sequence }) => ({ id, sequence }));
+    const result = await updatePhasesOrder(phasesToUpdate);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+        await fetchAllData();
+    }
+    setIsPending(false);
   };
   
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
@@ -602,3 +601,5 @@ export default function WorkPhaseManagementClientPage() {
   </AdminAuthGuard>
   );
 }
+
+    
