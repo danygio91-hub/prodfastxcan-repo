@@ -40,11 +40,11 @@ export async function signPrivacyPolicy(operatorId: string): Promise<{ success: 
 }
 
 
-export async function getDepartmentMap(): Promise<{ [key in Reparto]: string }> {
+export async function getDepartmentMap(): Promise<Record<Reparto, string>> {
     const docRef = doc(db, "configuration", "departmentMap");
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data() as { [key in Reparto]: string };
+      return docSnap.data() as Record<Reparto, string>;
     }
     return initialDepartmentMap;
 }
