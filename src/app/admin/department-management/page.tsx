@@ -36,7 +36,7 @@ export default function DepartmentManagementPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<DepartmentFormValues>({
@@ -77,34 +77,34 @@ export default function DepartmentManagementPage() {
       if (value) formData.append(key, value);
     });
 
-    startTransition(async () => {
-      const result = await saveDepartment(formData);
-      toast({
-        title: result.success ? "Successo" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-      });
-
-      if (result.success) {
-        await fetchData();
-        handleCloseDialog();
-      }
+    setIsPending(true);
+    const result = await saveDepartment(formData);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
     });
+
+    if (result.success) {
+      await fetchData();
+      handleCloseDialog();
+    }
+    setIsPending(false);
   };
 
-  const handleDeleteSelected = () => {
-    startTransition(async () => {
-      const result = await deleteDepartments(selectedRows);
-      toast({
-        title: result.success ? "Successo" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-      });
-      if (result.success) {
-        await fetchData();
-        setSelectedRows([]);
-      }
+  const handleDeleteSelected = async () => {
+    setIsPending(true);
+    const result = await deleteDepartments(selectedRows);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
     });
+    if (result.success) {
+      await fetchData();
+      setSelectedRows([]);
+    }
+    setIsPending(false);
   };
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
