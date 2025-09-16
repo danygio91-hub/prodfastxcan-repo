@@ -8,16 +8,29 @@ import { ArrowRight } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from '../ui/button';
 
+// Define props for when the component is a link (<a> tag)
+type LinkProps = {
+  href: string;
+  onClick?: never;
+} & React.AnchorHTMLAttributes<HTMLAnchorElement>;
+
+// Define props for when the component is a clickable div
+type DivProps = {
+  href?: never;
+  onClick?: React.MouseEventHandler<HTMLDivElement>;
+} & React.HTMLAttributes<HTMLDivElement>;
+
+
 export interface DashboardItemProps {
   title: string;
   description: string;
   icon: React.ElementType;
-  href?: string;
   className?: string;
-  onClick?: React.MouseEventHandler<HTMLDivElement>;
 }
 
-const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & React.HTMLAttributes<HTMLDivElement>>(
+type PolymorphicDashboardItemProps = DashboardItemProps & (LinkProps | DivProps);
+
+const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, PolymorphicDashboardItemProps>(
   ({ title, description, icon: Icon, href, className, onClick, ...rest }, ref) => {
     
     const cardClasses = cn(
@@ -27,7 +40,7 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
     );
 
     const cardContent = (
-        <>
+        <Card className={cardClasses}>
             <CardHeader>
                  <div className="flex justify-between items-start">
                     <Icon className="h-10 w-10 text-primary mb-4" />
@@ -40,23 +53,23 @@ const DashboardItem = React.forwardRef<HTMLDivElement, DashboardItemProps & Reac
                 <CardTitle className="text-xl font-headline mb-2">{title}</CardTitle>
                 <CardDescription>{description}</CardDescription>
             </CardContent>
-        </>
+        </Card>
     );
 
     if (href) {
       return (
-        <Link href={href} className="block h-full" {...rest}>
-          <Card ref={ref} className={cardClasses}>
-            {cardContent}
-          </Card>
+        <Link href={href} passHref legacyBehavior>
+          <a ref={ref as React.Ref<HTMLAnchorElement>} {...(rest as React.HTMLAttributes<HTMLAnchorElement>)}>
+             {cardContent}
+          </a>
         </Link>
       );
     }
     
     return (
-      <Card ref={ref} className={cardClasses} onClick={onClick} {...rest}>
+      <div ref={ref as React.Ref<HTMLDivElement>} onClick={onClick} {...(rest as React.HTMLAttributes<HTMLDivElement>)}>
         {cardContent}
-      </Card>
+      </div>
     );
   }
 );
