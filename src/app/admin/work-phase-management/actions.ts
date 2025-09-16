@@ -8,9 +8,6 @@ import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, writeBatch, query,
 import { db } from '@/lib/firebase';
 import { 
   type WorkPhaseTemplate, 
-  type Reparto, 
-  reparti,
-  initialDepartmentMap,
   type RawMaterialType, // Import RawMaterialType
   type Department,
 } from '@/lib/mock-data';

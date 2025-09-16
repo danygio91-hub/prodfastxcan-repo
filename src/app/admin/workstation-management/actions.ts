@@ -7,9 +7,8 @@ import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { 
-    type Workstation, 
-    type Reparto, 
-    initialDepartmentMap 
+    type Workstation,
+    type Department,
 } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -28,13 +27,13 @@ export async function getWorkstations(): Promise<Workstation[]> {
   return list;
 }
 
-export async function getDepartmentMap(): Promise<Record<Reparto, string>> {
-    const docRef = doc(db, "configuration", "departmentMap");
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data() as Record<Reparto, string>;
+export async function getDepartments(): Promise<Department[]> {
+    const col = collection(db, "departments");
+    const snapshot = await getDocs(col);
+    if (snapshot.empty) {
+        return [];
     }
-    return initialDepartmentMap;
+    return snapshot.docs.map(d => d.data() as Department);
 }
 
 export async function saveWorkstation(formData: FormData) {

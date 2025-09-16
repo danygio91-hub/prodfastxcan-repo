@@ -9,8 +9,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Workstation, type Reparto } from '@/lib/mock-data';
-import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartmentMap } from './actions';
+import { type Workstation, type Department } from '@/lib/mock-data';
+import { getWorkstations, saveWorkstation, deleteWorkstation, getDepartments } from './actions';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,15 +39,15 @@ function WorkstationManagementContent() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [editingWorkstation, setEditingWorkstation] = useState<Workstation | null>(null);
-  const [departmentMap, setDepartmentMap] = useState<{ [key in Reparto]?: string }>({});
+  const [departments, setDepartments] = useState<Department[]>([]);
   const { toast } = useToast();
 
   const form = useForm<WorkstationFormValues>({
     resolver: zodResolver(workstationSchema),
-    defaultValues: { id: undefined, name: "", departmentCode: 'CP' },
+    defaultValues: { id: undefined, name: "" },
   });
   
-  const operationalReparti = Object.keys(departmentMap).filter(r => r !== 'N/D') as Reparto[];
+  const operationalReparti = departments.filter(d => d.code !== 'N/D');
 
 
   const fetchWorkstations = async () => {
@@ -59,7 +59,7 @@ function WorkstationManagementContent() {
 
   useEffect(() => {
     fetchWorkstations();
-    getDepartmentMap().then(setDepartmentMap);
+    getDepartments().then(setDepartments);
   }, []);
 
   const handleOpenDialog = (workstation: Workstation | null = null) => {
@@ -67,7 +67,7 @@ function WorkstationManagementContent() {
     if (workstation) {
       form.reset(workstation);
     } else {
-      form.reset({ id: undefined, name: "", departmentCode: 'CP' });
+      form.reset({ id: undefined, name: "", departmentCode: undefined });
     }
     setIsDialogOpen(true);
   };
@@ -112,10 +112,11 @@ function WorkstationManagementContent() {
   };
   
   const handleExport = () => {
+    const departmentNameMap = new Map(departments.map(d => [d.code, d.name]));
     const dataToExport = workstations.map(ws => ({
         'ID': ws.id,
         'Nome Postazione': ws.name,
-        'Reparto': departmentMap[ws.departmentCode as Reparto] || ws.departmentCode,
+        'Reparto': departmentNameMap.get(ws.departmentCode) || ws.departmentCode,
     }));
     const ws_data = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -178,7 +179,7 @@ function WorkstationManagementContent() {
                       workstations.map((ws) => (
                         <TableRow key={ws.id}>
                           <TableCell className="font-medium">{ws.name}</TableCell>
-                          <TableCell>{departmentMap[ws.departmentCode as Reparto] || ws.departmentCode}</TableCell>
+                          <TableCell>{departments.find(d => d.code === ws.departmentCode)?.name || ws.departmentCode}</TableCell>
                           <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(ws)} disabled={isPending}>
                               <Edit className="h-4 w-4" />
@@ -243,7 +244,7 @@ function WorkstationManagementContent() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {operationalReparti.map(r => <SelectItem key={r} value={r}>{departmentMap[r] || r}</SelectItem>)}
+                        {operationalReparti.map(d => <SelectItem key={d.id} value={d.code}>{d.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     <FormMessage />
