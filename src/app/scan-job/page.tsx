@@ -505,6 +505,8 @@ export default function ScanJobPage() {
         phaseToComplete.status = 'completed';
     }
     
+    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId && mc.closingWeight === undefined));
+    
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
     const nextPhase = sortedPhases[currentPhaseIndex + 1];
@@ -516,9 +518,7 @@ export default function ScanJobPage() {
       }
     }
     
-    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId && mc.closingWeight === undefined));
-
-    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
