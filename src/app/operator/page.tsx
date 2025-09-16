@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory, FileLock, Check, Loader2, ArrowLeft } from 'lucide-react';
-import type { Operator, Reparto } from '@/lib/mock-data';
+import type { Operator } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
 import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { getDepartmentMap } from './actions';
@@ -43,7 +43,7 @@ export default function OperatorDataPage() {
     )
   }
   
-  const repartiAsArray = Array.isArray(operator.reparto) ? operator.reparto : (operator.reparto ? [operator.reparto] : []);
+  const repartiAsArray = operator.reparto || [];
 
   return (
     <AuthGuard>
@@ -99,5 +99,3 @@ export default function OperatorDataPage() {
     </AuthGuard>
   );
 }
-
-    
