@@ -483,6 +483,7 @@ export default function ScanJobPage() {
 
   const handleCompletePhase = (phaseId: string) => {
     if (!activeJob || !operator) return;
+    
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
@@ -505,7 +506,11 @@ export default function ScanJobPage() {
         phaseToComplete.status = 'completed';
     }
     
-    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId && mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => 
+        phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => 
+            mc.materialId === s.materialId && mc.closingWeight === undefined
+        )
+    );
     
     const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
     const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
@@ -518,7 +523,7 @@ export default function ScanJobPage() {
       }
     }
     
-    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || operator.reparto.includes('MAG'))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
@@ -1174,7 +1179,7 @@ export default function ScanJobPage() {
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
                     const isSuperadvisor = operator?.role === 'supervisor';
-                    const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
+                    const operatorReparti = operator?.reparto || [];
                     const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
                     const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator?.id && wp.end === null);
                     const canStartPhase = operatorHasPermissionForDepartment && !activeJob.isProblemReported && phase.status === 'pending' && phase.materialReady;
@@ -1211,9 +1216,9 @@ export default function ScanJobPage() {
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
                     const isSuperadvisor = operator?.role === 'supervisor';
-                    const operatorReparti = Array.isArray(operator?.reparto) ? operator.reparto : [operator?.reparto];
+                    const operatorReparti = operator?.reparto || [];
+                    const operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
 
-                    let operatorHasPermissionForDepartment = operator && (isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc)));
                     if (phase.type === 'quality') {
                         operatorHasPermissionForDepartment = operator && (isSuperadvisor || operatorReparti.includes('Collaudo'));
                     }

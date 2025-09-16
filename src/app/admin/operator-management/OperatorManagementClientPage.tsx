@@ -111,7 +111,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         id: operator.id,
         nome: operator.nome,
         email: operator.email || '',
-        reparto: Array.isArray(operator.reparto) ? operator.reparto : [],
+        reparto: operator.reparto || [],
         role: operator.role,
       });
     } else {
@@ -157,7 +157,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         'ID': op.id,
         'Nome': op.nome,
         'Email': op.email,
-        'Reparto': Array.isArray(op.reparto) ? op.reparto.map(r => departments.find(d => d.code === r)?.name || r).join(', ') : '',
+        'Reparto': (op.reparto || []).map(r => departments.find(d => d.code === r)?.name || r).join(', '),
         'Ruolo': op.role,
         'Stato': op.stato,
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
@@ -214,7 +214,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                 <TableBody>
                   {operators.length > 0 ? (
                     operators.map((op) => {
-                      const opReparti = Array.isArray(op.reparto) ? op.reparto : [];
+                      const opReparti = op.reparto || [];
                       
                       return (
                       <TableRow key={op.id}>

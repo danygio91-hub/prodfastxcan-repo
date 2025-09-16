@@ -246,7 +246,7 @@ export const initialWorkstations: Workstation[] = [
     { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
     { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
 ];
-export const initialDepartmentMap: Record<Reparto, string> = {
+export const initialDepartmentMap: Record<string, string> = {
     CP: 'Assemblaggio Componenti Elettronici',
     CG: 'Controllo Qualità',
     BF: 'Burattatura e Finitura',
@@ -255,8 +255,3 @@ export const initialDepartmentMap: Record<Reparto, string> = {
     Officina: 'Officina',
     'N/D': 'Non Definito',
 };
-
-export const reparti: Reparto[] = ['CP', 'CG', 'BF', 'MAG', 'N/D'];
-export type Reparto = 'CP' | 'CG' | 'BF' | 'MAG' | 'N/D';
-
-    
