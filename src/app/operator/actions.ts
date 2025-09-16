@@ -2,9 +2,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { type Reparto, initialDepartmentMap } from '@/lib/mock-data';
+import type { Department } from '@/lib/mock-data';
 
 const PRIVACY_DOC_ID = "currentPolicy";
 const CONFIG_COLLECTION = "configuration";
@@ -40,13 +40,18 @@ export async function signPrivacyPolicy(operatorId: string): Promise<{ success: 
 }
 
 
-export async function getDepartmentMap(): Promise<Record<Reparto, string>> {
-    const docRef = doc(db, "configuration", "departmentMap");
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      return docSnap.data() as Record<Reparto, string>;
+export async function getDepartmentMap(): Promise<Record<string, string>> {
+    const col = collection(db, "departments");
+    const snapshot = await getDocs(col);
+    if (snapshot.empty) {
+        return {};
     }
-    return initialDepartmentMap;
+    const departmentMap: Record<string, string> = {};
+    snapshot.docs.forEach(d => {
+        const data = d.data() as Department;
+        departmentMap[data.code] = data.name;
+    });
+    return departmentMap;
 }
 
 export async function getPrivacyPolicyContent(): Promise<string> {
