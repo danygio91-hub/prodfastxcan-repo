@@ -575,8 +575,8 @@ export default function ScanJobPage() {
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobId(null); // Clear current job to scan a new one
     
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
     toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
     
     setJobToFinalize(null);
@@ -1178,7 +1178,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}} />
                 ))}
             </div>
           </>
@@ -1469,8 +1469,8 @@ export default function ScanJobPage() {
 
   const renderContinueOrCloseDialog = () => {
     if (!jobToFinalize) return null;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc) => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc) => mc.materialId === s.materialId));
 
 
     return (
