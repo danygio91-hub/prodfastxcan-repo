@@ -43,7 +43,7 @@ export default function OperatorDataPage() {
     )
   }
   
-  const repartiAsArray = operator.reparto || [];
+  const repartiAsArray = Array.isArray(operator.reparto) ? operator.reparto : [];
 
   return (
     <AuthGuard>
