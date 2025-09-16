@@ -76,7 +76,11 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
                 newWeightKg = newStockUnits;
             } else if (material.conversionFactor && material.conversionFactor > 0) {
                 newWeightKg += report.quantity * material.conversionFactor;
+            } else {
+                // If there's no conversion factor, weight doesn't change for non-kg units
+                newWeightKg = material.currentWeightKg;
             }
+
 
             // Update material stock
             transaction.update(materialRef, { 

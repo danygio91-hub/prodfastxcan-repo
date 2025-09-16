@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const forceLogoutTimestamp = data.timestamp;
         const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
 
-        if (forceLogoutTimestamp && lastLoginTimestamp && forceLogoutTimestamp > parseInt(lastLoginTimestamp, 10)) {
+        if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > parseInt(lastLoginTimestamp, 10))) {
             console.log("Forced logout signal received from admin. Logging out operator.");
             fullLogout();
         }

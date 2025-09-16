@@ -516,9 +516,9 @@ export default function ScanJobPage() {
       }
     }
     
-    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions.some(mc => mc.materialId === s.materialId && mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId && mc.closingWeight === undefined));
 
-    if (phaseToComplete.type === 'preparation' && relevantSession && (operator.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
@@ -904,7 +904,7 @@ export default function ScanJobPage() {
         } else {
              setIsHistoricalLotto(false);
              setValue('grossOpeningWeight', 0);
-             setValue('netOpeningWeight', 0);
+             setValue('netOpeningWeight', undefined);
              setValue('packagingId', 'none');
         }
         trigger();

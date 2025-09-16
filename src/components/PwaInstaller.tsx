@@ -24,7 +24,7 @@ const PwaInstaller = () => {
     useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
             e.preventDefault();
-            setInstallPrompt(e as BeforeInstallİnstallPromptEvent);
+            setInstallPrompt(e as BeforeInstallPromptEvent);
         };
 
         const registerServiceWorker = async () => {
