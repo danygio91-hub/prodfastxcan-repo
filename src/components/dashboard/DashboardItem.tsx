@@ -9,39 +9,20 @@ import { cn } from "@/lib/utils";
 
 // --- Type Definitions for Polymorphic Component ---
 
-type BaseProps = {
+type DashboardItemProps = {
   title: string;
   description: string;
   icon: React.ElementType;
   className?: string;
-};
-
-// Props when the component should act as a link
-type LinkProps = BaseProps & {
-  href: string;
-  onClick?: never;
-} & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>;
-
-// Props when the component should act as a clickable div
-type DivProps = BaseProps & {
-  href?: never;
-  onClick: React.MouseEventHandler<HTMLDivElement>;
-} & React.HTMLAttributes<HTMLDivElement>;
-
-// Props for a non-interactive card
-type StaticDivProps = BaseProps & {
-    href?: never;
-    onClick?: never;
-} & React.HTMLAttributes<HTMLDivElement>;
-
-
-type DashboardItemProps = LinkProps | DivProps | StaticDivProps;
+  href?: string;
+  onClick?: React.MouseEventHandler<HTMLDivElement>;
+} & (React.HTMLAttributes<HTMLDivElement> | React.AnchorHTMLAttributes<HTMLAnchorElement>);
 
 
 const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, DashboardItemProps>(
-  ({ title, description, icon: Icon, className, ...props }, ref) => {
+  ({ title, description, icon: Icon, className, href, ...props }, ref) => {
 
-    const isInteractive = 'href' in props || 'onClick' in props;
+    const isInteractive = !!href || !!props.onClick;
 
     const cardClasses = cn(
         "hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 group flex flex-col h-full",
@@ -68,10 +49,10 @@ const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, Dashb
         </Card>
     );
 
-    if ('href' in props) {
+    if (href) {
       return (
-        <Link href={props.href} passHref legacyBehavior>
-          <a ref={ref as React.Ref<HTMLAnchorElement>} {...props}>
+        <Link href={href} passHref legacyBehavior>
+          <a ref={ref as React.Ref<HTMLAnchorElement>} {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}>
              {cardContent}
           </a>
         </Link>
@@ -79,7 +60,7 @@ const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, Dashb
     }
     
     return (
-      <div ref={ref as React.Ref<HTMLDivElement>} {...props}>
+      <div ref={ref as React.Ref<HTMLDivElement>} {...(props as React.HTMLAttributes<HTMLDivElement>)}>
         {cardContent}
       </div>
     );
