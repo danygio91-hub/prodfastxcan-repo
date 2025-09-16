@@ -112,9 +112,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (docSnap.exists()) {
         const data = docSnap.data();
         const forceLogoutTimestamp = data.timestamp;
-        const lastLoginTimestamp = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
+        const lastLoginTimestampStr = localStorage.getItem(LAST_LOGIN_TIMESTAMP_KEY);
+        const lastLoginTimestamp = lastLoginTimestampStr ? parseInt(lastLoginTimestampStr, 10) : null;
 
-        if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > parseInt(lastLoginTimestamp, 10))) {
+        if (forceLogoutTimestamp && (!lastLoginTimestamp || forceLogoutTimestamp > lastLoginTimestamp)) {
             console.log("Forced logout signal received from admin. Logging out operator.");
             fullLogout();
         }

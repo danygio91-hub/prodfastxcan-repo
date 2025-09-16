@@ -107,6 +107,8 @@ export default function DataManagementClientPage() {
   
   const refreshData = useCallback(() => {
     fetchData();
+    setSelectedRows([]);
+    setSelectedProductionRows([]);
   }, [fetchData]);
 
   const handleExportPlanned = () => {

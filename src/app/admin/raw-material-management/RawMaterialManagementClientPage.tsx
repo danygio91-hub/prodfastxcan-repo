@@ -117,9 +117,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     );
   }, [materials, searchTerm]);
 
-  const refreshData = () => {
+  const refreshData = useCallback(() => {
     router.refresh();
-  };
+  }, [router]);
   
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);

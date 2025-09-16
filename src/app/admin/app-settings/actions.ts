@@ -276,7 +276,7 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
 
     // Reset Operators' status
     const operatorsRef = collection(db, "operators");
-    const opsQuery = query(operatorsRef, where("role", "in", ["operator", "superadvisor"]));
+    const opsQuery = query(operatorsRef, where("role", "in", ["operator", "supervisor"]));
     const operatorsSnapshot = await getDocs(opsQuery);
 
     let operatorsResetCount = 0;
@@ -457,9 +457,14 @@ export async function resetCompletedJobOrders(uid: string): Promise<{ success: b
           const updates = materialUpdates.get(materialDoc.id)!;
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+          
           if (materialData.unitOfMeasure === 'kg') {
             newUnits = newWeight;
+          } else if (updates.consumedUnits === 0 && materialData.conversionFactor && materialData.conversionFactor > 0) {
+             const unitsToAddBack = Math.round(updates.consumedWeight / materialData.conversionFactor);
+             newUnits += unitsToAddBack;
           }
+
           transaction.update(materialDoc.ref, { currentWeightKg: newWeight, currentStockUnits: newUnits });
         }
       }
