@@ -5,11 +5,11 @@ import type { JobOrder } from '@/lib/mock-data';
 import { notFound, useSearchParams } from 'next/navigation';
 import QRCode from 'react-qr-code';
 import { PrintButton } from './PrintButton';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { getJobDetailReport } from '../actions';
 
-export default function ODLPrintPage() {
+function PrintPageContent() {
   const searchParams = useSearchParams();
   const jobId = searchParams.get('jobId');
   const [job, setJob] = useState<JobOrder | null>(null);
@@ -130,5 +130,18 @@ export default function ODLPrintPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+
+export default function ODLPrintPage() {
+  return (
+    <Suspense fallback={
+        <div className="flex items-center justify-center h-screen">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+    }>
+        <PrintPageContent />
+    </Suspense>
   );
 }
