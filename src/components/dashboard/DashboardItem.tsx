@@ -6,47 +6,59 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowRight } from 'lucide-react';
 import { cn } from "@/lib/utils";
-import { Button } from '../ui/button';
 
-// Define props for when the component is a link (<a> tag)
-type LinkProps = {
-  href: string;
-  onClick?: never;
-} & React.AnchorHTMLAttributes<HTMLAnchorElement>;
+// --- Type Definitions for Polymorphic Component ---
 
-// Define props for when the component is a clickable div
-type DivProps = {
-  href?: never;
-  onClick?: React.MouseEventHandler<HTMLDivElement>;
-} & React.HTMLAttributes<HTMLDivElement>;
-
-
-export interface DashboardItemProps {
+type BaseProps = {
   title: string;
   description: string;
   icon: React.ElementType;
   className?: string;
-}
+};
 
-type PolymorphicDashboardItemProps = DashboardItemProps & (LinkProps | DivProps);
+// Props when the component should act as a link
+type LinkProps = BaseProps & {
+  href: string;
+  onClick?: never;
+} & Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>;
 
-const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, PolymorphicDashboardItemProps>(
-  ({ title, description, icon: Icon, href, className, onClick, ...rest }, ref) => {
-    
+// Props when the component should act as a clickable div
+type DivProps = BaseProps & {
+  href?: never;
+  onClick: React.MouseEventHandler<HTMLDivElement>;
+} & React.HTMLAttributes<HTMLDivElement>;
+
+// Props for a non-interactive card
+type StaticDivProps = BaseProps & {
+    href?: never;
+    onClick?: never;
+} & React.HTMLAttributes<HTMLDivElement>;
+
+
+type DashboardItemProps = LinkProps | DivProps | StaticDivProps;
+
+
+const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, DashboardItemProps>(
+  ({ title, description, icon: Icon, className, ...props }, ref) => {
+
+    const isInteractive = 'href' in props || 'onClick' in props;
+
     const cardClasses = cn(
         "hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 group flex flex-col h-full",
-        { 'cursor-pointer': !!href || !!onClick },
+        { 'cursor-pointer': isInteractive },
         className
     );
 
     const cardContent = (
         <Card className={cardClasses}>
             <CardHeader>
-                 <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start">
                     <Icon className="h-10 w-10 text-primary mb-4" />
-                    <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ArrowRight className="h-5 w-5" />
-                    </div>
+                    {isInteractive && (
+                      <div className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                          <ArrowRight className="h-5 w-5" />
+                      </div>
+                    )}
                 </div>
             </CardHeader>
             <CardContent className="flex-grow">
@@ -56,10 +68,10 @@ const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, Polym
         </Card>
     );
 
-    if (href) {
+    if ('href' in props) {
       return (
-        <Link href={href} passHref legacyBehavior>
-          <a ref={ref as React.Ref<HTMLAnchorElement>} {...(rest as React.HTMLAttributes<HTMLAnchorElement>)}>
+        <Link href={props.href} passHref legacyBehavior>
+          <a ref={ref as React.Ref<HTMLAnchorElement>} {...props}>
              {cardContent}
           </a>
         </Link>
@@ -67,7 +79,7 @@ const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, Polym
     }
     
     return (
-      <div ref={ref as React.Ref<HTMLDivElement>} onClick={onClick} {...(rest as React.HTMLAttributes<HTMLDivElement>)}>
+      <div ref={ref as React.Ref<HTMLDivElement>} {...props}>
         {cardContent}
       </div>
     );
