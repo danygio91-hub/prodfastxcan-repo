@@ -45,8 +45,8 @@ export default function LiveClock() {
 
 
     return (
-        <div className="hidden lg:flex items-center gap-4 text-sm text-muted-foreground border-l border-border pl-4">
-            <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-4 text-sm text-muted-foreground border-l border-border pl-4">
+            <div className="hidden xl:flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 <span className="capitalize">{dateString}</span>
             </div>
