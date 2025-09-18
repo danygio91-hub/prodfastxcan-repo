@@ -126,9 +126,9 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
              <CardHeader>
                 <CardTitle className="flex items-center gap-3">
                     <Briefcase className="h-6 w-6 text-primary"/>
-                    Commesse Lavorate nel Periodo
+                    Commesse Lavorate nel Giorno Selezionato
                 </CardTitle>
-                <CardDescription>Elenco delle commesse a cui l'operatore ha contribuito nel periodo selezionato.</CardDescription>
+                <CardDescription>Elenco delle commesse a cui l'operatore ha contribuito nel giorno {report.dateLabels.today}.</CardDescription>
             </CardHeader>
             <CardContent>
                  <div className="overflow-x-auto">
@@ -138,7 +138,6 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
                           <TableHead>Commessa (PF)</TableHead>
                           <TableHead>Articolo</TableHead>
                           <TableHead>Cliente</TableHead>
-                          <TableHead>Data</TableHead>
                           <TableHead>Fase Lavorata</TableHead>
                           <TableHead>Tempo Impiegato</TableHead>
                         </TableRow>
@@ -154,14 +153,13 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
                                   <TableCell rowSpan={job.phases.length} className="align-top border-b">{job.cliente}</TableCell>
                                 </>
                               ) : null}
-                              <TableCell>{format(parseISO(phase.date), 'dd/MM/yyyy')}</TableCell>
                               <TableCell>{phase.name}</TableCell>
                               <TableCell>{phase.time}</TableCell>
                             </TableRow>
                           ))
                         ) : (
                              <TableRow>
-                                <TableCell colSpan={6} className="text-center h-24">Nessuna attività registrata per questo operatore nel periodo selezionato.</TableCell>
+                                <TableCell colSpan={5} className="text-center h-24">Nessuna attività registrata per questo operatore nel giorno selezionato.</TableCell>
                             </TableRow>
                         )}
                       </TableBody>

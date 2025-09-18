@@ -299,6 +299,10 @@ export async function getOperatorDetailReport(operatorId: string, targetDateStri
         if (!job) return;
 
         const periodStart = new Date(period.start);
+        if (periodStart < todayInterval.start || periodStart > todayInterval.end) {
+          return; // Skip periods outside the selected day
+        }
+        
         const periodEnd = period.end ? new Date(period.end) : new Date();
         const duration = periodEnd.getTime() - periodStart.getTime();
 
@@ -340,7 +344,7 @@ export async function getOperatorDetailReport(operatorId: string, targetDateStri
         timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
         jobsWorkedOn,
         dateLabels: {
-            today: format(referenceDate, 'dd/MM/yyyy'),
+            today: format(referenceDate, 'dd/MM/yyyy', { locale: it }),
             week: `Settimana ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
             month: format(referenceDate, 'MMMM yyyy', { locale: it }),
         }
@@ -576,3 +580,4 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
