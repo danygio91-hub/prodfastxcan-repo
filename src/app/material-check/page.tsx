@@ -9,7 +9,6 @@ import { it } from 'date-fns/locale';
 
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -212,7 +211,6 @@ export default function MaterialCheckPage() {
         <AuthGuard>
             <AppShell>
                 <div className="space-y-6 max-w-2xl mx-auto">
-                    <OperatorNavMenu />
 
                     {step === 'initial' && (
                          <Card>

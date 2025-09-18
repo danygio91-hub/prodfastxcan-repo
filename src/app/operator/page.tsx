@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { Users, User, Mail, Factory, FileLock, Check, Loader2, ArrowLeft } from 'lucide-react';
 import type { Operator } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
-import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { getDepartmentMap } from './actions';
 import PrivacyForm from './PrivacyForm';
 import { Badge } from '@/components/ui/badge';
@@ -49,7 +48,6 @@ export default function OperatorDataPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-6 max-w-2xl mx-auto">
-          {operator?.privacySigned && <OperatorNavMenu />}
           
           <Card className="shadow-lg">
             <CardHeader>

@@ -8,6 +8,7 @@ import ActiveJobStatusBar from '@/components/operator/ActiveJobStatusBar';
 import ActiveMaterialSessionBar from '@/components/operator/ActiveMaterialSessionBar';
 import { useAuth } from '../auth/AuthProvider';
 import LiveClock from './LiveClock';
+import OperatorNavMenu from '../operator/OperatorNavMenu';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -15,12 +16,17 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const { operator } = useAuth();
-  
+  const isOperatorOrSupervisor = operator && (operator.role === 'operator' || operator.role === 'supervisor');
+  const hasSignedPrivacy = isOperatorOrSupervisor && operator.privacySigned;
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
       <main className="flex-grow w-full max-w-full px-4 sm:px-6 lg:px-8 py-8">
-        <LiveClock />
+        <div className="space-y-6">
+          {isOperatorOrSupervisor && hasSignedPrivacy && <OperatorNavMenu />}
+          <LiveClock />
+        </div>
         <div className="mt-6">
             {children}
         </div>

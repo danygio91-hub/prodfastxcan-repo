@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/tooltip";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from '@/lib/utils';
-import LiveClock from './LiveClock';
 
 const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -76,7 +75,7 @@ export default function Header() {
 
   return (
     <header className="bg-card border-b border-border shadow-sm sticky top-0 z-40">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
             <Link href={homeLink} className="flex items-center text-xl font-bold font-headline text-primary">
                 <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
@@ -84,7 +83,7 @@ export default function Header() {
         </div>
 
         {isAdminPage && (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 hidden md:flex items-center justify-center">
              <TooltipProvider delayDuration={0}>
                 <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
                 {adminNavItems.map((item) => {

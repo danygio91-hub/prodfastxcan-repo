@@ -35,7 +35,6 @@ import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
-import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -1536,7 +1535,6 @@ export default function ScanJobPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-6 max-w-4xl mx-auto">
-          <OperatorNavMenu />
           
            {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
                 <div className="mb-4">

@@ -43,7 +43,7 @@ export default function LiveClock() {
 
 
     return (
-        <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1">
+        <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1 mb-6">
             <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
                 <Calendar className="h-4 w-4" />
                 <span>{dateString}</span>

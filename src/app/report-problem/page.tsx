@@ -6,7 +6,6 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import ProblemReportForm from '@/components/forms/ProblemReportForm';
 import { useToast } from "@/hooks/use-toast";
-import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 
 export default function ReportProblemPage() {
   const { toast } = useToast();
@@ -20,7 +19,6 @@ export default function ReportProblemPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-8 max-w-2xl mx-auto">
-          <OperatorNavMenu />
           <ProblemReportForm onSuccess={handleSuccess} />
         </div>
       </AppShell>

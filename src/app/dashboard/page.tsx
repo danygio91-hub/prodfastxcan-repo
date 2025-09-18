@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React from 'react';
@@ -7,7 +6,6 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
-import OperatorNavMenu from '@/components/operator/OperatorNavMenu';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -27,7 +25,6 @@ export default function DashboardPage() {
     <AuthGuard>
       <AppShell>
         <div className="space-y-8">
-          <OperatorNavMenu />
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight">Dashboard Operatore</h1>
             <p className="text-muted-foreground">
