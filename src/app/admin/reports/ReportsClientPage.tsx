@@ -29,15 +29,14 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package } from 'lucide-react';
-import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport } from './actions';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type getOperatorsReport } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
-import type { getJobsReport, getOperatorsReport } from './actions';
 import { useRouter } from 'next/navigation';
 
 type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
-type OperatorsReport = Awaited<ReturnType<typeof fetchOperatorsReport>>;
+type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
 type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 
 
@@ -98,12 +97,10 @@ export default function ReportsClientPage({
     if (!operatorDate) return;
     setIsPendingOperators(true);
 
-    // Adjust date to counteract timezone offset before sending to server
     const timezoneOffset = operatorDate.getTimezoneOffset() * 60000;
     const adjustedDate = new Date(operatorDate.getTime() - timezoneOffset);
-    const dateStringForServer = adjustedDate.toISOString();
-
-    const data = await fetchOperatorsReport(dateStringForServer);
+    
+    const data = await fetchOperatorsReport(adjustedDate.toISOString());
     setOperatorsReport(data);
     setIsPendingOperators(false);
   }, [operatorDate]);
@@ -571,3 +568,5 @@ export default function ReportsClientPage({
       </div>
   );
 }
+
+    
