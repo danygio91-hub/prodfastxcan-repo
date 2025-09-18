@@ -5,7 +5,8 @@
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport } from '@/lib/mock-data';
-import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
+import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 
@@ -185,6 +186,9 @@ export async function getOperatorsReport() {
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
             timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
+            todayDate: format(now, 'dd/MM/yyyy'),
+            weekLabel: `Week ${getWeek(now, { weekStartsOn: 1 })}`,
+            monthLabel: format(now, 'MMMM yyyy', { locale: it }),
         };
     });
 }

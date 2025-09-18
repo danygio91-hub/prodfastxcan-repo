@@ -207,6 +207,7 @@ export default function ReportsClientPage({
   )
 
   const withdrawalGroups = Object.keys(filteredAndGroupedWithdrawals);
+  const reportMetadata = operatorsReport[0] || {};
 
   return (
       <div className="space-y-6">
@@ -305,13 +306,22 @@ export default function ReportsClientPage({
                       <Table>
                       <TableHeader>
                           <TableRow>
-                          <TableHead>Operatore</TableHead>
-                          <TableHead>Reparto</TableHead>
-                          <TableHead>Stato</TableHead>
-                          <TableHead>Ore Oggi</TableHead>
-                          <TableHead>Ore Settimana</TableHead>
-                          <TableHead>Ore Mese</TableHead>
-                          <TableHead className="text-right">Dettagli</TableHead>
+                            <TableHead>Operatore</TableHead>
+                            <TableHead>Reparto</TableHead>
+                            <TableHead>Stato</TableHead>
+                            <TableHead>
+                                Ore Oggi
+                                <div className="text-xs font-normal text-muted-foreground">{reportMetadata.todayDate || ''}</div>
+                            </TableHead>
+                            <TableHead>
+                                Ore Settimana
+                                <div className="text-xs font-normal text-muted-foreground">{reportMetadata.weekLabel || ''}</div>
+                            </TableHead>
+                            <TableHead>
+                                Ore Mese
+                                <div className="text-xs font-normal text-muted-foreground">{reportMetadata.monthLabel || ''}</div>
+                            </TableHead>
+                            <TableHead className="text-right">Dettagli</TableHead>
                           </TableRow>
                       </TableHeader>
                       <TableBody>
