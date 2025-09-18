@@ -17,7 +17,6 @@ export default function LiveClock() {
         };
     }, []);
     
-    // Formatting options to ensure Italian locale and correct timezone display
     const timeOptions: Intl.DateTimeFormatOptions = {
         hour: '2-digit',
         minute: '2-digit',
@@ -44,12 +43,12 @@ export default function LiveClock() {
 
 
     return (
-        <div className="text-xs text-muted-foreground pl-4 border-l border-border">
-            <div className="flex items-center gap-2">
+        <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
                 <Calendar className="h-4 w-4" />
-                <span className="font-mono">{dateString}</span>
+                <span>{dateString}</span>
             </div>
-            <div className="flex items-center gap-2 font-mono">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground font-mono">
                 <Clock className="h-4 w-4" />
                 <span>{timeString}</span>
                 <span className="text-xs font-sans bg-muted px-1.5 py-0.5 rounded-sm">{tzString}</span>

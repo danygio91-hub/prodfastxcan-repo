@@ -7,6 +7,7 @@ import { ThemeToggler } from '@/components/ThemeToggler';
 import ActiveJobStatusBar from '@/components/operator/ActiveJobStatusBar';
 import ActiveMaterialSessionBar from '@/components/operator/ActiveMaterialSessionBar';
 import { useAuth } from '../auth/AuthProvider';
+import LiveClock from './LiveClock';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -19,7 +20,10 @@ export default function AppShell({ children }: AppShellProps) {
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
       <main className="flex-grow w-full max-w-full px-4 sm:px-6 lg:px-8 py-8">
-        {children}
+        <LiveClock />
+        <div className="mt-6">
+            {children}
+        </div>
       </main>
       <footer className="py-4 text-center text-sm text-muted-foreground border-t border-border">
         <p>© {new Date().getFullYear()} ProdFast Xcan. Tutti i diritti riservati.</p>

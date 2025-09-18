@@ -81,7 +81,6 @@ export default function Header() {
             <Link href={homeLink} className="flex items-center text-xl font-bold font-headline text-primary">
                 <Image src="/logo.png" alt="PFXcan Logo" width={50} height={33} unoptimized={true} />
             </Link>
-             <LiveClock />
         </div>
 
         {isAdminPage && (
