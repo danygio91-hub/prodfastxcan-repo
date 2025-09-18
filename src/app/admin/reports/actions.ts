@@ -248,8 +248,7 @@ export async function getJobDetailReport(jobId: string) {
     };
 }
 
-export async function getOperatorDetailReport(operatorId: string, targetDate?: Date) {
-    // 1. Get operator details
+export async function getOperatorDetailReport(operatorId: string, targetDateString?: string) {
     const operatorRef = doc(db, "operators", operatorId);
     const operatorSnap = await getDoc(operatorRef);
     if (!operatorSnap.exists()) {
@@ -257,11 +256,11 @@ export async function getOperatorDetailReport(operatorId: string, targetDate?: D
     }
     const operator = operatorSnap.data() as Operator;
 
-    // 2. Get all jobs
     const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
-    // 3. Filter work periods for this operator and calculate times
+    const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
+    
     const operatorPeriods: (WorkPeriod & {jobId: string, phaseName: string})[] = [];
     jobs.forEach(job => {
         (job.phases || []).forEach(phase => {
@@ -272,8 +271,7 @@ export async function getOperatorDetailReport(operatorId: string, targetDate?: D
             });
         });
     });
-    
-    const referenceDate = targetDate ? new Date(targetDate) : new Date();
+
     const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
     const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
@@ -281,12 +279,12 @@ export async function getOperatorDetailReport(operatorId: string, targetDate?: D
     const getTimeInInterval = (interval: { start: Date, end: Date }) => {
         return operatorPeriods.reduce((acc, period) => {
             const periodStart = new Date(period.start);
-            const periodEnd = period.end ? new Date(period.end) : new Date(); // Use now for active periods
-             if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) {
-                return acc;
-            }
+            const periodEnd = period.end ? new Date(period.end) : new Date();
+             if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) return acc;
+            
             const overlapStart = Math.max(periodStart.getTime(), interval.start.getTime());
             const overlapEnd = Math.min(periodEnd.getTime(), interval.end.getTime());
+
             if (overlapStart < overlapEnd) {
                 return acc + (overlapEnd - overlapStart);
             }
@@ -294,15 +292,17 @@ export async function getOperatorDetailReport(operatorId: string, targetDate?: D
         }, 0);
     };
     
-    const timeTodayMs = getTimeInInterval(todayInterval);
-    const timeWeekMs = getTimeInInterval(thisWeekInterval);
-    const timeMonthMs = getTimeInInterval(thisMonthInterval);
+    const workSummaryByJob: { [jobId: string]: { cliente: string; details: string; phases: { [phaseName: string]: { duration: number; date: string } } } } = {};
 
-    // 4. Group work by job and phase
-    const workSummaryByJob: { [jobId: string]: { cliente: string; details: string; phases: { [phaseName: string]: number } } } = {};
     operatorPeriods.forEach(period => {
         const job = jobs.find(j => j.id === period.jobId);
         if (!job) return;
+
+        const periodStart = new Date(period.start);
+        const periodEnd = period.end ? new Date(period.end) : new Date();
+        const duration = periodEnd.getTime() - periodStart.getTime();
+
+        const workDate = format(periodStart, 'yyyy-MM-dd');
 
         if (!workSummaryByJob[period.jobId]) {
             workSummaryByJob[period.jobId] = {
@@ -312,32 +312,41 @@ export async function getOperatorDetailReport(operatorId: string, targetDate?: D
             };
         }
         
-        const duration = (period.end ? new Date(period.end).getTime() : new Date().getTime()) - new Date(period.start).getTime();
-        
-        if (!workSummaryByJob[period.jobId].phases[period.phaseName]) {
-            workSummaryByJob[period.jobId].phases[period.phaseName] = 0;
+        const phaseKey = `${workDate}#${period.phaseName}`;
+        if (!workSummaryByJob[period.jobId].phases[phaseKey]) {
+            workSummaryByJob[period.jobId].phases[phaseKey] = { duration: 0, date: workDate };
         }
-        workSummaryByJob[period.jobId].phases[period.phaseName] += duration;
+        workSummaryByJob[period.jobId].phases[phaseKey].duration += duration;
     });
 
     const jobsWorkedOn = Object.entries(workSummaryByJob).map(([jobId, data]) => ({
         id: jobId,
         cliente: data.cliente,
         details: data.details,
-        phases: Object.entries(data.phases).map(([phaseName, duration]) => ({
-            name: phaseName,
-            time: formatDuration(duration)
-        }))
-    }));
+        phases: Object.entries(data.phases).map(([key, phaseData]) => {
+            const [date, name] = key.split('#');
+            return {
+                name,
+                time: formatDuration(phaseData.duration),
+                date,
+            };
+        }).filter(p => p.time !== '00:00:00'),
+    })).filter(j => j.phases.length > 0);
 
     return {
         operator,
-        timeToday: formatDuration(timeTodayMs),
-        timeWeek: formatDuration(timeWeekMs),
-        timeMonth: formatDuration(timeMonthMs),
-        jobsWorkedOn
+        timeToday: formatDuration(getTimeInInterval(todayInterval)),
+        timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
+        timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
+        jobsWorkedOn,
+        dateLabels: {
+            today: format(referenceDate, 'dd/MM/yyyy'),
+            week: `Settimana ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
+            month: format(referenceDate, 'MMMM yyyy', { locale: it }),
+        }
     };
 }
+
 
 type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 

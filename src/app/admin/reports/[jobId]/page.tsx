@@ -10,6 +10,8 @@ import { notFound } from 'next/navigation';
 import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle } from 'lucide-react';
 import type { JobPhase } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
+import { format, parseISO } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +91,7 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                     <Calendar className="h-6 w-6 text-primary"/>
                     <div>
                         <p className="text-muted-foreground">Data Consegna Prevista</p>
-                        <p className="font-semibold">{report.dataConsegnaFinale || 'N/D'}</p>
+                        <p className="font-semibold">{report.dataConsegnaFinale ? format(parseISO(report.dataConsegnaFinale), 'dd MMM yyyy', { locale: it }) : 'N/D'}</p>
                     </div>
                 </div>
                  <div className="flex items-center gap-3">

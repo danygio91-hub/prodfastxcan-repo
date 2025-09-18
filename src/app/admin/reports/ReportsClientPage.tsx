@@ -365,7 +365,7 @@ export default function ReportsClientPage({
                               <TableCell>{op.timeMonth}</TableCell>
                               <TableCell className="text-right">
                                   <Button asChild variant="outline" size="sm">
-                                  <Link href={`/admin/reports/operator/${op.id}`}>
+                                  <Link href={`/admin/reports/operator/${op.id}?date=${operatorDate?.toISOString() || ''}`}>
                                       Vedi Dettagli
                                       <ChevronRight className="ml-2 h-4 w-4" />
                                   </Link>
