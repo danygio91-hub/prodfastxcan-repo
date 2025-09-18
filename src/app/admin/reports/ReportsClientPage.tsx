@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useTransition } from 'react';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { DateRange } from "react-day-picker"
@@ -29,7 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package } from 'lucide-react';
-import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals } from './actions';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
@@ -37,7 +37,7 @@ import type { getJobsReport, getOperatorsReport } from './actions';
 import { useRouter } from 'next/navigation';
 
 type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
-type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
+type OperatorsReport = Awaited<ReturnType<typeof fetchOperatorsReport>>;
 type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 
 
@@ -71,8 +71,12 @@ export default function ReportsClientPage({
   const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>(initialWithdrawalsReport);
   
   const [isPendingWithdrawals, setIsPendingWithdrawals] = useState(false);
+  const [isPendingOperators, setIsPendingOperators] = useState(false);
+  const [isPendingJobs, setIsPendingJobs] = useState(false);
 
-  const [date, setDate] = React.useState<DateRange | undefined>({
+  const [jobsDateRange, setJobsDateRange] = useState<DateRange | undefined>(undefined);
+  const [operatorDate, setOperatorDate] = useState<Date | undefined>(new Date());
+  const [withdrawalsDateRange, setWithdrawalsDateRange] = React.useState<DateRange | undefined>({
     from: subDays(new Date(), 29),
     to: new Date(),
   });
@@ -85,15 +89,25 @@ export default function ReportsClientPage({
 
   const fetchWithdrawals = React.useCallback(async () => {
     setIsPendingWithdrawals(true);
-    const data = await getMaterialWithdrawals({ from: date?.from, to: date?.to });
+    const data = await getMaterialWithdrawals({ from: withdrawalsDateRange?.from, to: withdrawalsDateRange?.to });
     setWithdrawalsReport(data);
     setIsPendingWithdrawals(false);
-  }, [date]);
+  }, [withdrawalsDateRange]);
   
-  // This useEffect is now just for date changes for withdrawals
+  const fetchOperators = React.useCallback(async () => {
+    setIsPendingOperators(true);
+    const data = await fetchOperatorsReport(operatorDate);
+    setOperatorsReport(data);
+    setIsPendingOperators(false);
+  }, [operatorDate]);
+
   useEffect(() => {
     fetchWithdrawals();
-  }, [date, fetchWithdrawals]);
+  }, [withdrawalsDateRange, fetchWithdrawals]);
+  
+  useEffect(() => {
+    fetchOperators();
+  }, [operatorDate, fetchOperators]);
   
   const filteredAndGroupedWithdrawals = useMemo(() => {
     const filtered = searchTerm
@@ -170,7 +184,7 @@ export default function ReportsClientPage({
       'Operatore': op.name,
       'Reparto': op.department,
       'Stato': op.status,
-      'Ore Oggi': op.timeToday,
+      'Ore Giorno': op.timeToday,
       'Ore Settimana': op.timeWeek,
       'Ore Mese': op.timeMonth,
     }));
@@ -221,7 +235,7 @@ export default function ReportsClientPage({
           </p>
         </header>
 
-        <Tabs defaultValue="commesse">
+        <Tabs defaultValue="operatori">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="commesse">
               <Briefcase className="mr-2 h-4 w-4"/>
@@ -295,10 +309,23 @@ export default function ReportsClientPage({
               <CardHeader>
                 <div className="flex justify-between items-center">
                     <CardTitle className="font-headline">Riepilogo Ore per Operatore</CardTitle>
-                    <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
-                      <Download className="mr-2 h-4 w-4" />
-                      Esporta Excel
-                  </Button>
+                    <div className="flex items-center gap-2">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant={"outline"}>
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {operatorDate ? format(operatorDate, "PPP", { locale: it }) : <span>Scegli una data</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar mode="single" selected={operatorDate} onSelect={setOperatorDate} initialFocus />
+                            </PopoverContent>
+                        </Popover>
+                        <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Esporta Excel
+                        </Button>
+                    </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -310,7 +337,7 @@ export default function ReportsClientPage({
                             <TableHead>Reparto</TableHead>
                             <TableHead>Stato</TableHead>
                             <TableHead>
-                                Ore Oggi
+                                Ore Giorno
                                 <div className="text-xs font-normal text-muted-foreground">{reportMetadata.todayDate || ''}</div>
                             </TableHead>
                             <TableHead>
@@ -325,7 +352,8 @@ export default function ReportsClientPage({
                           </TableRow>
                       </TableHeader>
                       <TableBody>
-                         {operatorsReport.length > 0 ? operatorsReport.map((op) => (
+                         {isPendingOperators ? renderLoadingRow(7) : (
+                          operatorsReport.length > 0 ? operatorsReport.map((op) => (
                           <TableRow key={op.id}>
                               <TableCell className="font-medium">{op.name}</TableCell>
                               <TableCell>{op.department}</TableCell>
@@ -348,7 +376,8 @@ export default function ReportsClientPage({
                           <TableRow>
                               <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
                           </TableRow>
-                          )}
+                          )
+                         )}
                       </TableBody>
                       </Table>
                   </div>
@@ -378,18 +407,18 @@ export default function ReportsClientPage({
                                     variant={"outline"}
                                     className={cn(
                                         "w-full sm:w-[260px] justify-start text-left font-normal",
-                                        !date && "text-muted-foreground"
+                                        !withdrawalsDateRange && "text-muted-foreground"
                                     )}
                                     >
                                     <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date?.from ? (
-                                        date.to ? (
+                                    {withdrawalsDateRange?.from ? (
+                                        withdrawalsDateRange.to ? (
                                         <>
-                                            {format(date.from, "LLL dd, y")} -{" "}
-                                            {format(date.to, "LLL dd, y")}
+                                            {format(withdrawalsDateRange.from, "LLL dd, y")} -{" "}
+                                            {format(withdrawalsDateRange.to, "LLL dd, y")}
                                         </>
                                         ) : (
-                                        format(date.from, "LLL dd, y")
+                                        format(withdrawalsDateRange.from, "LLL dd, y")
                                         )
                                     ) : (
                                         <span>Scegli un range</span>
@@ -400,9 +429,9 @@ export default function ReportsClientPage({
                                     <Calendar
                                     initialFocus
                                     mode="range"
-                                    defaultMonth={date?.from}
-                                    selected={date}
-                                    onSelect={setDate}
+                                    defaultMonth={withdrawalsDateRange?.from}
+                                    selected={withdrawalsDateRange}
+                                    onSelect={setWithdrawalsDateRange}
                                     numberOfMonths={2}
                                     locale={it}
                                     />
@@ -535,7 +564,3 @@ export default function ReportsClientPage({
       </div>
   );
 }
-
-    
-
-    

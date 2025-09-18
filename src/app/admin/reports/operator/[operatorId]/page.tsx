@@ -9,11 +9,14 @@ import { Button } from '@/components/ui/button';
 import { getOperatorDetailReport } from '../../actions';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, User, Clock, Calendar, Briefcase } from 'lucide-react';
+import { parseISO } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
-export default async function OperatorReportDetailPage({ params }: { params: { operatorId: string } }) {
-  const report = await getOperatorDetailReport(params.operatorId);
+export default async function OperatorReportDetailPage({ params, searchParams }: { params: { operatorId: string }, searchParams: { date?: string } }) {
+  
+  const targetDate = searchParams.date ? parseISO(searchParams.date) : undefined;
+  const report = await getOperatorDetailReport(params.operatorId, targetDate);
 
   if (!report) {
     notFound();
@@ -47,7 +50,7 @@ export default async function OperatorReportDetailPage({ params }: { params: { o
                 <div className="flex items-center gap-3 p-4 bg-background rounded-lg border">
                     <Clock className="h-6 w-6 text-primary"/>
                     <div>
-                        <p className="text-muted-foreground">Ore Lavorate (Oggi)</p>
+                        <p className="text-muted-foreground">Ore Lavorate (Giorno)</p>
                         <p className="font-semibold text-lg">{report.timeToday}</p>
                     </div>
                 </div>
@@ -72,9 +75,9 @@ export default async function OperatorReportDetailPage({ params }: { params: { o
              <CardHeader>
                 <CardTitle className="flex items-center gap-3">
                     <Briefcase className="h-6 w-6 text-primary"/>
-                    Commesse Lavorate
+                    Commesse Lavorate nel Periodo
                 </CardTitle>
-                <CardDescription>Elenco delle commesse a cui l'operatore ha contribuito.</CardDescription>
+                <CardDescription>Elenco delle commesse a cui l'operatore ha contribuito nel periodo selezionato.</CardDescription>
             </CardHeader>
             <CardContent>
                  <div className="overflow-x-auto">
@@ -105,7 +108,7 @@ export default async function OperatorReportDetailPage({ params }: { params: { o
                           ))
                         ) : (
                              <TableRow>
-                                <TableCell colSpan={5} className="text-center h-24">Nessuna attività registrata per questo operatore.</TableCell>
+                                <TableCell colSpan={5} className="text-center h-24">Nessuna attività registrata per questo operatore nel periodo selezionato.</TableCell>
                             </TableRow>
                         )}
                       </TableBody>

@@ -123,7 +123,7 @@ export async function getJobsReport() {
     });
 }
 
-export async function getOperatorsReport() {
+export async function getOperatorsReport(targetDate?: Date) {
     const operatorsSnapshot = await getDocs(collection(db, "operators"));
     const operators = operatorsSnapshot.docs.map(doc => doc.data() as Operator);
     
@@ -136,10 +136,11 @@ export async function getOperatorsReport() {
         )
     );
     
-    const now = new Date();
-    const todayInterval = { start: startOfDay(now), end: endOfDay(now) };
-    const thisWeekInterval = { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
-    const thisMonthInterval = { start: startOfMonth(now), end: endOfMonth(now) };
+    const referenceDate = targetDate ? new Date(targetDate) : new Date();
+    
+    const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
+    const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
+    const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
     return operators.map(op => {
         const operatorPeriods = allWorkPeriods.filter(p => p.operatorId === op.id);
@@ -186,9 +187,9 @@ export async function getOperatorsReport() {
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
             timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
-            todayDate: format(now, 'dd/MM/yyyy'),
-            weekLabel: `Week ${getWeek(now, { weekStartsOn: 1 })}`,
-            monthLabel: format(now, 'MMMM yyyy', { locale: it }),
+            todayDate: format(referenceDate, 'dd/MM/yyyy'),
+            weekLabel: `Week ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
+            monthLabel: format(referenceDate, 'MMMM yyyy', { locale: it }),
         };
     });
 }
@@ -247,7 +248,7 @@ export async function getJobDetailReport(jobId: string) {
     };
 }
 
-export async function getOperatorDetailReport(operatorId: string) {
+export async function getOperatorDetailReport(operatorId: string, targetDate?: Date) {
     // 1. Get operator details
     const operatorRef = doc(db, "operators", operatorId);
     const operatorSnap = await getDoc(operatorRef);
@@ -272,10 +273,10 @@ export async function getOperatorDetailReport(operatorId: string) {
         });
     });
     
-    const now = new Date();
-    const todayInterval = { start: startOfDay(now), end: endOfDay(now) };
-    const thisWeekInterval = { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
-    const thisMonthInterval = { start: startOfMonth(now), end: endOfMonth(now) };
+    const referenceDate = targetDate ? new Date(targetDate) : new Date();
+    const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
+    const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
+    const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
     const getTimeInInterval = (interval: { start: Date, end: Date }) => {
         return operatorPeriods.reduce((acc, period) => {
@@ -566,7 +567,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-
-    
-
-    

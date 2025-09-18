@@ -1,4 +1,5 @@
 
+
 import ReportsClientPage from './ReportsClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -9,6 +10,7 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminReportsPage() {
+  // Fetch initial data for the current date
   const [jobsReport, operatorsReport, withdrawalsReport] = await Promise.all([
     getJobsReport(),
     getOperatorsReport(),
