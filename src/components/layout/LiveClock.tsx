@@ -27,9 +27,8 @@ export default function LiveClock() {
     };
 
     const dateOptions: Intl.DateTimeFormatOptions = {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
+        day: '2-digit',
+        month: '2-digit',
         year: 'numeric',
         timeZone: 'Europe/Rome',
     };
@@ -45,10 +44,10 @@ export default function LiveClock() {
 
 
     return (
-        <div className="hidden sm:flex items-center gap-4 text-sm text-muted-foreground border-l border-border pl-4">
-            <div className="hidden xl:flex items-center gap-2">
+        <div className="text-xs text-muted-foreground pl-4 border-l border-border">
+            <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                <span className="capitalize">{dateString}</span>
+                <span className="font-mono">{dateString}</span>
             </div>
             <div className="flex items-center gap-2 font-mono">
                 <Clock className="h-4 w-4" />
