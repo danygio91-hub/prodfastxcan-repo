@@ -123,7 +123,7 @@ export async function getJobsReport() {
     });
 }
 
-export async function getOperatorsReport(targetDate?: Date) {
+export async function getOperatorsReport(targetDateString?: string) {
     const operatorsSnapshot = await getDocs(collection(db, "operators"));
     const operators = operatorsSnapshot.docs.map(doc => doc.data() as Operator);
     
@@ -136,7 +136,7 @@ export async function getOperatorsReport(targetDate?: Date) {
         )
     );
     
-    const referenceDate = targetDate ? new Date(targetDate) : new Date();
+    const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
     
     const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };

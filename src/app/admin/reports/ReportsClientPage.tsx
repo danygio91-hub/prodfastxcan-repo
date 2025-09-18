@@ -95,8 +95,15 @@ export default function ReportsClientPage({
   }, [withdrawalsDateRange]);
   
   const fetchOperators = React.useCallback(async () => {
+    if (!operatorDate) return;
     setIsPendingOperators(true);
-    const data = await fetchOperatorsReport(operatorDate);
+
+    // Adjust date to counteract timezone offset before sending to server
+    const timezoneOffset = operatorDate.getTimezoneOffset() * 60000;
+    const adjustedDate = new Date(operatorDate.getTime() - timezoneOffset);
+    const dateStringForServer = adjustedDate.toISOString();
+
+    const data = await fetchOperatorsReport(dateStringForServer);
     setOperatorsReport(data);
     setIsPendingOperators(false);
   }, [operatorDate]);
