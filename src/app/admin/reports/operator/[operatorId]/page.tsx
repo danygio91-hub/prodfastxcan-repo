@@ -32,8 +32,15 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
 
   useEffect(() => {
     const fetchReport = async () => {
+      if (!selectedDate) return;
       setIsLoading(true);
-      const newReport = await getOperatorDetailReport(params.operatorId, selectedDate?.toISOString());
+
+      // Create a new date object that's timezone-neutral for the server
+      const timezoneOffset = selectedDate.getTimezoneOffset() * 60000;
+      const adjustedDate = new Date(selectedDate.getTime() - timezoneOffset);
+      const dateStringForServer = adjustedDate.toISOString();
+
+      const newReport = await getOperatorDetailReport(params.operatorId, dateStringForServer);
       setReport(newReport);
       setIsLoading(false);
       
