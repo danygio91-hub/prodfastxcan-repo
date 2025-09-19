@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPhaseTemplate } from '@/lib/mock-data';
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -93,8 +93,14 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
       updatedPhases[phaseIndex].sequence = targetSequence;
 
     } else {
-      // Restore it to its original sequence of -1.
-      updatedPhases[phaseIndex].sequence = -1;
+      // Restore it to its original sequence by fetching it from the template.
+      const templateRef = doc(db, 'workPhaseTemplates', phaseId);
+      const templateSnap = await getDoc(templateRef);
+      if (!templateSnap.exists()) {
+          throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
+      }
+      const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
+      updatedPhases[phaseIndex].sequence = originalSequence;
     }
 
     await updateDoc(jobRef, { phases: updatedPhases });
