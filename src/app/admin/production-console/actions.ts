@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder } from '@/lib/mock-data';
+import type { JobOrder, JobPhase } from '@/lib/mock-data';
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -68,20 +68,33 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
       throw new Error('Fase "Taglio Guaina" non trovata in questa commessa.');
     }
 
-    if (originalPhases[phaseIndex].status !== 'pending') {
+    const phaseToMove = originalPhases[phaseIndex];
+
+    if (phaseToMove.status !== 'pending') {
       throw new Error('È possibile spostare la fase solo se non è ancora stata avviata.');
     }
     
     const updatedPhases = [...originalPhases];
-    const originalSequence = -1; // Assuming default sequence for "Taglio Guaina"
-    const postponedSequence = 99;
 
     if (currentState === 'default') {
-      // Postpone it
-      updatedPhases[phaseIndex].sequence = postponedSequence;
+      // Postpone it. Find the sequence of the "Collaudo" phase or the last production phase.
+      const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
+      const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo');
+      
+      let targetSequence;
+      if (collaudoPhase) {
+        targetSequence = collaudoPhase.sequence + 0.1; // Place it right after "Collaudo"
+      } else {
+        // Fallback: place it after the last production phase
+        const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();
+        targetSequence = lastProductionPhase ? lastProductionPhase.sequence + 1 : 99;
+      }
+      
+      updatedPhases[phaseIndex].sequence = targetSequence;
+
     } else {
-      // Restore it
-      updatedPhases[phaseIndex].sequence = originalSequence;
+      // Restore it to its original sequence of -1.
+      updatedPhases[phaseIndex].sequence = -1;
     }
 
     await updateDoc(jobRef, { phases: updatedPhases });
