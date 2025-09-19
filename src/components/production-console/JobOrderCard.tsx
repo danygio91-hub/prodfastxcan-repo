@@ -101,7 +101,15 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
   const canForceFinish = overallStatus === 'Pronto per Produzione' || overallStatus === 'In Lavorazione';
   
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
-  const isGuainaPostponed = guainaPhase && guainaPhase.sequence > 0;
+  
+  const firstProductionPhaseSeq = jobOrder.phases
+      .filter(p => p.type === 'production')
+      .sort((a,b) => a.sequence - b.sequence)[0]?.sequence;
+      
+  const isGuainaPostponed = guainaPhase && firstProductionPhaseSeq !== undefined 
+      ? guainaPhase.sequence > firstProductionPhaseSeq
+      : false;
+
   const canToggleGuaina = guainaPhase && guainaPhase.status === 'pending';
 
 
