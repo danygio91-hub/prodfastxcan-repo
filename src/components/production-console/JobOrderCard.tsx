@@ -98,7 +98,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
-  const canForceFinish = overallStatus === 'Pronto per Produzione' || overallStatus === 'In Lavorazione';
+  const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
   
@@ -193,7 +193,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                         <AlertDialogHeader>
                             <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione iniziale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
+                              Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                          <AlertDialogFooter>
