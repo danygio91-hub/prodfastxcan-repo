@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -87,7 +87,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; }) {
+export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick, onToggleGuainaClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; }) {
   const overallStatus = getOverallStatus(jobOrder);
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
@@ -99,6 +99,11 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
   const canForceFinish = overallStatus === 'Pronto per Produzione' || overallStatus === 'In Lavorazione';
+  
+  const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
+  const isGuainaPostponed = guainaPhase && guainaPhase.sequence > 0;
+  const canToggleGuaina = guainaPhase && guainaPhase.status === 'pending';
+
 
   return (
     <Card 
@@ -168,6 +173,28 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                       </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+                 {canToggleGuaina && guainaPhase && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                          {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                          <span>{isGuainaPostponed ? 'Ripristina Posizione Guaina' : 'Posticipa Taglio Guaina'}</span>
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione iniziale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                         <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                 )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

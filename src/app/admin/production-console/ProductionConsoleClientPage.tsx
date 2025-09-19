@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -142,6 +142,16 @@ export default function ProductionConsoleClientPage() {
     });
   }
 
+  const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
+      if (!user) return;
+      const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
+      toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+  }
+
 
   const filterOptions: (OverallStatus | 'all')[] = [
     'all',
@@ -196,6 +206,7 @@ export default function ProductionConsoleClientPage() {
                     jobOrder={job} 
                     onProblemClick={() => setProblemJob(job)}
                     onForceFinishClick={handleForceFinish}
+                    onToggleGuainaClick={handleToggleGuaina}
                    />
               ))}
           </div>

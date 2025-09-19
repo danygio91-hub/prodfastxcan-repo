@@ -49,3 +49,54 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
     return { success: false, message: errorMessage };
   }
 }
+
+
+export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
+  try {
+    const jobRef = doc(db, 'jobOrders', jobId);
+    const jobSnap = await getDoc(jobRef);
+
+    if (!jobSnap.exists()) {
+      throw new Error('Commessa non trovata.');
+    }
+
+    const job = jobSnap.data() as JobOrder;
+    const originalPhases = job.phases || [];
+    const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
+
+    if (phaseIndex === -1) {
+      throw new Error('Fase "Taglio Guaina" non trovata in questa commessa.');
+    }
+
+    if (originalPhases[phaseIndex].status !== 'pending') {
+      throw new Error('È possibile spostare la fase solo se non è ancora stata avviata.');
+    }
+    
+    const updatedPhases = [...originalPhases];
+    const originalSequence = -1; // Assuming default sequence for "Taglio Guaina"
+    const postponedSequence = 99;
+
+    if (currentState === 'default') {
+      // Postpone it
+      updatedPhases[phaseIndex].sequence = postponedSequence;
+    } else {
+      // Restore it
+      updatedPhases[phaseIndex].sequence = originalSequence;
+    }
+
+    await updateDoc(jobRef, { phases: updatedPhases });
+    
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/scan-job?jobId=${jobId}`);
+
+    return { 
+      success: true, 
+      message: `Posizione della fase "Taglio Guaina" ${currentState === 'default' ? 'posticipata' : 'ripristinata'}.` 
+    };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error toggling phase position:", error);
+    return { success: false, message: errorMessage };
+  }
+}
