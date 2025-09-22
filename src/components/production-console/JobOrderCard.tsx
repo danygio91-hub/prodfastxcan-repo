@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2 } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -196,7 +196,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                          <AlertDialogFooter>
                             <AlertDialogCancel>Annulla</AlertDialogCancel>
                             <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
-                        </AlertDialogFooter>
+                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
                  )}
@@ -207,13 +207,27 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
         </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
-        <div className="space-y-2">
-          <p className="flex items-center gap-2 text-sm">
+        <div className="space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-4">
+            <p className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-muted-foreground" />
+              <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
+            </p>
+            <p className="flex items-center gap-2 font-bold text-base">
+              <Package className="h-4 w-4 text-muted-foreground" />
+              {jobOrder.qta} pz
+            </p>
+          </div>
+           <p className="flex items-center gap-2">
+            <Factory className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium">{jobOrder.department}</span>
+          </p>
+           <p className="flex items-center gap-2">
              <Package className="h-4 w-4 text-muted-foreground" />
             {jobOrder.details}
           </p>
            {deliveryDate && (
-            <p className={cn("flex items-center gap-2 text-sm font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+            <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
               {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
               <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
             </p>
@@ -268,7 +282,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                                   <AlertDialogHeader>
                                       <AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                          Questa azione riporterà la fase "{phase.name}" allo stato "In attesa" e azzererà il tempo di lavoro registrato. Sei sicuro?
+                                          Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?
                                       </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
