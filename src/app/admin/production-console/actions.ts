@@ -28,9 +28,9 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
       return phase;
     });
 
-    // Make the first quality or packaging phase ready
+    // Make the next non-production phase ready to be worked on
     const firstFinishingPhase = updatedPhases
-      .filter(p => p.type === 'quality' || p.type === 'packaging')
+      .filter(p => p.status === 'pending' && p.type !== 'production')
       .sort((a, b) => a.sequence - b.sequence)[0];
     
     if (firstFinishingPhase) {
@@ -83,7 +83,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
       
       let targetSequence;
       if (collaudoPhase) {
-        targetSequence = collaudoPhase.sequence + 0.1; // Place it right after "Collaudo"
+        targetSequence = collaudoPhase.sequence - 0.1; // Place it right BEFORE "Collaudo"
       } else {
         // Fallback: place it after the last production phase
         const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();

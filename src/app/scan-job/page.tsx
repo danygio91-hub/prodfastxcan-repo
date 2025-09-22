@@ -613,15 +613,21 @@ export default function ScanJobPage() {
             });
             return;
         }
-    } else {
-        toast({
-            variant: "destructive",
-            title: "Nessuna Fase di Produzione Pronta",
-            description: "Impossibile liberare la commessa perché non ci sono fasi di produzione in attesa o definite."
-        });
-        return;
+    } else if (!firstProductionPhase) { // Case where there might be no production phases
+        // Find the first non-preparation, non-completed phase and make it ready
+        const nextPhase = sortedPhases.find(p => p.type !== 'preparation' && p.status === 'pending');
+        if (nextPhase) {
+            nextPhase.materialReady = true;
+        } else {
+             toast({
+                variant: "destructive",
+                title: "Nessuna Fase Successiva",
+                description: "Impossibile liberare la commessa perché non ci sono fasi successive in attesa."
+            });
+            return;
+        }
     }
-
+    
     handleUpdateAndPersistJob(jobToUpdate);
 
     toast({
@@ -1152,7 +1158,8 @@ export default function ScanJobPage() {
     const showReleaseButton = allPreparationPhasesCompleted && 
                               firstProductionPhase && 
                               !firstProductionPhase.materialReady &&
-                              isMagazzinoOrSuperadvisor;
+                              isMagazzinoOrSuperadvisor &&
+                              activeJob.phases.some(p => p.type === 'production' && p.status === 'pending');
 
     return (
     <Card className="mt-6 shadow-lg">
