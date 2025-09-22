@@ -590,12 +590,19 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         });
     }
 
-    // Calculate the final average
+    // Calculate the final average based only on reliable jobs
     for (const articleCode in analysisByArticle) {
         const report = analysisByArticle[articleCode];
-        const totalMinutesForAllJobs = report.jobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
-        if (report.totalQuantity > 0) {
-            report.averageMinutesPerPiece = totalMinutesForAllJobs / report.totalQuantity;
+        
+        const reliableJobs = report.jobs.filter(j => j.isTimeCalculationReliable);
+        
+        const totalMinutesFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
+        const totalQuantityFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.qta, 0);
+
+        if (totalQuantityFromReliableJobs > 0) {
+            report.averageMinutesPerPiece = totalMinutesFromReliableJobs / totalQuantityFromReliableJobs;
+        } else {
+            report.averageMinutesPerPiece = 0; // Set to 0 if no reliable jobs are found
         }
     }
 
