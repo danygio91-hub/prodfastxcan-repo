@@ -35,6 +35,7 @@ export interface JobPhase {
   sequence: number;
   workstationScannedAndVerified?: boolean;
   type?: 'preparation' | 'production' | 'quality' | 'packaging';
+  tracksTime?: boolean; // New field
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean; // New field
   materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
@@ -94,6 +95,7 @@ export interface WorkPhaseTemplate {
   departmentCodes: string[];
   sequence: number;
   type: 'preparation' | 'production' | 'quality' | 'packaging';
+  tracksTime?: boolean; // New field
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean; // New field
   allowedMaterialTypes?: Array<RawMaterialType>;
@@ -232,13 +234,13 @@ export const initialDepartments: Department[] = [
     { id: 'Officina', code: 'Officina', name: 'Officina' },
 ];
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
-    { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },
-    { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['TUBI'] },
-    { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', requiresMaterialScan: false, requiresMaterialSearch: true, allowedMaterialTypes: ['GUAINA'] },
-    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', requiresMaterialScan: false },
-    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'quality', requiresMaterialScan: false },
-    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 4, type: 'quality', requiresMaterialScan: false },
+    { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },
+    { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['TUBI'] },
+    { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: true, allowedMaterialTypes: ['GUAINA'] },
+    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', tracksTime: true, requiresMaterialScan: false },
+    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', tracksTime: true, requiresMaterialScan: false },
+    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'quality', tracksTime: false, requiresMaterialScan: false },
+    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 4, type: 'quality', tracksTime: false, requiresMaterialScan: false },
 ];
 export const initialWorkstations: Workstation[] = [
     { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },

@@ -71,6 +71,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             workPeriods: [],
             sequence: template.sequence,
             type: template.type || 'production',
+            tracksTime: template.tracksTime !== false, // Default to true if undefined
             requiresMaterialScan: template.requiresMaterialScan,
             requiresMaterialSearch: template.requiresMaterialSearch,
             allowedMaterialTypes: template.allowedMaterialTypes || [],

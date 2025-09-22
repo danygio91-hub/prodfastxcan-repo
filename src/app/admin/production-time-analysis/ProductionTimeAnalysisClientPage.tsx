@@ -15,7 +15,8 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+} from "@/components/ui/collapsible";
+import { cn } from '@/lib/utils';
 
 interface ProductionTimeAnalysisClientPageProps {
   report: ProductionTimeAnalysisReport[];
@@ -32,6 +33,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
             'Commessa': job.id,
             'Cliente': job.cliente,
             'Quantità': job.qta,
+            'Calcolo Affidabile': job.isTimeCalculationReliable ? 'Sì' : 'No',
             'Fase': 'TOTALE COMMESSA',
             'Tempo Totale (min)': job.totalTimeMinutes.toFixed(2),
             'Minuti/Pezzo': job.minutesPerPiece.toFixed(4),
@@ -43,6 +45,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                 'Commessa': '',
                 'Cliente': '',
                 'Quantità': '',
+                'Calcolo Affidabile': '',
                 'Fase': phase.name,
                 'Tempo Totale (min)': phase.totalTimeMinutes.toFixed(2),
                 'Minuti/Pezzo': phase.minutesPerPiece.toFixed(4),
@@ -72,7 +75,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
             <CardHeader>
                 <CardTitle>Report Articoli</CardTitle>
                 <CardDescription>
-                    Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione, inclusi i dettagli per singola fase.
+                    Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione. Il colore indica l'affidabilità del calcolo.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -105,13 +108,13 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                         {item.jobs.map(job => (
                                             <Collapsible key={job.id} className="border-t pt-4">
                                                 <CollapsibleTrigger asChild>
-                                                    <div className="flex justify-between items-center w-full cursor-pointer hover:bg-background/50 p-2 rounded-md">
+                                                    <div className="flex justify-between items-center w-full cursor-pointer hover:bg-background/50 p-2 rounded-md group">
                                                         <div className="flex-1">
                                                             <div className="font-mono text-base font-semibold">{job.id} <Badge variant="secondary" className="ml-2">Cliente: {job.cliente}</Badge></div>
                                                             <div className="text-sm text-muted-foreground">Q.tà: {job.qta}</div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className="font-semibold text-primary">{job.minutesPerPiece.toFixed(4)} min/pz</div>
+                                                            <div className={cn("font-semibold", job.isTimeCalculationReliable ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500")}>{job.minutesPerPiece.toFixed(4)} min/pz</div>
                                                             <div className="text-xs text-muted-foreground">Tot: {job.totalTimeMinutes.toFixed(2)} min</div>
                                                         </div>
                                                         <ChevronRight className="h-4 w-4 ml-2 transition-transform duration-200 group-data-[state=open]:rotate-90" />
@@ -122,7 +125,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                                         <Table>
                                                             <TableHeader>
                                                                 <TableRow>
-                                                                    <TableHead>Fase</TableHead>
+                                                                    <TableHead>Fase (con tempo tracciato)</TableHead>
                                                                     <TableHead className="text-right">Tempo Totale Fase</TableHead>
                                                                     <TableHead className="text-right">Minuti/Pezzo</TableHead>
                                                                 </TableRow>

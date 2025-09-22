@@ -239,7 +239,9 @@ export async function getJobDetailReport(jobId: string) {
         };
     });
     
-    const totalTimeElapsedMs = calculateTimeForPeriods((jobDetail.phases || []).flatMap(p => p.workPeriods || []));
+    const totalTimeElapsedMs = (jobDetail.phases || [])
+      .filter(p => p.tracksTime !== false)
+      .reduce((total, p) => total + calculateTimeForPeriods(p.workPeriods || []), 0);
 
     return {
         ...jobDetail,
@@ -494,6 +496,7 @@ export type ProductionTimeAnalysisReport = {
         qta: number;
         totalTimeMinutes: number;
         minutesPerPiece: number;
+        isTimeCalculationReliable: boolean; // New field
         phases: Array<{
             name: string;
             totalTimeMinutes: number;
@@ -511,10 +514,25 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
     }, 0);
 }
 
-function getTotalMilliseconds(job: JobOrder): number {
-    return (job.phases || []).reduce((total, phase) => {
-        return total + getPhaseTimeMilliseconds(phase);
+function getTotalTrackedMilliseconds(job: JobOrder): { totalMs: number; isReliable: boolean } {
+    const timeTrackingPhases = (job.phases || []).filter(p => p.tracksTime !== false);
+    
+    let isReliable = true;
+    const totalMs = timeTrackingPhases.reduce((total, phase) => {
+        const phaseTime = getPhaseTimeMilliseconds(phase);
+        // If a phase that should track time has 0 time, the calculation is not reliable
+        if (phaseTime === 0) {
+            isReliable = false;
+        }
+        return total + phaseTime;
     }, 0);
+
+    // If there are no phases that track time, the calculation is not considered reliable for piece time.
+    if (timeTrackingPhases.length === 0) {
+        isReliable = false;
+    }
+
+    return { totalMs, isReliable };
 }
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
@@ -539,14 +557,16 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             };
         }
 
-        const totalTimeMs = getTotalMilliseconds(job);
-        const totalTimeMinutes = totalTimeMs / (1000 * 60);
+        const { totalMs, isReliable } = getTotalTrackedMilliseconds(job);
+        const totalTimeMinutes = totalMs / (1000 * 60);
         
         if (job.qta <= 0) continue; // Skip jobs with no quantity to avoid division by zero
         
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
-        const phaseDetails = (job.phases || []).map(phase => {
+        const phaseDetails = (job.phases || [])
+          .filter(p => p.tracksTime !== false)
+          .map(phase => {
             const phaseTimeMs = getPhaseTimeMilliseconds(phase);
             const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
             return {
@@ -565,6 +585,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             qta: job.qta,
             totalTimeMinutes: totalTimeMinutes,
             minutesPerPiece: minutesPerPiece,
+            isTimeCalculationReliable: isReliable,
             phases: phaseDetails,
         });
     }
@@ -580,4 +601,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-

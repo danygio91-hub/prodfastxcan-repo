@@ -19,6 +19,7 @@ const workPhaseSchema = z.object({
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
+  tracksTime: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(), // Keep as string array
@@ -51,6 +52,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         description: formData.get('description'),
         departmentCodes: formData.getAll('departmentCodes'),
         type: formData.get('type'),
+        tracksTime: formData.get('tracksTime'),
         requiresMaterialScan: formData.get('requiresMaterialScan'),
         requiresMaterialSearch: formData.get('requiresMaterialSearch'),
         allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
@@ -71,13 +73,14 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         };
     }
 
-    const { id, name, description, departmentCodes, type, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes } = validatedFields.data;
+    const { id, name, description, departmentCodes, type, tracksTime, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes } = validatedFields.data;
 
     const dataToSave: Partial<WorkPhaseTemplate> = {
         name,
         description,
         departmentCodes,
         type,
+        tracksTime: tracksTime || false,
         requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
         requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
         allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[]) || [],
@@ -113,6 +116,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             description, 
             departmentCodes,
             type,
+            tracksTime: dataToSave.tracksTime,
             requiresMaterialScan: dataToSave.requiresMaterialScan,
             requiresMaterialSearch: dataToSave.requiresMaterialSearch,
             allowedMaterialTypes: dataToSave.allowedMaterialTypes,
@@ -167,5 +171,3 @@ export async function updatePhasesOrder(phases: { id: string; sequence: number }
         return { success: false, message: 'Errore durante l\'aggiornamento dell\'ordine.' };
     }
 }
-
-    

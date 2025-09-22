@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from '@/components/ui/switch';
-import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X } from 'lucide-react';
+import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X, Timer } from 'lucide-react';
 import AppShell from '@/components/layout/AppShell';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 
@@ -36,6 +36,7 @@ const workPhaseSchema = z.object({
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging'], { required_error: 'Specificare il tipo di fase' }),
+  tracksTime: z.boolean().default(true).optional(),
   requiresMaterialScan: z.boolean().default(false).optional(),
   requiresMaterialSearch: z.boolean().default(false).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(),
@@ -57,7 +58,7 @@ export default function WorkPhaseManagementClientPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] },
   });
   
   const fetchAllData = async () => {
@@ -85,12 +86,13 @@ export default function WorkPhaseManagementClientPage() {
         description: phase.description,
         departmentCodes: phase.departmentCodes || [],
         type: phase.type || 'production',
+        tracksTime: phase.tracksTime !== false,
         requiresMaterialScan: phase.requiresMaterialScan || false,
         requiresMaterialSearch: phase.requiresMaterialSearch || false,
         allowedMaterialTypes: phase.allowedMaterialTypes || [],
       });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] });
     }
     setIsDialogOpen(true);
   };
@@ -108,6 +110,7 @@ export default function WorkPhaseManagementClientPage() {
     formData.append('description', values.description);
     values.departmentCodes.forEach(code => formData.append('departmentCodes', code));
     formData.append('type', values.type);
+    if (values.tracksTime) formData.append('tracksTime', 'on');
     if (values.type !== 'quality') {
         if (values.requiresMaterialScan) formData.append('requiresMaterialScan', 'on');
         if (values.requiresMaterialSearch) formData.append('requiresMaterialSearch', 'on');
@@ -197,6 +200,7 @@ export default function WorkPhaseManagementClientPage() {
     const dataToExport = phases.map(phase => ({
         'Sequenza': phase.sequence,
         'Tipo': phase.type === 'production' ? 'Produzione' : 'Preparazione',
+        'Traccia Tempo': phase.tracksTime ? 'Sì' : 'No',
         'Richiede Scansione Materiale': phase.requiresMaterialScan ? 'Sì' : 'No',
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
@@ -210,7 +214,7 @@ export default function WorkPhaseManagementClientPage() {
   
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={9} className="h-24 text-center">
+          <TableCell colSpan={10} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento fasi...</span>
@@ -300,6 +304,7 @@ export default function WorkPhaseManagementClientPage() {
                         <TableHead className="w-[100px]">Sequenza</TableHead>
                         <TableHead>Nome Fase</TableHead>
                         <TableHead>Tipo</TableHead>
+                        <TableHead>Traccia Tempo</TableHead>
                         <TableHead>Scansione Mat.</TableHead>
                         <TableHead>Ricerca Mat.</TableHead>
                         <TableHead>Descrizione</TableHead>
@@ -331,6 +336,9 @@ export default function WorkPhaseManagementClientPage() {
                                 <Badge variant={phase.type === 'production' ? 'default' : phase.type === 'quality' ? 'secondary' : phase.type === 'packaging' ? 'outline' : 'destructive'}>
                                 {phase.type === 'production' ? 'Produzione' : phase.type === 'quality' ? 'Qualità' : phase.type === 'packaging' ? 'Packaging' : 'Preparazione'}
                                 </Badge>
+                            </TableCell>
+                            <TableCell className="text-center">
+                                {phase.tracksTime !== false ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
                             </TableCell>
                              <TableCell className="text-center">
                                 {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
@@ -374,7 +382,7 @@ export default function WorkPhaseManagementClientPage() {
                         ))
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={9} className="text-center h-24">Nessuna fase definita.</TableCell>
+                            <TableCell colSpan={10} className="text-center h-24">Nessuna fase definita.</TableCell>
                         </TableRow>
                         )}
                     </TableBody>
@@ -416,7 +424,11 @@ export default function WorkPhaseManagementClientPage() {
                             <FormLabel>Tipo di Fase</FormLabel>
                             <FormControl>
                             <RadioGroup
-                                onValueChange={field.onChange}
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  const isTimeTracked = value === 'preparation' || value === 'production';
+                                  form.setValue('tracksTime', isTimeTracked);
+                                }}
                                 defaultValue={field.value}
                                 className="flex flex-col space-y-1"
                             >
@@ -441,6 +453,29 @@ export default function WorkPhaseManagementClientPage() {
                             <FormMessage />
                         </FormItem>
                         )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="tracksTime"
+                      render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                          <FormLabel className="text-base flex items-center gap-2">
+                              <Timer className="h-4 w-4" />
+                              Abilita Conteggio Tempo
+                          </FormLabel>
+                          <FormDescription>
+                              Se attivo, il tempo speso in questa fase verrà conteggiato.
+                          </FormDescription>
+                          </div>
+                          <FormControl>
+                          <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                          />
+                          </FormControl>
+                      </FormItem>
+                      )}
                     />
                     {form.watch('type') !== 'quality' && (
                     <div className="space-y-4">
@@ -601,7 +636,3 @@ export default function WorkPhaseManagementClientPage() {
   </AdminAuthGuard>
   );
 }
-
-    
-
-    

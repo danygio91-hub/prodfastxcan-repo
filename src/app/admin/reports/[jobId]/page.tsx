@@ -1,3 +1,4 @@
+
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -7,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getJobDetailReport } from '../actions';
 import { notFound } from 'next/navigation';
-import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle } from 'lucide-react';
+import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Timer } from 'lucide-react';
 import type { JobPhase } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -36,6 +37,9 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
   if (!report) {
     notFound();
   }
+
+  const timeTrackingPhases = (report.phases || []).filter(p => p.tracksTime !== false);
+  const isTimeReliable = timeTrackingPhases.every(p => p.timeElapsed !== '00:00:00');
 
   return (
     <AdminAuthGuard>
@@ -84,7 +88,10 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                     <Clock className="h-6 w-6 text-primary"/>
                     <div>
                         <p className="text-muted-foreground">Tempo Totale Lavorazione</p>
-                        <p className="font-semibold">{report.totalTimeElapsed}</p>
+                        <p className={cn("font-semibold", isTimeReliable ? 'text-green-600' : 'text-amber-600')}>
+                          {report.totalTimeElapsed}
+                          <span className="text-xs font-normal ml-2">({isTimeReliable ? 'Affidabile' : 'Parziale'})</span>
+                        </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -135,7 +142,13 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                                 {phase.qualityResult === 'passed' && <Badge className="bg-green-600 hover:bg-green-700">Superato</Badge>}
                                 {phase.qualityResult === 'failed' && <Badge variant="destructive">Fallito</Badge>}
                             </TableCell>
-                            <TableCell>{phase.timeElapsed}</TableCell>
+                            <TableCell>
+                              {phase.tracksTime !== false ? (
+                                phase.timeElapsed
+                              ) : (
+                                <span className="text-muted-foreground italic">Non tracciato</span>
+                              )}
+                            </TableCell>
                             <TableCell>{phase.operators}</TableCell>
                           </TableRow>
                         )) : (
