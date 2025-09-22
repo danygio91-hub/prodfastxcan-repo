@@ -21,21 +21,21 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const job = jobSnap.data() as JobOrder;
 
         const updatedPhases = job.phases.map(phase => {
+          // Complete only phases of type 'production'
           if (phase.type === 'production') {
             return { ...phase, status: 'completed' as const };
           }
           return phase;
         });
-
-        const firstFinishingPhase = updatedPhases
-          .filter(p => p.status === 'pending' && p.type !== 'production' && p.type !== 'preparation')
-          .sort((a, b) => a.sequence - b.sequence)[0];
         
-        if (firstFinishingPhase) {
-          firstFinishingPhase.materialReady = true;
+        const sortedPhases = [...updatedPhases].sort((a,b) => a.sequence - b.sequence);
+        const firstNonProductionPhaseIndex = sortedPhases.findIndex(p => p.type !== 'production' && p.status === 'pending');
+
+        if (firstNonProductionPhaseIndex !== -1) {
+            sortedPhases[firstNonProductionPhaseIndex].materialReady = true;
         }
         
-        transaction.update(jobRef, { phases: updatedPhases });
+        transaction.update(jobRef, { phases: sortedPhases });
     });
 
 
@@ -91,6 +91,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
       updatedPhases[phaseIndex].sequence = targetSequence;
 
     } else {
+      // Restore from template
       const templateRef = doc(db, 'workPhaseTemplates', phaseId);
       const templateSnap = await getDoc(templateRef);
       if (!templateSnap.exists()) {
@@ -142,18 +143,18 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
         throw new Error('È possibile ripristinare solo una fase già completata.');
       }
       
-      // Reset the phase
-      phaseToRevert.status = 'pending';
-      phaseToRevert.workPeriods = [];
-      phaseToRevert.qualityResult = null;
-      phaseToRevert.materialConsumptions = [];
+      // Re-open the phase to 'paused' state, keeping work periods.
+      phaseToRevert.status = 'paused';
+      phaseToRevert.qualityResult = null; // Also reset quality result if any
       
-      // If reverting a preparation phase, the material readiness for the first production phase might need to be reset.
-      // Or if reverting any phase, the next phase readiness might need to be re-evaluated.
-      // Simple approach: reset readiness for all subsequent phases
+      // Reset readiness for all subsequent phases to ensure flow integrity
       const revertedPhaseSequence = phaseToRevert.sequence;
       const updatedPhases = phases.map(p => {
-        if (p.sequence > revertedPhaseSequence && p.type !== 'preparation') {
+        if (p.sequence > revertedPhaseSequence) {
+            // Keep material readiness for preparation phases
+            if (p.type === 'preparation') {
+                return p;
+            }
             return {...p, materialReady: false};
         }
         if (p.id === phaseId) {
@@ -171,7 +172,8 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
 
     revalidatePath('/admin/production-console');
     revalidatePath(`/scan-job?jobId=${jobId}`);
-    return { success: true, message: `Fase "${phases.find(p=>p.id===phaseId)?.name}" ripristinata con successo.` };
+    const phaseName = (await getDoc(jobRef)).data()?.phases.find((p: JobPhase) => p.id === phaseId)?.name;
+    return { success: true, message: `Fase "${phaseName || phaseId}" riaperta con successo e messa in pausa.` };
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
