@@ -1,11 +1,10 @@
 
-
 import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2 } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -87,7 +86,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick, onToggleGuainaClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; }) {
+export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick, onToggleGuainaClick, onRevertPhaseClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; onRevertPhaseClick: (jobId: string, phaseId: string) => void; }) {
   const overallStatus = getOverallStatus(jobOrder);
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
@@ -102,13 +101,11 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
   
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
   
-  const firstProductionPhaseSeq = jobOrder.phases
+  const firstProductionPhase = jobOrder.phases
       .filter(p => p.type === 'production')
-      .sort((a,b) => a.sequence - b.sequence)[0]?.sequence;
+      .sort((a,b) => a.sequence - b.sequence)[0];
       
-  const isGuainaPostponed = guainaPhase && firstProductionPhaseSeq !== undefined 
-      ? guainaPhase.sequence > firstProductionPhaseSeq
-      : false;
+  const isGuainaPostponed = guainaPhase && firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
 
   const canToggleGuaina = guainaPhase && guainaPhase.status === 'pending';
 
@@ -259,7 +256,28 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                 jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
                     <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
                         {getPhaseIcon(phase.status)}
-                        <span>{phase.name}</span>
+                        <span className="flex-1">{phase.name}</span>
+                        {phase.status === 'completed' && (
+                           <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => e.stopPropagation()}>
+                                      <Undo2 className="h-4 w-4" />
+                                  </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                      <AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                          Questa azione riporterà la fase "{phase.name}" allo stato "In attesa" e azzererà il tempo di lavoro registrato. Sei sicuro?
+                                      </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction>
+                                  </AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                     </div>
                 ))
             ) : (
