@@ -47,8 +47,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
+    // We intentionally DO NOT remove the active job ID on logout.
+    // This allows the user to be brought back to their last active job upon re-login.
+    // The active job ID is cleared only when the user explicitly clicks the "Abandon" button.
     if (currentOperator?.id) {
-        localStorage.removeItem(`${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${currentOperator.id}`);
         localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
     }
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
