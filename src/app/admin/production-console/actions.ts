@@ -29,6 +29,8 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         });
         
         const sortedPhases = [...updatedPhases].sort((a,b) => a.sequence - b.sequence);
+        
+        // Find the first phase that is NOT production and is still pending
         const firstNonProductionPhaseIndex = sortedPhases.findIndex(p => p.type !== 'production' && p.status === 'pending');
 
         if (firstNonProductionPhaseIndex !== -1) {
@@ -178,6 +180,60 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error reverting phase completion:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
+
+export async function forcePauseAllActiveOperators(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const jobRef = doc(db, 'jobOrders', jobId);
+
+    await runTransaction(db, async (transaction) => {
+      const jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists()) {
+        throw new Error('Commessa non trovata.');
+      }
+      const job = jobSnap.data() as JobOrder;
+      let operatorsPaused = 0;
+      let phasesAffected = 0;
+
+      const updatedPhases = job.phases.map(phase => {
+        if (phase.status === 'in-progress') {
+          let phaseWasAffected = false;
+          const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
+            if (wp.end === null) {
+              operatorsPaused++;
+              phaseWasAffected = true;
+              return { ...wp, end: new Date() };
+            }
+            return wp;
+          });
+
+          if (phaseWasAffected) {
+            phasesAffected++;
+            return { ...phase, workPeriods: updatedWorkPeriods, status: 'paused' as const };
+          }
+        }
+        return phase;
+      });
+
+      if (operatorsPaused === 0) {
+        throw new Error('Nessun operatore attivo trovato su questa commessa.');
+      }
+
+      transaction.update(jobRef, { phases: updatedPhases });
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/scan-job?jobId=${jobId}`);
+    
+    return { success: true, message: `Tutti gli operatori attivi sono stati messi in pausa.` };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error forcing pause:", error);
     return { success: false, message: errorMessage };
   }
 }

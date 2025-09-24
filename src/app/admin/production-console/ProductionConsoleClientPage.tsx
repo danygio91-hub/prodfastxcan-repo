@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseAllActiveOperators } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -162,6 +162,16 @@ export default function ProductionConsoleClientPage() {
     });
   };
 
+  const handleForcePause = async (jobId: string) => {
+    if (!user) return;
+    const result = await forcePauseAllActiveOperators(jobId, user.uid);
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+  };
+
 
   const filterOptions: (OverallStatus | 'all')[] = [
     'all',
@@ -218,6 +228,7 @@ export default function ProductionConsoleClientPage() {
                     onForceFinishClick={handleForceFinish}
                     onToggleGuainaClick={handleToggleGuaina}
                     onRevertPhaseClick={handleRevertPhase}
+                    onForcePauseClick={handleForcePause}
                    />
               ))}
           </div>
