@@ -465,8 +465,13 @@ export async function searchRawMaterials(
 }
 
 
-export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string) {
+export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
+    const isAvailable = await isOperatorActiveOnAnyJob(operatorId);
+    if (!isAvailable.available) {
+        return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
+    }
+
     const jobRef = doc(db, 'jobOrders', jobId);
     
     await runTransaction(db, async (transaction) => {
@@ -509,4 +514,33 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
+}
+
+export async function isOperatorActiveOnAnyJob(operatorId: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
+    const jobsRef = collection(db, "jobOrders");
+    // We only need to check jobs that are in production or suspended.
+    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "suspended"]));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) {
+        return { available: true };
+    }
+
+    for (const doc of querySnapshot.docs) {
+        const job = doc.data() as JobOrder;
+        for (const phase of (job.phases || [])) {
+            if (phase.status === 'in-progress') {
+                const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
+                if (isActive) {
+                    return {
+                        available: false,
+                        activeJobId: job.id,
+                        activePhaseName: phase.name,
+                    };
+                }
+            }
+        }
+    }
+
+    return { available: true };
 }
