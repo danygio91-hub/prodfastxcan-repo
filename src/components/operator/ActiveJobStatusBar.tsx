@@ -89,16 +89,27 @@ export default function ActiveJobStatusBar() {
     return null;
   }
   
-  // Find the last phase the operator interacted with that isn't completed yet.
-  const myRelevantPhase = [...(activeJob.phases || [])]
-    .sort((a,b) => b.sequence - a.sequence) // Check from last phase to first
-    .find(p => p.status !== 'completed' && (p.workPeriods || []).some(wp => wp.operatorId === operator.id));
+  // Find the most relevant phase for the current operator.
+  // Priority 1: An active phase ('in-progress') the operator is working on.
+  // Priority 2: If none is active, find the last paused phase the operator worked on.
+  const myActivePhase = (activeJob.phases || []).find(p => p.status === 'in-progress' && (p.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null));
+  
+  const myLastPausedPhase = [...(activeJob.phases || [])]
+      .filter(p => p.status === 'paused' && (p.workPeriods || []).some(wp => wp.operatorId === operator.id))
+      .sort((a,b) => {
+          const aLastEnd = Math.max(...(a.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime()));
+          const bLastEnd = Math.max(...(b.workPeriods || []).filter(wp => wp.end).map(wp => new Date(wp.end!).getTime()));
+          return bLastEnd - aLastEnd;
+      })[0];
+  
+  const myRelevantPhase = myActivePhase || myLastPausedPhase;
+
 
   if (!myRelevantPhase) {
     return null; // Don't show the bar if the operator has no active or paused phases.
   }
 
-  const isMyWorkActive = (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
+  const isMyWorkActive = myRelevantPhase.status === 'in-progress' && (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
