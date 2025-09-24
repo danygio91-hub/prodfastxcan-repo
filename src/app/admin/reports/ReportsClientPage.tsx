@@ -58,22 +58,16 @@ function StatusBadge({ status }: { status: OverallStatus }) {
 
 export default function ReportsClientPage({
   initialJobsReport,
-  initialOperatorsReport,
-  initialWithdrawalsReport,
 }: {
   initialJobsReport: JobsReport;
-  initialOperatorsReport: OperatorsReport;
-  initialWithdrawalsReport: EnrichedMaterialWithdrawal[];
 }) {
   const [jobsReport, setJobsReport] = useState<JobsReport>(initialJobsReport);
-  const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>(initialOperatorsReport);
-  const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>(initialWithdrawalsReport);
+  const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>([]);
+  const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>([]);
   
   const [isPendingWithdrawals, setIsPendingWithdrawals] = useState(false);
   const [isPendingOperators, setIsPendingOperators] = useState(false);
-  const [isPendingJobs, setIsPendingJobs] = useState(false);
 
-  const [jobsDateRange, setJobsDateRange] = useState<DateRange | undefined>(undefined);
   const [operatorDate, setOperatorDate] = useState<Date | undefined>(new Date());
   const [withdrawalsDateRange, setWithdrawalsDateRange] = React.useState<DateRange | undefined>({
     from: subDays(new Date(), 29),
@@ -107,11 +101,11 @@ export default function ReportsClientPage({
 
   useEffect(() => {
     fetchWithdrawals();
-  }, [withdrawalsDateRange, fetchWithdrawals]);
+  }, [fetchWithdrawals]);
   
   useEffect(() => {
     fetchOperators();
-  }, [operatorDate, fetchOperators]);
+  }, [fetchOperators]);
   
   const filteredAndGroupedWithdrawals = useMemo(() => {
     const filtered = searchTerm
@@ -239,7 +233,7 @@ export default function ReportsClientPage({
           </p>
         </header>
 
-        <Tabs defaultValue="operatori">
+        <Tabs defaultValue="commesse">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="commesse">
               <Briefcase className="mr-2 h-4 w-4"/>
@@ -568,5 +562,3 @@ export default function ReportsClientPage({
       </div>
   );
 }
-
-    

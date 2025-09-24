@@ -3,19 +3,15 @@
 import ReportsClientPage from './ReportsClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getJobsReport, getOperatorsReport, getMaterialWithdrawals } from './actions';
+import { getJobsReport } from './actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminReportsPage() {
-  // Fetch initial data for the current date
-  const [jobsReport, operatorsReport, withdrawalsReport] = await Promise.all([
-    getJobsReport(),
-    getOperatorsReport(),
-    getMaterialWithdrawals()
-  ]);
+  // Fetch only the initial data required for the first tab
+  const jobsReport = await getJobsReport();
 
   return (
     <AdminAuthGuard>
@@ -28,8 +24,6 @@ export default async function AdminReportsPage() {
         }>
           <ReportsClientPage
             initialJobsReport={jobsReport}
-            initialOperatorsReport={operatorsReport}
-            initialWithdrawalsReport={withdrawalsReport}
           />
         </Suspense>
       </AppShell>
