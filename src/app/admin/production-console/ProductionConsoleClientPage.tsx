@@ -223,7 +223,7 @@ export default function ProductionConsoleClientPage() {
             </div>
         </header>
         
-        <Card className="p-2 mb-6">
+        <Card className="p-2">
           <div className="flex flex-wrap items-center justify-center gap-2">
               {filterOptions.map(filter => (
               <Button
