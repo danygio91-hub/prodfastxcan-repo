@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -207,7 +207,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!isAnyPhaseInProgress}>
-                          <Pause className="mr-2 h-4 w-4" />
+                          <Users className="mr-2 h-4 w-4" />
                           <span>Forza Pausa Operatori</span>
                         </DropdownMenuItem>
                     </AlertDialogTrigger>
@@ -215,7 +215,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                         <AlertDialogHeader>
                             <AlertDialogTitle>Forzare la Pausa?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Questa azione metterà in pausa tutti gli operatori attualmente attivi su questa commessa. Continuare?
+                              Questa azione metterà in pausa tutti gli operatori attualmente attivi su questa commessa e aggiornerà il loro stato a "inattivo". Continuare?
                             </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
