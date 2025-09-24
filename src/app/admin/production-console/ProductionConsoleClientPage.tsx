@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -25,6 +25,7 @@ import {
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { Input } from '@/components/ui/input';
 
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
@@ -74,6 +75,7 @@ export default function ProductionConsoleClientPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -114,11 +116,23 @@ export default function ProductionConsoleClientPage() {
 
 
   const filteredJobs = useMemo(() => {
-    if (activeFilter === 'all') {
-      return jobOrders;
+    const statusFiltered = activeFilter === 'all'
+      ? jobOrders
+      : jobOrders.filter(job => getOverallStatus(job) === activeFilter);
+      
+    if (!searchTerm) {
+        return statusFiltered;
     }
-    return jobOrders.filter(job => getOverallStatus(job) === activeFilter);
-  }, [jobOrders, activeFilter]);
+    
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return statusFiltered.filter(job =>
+      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.details.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [jobOrders, activeFilter, searchTerm]);
   
   const handleResolveProblem = async () => {
     if (!problemJob || !user) return;
@@ -187,14 +201,25 @@ export default function ProductionConsoleClientPage() {
   return (
     <>
       <div className="space-y-6">
-        <header>
-            <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-                <Briefcase className="h-8 w-8 text-primary" />
-                Console Controllo Produzione
-            </h1>
-            <p className="text-muted-foreground mt-1">
-                Panoramica in tempo reale delle commesse inviate in produzione.
-            </p>
+        <header className="flex flex-col sm:flex-row justify-between items-start gap-4">
+            <div>
+                <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                    <Briefcase className="h-8 w-8 text-primary" />
+                    Console Controllo Produzione
+                </h1>
+                <p className="text-muted-foreground mt-1">
+                    Panoramica in tempo reale delle commesse inviate in produzione.
+                </p>
+            </div>
+            <div className="relative w-full sm:max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Cerca commessa, cliente, articolo..."
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
         </header>
         
         <Card className="p-2 mb-6">
@@ -235,10 +260,14 @@ export default function ProductionConsoleClientPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg mt-8">
               <Package2 className="h-16 w-16 text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold text-muted-foreground">Nessuna Commessa Trovata</h2>
+              <h2 className="text-xl font-semibold text-muted-foreground">
+                {jobOrders.length === 0 ? "Nessuna Commessa in Produzione" : "Nessuna Commessa Trovata"}
+              </h2>
               <p className="text-sm text-muted-foreground max-w-md mx-auto mt-2">
-                  Non ci sono commesse che corrispondono al filtro "{activeFilter}". Prova a selezionare un altro stato o
-                  <Link href="/admin/data-management" className="text-primary underline hover:text-primary/80"> crea un ODL</Link>.
+                  {jobOrders.length === 0
+                    ? <>Non ci sono ancora commesse in lavorazione. <Link href="/admin/data-management" className="text-primary underline hover:text-primary/80">Crea un ODL</Link> per iniziare.</>
+                    : `Nessuna commessa corrisponde ai filtri impostati. Prova a cambiare la ricerca o il filtro di stato.`
+                  }
               </p>
           </div>
         )}
