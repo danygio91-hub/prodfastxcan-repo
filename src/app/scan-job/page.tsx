@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -106,7 +106,7 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, setIsStatusBarHighlighted } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const [isPending, startTransition] = useTransition();
@@ -369,11 +369,20 @@ export default function ScanJobPage() {
               action: <CheckCircle className="text-green-500" />,
           });
       } else {
-          toast({
-              variant: "destructive",
-              title: "Errore Avvio Fase",
-              description: result.message,
-          });
+           if (result.error === 'OPERATOR_BUSY') {
+                toast({
+                    variant: 'destructive',
+                    title: 'Azione bloccata',
+                    description: 'Completa o metti in pausa l\'attività precedente (indicata sotto).',
+                });
+                setIsStatusBarHighlighted(true);
+            } else {
+                toast({
+                    variant: "destructive",
+                    title: "Errore Avvio Fase",
+                    description: result.message,
+                });
+            }
       }
   };
 
@@ -453,8 +462,20 @@ export default function ScanJobPage() {
     toast({ title: "Fase Messa in Pausa", description: `La tua attività per la fase "${phaseToPause.name}" è in pausa.` });
   };
 
-  const handleResumePhase = (phaseId: string) => {
+  const handleResumePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
+    
+    const availability = await isOperatorActiveOnAnyJob(operator.id);
+    if (!availability.available) {
+       toast({
+          variant: 'destructive',
+          title: 'Azione bloccata',
+          description: 'Completa o metti in pausa l\'attività precedente (indicata sotto).',
+        });
+        setIsStatusBarHighlighted(true);
+        return;
+    }
+
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
     const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 

@@ -14,6 +14,8 @@ interface ActiveJobContextType {
   setActiveJob: (job: JobOrder | null) => void;
   setActiveJobId: (jobId: string | null) => void;
   isLoading: boolean;
+  isStatusBarHighlighted: boolean;
+  setIsStatusBarHighlighted: (isHighlighted: boolean) => void;
 }
 
 const ActiveJobContext = createContext<ActiveJobContextType | undefined>(undefined);
@@ -23,6 +25,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [activeJobId, setActiveJobIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
+  const [isStatusBarHighlighted, setIsStatusBarHighlightedState] = useState(false);
 
   // Effect to load the active job ID from local storage when the operator logs in
   useEffect(() => {
@@ -101,8 +104,15 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     setActiveJobState(job);
   }, []);
 
+  const setIsStatusBarHighlighted = (isHighlighted: boolean) => {
+    setIsStatusBarHighlightedState(isHighlighted);
+    if (isHighlighted) {
+        setTimeout(() => setIsStatusBarHighlightedState(false), 3000); // Auto-remove highlight after 3s
+    }
+  };
+
   return (
-    <ActiveJobContext.Provider value={{ activeJob, setActiveJob, setActiveJobId, isLoading }}>
+    <ActiveJobContext.Provider value={{ activeJob, setActiveJob, setActiveJobId, isLoading, isStatusBarHighlighted, setIsStatusBarHighlighted }}>
       {children}
     </ActiveJobContext.Provider>
   );

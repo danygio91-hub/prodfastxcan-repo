@@ -15,7 +15,7 @@ import type { JobOrder, JobPhase } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 
 export default function ActiveJobStatusBar() {
-  const { activeJob, isLoading } = useActiveJob();
+  const { activeJob, isLoading, isStatusBarHighlighted } = useActiveJob();
   const { operator } = useAuth();
   const { toast } = useToast();
 
@@ -102,7 +102,10 @@ export default function ActiveJobStatusBar() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
-        <Card className="p-3 shadow-2xl w-full max-w-lg mx-auto pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300">
+        <Card className={cn(
+            "p-3 shadow-2xl w-full max-w-lg mx-auto pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 transition-all",
+            isStatusBarHighlighted && "border-primary ring-4 ring-primary/50"
+        )}>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
