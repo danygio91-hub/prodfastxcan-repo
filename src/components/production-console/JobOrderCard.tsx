@@ -1,5 +1,5 @@
 
-import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -11,6 +11,7 @@ import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import React, { useState, useMemo } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,7 +31,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '../ui/label';
 
+interface ActiveOperator {
+  id: string;
+  name: string;
+  phaseName: string;
+}
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
@@ -87,7 +96,70 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishClick, onToggleGuainaClick, onRevertPhaseClick, onForcePauseClick }: { jobOrder: JobOrder; onProblemClick: () => void; onForceFinishClick: (jobId: string) => void; onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; onRevertPhaseClick: (jobId: string, phaseId: string) => void; onForcePauseClick: (jobId: string) => void; }) {
+export default function JobOrderCard({ 
+    jobOrder, 
+    allOperators,
+    onProblemClick, 
+    onForceFinishClick, 
+    onToggleGuainaClick, 
+    onRevertPhaseClick, 
+    onForcePauseClick 
+}: { 
+    jobOrder: JobOrder; 
+    allOperators: Operator[];
+    onProblemClick: () => void; 
+    onForceFinishClick: (jobId: string) => void; 
+    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
+    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
+    onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
+}) {
+  const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
+  const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
+  
+  const activeOperators = useMemo(() => {
+    const active: ActiveOperator[] = [];
+    jobOrder.phases.forEach(phase => {
+        if (phase.status === 'in-progress') {
+            phase.workPeriods.forEach(wp => {
+                if (wp.end === null) {
+                    const operator = allOperators.find(op => op.id === wp.operatorId);
+                    if(operator) {
+                        active.push({ id: operator.id, name: operator.nome, phaseName: phase.name });
+                    }
+                }
+            });
+        }
+    });
+    return active;
+  }, [jobOrder.phases, allOperators]);
+  
+  const handleOpenPauseDialog = () => {
+    setSelectedOperatorsToPause([]); // Reset selection
+    setIsPauseDialogOpen(true);
+  };
+  
+  const handleConfirmPause = () => {
+    if (selectedOperatorsToPause.length > 0) {
+      onForcePauseClick(jobOrder.id, selectedOperatorsToPause);
+    }
+    setIsPauseDialogOpen(false);
+  };
+
+  const toggleOperatorSelection = (opId: string) => {
+    setSelectedOperatorsToPause(prev => 
+        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, opId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedOperatorsToPause.length === activeOperators.length) {
+      setSelectedOperatorsToPause([]);
+    } else {
+      setSelectedOperatorsToPause(activeOperators.map(op => op.id));
+    }
+  };
+
+
   const overallStatus = getOverallStatus(jobOrder);
   const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
@@ -114,6 +186,7 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
 
 
   return (
+    <>
     <Card 
       className={cn("flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
@@ -204,26 +277,10 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
                     </AlertDialog>
                  )}
                  <DropdownMenuSeparator />
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                       <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!isAnyPhaseInProgress}>
-                          <Users className="mr-2 h-4 w-4" />
-                          <span>Forza Pausa Operatori</span>
-                        </DropdownMenuItem>
-                    </AlertDialogTrigger>
-                     <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Forzare la Pausa?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Questa azione metterà in pausa tutti gli operatori attualmente attivi su questa commessa e aggiornerà il loro stato a "inattivo". Continuare?
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onForcePauseClick(jobOrder.id)}>Sì, metti in pausa</AlertDialogAction>
-                        </AlertDialogFooter>
-                     </AlertDialogContent>
-                  </AlertDialog>
+                  <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
+                      <Users className="mr-2 h-4 w-4" />
+                      <span>Forza Pausa Operatori</span>
+                  </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -333,5 +390,46 @@ export default function JobOrderCard({ jobOrder, onProblemClick, onForceFinishCl
         </div>
       </CardFooter>
     </Card>
+     <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Seleziona Operatori da Mettere in Pausa</DialogTitle>
+                <DialogDescription>
+                    Scegli quali operatori attivi sulla commessa <span className="font-bold">{jobOrder.ordinePF}</span> vuoi mettere in pausa.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-3">
+                 <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="select-all"
+                        checked={selectedOperatorsToPause.length === activeOperators.length && activeOperators.length > 0}
+                        onCheckedChange={toggleSelectAll}
+                    />
+                    <Label htmlFor="select-all">Seleziona Tutti</Label>
+                </div>
+                {activeOperators.map(op => (
+                    <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
+                         <Checkbox
+                            id={op.id}
+                            checked={selectedOperatorsToPause.includes(op.id)}
+                            onCheckedChange={() => toggleOperatorSelection(op.id)}
+                         />
+                         <Label htmlFor={op.id} className="flex-1">
+                            <span className="font-semibold">{op.name}</span>
+                            <span className="text-xs text-muted-foreground"> (Fase: {op.phaseName})</span>
+                         </Label>
+                    </div>
+                ))}
+                {activeOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questa commessa.</p>}
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
+                <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
+                    Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }

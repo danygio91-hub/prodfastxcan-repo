@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User } from 'lucide-react';
-import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import { useToast } from '@/hooks/use-toast';
@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseAllActiveOperators } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -70,6 +70,7 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
 
 export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
+  const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | null>(null);
@@ -79,37 +80,36 @@ export default function ProductionConsoleClientPage() {
   useEffect(() => {
     setIsLoading(true);
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "suspended", "completed"]));
+    const opsRef = collection(db, "operators");
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-        const jobs: JobOrder[] = [];
-        querySnapshot.forEach((doc) => {
+    const unsubscribeJobs = onSnapshot(query(jobsRef, where("status", "in", ["production", "suspended", "completed"])), (querySnapshot) => {
+        const jobs: JobOrder[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
-            // Firestore Timestamps to JS Dates
-            const jobWithDates: JobOrder = JSON.parse(JSON.stringify(data), (key, value) => {
-                if (key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate') {
-                    if (value && typeof value === 'object' && value.seconds !== undefined) {
-                        return new Date(value.seconds * 1000);
-                    }
+            return JSON.parse(JSON.stringify(data), (key, value) => {
+                if (['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate'].includes(key) && value && typeof value === 'object' && value.seconds !== undefined) {
+                    return new Date(value.seconds * 1000);
                 }
                 return value;
-            });
-            jobs.push(jobWithDates as JobOrder);
+            }) as JobOrder;
         });
         setJobOrders(jobs);
         setIsLoading(false);
     }, (error) => {
         console.error("Error fetching realtime job orders:", error);
-        toast({
-            variant: "destructive",
-            title: "Errore di Sincronizzazione",
-            description: "Impossibile caricare i dati della console in tempo reale.",
-        });
+        toast({ variant: "destructive", title: "Errore di Sincronizzazione", description: "Impossibile caricare i dati della console in tempo reale." });
         setIsLoading(false);
     });
+    
+    const unsubscribeOps = onSnapshot(opsRef, (querySnapshot) => {
+        setAllOperators(querySnapshot.docs.map(doc => doc.data() as Operator));
+    }, (error) => {
+        console.error("Error fetching operators:", error);
+    });
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
+    return () => {
+      unsubscribeJobs();
+      unsubscribeOps();
+    };
   }, [toast]);
 
 
@@ -129,7 +129,6 @@ export default function ProductionConsoleClientPage() {
         variant: result.success ? "default" : "destructive",
     });
     setProblemJob(null);
-    // The real-time listener will automatically update the job state.
   };
 
   const handleForceFinish = async (jobId: string) => {
@@ -162,9 +161,9 @@ export default function ProductionConsoleClientPage() {
     });
   };
 
-  const handleForcePause = async (jobId: string) => {
+  const handleForcePause = async (jobId: string, operatorIdsToPause: string[]) => {
     if (!user) return;
-    const result = await forcePauseAllActiveOperators(jobId, user.uid);
+    const result = await forcePauseOperators(jobId, operatorIdsToPause, user.uid);
     toast({
         title: result.success ? "Operazione Riuscita" : "Errore",
         description: result.message,
@@ -224,6 +223,7 @@ export default function ProductionConsoleClientPage() {
                   <JobOrderCard 
                     key={job.id} 
                     jobOrder={job} 
+                    allOperators={allOperators}
                     onProblemClick={() => setProblemJob(job)}
                     onForceFinishClick={handleForceFinish}
                     onToggleGuainaClick={handleToggleGuaina}
