@@ -1,14 +1,17 @@
 
+
 "use client";
 
-import React from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { useSearchParams } from 'next/navigation';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { Timer, Package, Download, ChevronRight } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Timer, Package, Download, ChevronRight, Search } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -23,6 +26,27 @@ interface ProductionTimeAnalysisClientPageProps {
 }
 
 export default function ProductionTimeAnalysisClientPage({ report }: ProductionTimeAnalysisClientPageProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [openAccordion, setOpenAccordion] = useState<string | undefined>(undefined);
+  const searchParams = useSearchParams();
+  const articleCodeFromUrl = searchParams.get('articleCode');
+
+  useEffect(() => {
+    if (articleCodeFromUrl) {
+      setSearchTerm(articleCodeFromUrl);
+      setOpenAccordion(articleCodeFromUrl);
+    }
+  }, [articleCodeFromUrl]);
+
+  const filteredReport = useMemo(() => {
+    if (!searchTerm) {
+      return report;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return report.filter(item =>
+      item.articleCode.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [report, searchTerm]);
 
   const handleExport = (articleReport: ProductionTimeAnalysisReport) => {
     const dataToExport: any[] = [];
@@ -73,15 +97,28 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
 
         <Card>
             <CardHeader>
-                <CardTitle>Report Articoli</CardTitle>
-                <CardDescription>
-                    Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione. Il colore indica l'affidabilità del calcolo.
-                </CardDescription>
+                 <div className="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                        <CardTitle>Report Articoli</CardTitle>
+                        <CardDescription>
+                            Espandi ogni articolo per visualizzare il dettaglio delle commesse e dei relativi tempi di produzione.
+                        </CardDescription>
+                    </div>
+                     <div className="relative w-full sm:w-auto">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Cerca per codice articolo..."
+                            className="pl-9 w-full sm:w-64"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                 </div>
             </CardHeader>
             <CardContent>
                 {report.length > 0 ? (
-                <Accordion type="single" collapsible className="w-full">
-                    {report.map((item) => (
+                <Accordion type="single" collapsible className="w-full" value={openAccordion} onValueChange={setOpenAccordion}>
+                    {filteredReport.map((item) => (
                         <AccordionItem value={item.articleCode} key={item.articleCode}>
                             <AccordionTrigger>
                                 <div className="flex justify-between items-center w-full pr-4">
@@ -114,7 +151,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                                             <div className="text-sm text-muted-foreground">Q.tà: {job.qta}</div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className={cn("font-semibold", job.isTimeCalculationReliable ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500")}>{job.minutesPerPiece.toFixed(4)} min/pz</div>
+                                                            <div className={cn("font-semibold", job.isTimeCalculationReliable ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500")}>{job.minutesPerPiece.toFixed(4) } min/pz</div>
                                                             <div className="text-xs text-muted-foreground">Tot: {job.totalTimeMinutes.toFixed(2)} min</div>
                                                         </div>
                                                         <ChevronRight className="h-4 w-4 ml-2 transition-transform duration-200 group-data-[state=open]:rotate-90" />
@@ -149,6 +186,11 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                             </AccordionContent>
                         </AccordionItem>
                     ))}
+                     {filteredReport.length === 0 && (
+                        <div className="text-center py-10 text-muted-foreground">
+                            Nessun articolo trovato per "{searchTerm}".
+                        </div>
+                    )}
                 </Accordion>
                 ) : (
                     <div className="flex flex-col items-center justify-center py-10 text-center">

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, useTransition } from 'react';
@@ -77,6 +78,7 @@ export default function ReportsClientPage({
   const [selectedWithdrawals, setSelectedWithdrawals] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [jobsSearchTerm, setJobsSearchTerm] = useState('');
   const router = useRouter();
 
 
@@ -125,6 +127,17 @@ export default function ReportsClientPage({
         return acc;
     }, {} as Record<string, EnrichedMaterialWithdrawal[]>);
   }, [withdrawalsReport, searchTerm]);
+  
+  const filteredJobsReport = useMemo(() => {
+    if (!jobsSearchTerm) {
+      return jobsReport;
+    }
+    const lowercasedFilter = jobsSearchTerm.toLowerCase();
+    return jobsReport.filter(job =>
+      job.id.toLowerCase().includes(lowercasedFilter) ||
+      job.details.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [jobsReport, jobsSearchTerm]);
 
 
   const handleSelectAllForGroup = (group: EnrichedMaterialWithdrawal[], checked: boolean | 'indeterminate') => {
@@ -162,7 +175,7 @@ export default function ReportsClientPage({
   };
 
   const handleExportJobs = () => {
-    const dataToExport = jobsReport.map(job => ({
+    const dataToExport = filteredJobsReport.map(job => ({
       'Commessa (PF)': job.id,
       'Articolo': job.details,
       'Cliente': job.cliente,
@@ -252,12 +265,23 @@ export default function ReportsClientPage({
           <TabsContent value="commesse">
             <Card>
               <CardHeader>
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center flex-wrap gap-4">
                       <CardTitle className="font-headline">Riepilogo Lavorazioni per Commessa</CardTitle>
-                      <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
-                          <Download className="mr-2 h-4 w-4" />
-                          Esporta Excel
-                      </Button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                          <div className="relative w-full sm:w-auto">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                              <Input
+                                  placeholder="Cerca per commessa o articolo..."
+                                  className="pl-9 w-full sm:w-64"
+                                  value={jobsSearchTerm}
+                                  onChange={(e) => setJobsSearchTerm(e.target.value)}
+                              />
+                          </div>
+                          <Button onClick={handleExportJobs} variant="outline" size="sm" disabled={jobsReport.length === 0}>
+                              <Download className="mr-2 h-4 w-4" />
+                              Esporta Excel
+                          </Button>
+                      </div>
                   </div>
               </CardHeader>
               <CardContent>
@@ -274,10 +298,14 @@ export default function ReportsClientPage({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                       {jobsReport.length > 0 ? jobsReport.map((job) => (
+                       {filteredJobsReport.length > 0 ? filteredJobsReport.map((job) => (
                         <TableRow key={job.id}>
                           <TableCell className="font-medium">{job.id}</TableCell>
-                          <TableCell>{job.details}</TableCell>
+                          <TableCell>
+                            <Link href={`/admin/production-time-analysis?articleCode=${encodeURIComponent(job.details)}`} className="hover:underline text-primary">
+                               {job.details}
+                            </Link>
+                          </TableCell>
                           <TableCell><StatusBadge status={job.status as OverallStatus} /></TableCell>
                           <TableCell>{job.timeElapsed}</TableCell>
                           <TableCell className="max-w-[200px] truncate">{job.operators}</TableCell>
@@ -292,7 +320,7 @@ export default function ReportsClientPage({
                         </TableRow>
                       )) : (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center h-24">Nessuna commessa in produzione o completata.</TableCell>
+                          <TableCell colSpan={6} className="text-center h-24">Nessun risultato per la ricerca.</TableCell>
                         </TableRow>
                       )}
                     </TableBody>
