@@ -1,4 +1,6 @@
 
+"use client";
+
 import Link from 'next/link';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
@@ -6,15 +8,34 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getJobDetailReport } from '../actions';
+import { getJobDetailReport, updateWorkPeriodsForPhase } from '../actions';
 import { notFound } from 'next/navigation';
-import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Timer } from 'lucide-react';
-import type { JobPhase } from '@/lib/mock-data';
+import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2 } from 'lucide-react';
+import type { JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, toDate } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { useAuth } from '@/components/auth/AuthProvider';
+import React, { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
-export const dynamic = 'force-dynamic';
+
+type EditableWorkPeriod = Omit<WorkPeriod, 'start' | 'end'> & {
+  start: string;
+  end: string | null;
+};
+
 
 function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
   if (status === 'completed') {
@@ -30,14 +51,89 @@ function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qual
   }
 }
 
-export default async function JobReportDetailPage({ params }: { params: { jobId: string } }) {
+export default function JobReportDetailPage({ params }: { params: { jobId: string } }) {
   const { jobId } = params;
-  const report = await getJobDetailReport(jobId);
+  const { operator } = useAuth();
+  const { toast } = useToast();
+  
+  const [report, setReport] = useState<Awaited<ReturnType<typeof getJobDetailReport>> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedPhase, setSelectedPhase] = useState<JobPhase | null>(null);
+  const [editablePeriods, setEditablePeriods] = useState<EditableWorkPeriod[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
-  if (!report) {
-    notFound();
+  const fetchReport = React.useCallback(async () => {
+    setIsLoading(true);
+    const reportData = await getJobDetailReport(jobId);
+    setReport(reportData);
+    setIsLoading(false);
+  }, [jobId]);
+
+  useEffect(() => {
+    fetchReport();
+  }, [fetchReport]);
+  
+  const handleOpenEditModal = (phase: JobPhase) => {
+    setSelectedPhase(phase);
+    const periodsToEdit = (phase.workPeriods || []).map(wp => ({
+        ...wp,
+        start: format(new Date(wp.start), "yyyy-MM-dd'T'HH:mm:ss"),
+        end: wp.end ? format(new Date(wp.end), "yyyy-MM-dd'T'HH:mm:ss") : null,
+    }));
+    setEditablePeriods(periodsToEdit);
+    setIsEditModalOpen(true);
+  };
+  
+  const handlePeriodChange = (index: number, field: 'start' | 'end', value: string) => {
+    const updatedPeriods = [...editablePeriods];
+    updatedPeriods[index] = { ...updatedPeriods[index], [field]: value };
+    setEditablePeriods(updatedPeriods);
+  };
+  
+  const handleSaveChanges = async () => {
+    if (!report || !selectedPhase || !operator?.uid) return;
+    setIsSaving(true);
+    
+    // Convert back to Date objects for the server action
+    const periodsToSave = editablePeriods.map(p => ({
+        ...p,
+        start: toDate(p.start),
+        end: p.end ? toDate(p.end) : null
+    }));
+
+    const result = await updateWorkPeriodsForPhase(report.id, selectedPhase.id, periodsToSave, operator.uid);
+    
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+
+    if (result.success) {
+        await fetchReport(); // Refetch data to show updated times
+        setIsEditModalOpen(false);
+    }
+    setIsSaving(false);
+  };
+
+  if (isLoading || !report) {
+    if (!isLoading && !report) {
+        notFound();
+    }
+    return (
+      <AdminAuthGuard>
+        <AppShell>
+           <div className="flex items-center justify-center h-64">
+             <Loader2 className="h-12 w-12 animate-spin text-primary" />
+           </div>
+        </AppShell>
+      </AdminAuthGuard>
+    );
   }
 
+  const isSupervisorOrAdmin = operator?.role === 'admin' || operator?.role === 'supervisor';
   const timeTrackingPhases = (report.phases || []).filter(p => p.tracksTime !== false);
   const isTimeReliable = timeTrackingPhases.every(p => p.timeElapsed !== '00:00:00');
 
@@ -126,6 +222,7 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                           <TableHead>Esito</TableHead>
                           <TableHead>Tempo Impiegato</TableHead>
                           <TableHead>Operatori</TableHead>
+                           {isSupervisorOrAdmin && <TableHead className="text-right">Azioni</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -150,10 +247,18 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
                               )}
                             </TableCell>
                             <TableCell>{phase.operators}</TableCell>
+                            {isSupervisorOrAdmin && (
+                                <TableCell className="text-right">
+                                    <Button variant="outline" size="icon" onClick={() => handleOpenEditModal(phase)} disabled={(phase.workPeriods || []).length === 0}>
+                                        <Pencil className="h-4 w-4" />
+                                        <span className="sr-only">Modifica tempi fase {phase.name}</span>
+                                    </Button>
+                                </TableCell>
+                            )}
                           </TableRow>
                         )) : (
                              <TableRow>
-                                <TableCell colSpan={5} className="text-center h-24">Nessuna fase definita per questa commessa.</TableCell>
+                                <TableCell colSpan={isSupervisorOrAdmin ? 6 : 5} className="text-center h-24">Nessuna fase definita per questa commessa.</TableCell>
                             </TableRow>
                         )}
                       </TableBody>
@@ -162,6 +267,52 @@ export default async function JobReportDetailPage({ params }: { params: { jobId:
             </CardContent>
           </Card>
         </div>
+
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Modifica Periodi di Lavoro</DialogTitle>
+                    <DialogDescription>
+                        Fase: <span className="font-semibold">{selectedPhase?.name}</span>. Modifica data e ora di inizio e fine per ogni periodo.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4 max-h-[60vh] overflow-y-auto">
+                    <div className="space-y-4">
+                        {editablePeriods.map((period, index) => (
+                            <div key={index} className="p-4 border rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <p className="md:col-span-2 font-medium">Operatore: {report.operatorsMap?.[period.operatorId] || period.operatorId}</p>
+                                <div className="space-y-2">
+                                    <Label htmlFor={`start-${index}`}>Inizio</Label>
+                                    <Input 
+                                        id={`start-${index}`}
+                                        type="datetime-local" 
+                                        value={period.start} 
+                                        onChange={(e) => handlePeriodChange(index, 'start', e.target.value)}
+                                    />
+                                </div>
+                                 <div className="space-y-2">
+                                    <Label htmlFor={`end-${index}`}>Fine</Label>
+                                    <Input 
+                                        id={`end-${index}`}
+                                        type="datetime-local" 
+                                        value={period.end ?? ''} 
+                                        onChange={(e) => handlePeriodChange(index, 'end', e.target.value)}
+                                        disabled={period.end === null}
+                                    />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>Annulla</Button>
+                    <Button onClick={handleSaveChanges} disabled={isSaving}>
+                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
+                        Salva Modifiche
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       </AppShell>
     </AdminAuthGuard>
   );

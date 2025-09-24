@@ -2,13 +2,15 @@
 
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
+import { ensureAdmin } from '@/lib/server-auth';
+
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -202,7 +204,7 @@ export async function getJobDetailReport(jobId: string) {
     const jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
 
     const operatorIds = [...new Set((jobDetail.phases || []).flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
-    const operatorsMap = new Map<string, Operator>();
+    const operatorsMap = new Map<string, string>();
 
     if (operatorIds.length > 0) {
         // Fetch only the needed operators
@@ -215,7 +217,7 @@ export async function getJobDetailReport(jobId: string) {
                 const operatorsQuery = query(collection(db, "operators"), where('id', 'in', chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
-                    operatorsMap.set(doc.data().id, doc.data() as Operator);
+                    operatorsMap.set(doc.data().id, (doc.data() as Operator).nome);
                 });
             }
         }
@@ -226,10 +228,7 @@ export async function getJobDetailReport(jobId: string) {
         const timeElapsedMs = calculateTimeForPeriods(phase.workPeriods || []);
         const operatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
         const operators = operatorIds
-            .map(id => {
-                const op = operatorsMap.get(id);
-                return op ? op.nome : 'Sconosciuto';
-            })
+            .map(id => operatorsMap.get(id) || 'Sconosciuto')
             .join(', ');
 
         return {
@@ -246,9 +245,62 @@ export async function getJobDetailReport(jobId: string) {
     return {
         ...jobDetail,
         phases: phasesWithDetails,
-        totalTimeElapsed: formatDuration(totalTimeElapsedMs)
+        totalTimeElapsed: formatDuration(totalTimeElapsedMs),
+        operatorsMap: Object.fromEntries(operatorsMap),
     };
 }
+
+export async function updateWorkPeriodsForPhase(
+  jobId: string,
+  phaseId: string,
+  updatedPeriods: WorkPeriod[],
+  uid: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid); // Ensure only admin/supervisor can perform this action
+
+    const jobRef = doc(db, "jobOrders", jobId);
+
+    await runTransaction(db, async (transaction) => {
+      const jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists()) {
+        throw new Error("Commessa non trovata.");
+      }
+
+      const jobData = jobSnap.data() as JobOrder;
+      const phases = jobData.phases || [];
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+
+      if (phaseIndex === -1) {
+        throw new Error("Fase non trovata all'interno della commessa.");
+      }
+
+      // Replace the old work periods with the newly edited ones
+      phases[phaseIndex].workPeriods = updatedPeriods;
+      
+      // Update the entire phases array
+      transaction.update(jobRef, { phases: phases });
+    });
+
+    // Revalidate paths to update data across the app
+    revalidatePath(`/admin/reports/${jobId}`);
+    revalidatePath(`/admin/reports`);
+    revalidatePath(`/admin/production-time-analysis`);
+    
+    // We also need to revalidate any operator report pages that might be affected,
+    // although this is less direct. A layout revalidation is a broad but effective way.
+    revalidatePath('/admin/reports/operator', 'layout');
+
+
+    return { success: true, message: "Tempi di lavorazione aggiornati con successo." };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
+    console.error("Error updating work periods:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
 
 export async function getOperatorDetailReport(operatorId: string, targetDateString?: string) {
     const operatorRef = doc(db, "operators", operatorId);
