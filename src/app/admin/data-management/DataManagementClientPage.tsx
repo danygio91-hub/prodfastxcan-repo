@@ -36,7 +36,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle } from 'lucide-react';
+import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle, Search } from 'lucide-react';
 import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -66,6 +66,8 @@ export default function DataManagementClientPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
+  const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
+  const [productionSearchTerm, setProductionSearchTerm] = useState('');
   
   const form = useForm<OdlFormValues>({
     resolver: zodResolver(odlFormSchema),
@@ -96,6 +98,30 @@ export default function DataManagementClientPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  
+  const filteredPlannedJobs = useMemo(() => {
+    if (!plannedSearchTerm) return plannedJobOrders;
+    const lowercasedFilter = plannedSearchTerm.toLowerCase();
+    return plannedJobOrders.filter(job =>
+      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.details.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [plannedJobOrders, plannedSearchTerm]);
+
+  const filteredProductionJobs = useMemo(() => {
+    if (!productionSearchTerm) return productionJobOrders;
+    const lowercasedFilter = productionSearchTerm.toLowerCase();
+    return productionJobOrders.filter(job =>
+      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
+      job.details.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [productionJobOrders, productionSearchTerm]);
 
   const workCyclesMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -112,7 +138,7 @@ export default function DataManagementClientPage() {
   }, [fetchData]);
 
   const handleExportPlanned = () => {
-    const dataToExport = plannedJobOrders.map(job => ({
+    const dataToExport = filteredPlannedJobs.map(job => ({
         'Cliente': job.cliente,
         'Ordine PF': job.ordinePF,
         'N° ODL': job.numeroODLInterno,
@@ -130,7 +156,7 @@ export default function DataManagementClientPage() {
   };
 
   const handleExportProduction = () => {
-    const dataToExport = productionJobOrders.map(job => ({
+    const dataToExport = filteredProductionJobs.map(job => ({
         'Cliente': job.cliente,
         'Ordine PF': job.ordinePF,
         'N° ODL Interno': job.numeroODLInterno,
@@ -150,7 +176,7 @@ export default function DataManagementClientPage() {
   
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedRows(plannedJobOrders.map(job => job.id));
+      setSelectedRows(filteredPlannedJobs.map(job => job.id));
     } else {
       setSelectedRows([]);
     }
@@ -164,7 +190,7 @@ export default function DataManagementClientPage() {
 
   const handleSelectAllProduction = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedProductionRows(productionJobOrders.map(job => job.id));
+      setSelectedProductionRows(filteredProductionJobs.map(job => job.id));
     } else {
       setSelectedProductionRows([]);
     }
@@ -430,11 +456,24 @@ export default function DataManagementClientPage() {
                 <Card className="shadow-lg">
                 <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-4">
-                        <CardTitle className="font-headline">Elenco Commesse Pianificate</CardTitle>
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div>
+                            <CardTitle className="font-headline">Elenco Commesse Pianificate</CardTitle>
+                            <CardDescription>Commesse importate e pronte per essere avviate in produzione.</CardDescription>
+                        </div>
+                        <div className="relative w-full sm:w-auto">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Cerca..."
+                                className="pl-9 w-full sm:w-64"
+                                value={plannedSearchTerm}
+                                onChange={(e) => setPlannedSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap pt-4">
                         <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
-                        <Download className="mr-2 h-4 w-4" />
-                        Esporta
+                            <Download className="mr-2 h-4 w-4" />
+                            Esporta
                         </Button>
                         {selectedRows.length > 0 && (
                         <>
@@ -500,17 +539,16 @@ export default function DataManagementClientPage() {
                             </AlertDialogContent>
                         </AlertDialog>
                     </div>
-                    </div>
                 </CardHeader>
                 <CardContent>
-                    {plannedJobOrders.length > 0 ? (
+                    {filteredPlannedJobs.length > 0 ? (
                     <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
                         <TableRow>
                             <TableHead padding="checkbox">
                             <Checkbox
-                                checked={selectedRows.length > 0 ? (selectedRows.length === plannedJobOrders.length ? true : 'indeterminate') : false}
+                                checked={selectedRows.length > 0 ? (selectedRows.length === filteredPlannedJobs.length ? true : 'indeterminate') : false}
                                 onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                                 aria-label="Seleziona tutte"
                             />
@@ -528,7 +566,7 @@ export default function DataManagementClientPage() {
                         </TableRow>
                         </TableHeader>
                         <TableBody>
-                        {plannedJobOrders.map((job) => (
+                        {filteredPlannedJobs.map((job) => (
                             <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
                             <TableCell padding="checkbox">
                                 <Checkbox
@@ -578,9 +616,11 @@ export default function DataManagementClientPage() {
                     ) : (
                     <div className="flex flex-col items-center justify-center py-10 text-center">
                         <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                        <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa trovata.</p>
+                        <p className="text-lg font-semibold text-muted-foreground">
+                            {plannedJobOrders.length === 0 ? 'Nessuna commessa trovata.' : 'Nessuna commessa corrisponde alla ricerca.'}
+                        </p>
                         <p className="text-sm text-muted-foreground">
-                        Usa l'importazione da file Excel per iniziare.
+                            Usa l'importazione da file Excel per iniziare.
                         </p>
                     </div>
                     )}
@@ -591,8 +631,21 @@ export default function DataManagementClientPage() {
                 <Card className="shadow-lg">
                     <CardHeader>
                     <div className="flex items-center justify-between flex-wrap gap-4">
-                        <CardTitle className="font-headline">Commesse in Produzione</CardTitle>
-                        <div className="flex items-center gap-2 flex-wrap">
+                         <div>
+                            <CardTitle className="font-headline">Commesse in Produzione</CardTitle>
+                            <CardDescription>Elenco delle commesse attualmente in lavorazione o sospese.</CardDescription>
+                         </div>
+                        <div className="relative w-full sm:w-auto">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Cerca..."
+                                className="pl-9 w-full sm:w-64"
+                                value={productionSearchTerm}
+                                onChange={(e) => setProductionSearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-2 flex-wrap pt-4">
                         <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
                             <Download className="mr-2 h-4 w-4" />
                             Esporta
@@ -620,17 +673,16 @@ export default function DataManagementClientPage() {
                             </AlertDialog>
                         )}
                         </div>
-                    </div>
                     </CardHeader>
                     <CardContent>
-                    {productionJobOrders.length > 0 ? (
+                    {filteredProductionJobs.length > 0 ? (
                         <div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
                             <TableRow>
                                 <TableHead padding="checkbox">
                                 <Checkbox
-                                    checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === productionJobOrders.length ? true : 'indeterminate') : false}
+                                    checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === filteredProductionJobs.length ? true : 'indeterminate') : false}
                                     onCheckedChange={(checked) => handleSelectAllProduction(checked as boolean)}
                                     aria-label="Seleziona tutte"
                                 />
@@ -647,7 +699,7 @@ export default function DataManagementClientPage() {
                             </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {productionJobOrders.map((job) => (
+                            {filteredProductionJobs.map((job) => (
                                 <TableRow key={job.id} data-state={selectedProductionRows.includes(job.id) ? "selected" : undefined}>
                                     <TableCell padding="checkbox">
                                     <Checkbox
@@ -696,7 +748,9 @@ export default function DataManagementClientPage() {
                     ) : (
                         <div className="flex flex-col items-center justify-center py-10 text-center">
                         <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                        <p className="text-lg font-semibold text-muted-foreground">Nessuna commessa in produzione.</p>
+                        <p className="text-lg font-semibold text-muted-foreground">
+                            {productionJobOrders.length === 0 ? 'Nessuna commessa in produzione.' : 'Nessuna commessa corrisponde alla ricerca.'}
+                        </p>
                         <p className="text-sm text-muted-foreground">
                             Crea un ODL dalla tabella delle commesse pianificate per vederle qui.
                         </p>
