@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, updateDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator } from '@/lib/mock-data';
@@ -21,8 +21,8 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const job = jobSnap.data() as JobOrder;
 
         const updatedPhases = job.phases.map(phase => {
-          // Complete only phases of type 'production'
-          if (phase.type === 'production') {
+          // Complete only phases of type 'production' that are not yet completed
+          if (phase.type === 'production' && phase.status !== 'completed') {
             return { ...phase, status: 'completed' as const };
           }
           return phase;
@@ -79,13 +79,15 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
     const updatedPhases = [...originalPhases];
 
     if (currentState === 'default') {
+      // Logic to move it before 'Collaudo'
       const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
-      const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo');
+      const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo' || p.type === 'quality');
       
       let targetSequence;
       if (collaudoPhase) {
         targetSequence = collaudoPhase.sequence - 0.1;
       } else {
+        // Fallback: move it to the end of production phases
         const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();
         targetSequence = lastProductionPhase ? lastProductionPhase.sequence + 1 : 99;
       }
@@ -93,7 +95,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
       updatedPhases[phaseIndex].sequence = targetSequence;
 
     } else {
-      // Restore from template
+      // Restore original sequence from template
       const templateRef = doc(db, 'workPhaseTemplates', phaseId);
       const templateSnap = await getDoc(templateRef);
       if (!templateSnap.exists()) {
@@ -185,7 +187,7 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
 }
 
 
-export async function forcePauseAllActiveOperators(jobId: string, uid: string | undefined | null): Promise<{ success. boolean; message: string }> {
+export async function forcePauseAllActiveOperators(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
     const jobRef = doc(db, 'jobOrders', jobId);
@@ -233,9 +235,11 @@ export async function forcePauseAllActiveOperators(jobId: string, uid: string | 
     // --- Post-transaction: Update operator statuses ---
     if (operatorIdsToUpdate.length > 0) {
       const batch = writeBatch(db);
-      operatorIdsToUpdate.forEach(opId => {
-        const operatorRef = doc(db, 'operators', opId);
-        batch.update(operatorRef, { stato: 'inattivo' });
+      const operatorsQuery = query(collection(db, "operators"), where("id", "in", operatorIdsToUpdate));
+      const operatorsSnapshot = await getDocs(operatorsQuery);
+
+      operatorsSnapshot.forEach(opDoc => {
+          batch.update(opDoc.ref, { stato: 'inattivo' });
       });
       await batch.commit();
     }
@@ -254,3 +258,6 @@ export async function forcePauseAllActiveOperators(jobId: string, uid: string | 
     return { success: false, message: errorMessage };
   }
 }
+    
+
+    
