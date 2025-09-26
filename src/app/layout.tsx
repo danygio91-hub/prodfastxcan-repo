@@ -39,6 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="it" suppressHydrationWarning>
+      <head />
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
           <ActiveJobProvider>

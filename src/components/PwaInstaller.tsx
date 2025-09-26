@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { Download, Info } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 
@@ -26,18 +26,14 @@ const PwaInstaller = () => {
             e.preventDefault();
             setInstallPrompt(e as BeforeInstallPromptEvent);
         };
+        
+        // Register service worker on component mount
+        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+            navigator.serviceWorker.register('/sw.js')
+                .then(registration => console.log('Service Worker registered with scope:', registration.scope))
+                .catch(error => console.error('Service Worker registration failed:', error));
+        }
 
-        const registerServiceWorker = async () => {
-            if ('serviceWorker' in navigator) {
-                try {
-                    await navigator.serviceWorker.register('/sw.js');
-                } catch (error) {
-                    console.error('Service Worker registration failed:', error);
-                }
-            }
-        };
-
-        registerServiceWorker();
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
         return () => {
