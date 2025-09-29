@@ -22,11 +22,14 @@ export default function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
-      <main className="flex-grow w-full max-w-full px-4 sm:px-6 lg:px-8 py-8">
-        <div className="space-y-6">
-          {isOperatorOrSupervisor && hasSignedPrivacy && <OperatorNavMenu />}
-          <LiveClock />
-        </div>
+      <main className="flex-grow w-full px-4 sm:px-6 lg:px-8 py-8">
+        {isOperatorOrSupervisor && hasSignedPrivacy && (
+          <>
+            <OperatorNavMenu />
+            <LiveClock />
+          </>
+        )}
+        {!isOperatorOrSupervisor && operator?.role === 'admin' && <LiveClock />}
         <div className="mt-6">
             {children}
         </div>
