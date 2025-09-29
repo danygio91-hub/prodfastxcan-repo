@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -6,21 +5,28 @@ import { Calendar, Clock } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 
 export default function LiveClock() {
-    const [currentTime, setCurrentTime] = useState<Date | null>(null);
-    
+    const [isClient, setIsClient] = useState(false);
+    const [currentTime, setCurrentTime] = useState(new Date());
+
     useEffect(() => {
-        // This code runs only on the client, after hydration
-        setCurrentTime(new Date());
+        // This effect runs only once on the client after hydration,
+        // marking that we are now in a client-side context.
+        setIsClient(true);
+        
+        // Start the interval to update the time every second.
         const timer = setInterval(() => {
             setCurrentTime(new Date());
         }, 1000);
 
+        // Cleanup function to clear the interval when the component unmounts.
         return () => {
             clearInterval(timer);
         };
-    }, []);
-    
-    if (!currentTime) {
+    }, []); // Empty dependency array ensures this runs only once on mount.
+
+    if (!isClient) {
+        // On the server, and during the initial client-side render before hydration is complete,
+        // render a placeholder to match the server-rendered output.
         return (
             <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1 mb-6">
                 <Skeleton className="h-5 w-24" />
@@ -29,6 +35,7 @@ export default function LiveClock() {
         );
     }
     
+    // Once we're on the client, render the actual clock.
     const timeOptions: Intl.DateTimeFormatOptions = {
         hour: '2-digit',
         minute: '2-digit',
