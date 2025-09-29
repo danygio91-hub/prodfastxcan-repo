@@ -122,7 +122,9 @@ export default function JobOrderCard({
   
   const activeOperators = useMemo(() => {
     const active: ActiveOperator[] = [];
-    jobOrder.phases.forEach(phase => {
+    const source = jobOrder.id.startsWith('group-') ? workGroup : jobOrder;
+
+    (source?.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
             phase.workPeriods.forEach(wp => {
                 if (wp.end === null) {
@@ -135,7 +137,7 @@ export default function JobOrderCard({
         }
     });
     return active;
-  }, [jobOrder.phases, allOperators]);
+  }, [jobOrder, workGroup, allOperators]);
   
   const handleOpenPauseDialog = () => {
     setSelectedOperatorsToPause([]); // Reset selection
@@ -169,7 +171,11 @@ export default function JobOrderCard({
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = jobOrder.phases.length > 0 ? (completedPhasesCount / jobOrder.phases.length) * 100 : 0;
   
-  const deliveryDate = jobOrder.dataConsegnaFinale ? parseISO(jobOrder.dataConsegnaFinale) : null;
+  const deliveryDateString = jobOrder.dataConsegnaFinale;
+  const deliveryDate = deliveryDateString && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)
+    ? parseISO(deliveryDateString)
+    : null;
+    
   const isOverdue = deliveryDate && isPast(deliveryDate) && overallStatus !== 'Completata';
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
@@ -198,7 +204,7 @@ export default function JobOrderCard({
     >
       <CardHeader>
         <div className="flex justify-between items-start gap-4">
-          <CardTitle className="font-headline text-lg">{isGroup ? jobOrder.details : jobOrder.ordinePF}</CardTitle>
+          <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
           <StatusBadge status={overallStatus} />
         </div>
         <div className="flex justify-between items-center">
@@ -315,53 +321,30 @@ export default function JobOrderCard({
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
         <div className="space-y-3 text-sm">
-          {!isGroup && (
-            <>
-              <div className="flex items-center justify-between gap-4">
-                <p className="flex items-center gap-2">
-                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
-                </p>
-                <p className="flex items-center gap-2 font-bold text-base">
-                  <Package className="h-4 w-4 text-muted-foreground" />
-                  {jobOrder.qta} pz
-                </p>
-              </div>
+           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               <p className="flex items-center gap-2">
+                <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
+              </p>
+              <p className="flex items-center gap-2 font-bold text-base justify-end">
+                <Package className="h-4 w-4 text-muted-foreground" />
+                {jobOrder.qta} pz
+              </p>
+              <p className="flex items-center gap-2 col-span-2">
                 <Factory className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">{jobOrder.department}</span>
               </p>
-              <p className="flex items-center gap-2">
+              <p className="flex items-center gap-2 col-span-2">
                 <Package className="h-4 w-4 text-muted-foreground" />
                 {jobOrder.details}
               </p>
               {deliveryDate && (
-                <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+                <p className={cn("flex items-center gap-2 font-medium col-span-2", isOverdue ? "text-destructive" : "text-muted-foreground")}>
                   {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
                   <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
                 </p>
               )}
-            </>
-          )}
-          {isGroup && (
-             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <p className="flex items-center gap-2 font-bold text-base col-span-2">
-                  <Package className="h-4 w-4 text-muted-foreground" />
-                  {jobOrder.qta} pz totali
-                </p>
-                 <p className="flex items-center gap-2 col-span-2">
-                  <Factory className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">{jobOrder.department}</span>
-                </p>
-                <p className="flex items-center gap-2 col-span-2">
-                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                  <span>Commesse nel gruppo:</span>
-                </p>
-                 <div className="col-span-2 flex flex-wrap gap-1">
-                   {(jobOrder.jobOrderPFs || []).map(pf => <Badge key={pf} variant="secondary">{pf}</Badge>)}
-                 </div>
-            </div>
-          )}
+          </div>
         </div>
         { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
            <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>

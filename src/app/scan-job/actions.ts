@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -33,10 +34,41 @@ function convertTimestampsToDates(obj: any): any {
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     const isWorkGroup = id.startsWith('group-');
     const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
-    const jobRef = doc(db, collectionName, id);
-    const docSnap = await getDoc(jobRef);
+    const itemRef = doc(db, collectionName, id);
+    const docSnap = await getDoc(itemRef);
+
     if (!docSnap.exists()) return null;
-    return convertTimestampsToDates(docSnap.data()) as JobOrder;
+
+    const data = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
+
+    if (isWorkGroup) {
+        const group = data as WorkGroup;
+        const jobIds = group.jobOrderIds || [];
+        
+        // Fetch individual jobs to aggregate data if needed
+        const jobDocs = jobIds.length > 0
+            ? await Promise.all(jobIds.map(jobId => getDoc(doc(db, 'jobOrders', jobId))))
+            : [];
+        
+        const jobs = jobDocs.map(d => d.data() as JobOrder);
+
+        const allOdlInterno = [...new Set(jobs.map(j => j.numeroODLInterno).filter(Boolean))];
+        const allOdlEst = [...new Set(jobs.map(j => j.numeroODL).filter(Boolean))];
+        const allDeliveryDates = jobs.map(j => j.dataConsegnaFinale).filter(Boolean).map(d => new Date(d));
+        const earliestDeliveryDate = allDeliveryDates.length > 0 ? new Date(Math.min(...allDeliveryDates.map(d => d.getTime()))) : null;
+
+        return {
+            ...group,
+            id: group.id,
+            qta: group.totalQuantity || 0,
+            ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
+            numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
+            numeroODL: allOdlEst.join(', ') || 'N/D',
+            dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
+        } as JobOrder;
+    }
+
+    return data as JobOrder;
 }
 
 export async function verifyAndGetJobOrder(scannedData: {
@@ -137,12 +169,16 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         batch.set(groupRef, dataToSave, { merge: true });
 
         // Propagate phase and status updates to all individual jobs in the group
-        const updatePayload = {
+        const updatePayload: { [key: string]: any } = {
             phases: groupData.phases,
             status: groupData.status,
-            overallEndTime: groupData.overallEndTime || null,
             isProblemReported: groupData.isProblemReported || false,
         };
+
+        if (groupData.overallEndTime) {
+            updatePayload.overallEndTime = groupData.overallEndTime;
+        }
+
 
         (groupData.jobOrderIds || []).forEach(jobId => {
             const jobRef = doc(db, 'jobOrders', jobId);
@@ -642,7 +678,7 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
             createdAt: new Date(),
             createdBy: operatorId,
             totalQuantity: totalQuantity,
-            qta: totalQuantity,
+            qta: totalQuantity, // Add qta alias
             workCycleId: workCycleId || '',
             department: department,
             cliente: cliente,
@@ -671,5 +707,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
-
-    
