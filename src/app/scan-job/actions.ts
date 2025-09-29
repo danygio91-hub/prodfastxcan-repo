@@ -118,6 +118,36 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     }
 }
 
+export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
+    const groupRef = doc(db, "workGroups", groupData.id);
+
+    try {
+        const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
+        
+        if (allPhasesCompleted && !groupData.isProblemReported && groupData.status !== 'suspended') {
+            groupData.status = 'completed';
+            if (!groupData.overallEndTime) {
+                groupData.overallEndTime = new Date();
+            }
+        }
+        
+        const dataToSave = JSON.parse(JSON.stringify(groupData));
+
+        await setDoc(groupRef, dataToSave, { merge: true });
+
+        revalidatePath('/scan-job');
+        revalidatePath('/admin/production-console');
+        revalidatePath('/admin/work-group-management');
+
+        return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato.` };
+
+    } catch (error) {
+        console.error("Error updating work group:", error);
+        return { success: false, message: "Errore durante l'aggiornamento del gruppo." };
+    }
+}
+
+
 export async function resolveJobProblem(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string; }> {
   try {
     const operator = await ensureAdmin(uid); // Re-use ensureAdmin for role check
@@ -469,8 +499,8 @@ export async function searchRawMaterials(
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    const isAvailable = await isOperatorActiveOnAnyJob(operatorId);
-    if (!isAvailable.available && isAvailable.activeJobId !== jobId) {
+    const availability = await isOperatorActiveOnAnyJob(operatorId);
+    if (!availability.available && availability.activeJobId !== jobId) {
         return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
     }
 
@@ -562,8 +592,10 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const jobs = jobDocs.map(d => d.data() as JobOrder);
         
         // Validation
+        if (jobs.some(j => !j)) {
+            return { success: false, message: 'Una o più commesse selezionate non sono valide.' };
+        }
         const firstJob = jobs[0];
-        if (!firstJob) return { success: false, message: 'La prima commessa non è stata trovata.' };
         
         if (jobs.some(j => j.workGroupId)) {
             return { success: false, message: 'Una o più commesse selezionate fanno già parte di un altro gruppo.' };

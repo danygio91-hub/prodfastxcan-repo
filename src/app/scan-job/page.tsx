@@ -32,8 +32,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup } from './actions';
+import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -195,10 +195,13 @@ export default function ScanJobPage() {
     }
   }, [isJobLoading, activeJob, activeSessions, addJobToSession]);
 
-  const handleUpdateAndPersistJob = useCallback(async (updatedJob: JobOrder) => {
-    // Calling updateJob will save to Firestore.
-    // The real-time listener in ActiveJobProvider will then automatically update the state.
-    await updateJob(updatedJob);
+  const handleUpdateAndPersistJob = useCallback(async (jobData: JobOrder | WorkGroup) => {
+    const isGroup = jobData.id.startsWith('group-');
+    if (isGroup) {
+      await updateWorkGroup(jobData as WorkGroup);
+    } else {
+      await updateJob(jobData as JobOrder);
+    }
   }, []);
   
   const stopCamera = useCallback(() => {
@@ -468,7 +471,7 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     
     const availability = await isOperatorActiveOnAnyJob(operator.id);
-    if (!availability.available) {
+    if (!availability.available && availability.activeJobId !== activeJob.id) {
        toast({
           variant: 'destructive',
           title: 'Azione bloccata',
@@ -1959,5 +1962,3 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-
-    
