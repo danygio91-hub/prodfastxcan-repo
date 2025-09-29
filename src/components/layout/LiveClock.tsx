@@ -1,13 +1,15 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock } from 'lucide-react';
+import { Skeleton } from '../ui/skeleton';
 
 export default function LiveClock() {
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [isClient, setIsClient] = useState(false);
 
     useEffect(() => {
+        setIsClient(true);
         const timer = setInterval(() => {
             setCurrentTime(new Date());
         }, 1000);
@@ -16,6 +18,15 @@ export default function LiveClock() {
             clearInterval(timer);
         };
     }, []);
+    
+    if (!isClient) {
+        return (
+            <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1 mb-6">
+                <Skeleton className="h-5 w-24" />
+                <Skeleton className="h-5 w-28" />
+            </div>
+        );
+    }
     
     const timeOptions: Intl.DateTimeFormatOptions = {
         hour: '2-digit',
