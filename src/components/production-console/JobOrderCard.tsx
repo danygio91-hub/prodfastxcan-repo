@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
+import { Badge } from '@/components/ui/badge';
 
 interface ActiveOperator {
   id: string;
