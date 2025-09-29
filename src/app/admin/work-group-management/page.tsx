@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
-import { Combine, Trash2, Loader2, LinkOff } from 'lucide-react';
+import { Combine, Trash2, Loader2, Unlink } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { useRouter } from 'next/navigation';
@@ -115,7 +115,7 @@ export default function WorkGroupManagementPage() {
                              <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="destructive" size="sm" disabled={isPending}>
-                                  <LinkOff className="mr-2 h-4 w-4" />
+                                  <Unlink className="mr-2 h-4 w-4" />
                                   Annulla Gruppo
                                 </Button>
                               </AlertDialogTrigger>
