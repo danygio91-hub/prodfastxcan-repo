@@ -187,6 +187,7 @@ export default function JobOrderCard({
   
   const isAnyPhaseInProgress = jobOrder.phases.some(p => p.status === 'in-progress');
 
+  const isGroup = jobOrder.id.startsWith('group-');
 
   return (
     <>
@@ -196,7 +197,7 @@ export default function JobOrderCard({
     >
       <CardHeader>
         <div className="flex justify-between items-start gap-4">
-          <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+          <CardTitle className="font-headline text-lg">{isGroup ? jobOrder.details : jobOrder.ordinePF}</CardTitle>
           <StatusBadge status={overallStatus} />
         </div>
         <div className="flex justify-between items-center">
@@ -209,7 +210,11 @@ export default function JobOrderCard({
             {workGroup && (
                 <Tooltip>
                     <TooltipTrigger asChild>
-                       <LinkIcon className="h-4 w-4 mr-2 text-blue-500" />
+                       <Button variant="ghost" size="icon" className="text-blue-500 hover:bg-blue-500/10 hover:text-blue-500" asChild>
+                          <Link href={`/admin/work-group-management?groupId=${workGroup.id}`}>
+                            <LinkIcon className="h-4 w-4" />
+                          </Link>
+                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
                         <p className="font-semibold">Gruppo: {workGroup.id}</p>
@@ -219,30 +224,34 @@ export default function JobOrderCard({
                     </TooltipContent>
                 </Tooltip>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-                  <Link href={`/admin/reports/${jobOrder.id}`}>
-                      <CheckSquare className="h-4 w-4"/>
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Vedi Dettagli Report</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-               <TooltipTrigger asChild>
-                <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-                  <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                      <Printer className="h-4 w-4"/>
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Stampa Scheda Lavorazione</p>
-              </TooltipContent>
-            </Tooltip>
+            {!isGroup && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/admin/reports/${jobOrder.id}`}>
+                          <CheckSquare className="h-4 w-4"/>
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Vedi Dettagli Report</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                          <Printer className="h-4 w-4"/>
+                      </Link>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Stampa Scheda Lavorazione</p>
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
@@ -305,30 +314,53 @@ export default function JobOrderCard({
       </CardHeader>
       <CardContent className="flex-grow space-y-4">
         <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between gap-4">
-            <p className="flex items-center gap-2">
-              <ClipboardList className="h-4 w-4 text-muted-foreground" />
-              <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
-            </p>
-            <p className="flex items-center gap-2 font-bold text-base">
-              <Package className="h-4 w-4 text-muted-foreground" />
-              {jobOrder.qta} pz
-            </p>
-          </div>
-           <p className="flex items-center gap-2">
-            <Factory className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium">{jobOrder.department}</span>
-          </p>
-           <p className="flex items-center gap-2">
-             <Package className="h-4 w-4 text-muted-foreground" />
-            {jobOrder.details}
-          </p>
-           {deliveryDate && (
-            <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
-              {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
-              <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
-            </p>
-           )}
+          {!isGroup && (
+            <>
+              <div className="flex items-center justify-between gap-4">
+                <p className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
+                </p>
+                <p className="flex items-center gap-2 font-bold text-base">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  {jobOrder.qta} pz
+                </p>
+              </div>
+              <p className="flex items-center gap-2">
+                <Factory className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{jobOrder.department}</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-muted-foreground" />
+                {jobOrder.details}
+              </p>
+              {deliveryDate && (
+                <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+                  {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
+                  <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
+                </p>
+              )}
+            </>
+          )}
+          {isGroup && (
+             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <p className="flex items-center gap-2 font-bold text-base col-span-2">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  {jobOrder.qta} pz totali
+                </p>
+                 <p className="flex items-center gap-2 col-span-2">
+                  <Factory className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{jobOrder.department}</span>
+                </p>
+                <p className="flex items-center gap-2 col-span-2">
+                  <ClipboardList className="h-4 w-4 text-muted-foreground" />
+                  <span>Commesse nel gruppo:</span>
+                </p>
+                 <div className="col-span-2 flex flex-wrap gap-1">
+                   {(jobOrder.jobOrderPFs || []).map(pf => <Badge key={pf} variant="secondary">{pf}</Badge>)}
+                 </div>
+            </div>
+          )}
         </div>
         { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
            <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>
