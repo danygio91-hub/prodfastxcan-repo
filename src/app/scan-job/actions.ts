@@ -470,17 +470,19 @@ export async function searchRawMaterials(
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
     const isAvailable = await isOperatorActiveOnAnyJob(operatorId);
-    if (!isAvailable.available) {
+    if (!isAvailable.available && isAvailable.activeJobId !== jobId) {
         return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
     }
 
-    const jobRef = doc(db, 'jobOrders', jobId);
+    const isGroup = jobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const jobRef = doc(db, collectionName, jobId);
     
     await runTransaction(db, async (transaction) => {
         const docSnap = await transaction.get(jobRef);
-        if (!docSnap.exists()) throw new Error('Commessa non trovata.');
+        if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
 
-        const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder;
+        const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
         
         // Create a mutable copy
         const jobToUpdate = JSON.parse(JSON.stringify(jobData));
@@ -520,30 +522,34 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
 export async function isOperatorActiveOnAnyJob(operatorId: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
     const jobsRef = collection(db, "jobOrders");
-    // We only need to check jobs that are in production or suspended.
-    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "suspended"]));
-    const querySnapshot = await getDocs(q);
+    const groupsRef = collection(db, "workGroups");
+    const collectionsToScan = [jobsRef, groupsRef];
 
-    if (querySnapshot.empty) {
-        return { available: true };
-    }
+    for (const ref of collectionsToScan) {
+        const q = firestoreQuery(ref, where("status", "in", ["production", "suspended"]));
+        const querySnapshot = await getDocs(q);
 
-    for (const doc of querySnapshot.docs) {
-        const job = doc.data() as JobOrder;
-        for (const phase of (job.phases || [])) {
-            if (phase.status === 'in-progress') {
-                const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
-                if (isActive) {
-                    return {
-                        available: false,
-                        activeJobId: job.id,
-                        activePhaseName: phase.name,
-                    };
+        if (querySnapshot.empty) {
+            continue;
+        }
+
+        for (const doc of querySnapshot.docs) {
+            const item = doc.data() as JobOrder | WorkGroup;
+            for (const phase of (item.phases || [])) {
+                if (phase.status === 'in-progress') {
+                    const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
+                    if (isActive) {
+                        return {
+                            available: false,
+                            activeJobId: item.id,
+                            activePhaseName: phase.name,
+                        };
+                    }
                 }
             }
         }
     }
-
+    
     return { available: true };
 }
 
@@ -573,6 +579,12 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const workGroupRef = doc(db, 'workGroups', workGroupId);
 
         const totalQuantity = jobs.reduce((sum, job) => sum + job.qta, 0);
+        
+        const allOdlInterno = [...new Set(jobs.map(j => j.numeroODLInterno).filter(Boolean))];
+        const allOdlEst = [...new Set(jobs.map(j => j.numeroODL).filter(Boolean))];
+        const allDeliveryDates = jobs.map(j => j.dataConsegnaFinale).filter(Boolean).map(d => new Date(d));
+        const earliestDeliveryDate = allDeliveryDates.length > 0 ? new Date(Math.min(...allDeliveryDates.map(d => d.getTime()))) : null;
+
 
         const newWorkGroup: WorkGroup = {
             id: workGroupId,
@@ -582,11 +594,16 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
             createdAt: new Date(),
             createdBy: operatorId,
             totalQuantity: totalQuantity,
+            qta: totalQuantity,
             workCycleId: workCycleId || '',
             department: department,
             cliente: cliente,
-            phases: firstJob.phases, // Use phases from the first job as a template
+            phases: firstJob.phases,
             details: 'Lavorazione Multi-Commessa',
+            numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
+            numeroODL: allOdlEst.join(', ') || 'N/D',
+            dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
+            ordinePF: jobs.map(j => j.ordinePF).join(', '),
         };
 
         const batch = writeBatch(db);

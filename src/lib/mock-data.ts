@@ -230,8 +230,19 @@ export interface WorkGroup {
     department: string;
     cliente: string;
     phases: JobPhase[];
-    // Include other relevant top-level job data if needed for display
     details: string; // e.g., "Lavorazione Multi-Commessa"
+    // Aggregated fields for display
+    numeroODLInterno?: string;
+    numeroODL?: string;
+    dataConsegnaFinale?: string;
+    isProblemReported?: boolean;
+    problemType?: ProductionProblemType;
+    problemNotes?: string;
+    problemReportedBy?: string;
+    overallStartTime?: Date | null;
+    overallEndTime?: Date | null;
+    qta?: number; // Alias for totalQuantity
+    ordinePF?: string; // Alias for jobOrderPFs joined
 }
 
 
