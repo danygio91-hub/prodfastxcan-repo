@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -122,6 +121,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
     const groupRef = doc(db, "workGroups", groupData.id);
 
     try {
+        const batch = writeBatch(db);
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
         
         if (allPhasesCompleted && !groupData.isProblemReported && groupData.status !== 'suspended') {
@@ -133,7 +133,23 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
 
-        await setDoc(groupRef, dataToSave, { merge: true });
+        // Update the group document itself
+        batch.set(groupRef, dataToSave, { merge: true });
+
+        // Propagate phase and status updates to all individual jobs in the group
+        const updatePayload = {
+            phases: groupData.phases,
+            status: groupData.status,
+            overallEndTime: groupData.overallEndTime || null,
+            isProblemReported: groupData.isProblemReported || false,
+        };
+
+        (groupData.jobOrderIds || []).forEach(jobId => {
+            const jobRef = doc(db, 'jobOrders', jobId);
+            batch.update(jobRef, updatePayload);
+        });
+
+        await batch.commit();
 
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
@@ -655,3 +671,5 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
+    
