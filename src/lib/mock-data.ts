@@ -67,6 +67,8 @@ export interface JobOrder {
   numeroODLInterno?: string | null;
   odlCounter?: number;
   odlCreationDate?: Date;
+  // New field for job chaining
+  workGroupId?: string | null;
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -214,6 +216,22 @@ export interface ProductionProblemReport {
     status: 'open' | 'resolved';
     resolvedAt?: Date | string;
     resolvedBy?: string;
+}
+
+export interface WorkGroup {
+    id: string;
+    jobOrderIds: string[];
+    jobOrderPFs: string[];
+    status: 'production' | 'paused' | 'completed';
+    createdAt: Date;
+    createdBy: string;
+    totalQuantity: number;
+    workCycleId: string;
+    department: string;
+    cliente: string;
+    phases: JobPhase[];
+    // Include other relevant top-level job data if needed for display
+    details: string; // e.g., "Lavorazione Multi-Commessa"
 }
 
 
