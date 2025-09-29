@@ -1047,7 +1047,7 @@ export default function ScanJobPage() {
      <Card>
         <CardHeader>
             <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" /> Scansione Commessa</CardTitle>
-            <CardDescription>Avvia la scansione o inserisci un codice per iniziare una lavorazione.</CardDescription>
+            <CardDescription>Avvia la scansione per iniziare una lavorazione.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
             {!hasCameraPermission && (
@@ -1060,10 +1060,6 @@ export default function ScanJobPage() {
             <Button onClick={() => setStep('scanning')} className="w-full" size="lg" disabled={!hasCameraPermission}>
                 <QrCode className="mr-2 h-5 w-5" />
                 Avvia Scansione
-            </Button>
-            <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
-                <Keyboard className="mr-2 h-5 w-5" />
-                Inserisci Codice Manualmente
             </Button>
             <Button onClick={() => setStep('group_scanning')} className="w-full bg-amber-500 text-amber-950 hover:bg-amber-500/90">
                 <LinkIcon className="mr-2 h-5 w-5" />
@@ -1963,3 +1959,5 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
+    
