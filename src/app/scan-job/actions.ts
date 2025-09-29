@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -543,4 +543,60 @@ export async function isOperatorActiveOnAnyJob(operatorId: string): Promise<{ av
     }
 
     return { available: true };
+}
+
+export async function createWorkGroup(jobIds: string[], operatorId: string): Promise<{ success: boolean; message: string; workGroupId?: string }> {
+    try {
+        if (jobIds.length < 2) {
+            return { success: false, message: 'Selezionare almeno due commesse da raggruppare.' };
+        }
+        const jobDocs = await Promise.all(jobIds.map(id => getDoc(doc(db, 'jobOrders', id))));
+        const jobs = jobDocs.map(d => d.data() as JobOrder);
+        
+        // Validation
+        const firstJob = jobs[0];
+        if (!firstJob) return { success: false, message: 'La prima commessa non è stata trovata.' };
+        
+        const { workCycleId, department, cliente } = firstJob;
+        if (jobs.some(j => j.workCycleId !== workCycleId || j.department !== department || j.cliente !== cliente)) {
+            return { success: false, message: 'Le commesse non sono compatibili. Devono avere lo stesso ciclo, reparto e cliente.' };
+        }
+
+        // Create Group Document
+        const workGroupId = `group-${Date.now()}`;
+        const workGroupRef = doc(db, 'workGroups', workGroupId);
+
+        const totalQuantity = jobs.reduce((sum, job) => sum + job.qta, 0);
+
+        const newWorkGroup: WorkGroup = {
+            id: workGroupId,
+            jobOrderIds: jobs.map(j => j.id),
+            jobOrderPFs: jobs.map(j => j.ordinePF),
+            status: 'production',
+            createdAt: new Date(),
+            createdBy: operatorId,
+            totalQuantity: totalQuantity,
+            workCycleId: workCycleId || '',
+            department: department,
+            cliente: cliente,
+            phases: firstJob.phases, // Use phases from the first job as a template
+            details: 'Lavorazione Multi-Commessa',
+        };
+
+        const batch = writeBatch(db);
+        batch.set(workGroupRef, newWorkGroup);
+
+        // Update individual jobs
+        jobDocs.forEach(jobDoc => {
+            batch.update(jobDoc.ref, { workGroupId: workGroupId });
+        });
+
+        await batch.commit();
+
+        return { success: true, message: 'Gruppo creato con successo.', workGroupId: workGroupId };
+
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la creazione del gruppo.";
+        return { success: false, message: errorMessage };
+    }
 }
