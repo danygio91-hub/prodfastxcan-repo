@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React from 'react';
@@ -36,7 +35,7 @@ function OperatorNavMenu() {
   return (
     <div className="w-full bg-card rounded-lg shadow-sm mb-6">
         <TooltipProvider delayDuration={0}>
-            <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
+            <div className="flex items-center justify-center p-1 flex-wrap">
               {navItems.map((item) => (
                 <Tooltip key={item.href}>
                     <TooltipTrigger asChild>
@@ -44,7 +43,7 @@ function OperatorNavMenu() {
                         <Button
                         variant={pathname.startsWith(item.href) ? 'default' : 'ghost'}
                         size="lg"
-                        className="h-14 w-14"
+                        className="h-14 w-14 m-1"
                         aria-label={item.label}
                         >
                         <item.icon className="h-6 w-6" />
@@ -61,7 +60,7 @@ function OperatorNavMenu() {
                     <Button
                       variant="ghost"
                       size="lg"
-                      className="h-14 w-14 text-muted-foreground"
+                      className="h-14 w-14 m-1 text-muted-foreground"
                       aria-label="Timbratrice"
                       disabled
                     >

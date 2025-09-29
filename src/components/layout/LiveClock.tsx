@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -5,11 +6,11 @@ import { Calendar, Clock } from 'lucide-react';
 import { Skeleton } from '../ui/skeleton';
 
 export default function LiveClock() {
-    const [currentTime, setCurrentTime] = useState(new Date());
-    const [isClient, setIsClient] = useState(false);
-
+    const [currentTime, setCurrentTime] = useState<Date | null>(null);
+    
     useEffect(() => {
-        setIsClient(true);
+        // This code runs only on the client, after hydration
+        setCurrentTime(new Date());
         const timer = setInterval(() => {
             setCurrentTime(new Date());
         }, 1000);
@@ -19,7 +20,7 @@ export default function LiveClock() {
         };
     }, []);
     
-    if (!isClient) {
+    if (!currentTime) {
         return (
             <div className="w-full bg-card border rounded-lg p-2 flex items-center justify-center sm:justify-between flex-wrap gap-x-4 gap-y-1 mb-6">
                 <Skeleton className="h-5 w-24" />
