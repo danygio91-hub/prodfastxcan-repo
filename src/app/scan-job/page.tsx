@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -108,8 +108,9 @@ export default function ScanJobPage() {
   const { operator } = useAuth();
   const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, setIsStatusBarHighlighted } = useActiveJob();
   const { activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
-  const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
+  const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading' | 'group_scanning'>('loading');
   const [isPending, startTransition] = useTransition();
+  const [groupScanList, setGroupScanList] = useState<JobOrder[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -323,6 +324,7 @@ export default function ScanJobPage() {
   useEffect(() => {
     const shouldStartCamera =
       step === 'scanning' ||
+      step === 'group_scanning' ||
       isLottoScanDialogOpen ||
       isPhaseScanDialogOpen ||
       (isMaterialScanDialogOpen && materialScanStep === 'scanning');
@@ -978,6 +980,57 @@ export default function ScanJobPage() {
     };
     // --- END NEW LOGIC ---
 
+    // --- GROUP SCANNING LOGIC ---
+    const handleGroupScan = async (data: string) => {
+        const parts = data.split('@');
+        if (parts.length !== 3) {
+            toast({ variant: 'destructive', title: 'QR Code non Valido' });
+            return;
+        }
+        const [ordinePF, codice, qta] = parts;
+        const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
+        
+        if ('error' in result) {
+            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+            return;
+        }
+        
+        if (groupScanList.some(j => j.id === result.id)) {
+            toast({ variant: "default", title: "Commessa già presente", description: "Questa commessa è già stata aggiunta al gruppo." });
+            return;
+        }
+
+        if (groupScanList.length > 0) {
+            const firstJob = groupScanList[0];
+            if (result.workCycleId !== firstJob.workCycleId || result.department !== firstJob.department || result.cliente !== firstJob.cliente) {
+                toast({ variant: "destructive", title: "Commessa non Compatibile", description: "Le commesse devono avere lo stesso Ciclo, Reparto e Cliente per essere concatenate." });
+                return;
+            }
+        }
+        
+        setGroupScanList(prev => [...prev, result]);
+        toast({ title: "Commessa Aggiunta", description: `${result.id} aggiunto al gruppo.` });
+    };
+
+    const handleCreateWorkGroup = async () => {
+        if (!operator || groupScanList.length < 2) {
+            toast({variant: 'destructive', title: "Azione non possibile", description: "Aggiungi almeno due commesse per creare un gruppo."});
+            return;
+        }
+        
+        const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
+        if (result.success && result.workGroupId) {
+            toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
+            setActiveJobId(result.workGroupId);
+        } else {
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message });
+        }
+        
+        setGroupScanList([]);
+        setStep('initial');
+    };
+    // --- END GROUP SCANNING LOGIC ---
+
   if (step === 'loading') {
     return (
       <AppShell>
@@ -1011,6 +1064,10 @@ export default function ScanJobPage() {
             <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
                 <Keyboard className="mr-2 h-5 w-5" />
                 Inserisci Codice Manualmente
+            </Button>
+            <Button onClick={() => setStep('group_scanning')} className="w-full bg-amber-500 text-amber-950 hover:bg-amber-500/90">
+                <LinkIcon className="mr-2 h-5 w-5" />
+                Avvia Lavorazione Multi-Commessa
             </Button>
         </CardContent>
     </Card>
@@ -1637,6 +1694,37 @@ export default function ScanJobPage() {
 
                 {step === 'finished' && activeJob && renderFinishedView()}
             
+                 {step === 'group_scanning' && (
+                    <Card>
+                        <CardHeader>
+                             <CardTitle className="flex items-center gap-3"><LinkIcon className="h-7 w-7 text-primary" /> Concatena Commesse</CardTitle>
+                             <CardDescription>Scansiona i QR code delle commesse da raggruppare. Devono avere lo stesso ciclo, reparto e cliente.</CardDescription>
+                        </CardHeader>
+                         <CardContent className="space-y-4">
+                            {renderScanArea(handleGroupScan)}
+                            <div className="space-y-2 pt-4">
+                                <Label>Commesse nel Gruppo ({groupScanList.length})</Label>
+                                <div className="p-2 border rounded-md min-h-[50px] bg-muted/50 space-y-1">
+                                    {groupScanList.length > 0 ? (
+                                        groupScanList.map(j => <Badge key={j.id}>{j.id}</Badge>)
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground italic">Nessuna commessa ancora aggiunta.</p>
+                                    )}
+                                </div>
+                            </div>
+                         </CardContent>
+                        <CardFooter className="flex-col sm:flex-row gap-2">
+                             <Button onClick={() => triggerScan(handleGroupScan)} disabled={isCapturing || !hasCameraPermission} className="w-full sm:w-auto flex-1 h-14">
+                                {isCapturing ? <Loader2 className="h-6 w-6 animate-spin"/> : <QrCode className="h-6 w-6" />}
+                                <span className="ml-2 text-lg">Aggiungi</span>
+                             </Button>
+                             <Button onClick={handleCreateWorkGroup} disabled={groupScanList.length < 2 || isPending} className="w-full sm:w-auto flex-1 h-14 bg-green-600 hover:bg-green-700">
+                                <PlayCircle className="mr-2 h-6 w-6" />
+                                <span className="text-lg">Inizia Lavoro</span>
+                             </Button>
+                        </CardFooter>
+                    </Card>
+                )}
           
           {renderMaterialScanDialog()}
           {renderLottoScanDialog()}
