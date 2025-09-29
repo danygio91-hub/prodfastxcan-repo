@@ -1,6 +1,6 @@
 
 
-import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -98,7 +98,8 @@ function getPhaseIcon(status: JobPhase['status']) {
 }
 
 export default function JobOrderCard({ 
-    jobOrder, 
+    jobOrder,
+    workGroup, 
     allOperators,
     onProblemClick, 
     onForceFinishClick, 
@@ -106,7 +107,8 @@ export default function JobOrderCard({
     onRevertPhaseClick, 
     onForcePauseClick 
 }: { 
-    jobOrder: JobOrder; 
+    jobOrder: JobOrder;
+    workGroup?: WorkGroup | null; 
     allOperators: Operator[];
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void; 
@@ -204,13 +206,16 @@ export default function JobOrderCard({
         </CardDescription>
         <TooltipProvider>
           <div className="flex items-center">
-            {jobOrder.workGroupId && (
+            {workGroup && (
                 <Tooltip>
                     <TooltipTrigger asChild>
                        <LinkIcon className="h-4 w-4 mr-2 text-blue-500" />
                     </TooltipTrigger>
                     <TooltipContent>
-                        <p>Commessa concatenata nel gruppo: {jobOrder.workGroupId}</p>
+                        <p className="font-semibold">Gruppo: {workGroup.id}</p>
+                        <ul className="list-disc pl-4 text-xs">
+                            {workGroup.jobOrderPFs?.map(pf => <li key={pf}>{pf}</li>)}
+                        </ul>
                     </TooltipContent>
                 </Tooltip>
             )}

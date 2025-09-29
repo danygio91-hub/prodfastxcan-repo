@@ -6,8 +6,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search } from 'lucide-react';
-import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine } from 'lucide-react';
+import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import { useToast } from '@/hooks/use-toast';
@@ -72,6 +72,7 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
 
 export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
+  const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
@@ -83,6 +84,7 @@ export default function ProductionConsoleClientPage() {
   useEffect(() => {
     setIsLoading(true);
     const jobsRef = collection(db, "jobOrders");
+    const groupsRef = collection(db, "workGroups");
     const opsRef = collection(db, "operators");
 
     const unsubscribeJobs = onSnapshot(query(jobsRef, where("status", "in", ["production", "suspended", "completed"])), (querySnapshot) => {
@@ -102,6 +104,15 @@ export default function ProductionConsoleClientPage() {
         toast({ variant: "destructive", title: "Errore di Sincronizzazione", description: "Impossibile caricare i dati della console in tempo reale." });
         setIsLoading(false);
     });
+
+    const unsubscribeGroups = onSnapshot(groupsRef, (querySnapshot) => {
+        const groups: WorkGroup[] = querySnapshot.docs.map(doc => {
+            return { id: doc.id, ...doc.data() } as WorkGroup;
+        });
+        setWorkGroups(groups);
+    }, (error) => {
+        console.error("Error fetching realtime work groups:", error);
+    });
     
     const unsubscribeOps = onSnapshot(opsRef, (querySnapshot) => {
         setAllOperators(querySnapshot.docs.map(doc => doc.data() as Operator));
@@ -111,9 +122,15 @@ export default function ProductionConsoleClientPage() {
 
     return () => {
       unsubscribeJobs();
+      unsubscribeGroups();
       unsubscribeOps();
     };
   }, [toast]);
+
+
+  const workGroupsMap = useMemo(() => {
+    return new Map(workGroups.map(group => [group.id, group]));
+  }, [workGroups]);
 
 
   const filteredJobs = useMemo(() => {
@@ -245,18 +262,22 @@ export default function ProductionConsoleClientPage() {
           </div>
         ) : filteredJobs.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredJobs.map(job => (
-                  <JobOrderCard 
-                    key={job.id} 
-                    jobOrder={job} 
-                    allOperators={allOperators}
-                    onProblemClick={() => setProblemJob(job)}
-                    onForceFinishClick={handleForceFinish}
-                    onToggleGuainaClick={handleToggleGuaina}
-                    onRevertPhaseClick={handleRevertPhase}
-                    onForcePauseClick={handleForcePause}
-                   />
-              ))}
+              {filteredJobs.map(job => {
+                  const workGroup = job.workGroupId ? workGroupsMap.get(job.workGroupId) : null;
+                  return (
+                    <JobOrderCard 
+                      key={job.id} 
+                      jobOrder={job}
+                      workGroup={workGroup} 
+                      allOperators={allOperators}
+                      onProblemClick={() => setProblemJob(job)}
+                      onForceFinishClick={handleForceFinish}
+                      onToggleGuainaClick={handleToggleGuaina}
+                      onRevertPhaseClick={handleRevertPhase}
+                      onForcePauseClick={handleForcePause}
+                    />
+                  );
+              })}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg mt-8">
