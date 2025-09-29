@@ -1,10 +1,11 @@
 
+
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { JobOrder } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
@@ -67,24 +68,38 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     }
     
     setIsLoading(true);
-    const jobRef = doc(db, "jobOrders", activeJobId);
+    
+    const isWorkGroup = activeJobId.startsWith('group-');
+    const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
+    const jobRef = doc(db, collectionName, activeJobId);
 
     const unsubscribe = onSnapshot(jobRef, (docSnap) => {
         if (docSnap.exists()) {
             const data = docSnap.data();
             const jobWithDates: JobOrder = JSON.parse(JSON.stringify(data), (key, value) => {
-                 if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate') && value && value.seconds !== undefined) {
+                 if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate' || key === 'createdAt') && value && value.seconds !== undefined) {
                     return new Date(value.seconds * 1000);
                  }
                  return value;
             });
             
+             // For a group, we create a synthetic JobOrder-like object for the context
+            const jobToSet: JobOrder = isWorkGroup 
+              ? {
+                  ...jobWithDates,
+                  id: docSnap.id,
+                  ordinePF: jobWithDates.jobOrderPFs?.join(', ') || 'Gruppo',
+                  qta: jobWithDates.totalQuantity || 0,
+              }
+              : jobWithDates;
+
+
             // If the job is no longer in a workable state, clear it.
-            if (jobWithDates.status !== 'production' && jobWithDates.status !== 'suspended') {
+            if (jobToSet.status !== 'production' && jobToSet.status !== 'suspended') {
                  setActiveJobId(null); // This will also clear the local storage
                  setActiveJobState(null);
             } else {
-                 setActiveJobState(jobWithDates);
+                 setActiveJobState(jobToSet);
             }
         } else {
             // Document was deleted or doesn't exist.
