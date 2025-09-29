@@ -9,9 +9,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { updateJob } from '@/app/scan-job/actions';
+import { updateJob, updateWorkGroup } from '@/app/scan-job/actions';
 import { Play, Pause, Check, Activity } from 'lucide-react';
-import type { JobOrder, JobPhase } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkGroup } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 
 export default function ActiveJobStatusBar() {
@@ -19,8 +19,12 @@ export default function ActiveJobStatusBar() {
   const { operator } = useAuth();
   const { toast } = useToast();
 
-  const handleUpdateJob = async (updatedJob: JobOrder) => {
-    const result = await updateJob(updatedJob);
+  const handleUpdateJobOrGroup = async (updatedJobOrGroup: JobOrder | WorkGroup) => {
+    const isGroup = updatedJobOrGroup.id.startsWith('group-');
+    const result = isGroup
+        ? await updateWorkGroup(updatedJobOrGroup as WorkGroup)
+        : await updateJob(updatedJobOrGroup as JobOrder);
+
     if (!result.success) {
       toast({
         variant: "destructive",
@@ -52,7 +56,7 @@ export default function ActiveJobStatusBar() {
       toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToUpdate.name}".` });
     }
     
-    handleUpdateJob(jobToUpdate);
+    handleUpdateJobOrGroup(jobToUpdate);
   };
 
   const handleCompletePhase = (phaseId: string) => {
@@ -82,7 +86,7 @@ export default function ActiveJobStatusBar() {
         toast({ title: "Commessa Completata!", description: `Tutte le fasi per ${jobToUpdate.id} sono terminate.` });
     }
     
-    handleUpdateJob(jobToUpdate);
+    handleUpdateJobOrGroup(jobToUpdate);
   };
 
   if (isLoading || !activeJob || activeJob.status === 'completed' || activeJob.status === 'planned' || !operator) {
