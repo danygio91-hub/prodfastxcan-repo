@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 
@@ -179,6 +179,16 @@ export default function ProductionConsoleClientPage() {
     });
   }
 
+  const handleForceComplete = async (jobId: string) => {
+    if (!user) return;
+    const result = await forceCompleteJob(jobId, user.uid);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+  };
+
   const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
       if (!user) return;
       const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
@@ -281,6 +291,7 @@ export default function ProductionConsoleClientPage() {
                       onToggleGuainaClick={handleToggleGuaina}
                       onRevertPhaseClick={handleRevertPhase}
                       onForcePauseClick={handleForcePause}
+                      onForceCompleteClick={handleForceComplete}
                     />
                   );
               })}

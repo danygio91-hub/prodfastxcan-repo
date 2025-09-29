@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -106,7 +106,8 @@ export default function JobOrderCard({
     onForceFinishClick, 
     onToggleGuainaClick, 
     onRevertPhaseClick, 
-    onForcePauseClick 
+    onForcePauseClick,
+    onForceCompleteClick,
 }: { 
     jobOrder: JobOrder;
     workGroup?: WorkGroup | null; 
@@ -116,6 +117,7 @@ export default function JobOrderCard({
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
     onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
+    onForceCompleteClick: (jobId: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
@@ -153,7 +155,7 @@ export default function JobOrderCard({
 
   const toggleOperatorSelection = (opId: string) => {
     setSelectedOperatorsToPause(prev => 
-        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, opId]
+        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, id]
     );
   };
 
@@ -181,7 +183,8 @@ export default function JobOrderCard({
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  
+  const canForceComplete = overallStatus === 'Pronto per Finitura';
+
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
   
   const firstProductionPhase = jobOrder.phases
@@ -286,6 +289,26 @@ export default function JobOrderCard({
                       </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+                 <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceComplete}>
+                        <PowerOff className="mr-2 h-4 w-4" />
+                        <span>Chiudi Commessa</span>
+                        </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Forzare la chiusura della commessa?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Questa azione imposterà lo stato della commessa su "Completata" anche se non tutte le fasi di finitura sono state eseguite.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Sì, chiudi commessa</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                  {canToggleGuaina && guainaPhase && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>

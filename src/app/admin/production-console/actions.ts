@@ -2,10 +2,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup } from '@/lib/mock-data';
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -248,6 +248,29 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error forcing pause:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
+
+export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const jobRef = doc(db, 'jobOrders', jobId);
+
+    await updateDoc(jobRef, {
+      status: 'completed',
+      overallEndTime: Timestamp.now(),
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/admin/reports/${jobId}`);
+    revalidatePath('/admin/reports');
+
+    return { success: true, message: `Commessa ${jobId} completata con successo.` };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error forcing job completion:", error);
     return { success: false, message: errorMessage };
   }
 }
