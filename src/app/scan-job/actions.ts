@@ -32,7 +32,9 @@ function convertTimestampsToDates(obj: any): any {
 
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
-    const jobRef = doc(db, "jobOrders", id);
+    const isWorkGroup = id.startsWith('group-');
+    const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
+    const jobRef = doc(db, collectionName, id);
     const docSnap = await getDoc(jobRef);
     if (!docSnap.exists()) return null;
     return convertTimestampsToDates(docSnap.data()) as JobOrder;
@@ -557,6 +559,10 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const firstJob = jobs[0];
         if (!firstJob) return { success: false, message: 'La prima commessa non è stata trovata.' };
         
+        if (jobs.some(j => j.workGroupId)) {
+            return { success: false, message: 'Una o più commesse selezionate fanno già parte di un altro gruppo.' };
+        }
+
         const { workCycleId, department, cliente } = firstJob;
         if (jobs.some(j => j.workCycleId !== workCycleId || j.department !== department || j.cliente !== cliente)) {
             return { success: false, message: 'Le commesse non sono compatibili. Devono avere lo stesso ciclo, reparto e cliente.' };
