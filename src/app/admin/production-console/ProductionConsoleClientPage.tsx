@@ -138,29 +138,11 @@ export default function ProductionConsoleClientPage() {
     return new Map(workGroups.map(group => [group.id, group]));
   }, [workGroups]);
 
-  const jobsAndGroups = useMemo(() => {
-    // Convert groups to a JobOrder-like structure
-    const virtualGroupJobs: JobOrder[] = workGroups.map(group => ({
-        ...group,
-        id: group.id,
-        ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
-        qta: group.totalQuantity,
-        numeroODLInterno: group.id,
-        isProblemReported: false, // Groups can have their own problem state in the future
-        dataConsegnaFinale: '', // N/A for groups
-    }));
-    
-    // Filter out jobs that are part of a group to avoid duplication
-    const individualJobs = jobOrders.filter(job => !job.workGroupId);
-    
-    return [...individualJobs, ...virtualGroupJobs];
-  }, [jobOrders, workGroups]);
-
 
   const filteredJobs = useMemo(() => {
     const statusFiltered = activeFilter === 'all'
-      ? jobsAndGroups
-      : jobsAndGroups.filter(job => getOverallStatus(job) === activeFilter);
+      ? jobOrders
+      : jobOrders.filter(job => getOverallStatus(job) === activeFilter);
       
     if (!searchTerm) {
         return statusFiltered;
@@ -174,7 +156,7 @@ export default function ProductionConsoleClientPage() {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [jobsAndGroups, activeFilter, searchTerm]);
+  }, [jobOrders, activeFilter, searchTerm]);
   
   const handleResolveProblem = async () => {
     if (!problemJob || !user) return;
