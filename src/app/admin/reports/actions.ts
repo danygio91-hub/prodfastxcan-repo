@@ -600,12 +600,13 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
 async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phases: JobPhase[] }> {
     let totalMs = 0;
     let jobPhases: JobPhase[] = [];
+    let group: WorkGroup | null = null;
 
     if (job.workGroupId) {
         const groupRef = doc(db, 'workGroups', job.workGroupId);
         const groupSnap = await getDoc(groupRef);
         if (groupSnap.exists()) {
-            const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+            group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
             jobPhases = group.phases || [];
         } else {
             // Fallback if group is somehow deleted
@@ -622,18 +623,13 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
 
     for (const phase of timeTrackingPhases) {
         let phaseTimeMs = 0;
-        if (job.workGroupId) {
-            const groupRef = doc(db, 'workGroups', job.workGroupId);
-            const groupSnap = await getDoc(groupRef);
-             if (groupSnap.exists()) {
-                const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-                const groupPhase = (group.phases || []).find(p => p.id === phase.id);
-                if (groupPhase) {
-                    const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
-                    phaseTimeMs = (group.totalQuantity > 0) 
-                        ? (totalGroupTimeMs / group.totalQuantity) * job.qta 
-                        : 0;
-                }
+        if (job.workGroupId && group) { // Check if group is not null
+            const groupPhase = (group.phases || []).find(p => p.id === phase.id);
+            if (groupPhase) {
+                const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+                phaseTimeMs = (group.totalQuantity > 0) 
+                    ? (totalGroupTimeMs / group.totalQuantity) * job.qta 
+                    : 0;
             }
         } else {
              phaseTimeMs = getPhaseTimeMilliseconds(phase);
@@ -652,6 +648,18 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const jobsToAnalyze = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
+
+    const allGroups: Map<string, WorkGroup> = new Map();
+
+    for (const job of jobsToAnalyze) {
+        if (job.workGroupId && !allGroups.has(job.workGroupId)) {
+             const groupRef = doc(db, 'workGroups', job.workGroupId);
+             const groupSnap = await getDoc(groupRef);
+             if (groupSnap.exists()) {
+                allGroups.set(job.workGroupId, convertTimestampsToDates(groupSnap.data()) as WorkGroup);
+             }
+        }
+    }
 
     for (const job of jobsToAnalyze) {
         const articleCode = job.details;
@@ -675,43 +683,34 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
         // Calculate phase details based on proportional time if in a group
-        const phaseDetails = jobPhases
+        const phaseDetailsPromises = jobPhases
           .filter(p => p.tracksTime !== false)
-          .map(phase => {
+          .map(async (phase) => {
             let phaseTimeMs = 0;
              if (job.workGroupId) {
-                const groupRef = doc(db, 'workGroups', job.workGroupId);
-                // This is a simplified fetch, in a real scenario you might cache group data
-                return getDoc(groupRef).then(groupSnap => {
-                     if (groupSnap.exists()) {
-                        const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-                        const groupPhase = (group.phases || []).find(p => p.id === phase.id);
-                        if (groupPhase) {
-                            const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
-                            phaseTimeMs = (group.totalQuantity > 0)
-                                ? (totalGroupTimeMs / group.totalQuantity) * job.qta
-                                : 0;
-                        }
+                const group = allGroups.get(job.workGroupId);
+                 if (group) {
+                    const groupPhase = (group.phases || []).find(p => p.id === phase.id);
+                    if (groupPhase) {
+                        const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+                        phaseTimeMs = (group.totalQuantity > 0)
+                            ? (totalGroupTimeMs / group.totalQuantity) * job.qta
+                            : 0;
                     }
-                    const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
-                    return {
-                        name: phase.name,
-                        totalTimeMinutes: phaseTimeMinutes,
-                        minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
-                    };
-                });
+                }
             } else {
                 phaseTimeMs = getPhaseTimeMilliseconds(phase);
-                const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
-                 return Promise.resolve({
-                    name: phase.name,
-                    totalTimeMinutes: phaseTimeMinutes,
-                    minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
-                });
             }
+
+            const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+             return {
+                name: phase.name,
+                totalTimeMinutes: phaseTimeMinutes,
+                minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
+            };
         });
 
-        const resolvedPhaseDetails = (await Promise.all(phaseDetails)).filter(p => p.totalTimeMinutes > 0);
+        const resolvedPhaseDetails = (await Promise.all(phaseDetailsPromises)).filter(p => p.totalTimeMinutes > 0);
 
         // Only add the job to the report if it has some tracked time
         if (totalTimeMinutes > 0) {
@@ -753,3 +752,4 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
