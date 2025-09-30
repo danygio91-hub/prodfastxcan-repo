@@ -63,7 +63,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             ...group,
             id: group.id,
             qta: group.totalQuantity || 0,
-            ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
+            ordinePF: group.ordinePF || 'Gruppo',
             numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
             numeroODL: allOdlEst.join(', ') || 'N/D',
             dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
@@ -214,7 +214,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
                 
                 if (allTypePhasesCompleted) {
                     await dissolveWorkGroup(groupData.id);
-                    return `Phasi di ${phaseType} completate, gruppo annullato come da policy.`;
+                    return `Fasi di ${phaseType} completate, gruppo annullato come da policy.`;
                 }
             }
             return null;
@@ -635,8 +635,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
             }
         }
         
-        transaction.update(jobRef, jobToUpdate);
-
         // If it's a group, propagate the phase change to all member jobs
         if (isGroup) {
             const group = jobData as WorkGroup;
@@ -645,6 +643,8 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
                 transaction.update(individualJobRef, { phases: jobToUpdate.phases });
             });
         }
+        
+        transaction.update(jobRef, jobToUpdate);
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
