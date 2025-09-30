@@ -52,7 +52,16 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             ? await Promise.all(jobIds.map(jobId => getDoc(doc(db, 'jobOrders', jobId))))
             : [];
         
-        const jobs = jobDocs.map(d => d.data() as JobOrder);
+        const jobs = jobDocs.filter(d => d.exists()).map(d => d.data() as JobOrder);
+
+        if (jobs.length === 0) {
+            // Fallback for an empty or invalid group: return the group's base data as a JobOrder-like object
+            return {
+                ...group,
+                id: group.id,
+                qta: group.totalQuantity || 0,
+            } as JobOrder;
+        }
 
         const allOdlInterno = [...new Set(jobs.map(j => j.numeroODLInterno).filter(Boolean))];
         const allOdlEst = [...new Set(jobs.map(j => j.numeroODL).filter(Boolean))];
@@ -644,7 +653,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
             });
         }
         
-        transaction.update(jobRef, jobToUpdate);
+        transaction.update(jobRef, { phases: jobToUpdate.phases });
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
@@ -764,3 +773,4 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
