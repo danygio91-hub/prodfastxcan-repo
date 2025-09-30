@@ -4,7 +4,7 @@
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
@@ -107,10 +107,9 @@ export async function getJobsReport() {
         } else if (job.status === 'completed') {
             overallStatus = 'Completata';
         } else if (job.status === 'production') {
-             // More detailed status for "in production"
-            const preparationPhases = (job.phases || []).filter(p => p.type === 'preparation');
-            const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-            if (!allPreparationDone) {
+            const preparationPhases = (job.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+            const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
+            if (isAnyPreparationActive) {
                 overallStatus = 'In Preparazione';
             } else {
                 overallStatus = 'In Lavorazione';
@@ -208,13 +207,23 @@ export async function getJobDetailReport(jobId: string) {
     const jobSnap = await getDoc(jobRef);
     if (!jobSnap.exists()) return null;
     
-    const jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
+    let jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
+    let workGroupId = jobDetail.workGroupId;
+    let group: WorkGroup | null = null;
+    
+    // If the job was part of a group, fetch the group's data to calculate proportional time
+    if (workGroupId) {
+        const groupRef = doc(db, 'workGroups', workGroupId);
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists()) {
+            group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+        }
+    }
 
     const operatorIds = [...new Set((jobDetail.phases || []).flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
     const operatorsMap = new Map<string, string>();
 
     if (operatorIds.length > 0) {
-        // Fetch only the needed operators
         const chunks = [];
         for (let i = 0; i < operatorIds.length; i += 30) {
             chunks.push(operatorIds.slice(i, i + 30));
@@ -230,25 +239,40 @@ export async function getJobDetailReport(jobId: string) {
         }
     }
 
+    let totalTimeElapsedMs = 0;
 
     const phasesWithDetails = (jobDetail.phases || []).map(phase => {
-        const timeElapsedMs = calculateTimeForPeriods(phase.workPeriods || []);
-        const operatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
-        const operators = operatorIds
-            .map(id => operatorsMap.get(id) || 'Sconosciuto')
-            .join(', ');
+        let timeElapsedMs = 0;
+        let operatorNames = 'N/A';
+
+        // Use group data for time calculation if available
+        if (group && group.phases) {
+            const groupPhase = group.phases.find(p => p.id === phase.id);
+            if (groupPhase) {
+                const totalGroupTimeMs = calculateTimeForPeriods(groupPhase.workPeriods || []);
+                const timePerUnit = group.totalQuantity > 0 ? totalGroupTimeMs / group.totalQuantity : 0;
+                timeElapsedMs = timePerUnit * jobDetail.qta;
+                
+                const phaseOperatorIds = [...new Set((groupPhase.workPeriods || []).map(p => p.operatorId))];
+                operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
+            }
+        } else { // Fallback to individual job data if not in a group or group data is missing
+            timeElapsedMs = calculateTimeForPeriods(phase.workPeriods || []);
+            const phaseOperatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
+            operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
+        }
+        
+        if(phase.tracksTime !== false) {
+          totalTimeElapsedMs += timeElapsedMs;
+        }
 
         return {
             ...phase,
             timeElapsed: formatDuration(timeElapsedMs),
-            operators: operators || 'N/A',
+            operators: operatorNames || 'N/A',
         };
     });
     
-    const totalTimeElapsedMs = (jobDetail.phases || [])
-      .filter(p => p.tracksTime !== false)
-      .reduce((total, p) => total + calculateTimeForPeriods(p.workPeriods || []), 0);
-
     return {
         ...jobDetail,
         phases: phasesWithDetails,
@@ -573,26 +597,42 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
     }, 0);
 }
 
-function getTotalTrackedMilliseconds(job: JobOrder): { totalMs: number; isReliable: boolean } {
-    const timeTrackingPhases = (job.phases || []).filter(p => p.tracksTime !== false);
+async function getTotalTrackedMilliseconds(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean }> {
+    if (job.workGroupId) {
+        const groupRef = doc(db, 'workGroups', job.workGroupId);
+        const groupSnap = await getDoc(groupRef);
+        if (groupSnap.exists()) {
+            const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+            const timeTrackingPhasesInGroup = (group.phases || []).filter(p => p.tracksTime !== false);
+            const totalGroupTimeMs = timeTrackingPhasesInGroup.reduce((total, phase) => total + getPhaseTimeMilliseconds(phase), 0);
+            
+            const isReliable = timeTrackingPhasesInGroup.length > 0 && timeTrackingPhasesInGroup.every(p => getPhaseTimeMilliseconds(p) > 0);
+            
+            if (group.totalQuantity > 0) {
+                const timePerUnit = totalGroupTimeMs / group.totalQuantity;
+                return { totalMs: timePerUnit * job.qta, isReliable };
+            }
+        }
+    }
     
+    // Fallback to individual job if not in group or group not found
+    const timeTrackingPhases = (job.phases || []).filter(p => p.tracksTime !== false);
     let isReliable = true;
     const totalMs = timeTrackingPhases.reduce((total, phase) => {
         const phaseTime = getPhaseTimeMilliseconds(phase);
-        // If a phase that should track time has 0 time, the calculation is not reliable
         if (phaseTime === 0) {
             isReliable = false;
         }
         return total + phaseTime;
     }, 0);
-
-    // If there are no phases that track time, the calculation is not considered reliable for piece time.
+    
     if (timeTrackingPhases.length === 0) {
         isReliable = false;
     }
 
     return { totalMs, isReliable };
 }
+
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
     const jobsRef = collection(db, "jobOrders");
@@ -616,7 +656,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             };
         }
 
-        const { totalMs, isReliable } = getTotalTrackedMilliseconds(job);
+        const { totalMs, isReliable } = await getTotalTrackedMilliseconds(job);
         const totalTimeMinutes = totalMs / (1000 * 60);
         
         if (job.qta <= 0) continue; // Skip jobs with no quantity to avoid division by zero
