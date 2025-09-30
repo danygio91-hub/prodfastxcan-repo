@@ -61,6 +61,12 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
                 qta: group.totalQuantity || 0,
                 postazioneLavoro: 'N/A',
                 phases: group.phases || [],
+                ordinePF: group.ordinePF || 'Gruppo',
+                details: group.details || 'Lavorazione Multi-Commessa',
+                department: group.department || 'N/D',
+                dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
+                status: group.status,
+                cliente: group.cliente || 'N/D'
             } as JobOrder;
         }
 
