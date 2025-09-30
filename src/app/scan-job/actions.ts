@@ -45,6 +45,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 
     if (isWorkGroup) {
         const group = data as WorkGroup;
+        // Construct a JobOrder-like object from the WorkGroup data for consistent handling in the UI
         return {
             id: group.id,
             status: group.status,
@@ -60,10 +61,10 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             problemReportedBy: group.problemReportedBy,
             workGroupId: group.id,
             qta: group.totalQuantity || 0,
-            ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
-            details: 'Lavorazione Multi-Commessa',
+            ordinePF: group.ordinePF || 'Gruppo',
+            details: group.details || 'Lavorazione Multi-Commessa',
             numeroODLInterno: group.numeroODLInterno || 'N/D',
-            numeroODL: group.numeroODL || 'N/D',
+            numeroODL: group.numeroODL || 'N/D', // Added missing property
             dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
             postazioneLavoro: 'Multi-Commessa',
         };
@@ -763,3 +764,5 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
+    
