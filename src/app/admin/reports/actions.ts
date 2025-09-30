@@ -107,7 +107,14 @@ export async function getJobsReport() {
         } else if (job.status === 'completed') {
             overallStatus = 'Completata';
         } else if (job.status === 'production') {
-             overallStatus = 'In Lavorazione';
+             // More detailed status for "in production"
+            const preparationPhases = (job.phases || []).filter(p => p.type === 'preparation');
+            const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
+            if (!allPreparationDone) {
+                overallStatus = 'In Preparazione';
+            } else {
+                overallStatus = 'In Lavorazione';
+            }
         } else {
             overallStatus = 'Da Iniziare';
         }
