@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -8,6 +7,7 @@ import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
+import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -149,6 +149,15 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     }
 }
 
+async function getConcatenationPolicy() {
+    const configDoc = await getDoc(doc(db, 'configuration', 'concatenationPolicy'));
+    if (configDoc.exists()) {
+        return configDoc.data();
+    }
+    return { ungroupAfterPreparation: false }; // Default value
+}
+
+
 export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
     const groupRef = doc(db, "workGroups", groupData.id);
 
@@ -186,6 +195,19 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         });
 
         await batch.commit();
+
+        // Check for automatic ungrouping
+        const policy = await getConcatenationPolicy();
+        const allPreparationPhasesCompleted = (groupData.phases || [])
+            .filter(p => p.type === 'preparation')
+            .every(p => p.status === 'completed');
+        
+        if (policy.ungroupAfterPreparation && allPreparationPhasesCompleted) {
+            await dissolveWorkGroup(groupData.id);
+            revalidatePath('/scan-job'); // Force revalidation after dissolving
+            return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato. Fasi di preparazione completate, gruppo annullato come da policy.` };
+        }
+
 
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
@@ -647,12 +669,11 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         if (jobs.some(j => !j)) {
             return { success: false, message: 'Una o più commesse selezionate non sono valide.' };
         }
-        const firstJob = jobs[0];
-        
-        if (jobs.some(j => j.workGroupId)) {
+         if (jobs.some(j => j.workGroupId)) {
             return { success: false, message: 'Una o più commesse selezionate fanno già parte di un altro gruppo.' };
         }
-
+        const firstJob = jobs[0];
+        
         const { workCycleId, department, cliente } = firstJob;
         if (jobs.some(j => j.workCycleId !== workCycleId || j.department !== department || j.cliente !== cliente)) {
             return { success: false, message: 'Le commesse non sono compatibili. Devono avere lo stesso ciclo, reparto e cliente.' };

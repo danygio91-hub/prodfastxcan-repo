@@ -6,6 +6,7 @@ import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup } from '@/lib/mock-data';
+import { dissolveWorkGroup } from '../work-group-management/actions';
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -55,6 +56,16 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
 
 export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
+    const isGroup = jobId.startsWith('group-');
+    
+    if (isGroup) {
+      await dissolveWorkGroup(jobId);
+      return { 
+        success: true, 
+        message: 'Azione non compatibile con i gruppi. Il gruppo è stato annullato per permettere la modifica individuale delle commesse.' 
+      };
+    }
+
     const jobRef = doc(db, 'jobOrders', jobId);
     const jobSnap = await getDoc(jobRef);
 
