@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -24,7 +25,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { useRouter } from 'next/navigation';
 
-export default function WorkGroupManagementPage() {
+function WorkGroupManagementContent() {
   const [groups, setGroups] = useState<WorkGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, setIsPending] = useState(false);
@@ -198,4 +199,12 @@ export default function WorkGroupManagementPage() {
       </AppShell>
     </AdminAuthGuard>
   );
+}
+
+export default function WorkGroupManagementPage() {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <WorkGroupManagementContent />
+        </Suspense>
+    )
 }
