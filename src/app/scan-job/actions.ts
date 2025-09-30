@@ -56,17 +56,19 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
         // Fallback for an empty or invalid group: return the group's base data as a JobOrder-like object
         if (jobs.length === 0) {
             return {
-                ...(group as WorkGroup),
                 id: group.id,
                 qta: group.totalQuantity || 0,
+                status: group.status,
+                cliente: group.cliente,
+                ordinePF: group.ordinePF || 'Gruppo',
+                details: group.details,
+                department: group.department,
+                dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
                 postazioneLavoro: 'N/A',
                 phases: group.phases || [],
-                ordinePF: group.ordinePF || 'Gruppo',
-                details: group.details || 'Lavorazione Multi-Commessa',
-                department: group.department || 'N/D',
-                dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
-                status: group.status,
-                cliente: group.cliente || 'N/D'
+                numeroODL: group.numeroODL,
+                numeroODLInterno: group.numeroODLInterno,
+                workCycleId: group.workCycleId,
             } as JobOrder;
         }
 
@@ -191,7 +193,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const batch = writeBatch(db);
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
         
-        if (allPhasesCompleted && !groupData.isProblemReported && groupData.status !== 'suspended') {
+        if (allPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
                 groupData.overallEndTime = new Date();
