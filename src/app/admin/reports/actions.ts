@@ -620,7 +620,7 @@ async function getTotalTrackedMilliseconds(job: JobOrder): Promise<{ totalMs: nu
     let isReliable = true;
     const totalMs = timeTrackingPhases.reduce((total, phase) => {
         const phaseTime = getPhaseTimeMilliseconds(phase);
-        if (phaseTime === 0) {
+        if (phaseTime === 0 && phase.status === 'completed') { // A completed phase with 0 time is unreliable
             isReliable = false;
         }
         return total + phaseTime;
@@ -636,13 +636,13 @@ async function getTotalTrackedMilliseconds(job: JobOrder): Promise<{ totalMs: nu
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "==", "completed"));
+    const q = query(jobsRef, where("status", "in", ["completed", "production", "suspended"]));
     const jobsSnapshot = await getDocs(q);
-    const completedJobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    const jobsToAnalyze = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
 
-    for (const job of completedJobs) {
+    for (const job of jobsToAnalyze) {
         const articleCode = job.details;
         if (!articleCode) continue;
 
@@ -664,7 +664,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
         const phaseDetails = (job.phases || [])
-          .filter(p => p.tracksTime !== false)
+          .filter(p => p.tracksTime !== false && getPhaseTimeMilliseconds(p) > 0)
           .map(phase => {
             const phaseTimeMs = getPhaseTimeMilliseconds(phase);
             const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
@@ -675,23 +675,31 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             };
         });
 
-        const report = analysisByArticle[articleCode];
-        report.totalJobs += 1;
-        report.totalQuantity += job.qta;
-        report.jobs.push({
-            id: job.ordinePF,
-            cliente: job.cliente,
-            qta: job.qta,
-            totalTimeMinutes: totalTimeMinutes,
-            minutesPerPiece: minutesPerPiece,
-            isTimeCalculationReliable: isReliable,
-            phases: phaseDetails,
-        });
+        // Only add the job to the report if it has some tracked time
+        if (totalTimeMinutes > 0) {
+            const report = analysisByArticle[articleCode];
+            report.totalJobs += 1;
+            report.totalQuantity += job.qta;
+            report.jobs.push({
+                id: job.ordinePF,
+                cliente: job.cliente,
+                qta: job.qta,
+                totalTimeMinutes: totalTimeMinutes,
+                minutesPerPiece: minutesPerPiece,
+                isTimeCalculationReliable: isReliable,
+                phases: phaseDetails,
+            });
+        }
     }
 
     // Calculate the final average based only on reliable jobs
     for (const articleCode in analysisByArticle) {
         const report = analysisByArticle[articleCode];
+        if (report.jobs.length === 0) {
+            // If no jobs with time were found, remove the article from the report
+            delete analysisByArticle[articleCode];
+            continue;
+        }
         
         const reliableJobs = report.jobs.filter(j => j.isTimeCalculationReliable);
         
@@ -701,7 +709,14 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         if (totalQuantityFromReliableJobs > 0) {
             report.averageMinutesPerPiece = totalMinutesFromReliableJobs / totalQuantityFromReliableJobs;
         } else {
-            report.averageMinutesPerPiece = 0; // Set to 0 if no reliable jobs are found
+             // If no reliable jobs, calculate average from all available jobs for a partial estimate
+            const totalMinutesFromAllJobs = report.jobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
+            const totalQuantityFromAllJobs = report.jobs.reduce((sum, j) => sum + j.qta, 0);
+            if (totalQuantityFromAllJobs > 0) {
+                report.averageMinutesPerPiece = totalMinutesFromAllJobs / totalQuantityFromAllJobs;
+            } else {
+                 report.averageMinutesPerPiece = 0;
+            }
         }
     }
 
