@@ -47,19 +47,20 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
         const group = data as WorkGroup;
         const jobIds = group.jobOrderIds || [];
         
-        // Fetch individual jobs to aggregate data if needed
         const jobDocs = jobIds.length > 0
             ? await Promise.all(jobIds.map(jobId => getDoc(doc(db, 'jobOrders', jobId))))
             : [];
         
         const jobs = jobDocs.filter(d => d.exists()).map(d => d.data() as JobOrder);
 
+        // Fallback for an empty or invalid group: return the group's base data as a JobOrder-like object
         if (jobs.length === 0) {
-            // Fallback for an empty or invalid group: return the group's base data as a JobOrder-like object
             return {
-                ...group,
+                ...(group as WorkGroup),
                 id: group.id,
                 qta: group.totalQuantity || 0,
+                postazioneLavoro: 'N/A',
+                phases: group.phases || [],
             } as JobOrder;
         }
 
@@ -76,6 +77,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
             numeroODL: allOdlEst.join(', ') || 'N/D',
             dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
+            postazioneLavoro: 'Multi-Commessa',
         } as JobOrder;
     }
 
@@ -773,4 +775,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
-
