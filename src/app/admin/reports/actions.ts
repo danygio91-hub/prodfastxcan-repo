@@ -597,40 +597,51 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
     }, 0);
 }
 
-async function getTotalTrackedMilliseconds(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean }> {
+async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phases: JobPhase[] }> {
+    let totalMs = 0;
+    let jobPhases: JobPhase[] = [];
+
     if (job.workGroupId) {
         const groupRef = doc(db, 'workGroups', job.workGroupId);
         const groupSnap = await getDoc(groupRef);
         if (groupSnap.exists()) {
             const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-            const timeTrackingPhasesInGroup = (group.phases || []).filter(p => p.tracksTime !== false);
-            const totalGroupTimeMs = timeTrackingPhasesInGroup.reduce((total, phase) => total + getPhaseTimeMilliseconds(phase), 0);
-            
-            const isReliable = timeTrackingPhasesInGroup.length > 0 && timeTrackingPhasesInGroup.every(p => getPhaseTimeMilliseconds(p) > 0);
-            
-            if (group.totalQuantity > 0) {
-                const timePerUnit = totalGroupTimeMs / group.totalQuantity;
-                return { totalMs: timePerUnit * job.qta, isReliable };
-            }
+            jobPhases = group.phases || [];
+        } else {
+            // Fallback if group is somehow deleted
+            jobPhases = job.phases || [];
         }
-    }
-    
-    // Fallback to individual job if not in group or group not found
-    const timeTrackingPhases = (job.phases || []).filter(p => p.tracksTime !== false);
-    let isReliable = true;
-    const totalMs = timeTrackingPhases.reduce((total, phase) => {
-        const phaseTime = getPhaseTimeMilliseconds(phase);
-        if (phaseTime === 0 && phase.status === 'completed') { // A completed phase with 0 time is unreliable
-            isReliable = false;
-        }
-        return total + phaseTime;
-    }, 0);
-    
-    if (timeTrackingPhases.length === 0) {
-        isReliable = false;
+    } else {
+        jobPhases = job.phases || [];
     }
 
-    return { totalMs, isReliable };
+    const timeTrackingPhases = jobPhases.filter(p => p.tracksTime !== false);
+    
+    // Check if the calculation is reliable. It's reliable if all time-tracked phases are completed.
+    const isReliable = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
+
+    for (const phase of timeTrackingPhases) {
+        let phaseTimeMs = 0;
+        if (job.workGroupId) {
+            const groupRef = doc(db, 'workGroups', job.workGroupId);
+            const groupSnap = await getDoc(groupRef);
+             if (groupSnap.exists()) {
+                const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+                const groupPhase = (group.phases || []).find(p => p.id === phase.id);
+                if (groupPhase) {
+                    const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+                    phaseTimeMs = (group.totalQuantity > 0) 
+                        ? (totalGroupTimeMs / group.totalQuantity) * job.qta 
+                        : 0;
+                }
+            }
+        } else {
+             phaseTimeMs = getPhaseTimeMilliseconds(phase);
+        }
+        totalMs += phaseTimeMs;
+    }
+    
+    return { totalMs, isReliable, phases: jobPhases };
 }
 
 
@@ -656,24 +667,51 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             };
         }
 
-        const { totalMs, isReliable } = await getTotalTrackedMilliseconds(job);
+        const { totalMs, isReliable, phases: jobPhases } = await getJobTimeData(job);
         const totalTimeMinutes = totalMs / (1000 * 60);
         
-        if (job.qta <= 0) continue; // Skip jobs with no quantity to avoid division by zero
+        if (job.qta <= 0) continue; // Skip jobs with no quantity
         
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
-        const phaseDetails = (job.phases || [])
-          .filter(p => p.tracksTime !== false && getPhaseTimeMilliseconds(p) > 0)
+        // Calculate phase details based on proportional time if in a group
+        const phaseDetails = jobPhases
+          .filter(p => p.tracksTime !== false)
           .map(phase => {
-            const phaseTimeMs = getPhaseTimeMilliseconds(phase);
-            const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
-            return {
-                name: phase.name,
-                totalTimeMinutes: phaseTimeMinutes,
-                minutesPerPiece: phaseTimeMinutes / job.qta,
-            };
+            let phaseTimeMs = 0;
+             if (job.workGroupId) {
+                const groupRef = doc(db, 'workGroups', job.workGroupId);
+                // This is a simplified fetch, in a real scenario you might cache group data
+                return getDoc(groupRef).then(groupSnap => {
+                     if (groupSnap.exists()) {
+                        const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+                        const groupPhase = (group.phases || []).find(p => p.id === phase.id);
+                        if (groupPhase) {
+                            const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+                            phaseTimeMs = (group.totalQuantity > 0)
+                                ? (totalGroupTimeMs / group.totalQuantity) * job.qta
+                                : 0;
+                        }
+                    }
+                    const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+                    return {
+                        name: phase.name,
+                        totalTimeMinutes: phaseTimeMinutes,
+                        minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
+                    };
+                });
+            } else {
+                phaseTimeMs = getPhaseTimeMilliseconds(phase);
+                const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+                 return Promise.resolve({
+                    name: phase.name,
+                    totalTimeMinutes: phaseTimeMinutes,
+                    minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
+                });
+            }
         });
+
+        const resolvedPhaseDetails = (await Promise.all(phaseDetails)).filter(p => p.totalTimeMinutes > 0);
 
         // Only add the job to the report if it has some tracked time
         if (totalTimeMinutes > 0) {
@@ -687,7 +725,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
                 totalTimeMinutes: totalTimeMinutes,
                 minutesPerPiece: minutesPerPiece,
                 isTimeCalculationReliable: isReliable,
-                phases: phaseDetails,
+                phases: resolvedPhaseDetails,
             });
         }
     }
@@ -696,7 +734,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     for (const articleCode in analysisByArticle) {
         const report = analysisByArticle[articleCode];
         if (report.jobs.length === 0) {
-            // If no jobs with time were found, remove the article from the report
             delete analysisByArticle[articleCode];
             continue;
         }
@@ -709,14 +746,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         if (totalQuantityFromReliableJobs > 0) {
             report.averageMinutesPerPiece = totalMinutesFromReliableJobs / totalQuantityFromReliableJobs;
         } else {
-             // If no reliable jobs, calculate average from all available jobs for a partial estimate
-            const totalMinutesFromAllJobs = report.jobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
-            const totalQuantityFromAllJobs = report.jobs.reduce((sum, j) => sum + j.qta, 0);
-            if (totalQuantityFromAllJobs > 0) {
-                report.averageMinutesPerPiece = totalMinutesFromAllJobs / totalQuantityFromAllJobs;
-            } else {
-                 report.averageMinutesPerPiece = 0;
-            }
+            // If no reliable jobs, calculate average from all available jobs for a partial estimate but maybe set it to 0 to indicate it's not final
+            report.averageMinutesPerPiece = 0; 
         }
     }
 

@@ -127,8 +127,8 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                         <span className="font-semibold text-lg">{item.articleCode}</span>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm text-muted-foreground">Tempo Medio/Pz</div>
-                                        <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece.toFixed(4)} min</div>
+                                        <div className="text-sm text-muted-foreground">Tempo Medio/Pz (Affidabile)</div>
+                                        <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
                                     </div>
                                 </div>
                             </AccordionTrigger>
@@ -197,7 +197,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                         <Package className="h-16 w-16 text-muted-foreground mb-4" />
                         <p className="text-lg font-semibold text-muted-foreground">Nessun dato disponibile.</p>
                         <p className="text-sm text-muted-foreground">
-                            Non ci sono ancora commesse completate da analizzare.
+                            Non ci sono ancora commesse con tempi di lavorazione registrati.
                         </p>
                     </div>
                 )}
