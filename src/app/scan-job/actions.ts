@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -221,7 +222,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
 
         let dissolveMessage = await checkAndDissolve('preparation', 'ungroupAfterPreparation') ||
                               await checkAndDissolve('production', 'ungroupAfterProduction') ||
-                              await checkAndDissão('quality', 'ungroupAfterQuality');
+                              await checkAndDissolve('quality', 'ungroupAfterQuality');
 
         if (dissolveMessage) {
             revalidatePath('/scan-job'); 
@@ -635,9 +636,19 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         }
         
         transaction.update(jobRef, jobToUpdate);
+
+        // If it's a group, propagate the phase change to all member jobs
+        if (isGroup) {
+            const group = jobData as WorkGroup;
+            (group.jobOrderIds || []).forEach(individualJobId => {
+                const individualJobRef = doc(db, 'jobOrders', individualJobId);
+                transaction.update(individualJobRef, { phases: jobToUpdate.phases });
+            });
+        }
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
+    revalidatePath('/admin/production-console');
     return { success: true, message: `Fase avviata con successo.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
