@@ -8,6 +8,7 @@ import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsump
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
+import type { ConcatenationPolicy } from '../admin/concatenation-settings/actions';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -89,6 +90,13 @@ export async function verifyAndGetJobOrder(scannedData: {
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
 
+  if (job.workGroupId) {
+    return {
+      error: `Questa commessa fa parte del gruppo ${job.workGroupId}. Non può essere lavorata singolarmente.`,
+      title: 'Commessa in un Gruppo',
+    };
+  }
+
   if (job.status !== 'production' && job.status !== 'suspended') {
      return {
       error: `La commessa "${scannedData.ordinePF}" non è in produzione o sospesa. Stato attuale: ${job.status}.`,
@@ -149,12 +157,12 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     }
 }
 
-async function getConcatenationPolicy() {
+async function getConcatenationPolicy(): Promise<ConcatenationPolicy> {
     const configDoc = await getDoc(doc(db, 'configuration', 'concatenationPolicy'));
     if (configDoc.exists()) {
-        return configDoc.data();
+        return configDoc.data() as ConcatenationPolicy;
     }
-    return { ungroupAfterPreparation: false }; // Default value
+    return { ungroupAfterPreparation: false, ungroupAfterProduction: false, ungroupAfterQuality: false }; // Default value
 }
 
 
@@ -195,17 +203,29 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         });
 
         await batch.commit();
-
-        // Check for automatic ungrouping
-        const policy = await getConcatenationPolicy();
-        const allPreparationPhasesCompleted = (groupData.phases || [])
-            .filter(p => p.type === 'preparation')
-            .every(p => p.status === 'completed');
         
-        if (policy.ungroupAfterPreparation && allPreparationPhasesCompleted) {
-            await dissolveWorkGroup(groupData.id);
-            revalidatePath('/scan-job'); // Force revalidation after dissolving
-            return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato. Fasi di preparazione completate, gruppo annullato come da policy.` };
+        const policy = await getConcatenationPolicy();
+        const checkAndDissolve = async (phaseType: 'preparation' | 'production' | 'quality', policyFlag: keyof ConcatenationPolicy) => {
+            if (policy[policyFlag]) {
+                const allTypePhasesCompleted = (groupData.phases || [])
+                    .filter(p => p.type === phaseType)
+                    .every(p => p.status === 'completed');
+                
+                if (allTypePhasesCompleted) {
+                    await dissolveWorkGroup(groupData.id);
+                    return `Phasi di ${phaseType} completate, gruppo annullato come da policy.`;
+                }
+            }
+            return null;
+        };
+
+        let dissolveMessage = await checkAndDissolve('preparation', 'ungroupAfterPreparation') ||
+                              await checkAndDissolve('production', 'ungroupAfterProduction') ||
+                              await checkAndDissão('quality', 'ungroupAfterQuality');
+
+        if (dissolveMessage) {
+            revalidatePath('/scan-job'); 
+            return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato. ${dissolveMessage}` };
         }
 
 
@@ -573,8 +593,8 @@ export async function searchRawMaterials(
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    const availability = await isOperatorActiveOnAnyJob(operatorId);
-    if (!availability.available && availability.activeJobId !== jobId) {
+    const availability = await isOperatorActiveOnAnyJob(operatorId, jobId);
+    if (!availability.available) {
         return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
     }
 
@@ -624,7 +644,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
   }
 }
 
-export async function isOperatorActiveOnAnyJob(operatorId: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
+export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
     const jobsRef = collection(db, "jobOrders");
     const groupsRef = collection(db, "workGroups");
     const collectionsToScan = [jobsRef, groupsRef];
@@ -639,6 +659,11 @@ export async function isOperatorActiveOnAnyJob(operatorId: string): Promise<{ av
 
         for (const doc of querySnapshot.docs) {
             const item = doc.data() as JobOrder | WorkGroup;
+            // If the operator is active on the job they are currently trying to interact with, it's fine.
+            if (item.id === currentJobId) {
+                continue;
+            }
+
             for (const phase of (item.phases || [])) {
                 if (phase.status === 'in-progress') {
                     const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);

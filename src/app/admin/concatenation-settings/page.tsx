@@ -7,15 +7,20 @@ import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Combine, Save, Loader2, Link2, Zap } from 'lucide-react';
-import { getConcatenationPolicy, saveConcatenationPolicy } from './actions';
+import { Combine, Save, Loader2, Link, Zap, ShieldCheck, Unlink } from 'lucide-react';
+import { getConcatenationPolicy, saveConcatenationPolicy, type ConcatenationPolicy } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function ConcatenationSettingsPage() {
-  const [policy, setPolicy] = useState<{ ungroupAfterPreparation: boolean }>({ ungroupAfterPreparation: false });
+  const [policy, setPolicy] = useState<ConcatenationPolicy>({ 
+      ungroupAfterPreparation: false, 
+      ungroupAfterProduction: false,
+      ungroupAfterQuality: false,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const { user } = useAuth();
@@ -55,14 +60,36 @@ export default function ConcatenationSettingsPage() {
     setIsSaving(false);
   };
 
-  const handleSwitchChange = (checked: boolean) => {
-    setPolicy(prev => ({ ...prev, ungroupAfterPreparation: checked }));
+  const handleSwitchChange = (field: keyof ConcatenationPolicy, checked: boolean) => {
+    setPolicy(prev => ({ ...prev, [field]: checked }));
   };
+
+  const renderPolicySwitch = (field: keyof ConcatenationPolicy, title: string, description: string, icon: React.ElementType) => {
+    const Icon = icon;
+    return (
+       <div className="flex items-center space-x-4 rounded-md border p-4">
+        <Icon className="h-6 w-6 text-primary" />
+        <div className="flex-1 space-y-1">
+          <Label htmlFor={field} className="text-base">
+            {title}
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <Switch
+          id={field}
+          checked={policy[field]}
+          onCheckedChange={(checked) => handleSwitchChange(field, checked)}
+        />
+      </div>
+    );
+  }
 
   return (
     <AdminAuthGuard>
       <AppShell>
-        <div className="space-y-6 max-w-3xl mx-auto">
+        <div className="space-y-8 max-w-4xl mx-auto">
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <Combine className="h-8 w-8 text-primary" />
@@ -80,54 +107,36 @@ export default function ConcatenationSettingsPage() {
                 Attiva queste opzioni per far sì che i gruppi di commesse si annullino automaticamente al completamento di determinate tipologie di fasi.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4">
               {isLoading ? (
-                <div className="flex items-center space-x-4">
-                  <Skeleton className="h-6 w-6" />
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-[250px]" />
-                    <Skeleton className="h-4 w-[200px]" />
-                  </div>
+                <div className="space-y-4">
+                  <Skeleton className="h-20 w-full" />
+                  <Skeleton className="h-20 w-full" />
                 </div>
               ) : (
-                <div className="flex items-center space-x-4 rounded-md border p-4">
-                  <Zap className="h-6 w-6 text-primary" />
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor="ungroup-preparation" className="text-base">
-                      Annulla Gruppo dopo le Fasi di Preparazione
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      Se attivo, un gruppo verrà sciolto automaticamente quando tutte le sue fasi di tipo "Preparazione" sono state completate.
-                    </p>
-                  </div>
-                  <Switch
-                    id="ungroup-preparation"
-                    checked={policy.ungroupAfterPreparation}
-                    onCheckedChange={handleSwitchChange}
-                  />
-                </div>
+                <>
+                  {renderPolicySwitch('ungroupAfterPreparation', 'Annulla Gruppo dopo le Fasi di Preparazione', 'Se attivo, un gruppo verrà sciolto automaticamente quando tutte le sue fasi di tipo "Preparazione" sono state completate.', Zap)}
+                  {renderPolicySwitch('ungroupAfterProduction', 'Annulla Gruppo dopo le Fasi di Produzione', 'Se attivo, il gruppo verrà sciolto quando tutte le fasi di "Produzione" saranno completate, prima del collaudo.', Link)}
+                  {renderPolicySwitch('ungroupAfterQuality', 'Annulla Gruppo dopo il Controllo Qualità', 'Se attivo, il gruppo verrà sciolto dopo che tutte le fasi di "Qualità" sono state superate.', ShieldCheck)}
+                </>
               )}
-               {/* Placeholder for future rules */}
-                <div className="flex items-center space-x-4 rounded-md border p-4 opacity-50 cursor-not-allowed">
-                  <Link2 className="h-6 w-6" />
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor="ungroup-production" className="text-base">
-                      Annulla Gruppo dopo le Fasi di Produzione (Prossimamente)
-                    </Label>
-                    <p className="text-sm text-muted-foreground">
-                      Questa opzione non è ancora disponibile.
-                    </p>
-                  </div>
-                  <Switch id="ungroup-production" disabled />
-                </div>
             </CardContent>
-            <CardContent>
+            <CardFooter>
               <Button onClick={handleSave} disabled={isSaving || isLoading}>
                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
                 Salva Impostazioni
               </Button>
-            </CardContent>
+            </CardFooter>
           </Card>
+          
+           <Alert variant="default" className="border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+             <Unlink className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <AlertTitle className="text-amber-800 dark:text-amber-300">Regola Speciale: Posticipo Fase</AlertTitle>
+            <AlertDescription>
+             Attenzione: L'azione "Posticipa Taglio Guaina", se utilizzata su un gruppo di commesse, ne causerà l'annullamento immediato per preservare l'integrità del ciclo di lavorazione. Le commesse torneranno individuali e dovranno essere eventualmente raggruppate di nuovo in seguito.
+            </AlertDescription>
+          </Alert>
+
         </div>
       </AppShell>
     </AdminAuthGuard>

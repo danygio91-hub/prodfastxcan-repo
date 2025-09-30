@@ -1,4 +1,3 @@
-
 'use server';
 
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -9,20 +8,30 @@ import { ensureAdmin } from '@/lib/server-auth';
 const CONFIG_ID = 'concatenationPolicy';
 const CONFIG_COLLECTION = 'configuration';
 
-export async function getConcatenationPolicy(): Promise<{ ungroupAfterPreparation: boolean }> {
+export interface ConcatenationPolicy {
+  ungroupAfterPreparation: boolean;
+  ungroupAfterProduction: boolean;
+  ungroupAfterQuality: boolean;
+}
+
+export async function getConcatenationPolicy(): Promise<ConcatenationPolicy> {
   const docRef = doc(db, CONFIG_COLLECTION, CONFIG_ID);
   const docSnap = await getDoc(docRef);
 
   if (docSnap.exists()) {
-    return docSnap.data() as { ungroupAfterPreparation: boolean };
+    return docSnap.data() as ConcatenationPolicy;
   }
   
   // Default policy
-  return { ungroupAfterPreparation: false };
+  return { 
+    ungroupAfterPreparation: false,
+    ungroupAfterProduction: false,
+    ungroupAfterQuality: false,
+  };
 }
 
 export async function saveConcatenationPolicy(
-  policy: { ungroupAfterPreparation: boolean },
+  policy: ConcatenationPolicy,
   uid: string
 ): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
