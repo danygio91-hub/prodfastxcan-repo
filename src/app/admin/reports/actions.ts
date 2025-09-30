@@ -108,8 +108,10 @@ export async function getJobsReport() {
             overallStatus = 'Completata';
         } else if (job.status === 'production') {
             const preparationPhases = (job.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
+            const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
             const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
-            if (isAnyPreparationActive) {
+
+            if (isAnyPreparationActive && !allPreparationDone) {
                 overallStatus = 'In Preparazione';
             } else {
                 overallStatus = 'In Lavorazione';
@@ -752,4 +754,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-

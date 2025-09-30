@@ -61,7 +61,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
                 status: group.status,
                 cliente: group.cliente,
                 ordinePF: group.ordinePF || 'Gruppo',
-                details: group.details,
+                details: group.details || 'Lavorazione Multi-Commessa',
                 department: group.department,
                 dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
                 postazioneLavoro: 'N/A',
@@ -69,6 +69,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
                 numeroODL: group.numeroODL,
                 numeroODLInterno: group.numeroODLInterno,
                 workCycleId: group.workCycleId,
+                workGroupId: group.id,
             } as JobOrder;
         }
 

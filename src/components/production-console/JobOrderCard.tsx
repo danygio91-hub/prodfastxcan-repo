@@ -124,11 +124,11 @@ export default function JobOrderCard({
   
   const activeOperators = useMemo(() => {
     const active: ActiveOperator[] = [];
-    const source = jobOrder.id.startsWith('group-') ? workGroup : jobOrder;
+    const source = (jobOrder.id.startsWith('group-') && workGroup) ? workGroup : jobOrder;
 
     (source?.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
-            phase.workPeriods.forEach(wp => {
+            (phase.workPeriods || []).forEach(wp => {
                 if (wp.end === null) {
                     const operator = allOperators.find(op => op.id === wp.operatorId);
                     if(operator) {
