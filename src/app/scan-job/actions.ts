@@ -41,50 +41,17 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 
     if (!docSnap.exists()) return null;
 
-    const data = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
+    const data = convertTimestampsToDates(docSnap.data());
 
     if (isWorkGroup) {
         const group = data as WorkGroup;
-        const jobIds = group.jobOrderIds || [];
-        
-        const jobDocs = jobIds.length > 0
-            ? await Promise.all(jobIds.map(jobId => getDoc(doc(db, 'jobOrders', jobId))))
-            : [];
-        
-        const jobs = jobDocs.filter(d => d.exists()).map(d => d.data() as JobOrder);
-
-        // Fallback for an empty or invalid group: return the group's base data as a JobOrder-like object
-        if (jobs.length === 0) {
-            return {
-                id: group.id,
-                qta: group.totalQuantity || 0,
-                status: group.status,
-                cliente: group.cliente,
-                ordinePF: group.ordinePF || 'Gruppo',
-                details: group.details || 'Lavorazione Multi-Commessa',
-                department: group.department,
-                dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
-                postazioneLavoro: 'Multi-Commessa',
-                phases: group.phases || [],
-                numeroODL: group.numeroODL || 'N/D',
-                numeroODLInterno: group.numeroODLInterno || 'N/D',
-                workCycleId: group.workCycleId,
-                workGroupId: group.id,
-            } as JobOrder;
-        }
-
-        const allOdlInterno = [...new Set(jobs.map(j => j.numeroODLInterno).filter(Boolean))];
-        const allOdlEst = [...new Set(jobs.map(j => j.numeroODL).filter(Boolean))];
-        const allDeliveryDates = jobs.map(j => j.dataConsegnaFinale).filter(Boolean).map(d => new Date(d));
-        const earliestDeliveryDate = allDeliveryDates.length > 0 ? new Date(Math.min(...allDeliveryDates.map(d => d.getTime()))) : null;
-
         return {
             id: group.id,
             status: group.status,
             cliente: group.cliente,
             department: group.department,
             workCycleId: group.workCycleId,
-            phases: group.phases,
+            phases: group.phases || [],
             overallStartTime: group.overallStartTime,
             overallEndTime: group.overallEndTime,
             isProblemReported: group.isProblemReported,
@@ -95,11 +62,11 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             qta: group.totalQuantity || 0,
             ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
             details: 'Lavorazione Multi-Commessa',
-            numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
-            numeroODL: allOdlEst.join(', ') || 'N/D',
-            dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
+            numeroODLInterno: group.numeroODLInterno || 'N/D',
+            numeroODL: group.numeroODL || 'N/D',
+            dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
             postazioneLavoro: 'Multi-Commessa',
-        } as JobOrder;
+        };
     }
 
     return data as JobOrder;
