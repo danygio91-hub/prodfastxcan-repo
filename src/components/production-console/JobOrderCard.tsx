@@ -126,7 +126,9 @@ export default function JobOrderCard({
     const active: ActiveOperator[] = [];
     const source = (jobOrder.id.startsWith('group-') && workGroup) ? workGroup : jobOrder;
 
-    (source?.phases || []).forEach(phase => {
+    if (!source) return [];
+
+    (source.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
             (phase.workPeriods || []).forEach(wp => {
                 if (wp.end === null) {

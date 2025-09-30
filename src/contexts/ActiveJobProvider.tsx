@@ -3,9 +3,9 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import type { JobOrder } from '@/lib/mock-data';
+import type { JobOrder, WorkGroup } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot, collection } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
@@ -76,7 +76,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onSnapshot(jobRef, (docSnap) => {
         if (docSnap.exists()) {
             const data = docSnap.data();
-            const jobWithDates: JobOrder = JSON.parse(JSON.stringify(data), (key, value) => {
+            const jobWithDates: any = JSON.parse(JSON.stringify(data), (key, value) => {
                  if ((key === 'start' || key === 'end' || key === 'overallStartTime' || key === 'overallEndTime' || key === 'odlCreationDate' || key === 'createdAt') && value && value.seconds !== undefined) {
                     return new Date(value.seconds * 1000);
                  }
@@ -86,10 +86,26 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
              // For a group, we create a synthetic JobOrder-like object for the context
             const jobToSet: JobOrder = isWorkGroup 
               ? {
-                  ...jobWithDates,
                   id: docSnap.id,
                   ordinePF: jobWithDates.jobOrderPFs?.join(', ') || 'Gruppo',
                   qta: jobWithDates.totalQuantity || 0,
+                  cliente: jobWithDates.cliente,
+                  department: jobWithDates.department,
+                  details: jobWithDates.details,
+                  numeroODLInterno: jobWithDates.numeroODLInterno,
+                  numeroODL: jobWithDates.numeroODL,
+                  dataConsegnaFinale: jobWithDates.dataConsegnaFinale,
+                  postazioneLavoro: 'Multi-Commessa',
+                  phases: jobWithDates.phases || [],
+                  status: jobWithDates.status === 'paused' ? 'production' : jobWithDates.status,
+                  workCycleId: jobWithDates.workCycleId,
+                  workGroupId: docSnap.id,
+                  overallStartTime: jobWithDates.overallStartTime,
+                  overallEndTime: jobWithDates.overallEndTime,
+                  isProblemReported: jobWithDates.isProblemReported,
+                  problemType: jobWithDates.problemType,
+                  problemNotes: jobWithDates.problemNotes,
+                  problemReportedBy: jobWithDates.problemReportedBy,
               }
               : jobWithDates;
 
