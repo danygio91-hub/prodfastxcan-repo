@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircle as PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -40,6 +40,7 @@ import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -690,8 +691,6 @@ export default function ScanJobPage() {
     });
   };
 
-  const allPhasesCompleted = activeJob?.phases.every(phase => phase.status === 'completed');
-
   const onProblemSubmit = (values: ProblemReportFormValues) => {
     if (activeJob && operator && values.problemType) {
       const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
@@ -998,6 +997,11 @@ export default function ScanJobPage() {
             return;
         }
         
+        if (result.workGroupId) {
+            toast({ variant: "destructive", title: "Commessa già in un gruppo", description: `La commessa ${result.id} fa già parte del gruppo ${result.workGroupId}.` });
+            return;
+        }
+        
         if (groupScanList.some(j => j.id === result.id)) {
             toast({ variant: "default", title: "Commessa già presente", description: "Questa commessa è già stata aggiunta al gruppo." });
             return;
@@ -1032,6 +1036,21 @@ export default function ScanJobPage() {
         setGroupScanList([]);
         setStep('initial');
     };
+
+    const handleDissolveGroup = async () => {
+      if (!activeJob || !activeJob.workGroupId) return;
+
+      const result = await dissolveWorkGroup(activeJob.workGroupId);
+       toast({
+          title: result.success ? "Gruppo Annullato" : "Errore",
+          description: result.message,
+          variant: result.success ? "default" : "destructive",
+      });
+      
+      if(result.success) {
+        setActiveJobId(null);
+      }
+    }
     // --- END GROUP SCANNING LOGIC ---
 
   if (step === 'loading') {
@@ -1045,6 +1064,7 @@ export default function ScanJobPage() {
   }
 
   const isAnyPhaseActiveForMe = activeJob?.phases.some(p => p.workPeriods.some(wp => wp.operatorId === operator?.id && wp.end === null));
+  const isAnyPhaseActiveAtAll = activeJob?.phases.some(p => p.status === 'in-progress');
 
   const renderInitialView = () => (
      <Card>
@@ -1621,7 +1641,7 @@ export default function ScanJobPage() {
         <div className="space-y-6 max-w-4xl mx-auto">
           
            {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
-                <div className="mb-4">
+                <div className="mb-4 space-y-2">
                      <Button 
                       className="w-full bg-orange-500 hover:bg-orange-600 text-white" 
                       onClick={resetForNewScan}
@@ -1630,6 +1650,31 @@ export default function ScanJobPage() {
                         <MoveLeft className="mr-2 h-4 w-4" />
                         Abbandona e Scansiona Altra Commessa
                     </Button>
+                    {activeJob?.workGroupId && (
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button
+                                className="w-full bg-teal-600 hover:bg-teal-700 text-white"
+                                disabled={isAnyPhaseActiveAtAll}
+                              >
+                                  <Unlink className="mr-2 h-4 w-4" />
+                                  Annulla Gruppo Commesse
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                              <AlertDialogHeader>
+                                  <AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                      Questa azione è irreversibile. Le commesse torneranno individuali. Puoi farlo solo se nessuna fase è in lavorazione.
+                                  </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                  <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDissolveGroup}>Sì, annulla gruppo</AlertDialogAction>
+                              </AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                 </div>
             )}
                 

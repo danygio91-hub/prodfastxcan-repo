@@ -90,13 +90,22 @@ export async function verifyAndGetJobOrder(scannedData: {
   }
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
-
+  
+  // --- MODIFIED LOGIC ---
+  // If the job is part of a group, fetch and return the group instead of an error.
   if (job.workGroupId) {
-    return {
-      error: `Questa commessa fa parte del gruppo ${job.workGroupId}. Non può essere lavorata singolarmente.`,
-      title: 'Commessa in un Gruppo',
-    };
+      const groupData = await getJobOrderById(job.workGroupId);
+      if (groupData) {
+          return groupData;
+      } else {
+          // This case is unlikely but handled for safety.
+          return {
+              error: `Questa commessa fa parte del gruppo ${job.workGroupId}, ma il gruppo non è stato trovato. Contattare un amministratore.`,
+              title: 'Gruppo non Trovato',
+          };
+      }
   }
+
 
   if (job.status !== 'production' && job.status !== 'suspended') {
      return {
