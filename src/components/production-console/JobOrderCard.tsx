@@ -157,7 +157,7 @@ export default function JobOrderCard({
 
   const toggleOperatorSelection = (opId: string) => {
     setSelectedOperatorsToPause(prev => 
-        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, opId]
+        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, id]
     );
   };
 
@@ -186,7 +186,7 @@ export default function JobOrderCard({
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activeOperators.length > 0;
-  const canForceComplete = !isAnyPhaseInProgress;
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
 
 
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
@@ -402,6 +402,14 @@ export default function JobOrderCard({
             </Tooltip>
            </TooltipProvider>
         )}
+        {overallStatus === 'Completata' && jobOrder.overallEndTime && (
+             <div className="p-3 bg-green-500/10 rounded-md border border-green-500/20">
+                <p className="text-sm font-semibold flex items-center gap-2 text-green-600">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Completata il: {format(new Date(jobOrder.overallEndTime), 'dd/MM/yyyy HH:mm')}
+                </p>
+            </div>
+        )}
         <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
             {jobOrder.phases && jobOrder.phases.length > 0 ? (
@@ -409,7 +417,7 @@ export default function JobOrderCard({
                     <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
                         {getPhaseIcon(phase.status)}
                         <span className="flex-1">{phase.name}</span>
-                        {phase.status === 'completed' && (
+                        {phase.status === 'completed' && overallStatus !== 'Completata' && (
                            <AlertDialog>
                               <AlertDialogTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => e.stopPropagation()}>

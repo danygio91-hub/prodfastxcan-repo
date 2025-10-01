@@ -105,7 +105,7 @@ export default function ProductionConsoleClientPage() {
         setIsLoading(false);
     });
 
-    const unsubscribeGroups = onSnapshot(groupsRef, (querySnapshot) => {
+    const unsubscribeGroups = onSnapshot(query(groupsRef, where("status", "in", ["production", "suspended", "completed"])), (querySnapshot) => {
         const groups: WorkGroup[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return JSON.parse(JSON.stringify(data), (key, value) => {
@@ -305,7 +305,7 @@ export default function ProductionConsoleClientPage() {
               <p className="text-sm text-muted-foreground max-w-md mx-auto mt-2">
                   {jobOrders.length === 0
                     ? <>Non ci sono ancora commesse in lavorazione. <Link href="/admin/data-management" className="text-primary underline hover:text-primary/80">Crea un ODL</Link> per iniziare.</>
-                    : `Nessuna commessa corrisponde ai filtri impostati. Prova a cambiare la ricerca o il filtro di stato.`
+                    : `Nessuna commessa corrisponde ai filtri impostati.`
                   }
               </p>
           </div>
