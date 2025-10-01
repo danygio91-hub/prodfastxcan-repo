@@ -271,10 +271,12 @@ export default function ScanJobPage() {
     if ('error' in result) {
         toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
     } else {
-        toast({ title: "Commessa Verificata!", description: `Pronto per iniziare la lavorazione per ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
-        handleStartOverallJob(result);
+        // If the verified job is a group or a standalone job, just set it as active.
+        // The useEffect will handle the transition to the 'processing' step.
+        toast({ title: "Commessa Verificata!", description: `Pronto per la lavorazione di ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
+        setActiveJobId(result.id);
     }
-  }, [toast, handleStartOverallJob, stopCamera]);
+  }, [toast, stopCamera, setActiveJobId]);
   
   const startCamera = useCallback(async () => {
     setHasCameraPermission(true);
@@ -471,12 +473,12 @@ export default function ScanJobPage() {
   const handleResumePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
     
-    const availability = await isOperatorActiveOnAnyJob(operator.id);
-    if (!availability.available && availability.activeJobId !== activeJob.id) {
+    const availability = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
+    if (!availability.available) {
        toast({
           variant: 'destructive',
           title: 'Azione bloccata',
-          description: 'Completa o metti in pausa l\'attività precedente (indicata sotto).',
+          description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l'attività precedente.`,
         });
         setIsStatusBarHighlighted(true);
         return;
@@ -664,7 +666,7 @@ export default function ScanJobPage() {
     });
     
     if (operator.role !== 'supervisor') {
-      setActiveJobId(null);
+      // Logic removed to prevent being kicked out
     }
   };
 
@@ -1085,7 +1087,7 @@ export default function ScanJobPage() {
                 <QrCode className="mr-2 h-5 w-5" />
                 Avvia Scansione
             </Button>
-            <Button onClick={() => setStep('group_scanning')} className="w-full bg-amber-500 text-amber-950 hover:bg-amber-500/90">
+            <Button onClick={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
                 <LinkIcon className="mr-2 h-5 w-5" />
                 Avvia Lavorazione Multi-Commessa
             </Button>
@@ -1107,23 +1109,6 @@ export default function ScanJobPage() {
         </div>
     </div>
   );
-
-  const handleScanJobSubmit = async (data: string) => {
-    stopCamera();
-    const parts = data.split('@');
-    if (parts.length !== 3) {
-      toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
-      return;
-    }
-    const [ordinePF, codice, qta] = parts;
-    const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
-
-    if ('error' in result) {
-      toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-    } else {
-      handleStartOverallJob(result);
-    }
-  };
 
   const renderJobDetailsCard = (job: JobOrder) => {
     return (
@@ -1688,10 +1673,10 @@ export default function ScanJobPage() {
                           <CardDescription>Inquadra il QR code della commessa per iniziare.</CardDescription>
                       </CardHeader>
                       <CardContent>
-                           {renderScanArea(handleScanJobSubmit)}
+                           {renderScanArea(handleScannedData)}
                       </CardContent>
                       <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScanJobSubmit)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
+                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
                               {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
                               <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
                            </Button>

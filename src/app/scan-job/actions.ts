@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -45,7 +46,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     if (isWorkGroup) {
         const group = data as WorkGroup;
         // Construct a JobOrder-like object from the WorkGroup data for consistent handling in the UI
-        return {
+         return {
             id: group.id,
             cliente: group.cliente,
             qta: group.totalQuantity,
@@ -53,6 +54,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             details: group.details,
             ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
             numeroODL: group.numeroODL || 'N/D',
+            numeroODLInterno: group.numeroODLInterno || 'N/D',
             dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
             postazioneLavoro: 'Multi-Commessa',
             phases: group.phases || [],
@@ -64,7 +66,6 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             problemReportedBy: group.problemReportedBy,
             status: group.status === 'paused' ? 'production' : group.status,
             workCycleId: group.workCycleId,
-            numeroODLInterno: group.numeroODLInterno,
             workGroupId: group.id,
         };
     }
@@ -220,13 +221,14 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const policy = await getConcatenationPolicy();
         const checkAndDissolve = async (phaseType: 'preparation' | 'production' | 'quality', policyFlag: keyof ConcatenationPolicy) => {
             if (policy[policyFlag]) {
-                const allTypePhasesCompleted = (groupData.phases || [])
-                    .filter(p => p.type === phaseType)
-                    .every(p => p.status === 'completed');
+                const typePhases = (groupData.phases || []).filter(p => p.type === phaseType);
+                if (typePhases.length === 0) return null; // No phases of this type to check
+                
+                const allTypePhasesCompleted = typePhases.every(p => p.status === 'completed');
                 
                 if (allTypePhasesCompleted) {
                     await dissolveWorkGroup(groupData.id);
-                    return `Fasi di ${phaseType} completate, gruppo annullato come da policy.`;
+                    return `Tutte le fasi di ${phaseType} sono state completate, il gruppo è stato sciolto come da policy.`;
                 }
             }
             return null;
