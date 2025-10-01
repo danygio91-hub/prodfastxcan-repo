@@ -48,7 +48,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
         // Construct a JobOrder-like object from the WorkGroup data for consistent handling in the UI
         return {
             id: group.id,
-            status: group.status === 'paused' ? 'production' : group.status,
+            status: group.status === 'paused' ? 'production' : group.status, // Map 'paused' to 'production' for JobOrder compatibility
             cliente: group.cliente,
             department: group.department,
             workCycleId: group.workCycleId,
@@ -197,10 +197,14 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
 
         // Propagate phase and status updates to all individual jobs in the group
         const updatePayload: { [key: string]: any } = {
-            phases: groupData.phases,
+            phases: groupData.phases, // This now includes qualityResult and all other phase state
             status: groupData.status,
             isProblemReported: groupData.isProblemReported || false,
+            problemType: groupData.problemType || deleteField(),
+            problemNotes: groupData.problemNotes || deleteField(),
+            problemReportedBy: groupData.problemReportedBy || deleteField(),
         };
+
 
         if (groupData.overallEndTime) {
             updatePayload.overallEndTime = groupData.overallEndTime;
