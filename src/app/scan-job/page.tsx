@@ -1065,6 +1065,7 @@ export default function ScanJobPage() {
 
   const isAnyPhaseActiveForMe = activeJob?.phases.some(p => p.workPeriods.some(wp => wp.operatorId === operator?.id && wp.end === null));
   const isAnyPhaseActiveAtAll = activeJob?.phases.some(p => p.status === 'in-progress');
+  const allPhasesCompleted = activeJob?.phases.every(p => p.status === 'completed');
 
   const renderInitialView = () => (
      <Card>
@@ -2007,3 +2008,4 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
