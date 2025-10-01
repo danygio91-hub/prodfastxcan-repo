@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -48,10 +47,14 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
         // Construct a JobOrder-like object from the WorkGroup data for consistent handling in the UI
         return {
             id: group.id,
-            status: group.status === 'paused' ? 'production' : group.status, // Map 'paused' to 'production' for JobOrder compatibility
             cliente: group.cliente,
+            qta: group.totalQuantity,
             department: group.department,
-            workCycleId: group.workCycleId,
+            details: group.details,
+            ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
+            numeroODL: group.numeroODL || 'N/D',
+            dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
+            postazioneLavoro: 'Multi-Commessa',
             phases: group.phases || [],
             overallStartTime: group.overallStartTime,
             overallEndTime: group.overallEndTime,
@@ -59,14 +62,10 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             problemType: group.problemType,
             problemNotes: group.problemNotes,
             problemReportedBy: group.problemReportedBy,
+            status: group.status === 'paused' ? 'production' : group.status,
+            workCycleId: group.workCycleId,
+            numeroODLInterno: group.numeroODLInterno,
             workGroupId: group.id,
-            qta: group.totalQuantity || 0,
-            ordinePF: group.ordinePF || 'Gruppo',
-            details: group.details || 'Lavorazione Multi-Commessa',
-            numeroODLInterno: group.numeroODLInterno || 'N/D',
-            numeroODL: group.numeroODL || 'N/D',
-            dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
-            postazioneLavoro: 'Multi-Commessa',
         };
     }
 
@@ -777,3 +776,5 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
+    
