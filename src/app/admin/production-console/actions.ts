@@ -8,6 +8,29 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '../work-group-management/actions';
 
+/**
+ * Helper function to propagate state changes from a group to its member job orders.
+ * @param transaction Firestore transaction object.
+ * @param groupData The WorkGroup data containing the state to propagate.
+ */
+async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
+    if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
+
+    const updatePayload = {
+        phases: groupData.phases,
+        status: groupData.status === 'paused' ? 'production' : groupData.status,
+    };
+
+    const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
+    
+    // In a real transaction, you'd use transaction.get, but for a write-only helper,
+    // we just construct the updates. The caller should handle the reads.
+    jobRefs.forEach(jobRef => {
+        transaction.update(jobRef, updatePayload);
+    });
+}
+
+
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
@@ -205,16 +228,18 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       throw new Error('Nessun operatore selezionato da mettere in pausa.');
     }
 
-    const jobRef = doc(db, 'jobOrders', jobId);
+    const isGroup = jobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, jobId);
 
     await runTransaction(db, async (transaction) => {
-      const jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists()) {
-        throw new Error('Commessa non trovata.');
+      const itemSnap = await transaction.get(itemRef);
+      if (!itemSnap.exists()) {
+        throw new Error('Commessa o Gruppo non trovato.');
       }
-      const job = jobSnap.data() as JobOrder;
+      const itemData = itemSnap.data() as JobOrder | WorkGroup;
 
-      const updatedPhases = job.phases.map(phase => {
+      const updatedPhases = itemData.phases.map(phase => {
         if (phase.status === 'in-progress') {
           let phaseWasAffected = false;
           const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
@@ -225,7 +250,6 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
             return wp;
           });
 
-          // Check if any operators are still active on this phase
           const isAnyoneStillWorking = updatedWorkPeriods.some(wp => wp.end === null);
 
           if (phaseWasAffected && !isAnyoneStillWorking) {
@@ -237,10 +261,17 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
         return phase;
       });
       
-      transaction.update(jobRef, { phases: updatedPhases });
+      const newStatus = isAnyPhaseInProgress(updatedPhases) ? 'production' : 'paused';
+      
+      const updatedItemData = { ...itemData, phases: updatedPhases, status: newStatus };
+      
+      transaction.update(itemRef, updatedItemData);
+      
+      if (isGroup) {
+        await propagateGroupUpdatesToJobs(transaction, updatedItemData as WorkGroup);
+      }
     });
     
-    // Post-transaction: Update operator statuses
     const batch = writeBatch(db);
     operatorIdsToPause.forEach(opId => {
         const operatorRef = doc(db, "operators", opId);
@@ -248,10 +279,9 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
     });
     await batch.commit();
 
-
     revalidatePath('/admin/production-console');
     revalidatePath(`/scan-job?jobId=${jobId}`);
-    revalidatePath('/admin/reports/operator'); // To update operator status in reports
+    revalidatePath('/admin/reports/operator');
     revalidatePath('/admin/operator-management');
     
     return { success: true, message: `${operatorIdsToPause.length} operatori sono stati messi in pausa e i loro stati aggiornati.` };
@@ -261,6 +291,10 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
     console.error("Error forcing pause:", error);
     return { success: false, message: errorMessage };
   }
+}
+
+function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
+    return phases.some(p => p.status === 'in-progress');
 }
 
 
@@ -285,3 +319,5 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     return { success: false, message: errorMessage };
   }
 }
+
+    

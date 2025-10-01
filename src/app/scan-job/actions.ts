@@ -45,7 +45,10 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 
     if (isWorkGroup) {
         const group = data as WorkGroup;
-        // Construct a JobOrder-like object from the WorkGroup data for consistent handling in the UI
+        // If the group has a paused status, we should still treat it as 'production' for the operator view
+        // to allow interaction. The 'paused' state is primarily for console display and filtering.
+        const operatorFacingStatus = group.status === 'paused' ? 'production' : group.status;
+        
          return {
             id: group.id,
             cliente: group.cliente,
@@ -64,7 +67,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             problemType: group.problemType,
             problemNotes: group.problemNotes,
             problemReportedBy: group.problemReportedBy,
-            status: group.status === 'paused' ? 'production' : group.status,
+            status: operatorFacingStatus,
             workCycleId: group.workCycleId,
             workGroupId: group.id,
         };
@@ -91,14 +94,11 @@ export async function verifyAndGetJobOrder(scannedData: {
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
   
-  // --- MODIFIED LOGIC ---
-  // If the job is part of a group, fetch and return the group instead of an error.
   if (job.workGroupId) {
       const groupData = await getJobOrderById(job.workGroupId);
       if (groupData) {
           return groupData;
       } else {
-          // This case is unlikely but handled for safety.
           return {
               error: `Questa commessa fa parte del gruppo ${job.workGroupId}, ma il gruppo non è stato trovato. Contattare un amministratore.`,
               title: 'Gruppo non Trovato',
@@ -123,7 +123,6 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
   
-  // Clean up the job data to ensure it's in a consistent state without modifying readiness.
   jobCopy.phases = (jobCopy.phases || []).map(p => ({
     ...p,
     workPeriods: p.workPeriods || [], 
@@ -142,7 +141,6 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     try {
         const allPhasesCompleted = (jobData.phases || []).length > 0 && (jobData.phases || []).every(p => p.status === 'completed');
 
-        // A job is completed if ALL its phases are completed, AND there is no open problem report.
         if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
             if (!jobData.overallEndTime) {
@@ -150,7 +148,6 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
             }
         }
 
-        // Convert Date objects back to Firestore Timestamps before writing
         const dataToSave = JSON.parse(JSON.stringify(jobData));
 
         await setDoc(jobRef, dataToSave, { merge: true });
@@ -191,13 +188,10 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         }
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
-
-        // Update the group document itself
         batch.set(groupRef, dataToSave, { merge: true });
 
-        // Propagate phase and status updates to all individual jobs in the group
         const updatePayload: { [key: string]: any } = {
-            phases: groupData.phases, // This now includes qualityResult and all other phase state
+            phases: groupData.phases, 
             status: groupData.status,
             isProblemReported: groupData.isProblemReported || false,
             problemType: groupData.problemType || deleteField(),
@@ -205,11 +199,9 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             problemReportedBy: groupData.problemReportedBy || deleteField(),
         };
 
-
         if (groupData.overallEndTime) {
             updatePayload.overallEndTime = groupData.overallEndTime;
         }
-
 
         (groupData.jobOrderIds || []).forEach(jobId => {
             const jobRef = doc(db, 'jobOrders', jobId);
@@ -264,35 +256,46 @@ export async function resolveJobProblem(jobId: string, uid: string | undefined |
       throw new Error('Permessi non sufficienti.');
     }
 
-    const jobRef = doc(db, "jobOrders", jobId);
-    const jobSnap = await getDoc(jobRef);
-    if (!jobSnap.exists()) throw new Error("Commessa non trovata.");
-
-    const jobData = jobSnap.data() as JobOrder;
+    const isGroup = jobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, jobId);
     
-    // Reset the general problem flag using deleteField() for undefined values
-    const updatePayload: any = { 
-        isProblemReported: false,
-        problemType: deleteField(),
-        problemNotes: deleteField(),
-        problemReportedBy: deleteField()
-    };
+    await runTransaction(db, async (transaction) => {
+        const itemSnap = await transaction.get(itemRef);
+        if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
 
-    // If the problem was a quality failure, reset the phase status to allow re-testing
-    const failedPhaseIndex = jobData.phases.findIndex(p => p.qualityResult === 'failed');
-    if (failedPhaseIndex !== -1) {
-        const updatedPhases = [...jobData.phases];
-        updatedPhases[failedPhaseIndex].status = 'pending';
-        updatedPhases[failedPhaseIndex].qualityResult = null;
-        updatePayload.phases = updatedPhases;
-    }
+        const itemData = itemSnap.data() as JobOrder | WorkGroup;
+        
+        const updatePayload: any = { 
+            isProblemReported: false,
+            problemType: deleteField(),
+            problemNotes: deleteField(),
+            problemReportedBy: deleteField()
+        };
 
-    await updateDoc(jobRef, updatePayload);
+        const failedPhaseIndex = itemData.phases.findIndex(p => p.qualityResult === 'failed');
+        if (failedPhaseIndex !== -1) {
+            const updatedPhases = [...itemData.phases];
+            updatedPhases[failedPhaseIndex].status = 'pending';
+            updatedPhases[failedPhaseIndex].qualityResult = null;
+            updatePayload.phases = updatedPhases;
+        }
+
+        transaction.update(itemRef, updatePayload);
+
+        if (isGroup) {
+            const groupData = { ...itemData, ...updatePayload } as WorkGroup;
+            const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
+            for (const jobRef of jobRefs) {
+                transaction.update(jobRef, updatePayload);
+            }
+        }
+    });
 
     revalidatePath('/scan-job');
     revalidatePath('/admin/production-console');
     
-    return { success: true, message: 'Problema risolto. La commessa è stata sbloccata e la fase di collaudo resettata.' };
+    return { success: true, message: 'Problema risolto. La lavorazione è stata sbloccata.' };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error resolving job problem:", error);
@@ -675,7 +678,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?
     const collectionsToScan = [jobsRef, groupsRef];
 
     for (const ref of collectionsToScan) {
-        const q = firestoreQuery(ref, where("status", "in", ["production", "suspended"]));
+        const q = firestoreQuery(ref, where("status", "in", ["production", "suspended", "paused"]));
         const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
@@ -684,7 +687,6 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?
 
         for (const doc of querySnapshot.docs) {
             const item = doc.data() as JobOrder | WorkGroup;
-            // If the operator is active on the job they are currently trying to interact with, it's fine.
             if (item.id === currentJobId) {
                 continue;
             }
@@ -695,7 +697,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?
                     if (isActive) {
                         return {
                             available: false,
-                            activeJobId: item.id,
+                            activeJobId: item.ordinePF || item.id,
                             activePhaseName: phase.name,
                         };
                     }
@@ -715,7 +717,6 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const jobDocs = await Promise.all(jobIds.map(id => getDoc(doc(db, 'jobOrders', id))));
         const jobs = jobDocs.map(d => d.data() as JobOrder);
         
-        // Validation
         if (jobs.some(j => !j)) {
             return { success: false, message: 'Una o più commesse selezionate non sono valide.' };
         }
@@ -729,7 +730,6 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
             return { success: false, message: 'Le commesse non sono compatibili. Devono avere lo stesso ciclo, reparto e cliente.' };
         }
 
-        // Create Group Document
         const workGroupId = `group-${Date.now()}`;
         const workGroupRef = doc(db, 'workGroups', workGroupId);
 
@@ -749,7 +749,7 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
             createdAt: new Date(),
             createdBy: operatorId,
             totalQuantity: totalQuantity,
-            qta: totalQuantity, // Add qta alias
+            qta: totalQuantity, 
             workCycleId: workCycleId || '',
             department: department,
             cliente: cliente,
@@ -764,7 +764,6 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const batch = writeBatch(db);
         batch.set(workGroupRef, newWorkGroup);
 
-        // Update individual jobs
         jobDocs.forEach(jobDoc => {
             batch.update(jobDoc.ref, { workGroupId: workGroupId });
         });
