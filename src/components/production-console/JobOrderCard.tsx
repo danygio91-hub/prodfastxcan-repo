@@ -156,8 +156,8 @@ export default function JobOrderCard({
   };
 
   const toggleOperatorSelection = (opId: string) => {
-    setSelectedOperatorsToPause(prev => 
-        prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, id]
+    setSelectedOperatorsToPause(prev =>
+      prev.includes(opId) ? prev.filter(currentId => currentId !== opId) : [...prev, opId]
     );
   };
 
