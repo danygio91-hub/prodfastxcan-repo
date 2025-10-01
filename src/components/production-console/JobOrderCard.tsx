@@ -185,7 +185,9 @@ export default function JobOrderCard({
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const canForceComplete = overallStatus === 'Pronto per Finitura';
+  const isAnyPhaseInProgress = activeOperators.length > 0;
+  const canForceComplete = !isAnyPhaseInProgress;
+
 
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
   
@@ -197,8 +199,6 @@ export default function JobOrderCard({
 
   const canToggleGuaina = guainaPhase && guainaPhase.status === 'pending';
   
-  const isAnyPhaseInProgress = jobOrder.phases.some(p => p.status === 'in-progress');
-
   const isGroup = jobOrder.id.startsWith('group-');
 
   return (
