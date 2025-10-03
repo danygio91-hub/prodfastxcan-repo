@@ -199,10 +199,11 @@ export default function ScanJobPage() {
   const handleUpdateAndPersistJob = useCallback(async (jobData: JobOrder | WorkGroup) => {
     const isGroup = jobData.id.startsWith('group-');
     if (isGroup) {
-      await updateWorkGroup(jobData as WorkGroup);
+        await updateWorkGroup(jobData as WorkGroup);
     } else {
-      await updateJob(jobData as JobOrder);
+        await updateJob(jobData as JobOrder);
     }
+    // After persisting, we should have a listener that updates the activeJob state automatically.
   }, []);
   
   const stopCamera = useCallback(() => {
@@ -463,11 +464,6 @@ export default function ScanJobPage() {
     const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
     if (!isAnyoneElseWorking) {
         phaseToPause.status = 'paused';
-    }
-
-    const isAnyPhaseStillInProgress = jobToUpdate.phases.some((p: JobPhase) => p.status === 'in-progress');
-    if (!isAnyPhaseStillInProgress) {
-        jobToUpdate.status = 'paused';
     }
 
     handleUpdateAndPersistJob(jobToUpdate);
@@ -1999,5 +1995,6 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
 
 

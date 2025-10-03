@@ -170,29 +170,30 @@ async function getConcatenationPolicy(): Promise<ConcatenationPolicy> {
 
 export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
     const groupRef = doc(db, "workGroups", groupData.id);
+    const batch = writeBatch(db);
 
     try {
+        // --- PREPARE DATA ---
+        // Finalize status before saving
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
-        
         if (allPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
                 groupData.overallEndTime = new Date();
             }
         }
-
-        // Recalculate group status based on its phases before saving
-        const isAnyPhaseInProgress = groupData.phases.some(p => p.status === 'in-progress');
-        groupData.status = isAnyPhaseInProgress ? 'production' : groupData.status;
-        if (!isAnyPhaseInProgress && groupData.phases.some(p => p.status === 'paused')) {
-            groupData.status = 'paused';
+        
+        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+        if (groupData.status !== 'completed') {
+            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
-        const batch = writeBatch(db);
+
+        // --- UPDATE GROUP DOCUMENT ---
         batch.set(groupRef, dataToSave, { merge: true });
 
-        // --- START PROPAGATION LOGIC ---
+        // --- PROPAGATE TO MEMBER JOBS ---
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
             status: groupData.status,
@@ -211,15 +212,16 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             const jobRef = doc(db, 'jobOrders', jobId);
             batch.update(jobRef, updatePayload);
         });
-        // --- END PROPAGATION LOGIC ---
 
+        // --- COMMIT ---
         await batch.commit();
         
+        // --- POST-UPDATE LOGIC (DISSOLVING) ---
         const policy = await getConcatenationPolicy();
         const checkAndDissolve = async (phaseType: 'preparation' | 'production' | 'quality', policyFlag: keyof ConcatenationPolicy) => {
             if (policy[policyFlag]) {
                 const typePhases = (groupData.phases || []).filter(p => p.type === phaseType);
-                if (typePhases.length === 0) return null; // No phases of this type to check
+                if (typePhases.length === 0) return null;
                 
                 const allTypePhasesCompleted = typePhases.every(p => p.status === 'completed');
                 
@@ -239,7 +241,6 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             revalidatePath('/scan-job'); 
             return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato. ${dissolveMessage}` };
         }
-
 
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
@@ -624,33 +625,33 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     }
 
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const jobRef = doc(db, collectionName, jobId);
+    const itemRef = doc(db, collectionName, jobId);
     
     await runTransaction(db, async (transaction) => {
-        const docSnap = await transaction.get(jobRef);
+        const docSnap = await transaction.get(itemRef);
         if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
 
-        const jobData = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
+        const itemData = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
         
         // Create a mutable copy
-        const jobToUpdate = JSON.parse(JSON.stringify(jobData));
-        const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+        const itemToUpdate = JSON.parse(JSON.stringify(itemData));
+        const phaseToStart = itemToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
         if (!phaseToStart) throw new Error('Fase non trovata nella commessa.');
 
         // Validate if the phase is ready to be started
         if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
         if (!phaseToStart.materialReady) throw new Error('Il materiale per questa fase non è pronto.');
-        if (jobData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
+        if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
 
         // Start the phase
         phaseToStart.status = 'in-progress';
-        jobToUpdate.status = 'production';
+        itemToUpdate.status = 'production';
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
         // Unlock the next phase's material readiness if it's NOT a preparation phase
         if (phaseToStart.type !== 'preparation') {
-            const sortedPhases = jobToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+            const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
             const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
             const nextPhase = sortedPhases[currentPhaseIndex + 1];
             
@@ -661,14 +662,14 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         
         // If it's a group, propagate the phase change to all member jobs
         if (isGroup) {
-            const group = jobData as WorkGroup;
+            const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
-                const individualJobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(individualJobRef, { phases: jobToUpdate.phases, status: 'production' });
+                const jobRef = doc(db, 'jobOrders', individualJobId);
+                transaction.update(jobRef, { phases: itemToUpdate.phases, status: 'production' });
             });
         }
         
-        transaction.update(jobRef, { phases: jobToUpdate.phases, status: 'production' });
+        transaction.update(itemRef, { phases: itemToUpdate.phases, status: 'production' });
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
@@ -685,7 +686,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
     const collectionsToScan = [jobsRef, groupsRef];
 
     for (const ref of collectionsToScan) {
-        const q = firestoreQuery(ref, where("status", "in", ["production", "suspended", "paused"]));
+        const q = firestoreQuery(ref, where("status", "==", "production"));
         const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
@@ -697,6 +698,10 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
             
             // If we are checking availability for resuming a group, we must ignore that same group.
             if (currentGroupId && item.id === currentGroupId) {
+                continue;
+            }
+             // If the job being checked belongs to the group we are in, ignore it
+            if (currentGroupId && (item as JobOrder).workGroupId === currentGroupId) {
                 continue;
             }
 
@@ -788,6 +793,7 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
+
 
 
 
