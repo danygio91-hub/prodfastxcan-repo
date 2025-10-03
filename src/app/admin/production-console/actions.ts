@@ -3,10 +3,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '../work-group-management/actions';
 
 /**
@@ -318,7 +318,96 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
   }
 }
 
+export async function resetSingleCompletedJobOrder(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    
+    const jobRef = doc(db, "jobOrders", jobId);
+    const jobSnap = await getDoc(jobRef);
+    if (!jobSnap.exists()) {
+        throw new Error("Commessa non trovata.");
+    }
+    const jobData = jobSnap.data() as JobOrder;
+
+    // Find all withdrawals associated with this job
+    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("jobIds", "array-contains", jobId));
+    const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+    const withdrawalsToDelete = withdrawalsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as MaterialWithdrawal));
+    
+    await runTransaction(db, async (transaction) => {
+      // Restore stock from the withdrawals
+      const materialUpdates = new Map<string, { consumedWeight: number; consumedUnits: number }>();
+      for (const withdrawal of withdrawalsToDelete) {
+        const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
+        update.consumedWeight += (withdrawal.consumedWeight as number) || 0;
+        if (typeof (withdrawal as any).consumedUnits === 'number') {
+            update.consumedUnits += (withdrawal as any).consumedUnits;
+        }
+        materialUpdates.set(withdrawal.materialId, update);
+      }
+      
+      const materialIds = Array.from(materialUpdates.keys());
+      if (materialIds.length > 0) {
+        const materialDocs = await Promise.all(materialIds.map(id => transaction.get(doc(db, 'rawMaterials', id))));
+        for (const materialDoc of materialDocs) {
+          if (materialDoc.exists()) {
+            const materialData = materialDoc.data() as RawMaterial;
+            const updates = materialUpdates.get(materialDoc.id)!;
+            const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+            let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+            
+            if (materialData.unitOfMeasure === 'kg') {
+              newUnits = newWeight;
+            } else if (updates.consumedUnits === 0 && materialData.conversionFactor && materialData.conversionFactor > 0) {
+               const unitsToAddBack = Math.round(updates.consumedWeight / materialData.conversionFactor);
+               newUnits += unitsToAddBack;
+            }
+
+            transaction.update(materialDoc.ref, { currentWeightKg: newWeight, currentStockUnits: newUnits });
+          }
+        }
+      }
+
+      // Delete the withdrawals
+      for (const withdrawal of withdrawalsToDelete) {
+        transaction.delete(doc(db, 'materialWithdrawals', withdrawal.id));
+      }
+
+      // Reset the job
+      const updatedPhases: JobPhase[] = (jobData.phases || []).map(phase => ({
+          ...phase,
+          status: 'pending' as const,
+          workPeriods: [],
+          materialConsumptions: [],
+          qualityResult: null,
+          materialReady: phase.type === 'preparation',
+      }));
+      
+      transaction.update(jobRef, {
+        status: 'planned',
+        overallStartTime: null,
+        overallEndTime: null,
+        isProblemReported: false,
+        phases: updatedPhases,
+        workGroupId: deleteField(),
+      });
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath('/admin/data-management');
+    revalidatePath('/admin/reports');
+    revalidatePath('/admin/raw-material-management');
+
+    return { success: true, message: `Commessa ${jobId} resettata con successo. Le lavorazioni sono state annullate e lo stock è stato ripristinato.` };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Errore nel reset della commessa:", error);
+    return { success: false, message: errorMessage };
+  }
+}
     
 
     
+
 

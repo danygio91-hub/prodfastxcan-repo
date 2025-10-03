@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 
@@ -220,6 +220,16 @@ export default function ProductionConsoleClientPage() {
     });
   };
 
+  const handleResetJobOrder = async (jobId: string) => {
+    if (!user) return;
+    const result = await resetSingleCompletedJobOrder(jobId, user.uid);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+  }
+
 
   const filterOptions: (OverallStatus | 'all')[] = [
     'all',
@@ -293,6 +303,7 @@ export default function ProductionConsoleClientPage() {
                       onRevertPhaseClick={handleRevertPhase}
                       onForcePauseClick={handleForcePause}
                       onForceCompleteClick={handleForceComplete}
+                      onResetJobOrderClick={handleResetJobOrder}
                     />
                   );
               })}
@@ -339,5 +350,3 @@ export default function ProductionConsoleClientPage() {
     </>
   );
 }
-
-

@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff, RefreshCcw } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -108,6 +108,7 @@ export default function JobOrderCard({
     onRevertPhaseClick, 
     onForcePauseClick,
     onForceCompleteClick,
+    onResetJobOrderClick,
 }: { 
     jobOrder: JobOrder;
     workGroup?: WorkGroup | null; 
@@ -118,6 +119,7 @@ export default function JobOrderCard({
     onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
     onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
     onForceCompleteClick: (jobId: string) => void;
+    onResetJobOrderClick: (jobId: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
@@ -338,6 +340,26 @@ export default function JobOrderCard({
                       <Users className="mr-2 h-4 w-4" />
                       <span>Forza Pausa Operatori</span>
                   </DropdownMenuItem>
+                  <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                           <RefreshCcw className="mr-2 h-4 w-4" />
+                           <span>Annulla e Resetta</span>
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
