@@ -17,18 +17,12 @@ import { dissolveWorkGroup } from '../work-group-management/actions';
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
     
-    const isAnyPhaseActive = (groupData.phases || []).some(p => p.status === 'in-progress');
-    const statusToPropagate = groupData.status === 'completed' ? 'completed' : isAnyPhaseActive ? 'production' : 'paused';
-
-    const updatePayload = {
+    const updatePayload: { [key: string]: any } = {
         phases: groupData.phases,
-        status: statusToPropagate,
+        status: groupData.status,
     };
 
     const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
-    
-    // In a real transaction, you'd use transaction.get, but for a write-only helper,
-    // we just construct the updates. The caller should handle the reads.
     jobRefs.forEach(jobRef => {
         transaction.update(jobRef, updatePayload);
     });
@@ -327,3 +321,4 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     
 
     
+

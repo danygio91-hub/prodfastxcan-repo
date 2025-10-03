@@ -45,11 +45,9 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 
     if (isWorkGroup) {
         const group = data as WorkGroup;
-        // If the group has a paused status, we should still treat it as 'production' for the operator view
-        // to allow interaction. The 'paused' state is primarily for console display and filtering.
-        const operatorFacingStatus = group.status === 'paused' ? 'production' : group.status;
-        
-         return {
+        // The client-side logic will handle the operator view.
+        // We pass the group status as is.
+        return {
             id: group.id,
             cliente: group.cliente,
             qta: group.totalQuantity,
@@ -67,7 +65,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             problemType: group.problemType,
             problemNotes: group.problemNotes,
             problemReportedBy: group.problemReportedBy,
-            status: operatorFacingStatus,
+            status: group.status,
             workCycleId: group.workCycleId,
             workGroupId: group.id,
         };
@@ -97,26 +95,20 @@ export async function verifyAndGetJobOrder(scannedData: {
   if (job.workGroupId) {
       const groupData = await getJobOrderById(job.workGroupId);
       if (groupData) {
-          // A group is always considered workable if it exists, its status is handled inside getJobOrderById
           return groupData;
       } else {
-          // If group is not found, maybe it was dissolved. We should clean up the reference.
           await updateDoc(jobRef, { workGroupId: deleteField() });
-          // and then return the job itself after cleanup
           return job;
       }
   }
 
-
-  // Allow 'paused' jobs to be loaded so they can be resumed.
   if (!['production', 'suspended', 'paused'].includes(job.status)) {
      return {
-      error: `La commessa "${scannedData.ordinePF}" non è in produzione o sospesa. Stato attuale: ${job.status}.`,
+      error: `La commessa "${scannedData.ordinePF}" non è in produzione, sospesa o in pausa. Stato attuale: ${job.status}.`,
       title: 'Commessa non Lavorabile',
     };
   }
 
-  // Do not perform this check for groups, as the QR data belongs to a single job.
   if (!job.workGroupId && (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta)) {
      return {
       error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
@@ -134,11 +126,6 @@ export async function verifyAndGetJobOrder(scannedData: {
   
   jobCopy.isProblemReported = jobCopy.isProblemReported || false;
   
-  // For the operator, a paused job should be treated as 'production' to allow interaction
-  if (jobCopy.status === 'paused') {
-      jobCopy.status = 'production';
-  }
-
   return jobCopy;
 }
 
@@ -199,12 +186,9 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         batch.set(groupRef, dataToSave, { merge: true });
 
         // --- START PROPAGATION LOGIC ---
-        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-        const statusForJobs = groupData.status === 'completed' ? 'completed' : isAnyPhaseInProgress ? 'production' : 'paused';
-
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
-            status: statusForJobs,
+            status: groupData.status,
             isProblemReported: groupData.isProblemReported || false,
             problemType: groupData.problemType || deleteField(),
             problemNotes: groupData.problemNotes || deleteField(),
@@ -298,8 +282,7 @@ export async function resolveJobProblem(jobId: string, uid: string | undefined |
         transaction.update(itemRef, updatePayload);
 
         if (isGroup) {
-             const groupData = { ...itemData, ...updatePayload } as WorkGroup;
-            (groupData.jobOrderIds || []).forEach(individualJobId => {
+            ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
                 transaction.update(jobRef, updatePayload);
             });
@@ -654,6 +637,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
         // Start the phase
         phaseToStart.status = 'in-progress';
+        jobToUpdate.status = 'production';
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
@@ -673,11 +657,11 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
             const group = jobData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const individualJobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(individualJobRef, { phases: jobToUpdate.phases });
+                transaction.update(individualJobRef, { phases: jobToUpdate.phases, status: 'production' });
             });
         }
         
-        transaction.update(jobRef, { phases: jobToUpdate.phases });
+        transaction.update(jobRef, { phases: jobToUpdate.phases, status: 'production' });
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
@@ -704,7 +688,6 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
         for (const doc of querySnapshot.docs) {
             const item = doc.data() as JobOrder | WorkGroup;
             
-            // If we are checking for a group context, skip the group itself.
             if (currentGroupId && item.id === currentGroupId) {
                 continue;
             }
@@ -797,4 +780,5 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
+
 

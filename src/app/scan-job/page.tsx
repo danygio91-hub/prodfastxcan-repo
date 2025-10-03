@@ -440,7 +440,7 @@ export default function ScanJobPage() {
 
   const handlePausePhase = (phaseId: string) => {
     if (!activeJob || !operator) return;
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
     const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (jobToUpdate.isProblemReported) {
@@ -460,10 +460,14 @@ export default function ScanJobPage() {
       return;
     }
     
-    // Check if anyone else is still working on this phase AFTER my period is closed.
     const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
     if (!isAnyoneElseWorking) {
         phaseToPause.status = 'paused';
+    }
+
+    const isAnyPhaseStillInProgress = jobToUpdate.phases.some((p: JobPhase) => p.status === 'in-progress');
+    if (!isAnyPhaseStillInProgress) {
+        jobToUpdate.status = 'paused';
     }
 
     handleUpdateAndPersistJob(jobToUpdate);
@@ -473,7 +477,7 @@ export default function ScanJobPage() {
   const handleResumePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
     
-    const availability = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
+    const availability = await isOperatorActiveOnAnyJob(operator.id, activeJob.id.startsWith('group-') ? activeJob.id : undefined);
     if (!availability.available) {
        toast({
           variant: 'destructive',
@@ -484,7 +488,7 @@ export default function ScanJobPage() {
         return;
     }
 
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
+    const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
     const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
 
     if (jobToUpdate.isProblemReported) {
@@ -503,6 +507,7 @@ export default function ScanJobPage() {
     }
 
     phaseToResume.status = 'in-progress';
+    jobToUpdate.status = 'production';
     phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
     handleUpdateAndPersistJob(jobToUpdate);
