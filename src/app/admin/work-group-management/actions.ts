@@ -18,6 +18,12 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
     if (data.createdAt && typeof data.createdAt.toDate === 'function') {
       data.createdAt = data.createdAt.toDate().toISOString();
     }
+     if (data.overallStartTime && typeof data.overallStartTime.toDate === 'function') {
+      data.overallStartTime = data.overallStartTime.toDate().toISOString();
+    }
+    if (data.overallEndTime && typeof data.overallEndTime.toDate === 'function') {
+      data.overallEndTime = data.overallEndTime.toDate().toISOString();
+    }
     return { id: doc.id, ...data } as WorkGroup;
   });
   return JSON.parse(JSON.stringify(list)); // Extra safety to ensure plain objects
@@ -60,4 +66,5 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
 
