@@ -114,7 +114,8 @@ export async function verifyAndGetJobOrder(scannedData: {
     };
   }
 
-  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) {
+  // Do not perform this check for groups, as the QR data belongs to a single job.
+  if (!job.workGroupId && (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta)) {
      return {
       error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
       title: 'Dati non Corrispondenti',
@@ -191,15 +192,17 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         batch.set(groupRef, dataToSave, { merge: true });
 
         // --- START PROPAGATION LOGIC ---
-        // This payload contains all the state that needs to be mirrored to individual jobs.
+        const isAnyPhaseActive = (groupData.phases || []).some(p => p.status === 'in-progress');
+        const statusForJobs = groupData.status === 'completed' ? 'completed' : isAnyPhaseActive ? 'production' : 'paused';
+
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
-            status: groupData.status,
+            status: statusForJobs,
             isProblemReported: groupData.isProblemReported || false,
             problemType: groupData.problemType || deleteField(),
             problemNotes: groupData.problemNotes || deleteField(),
             problemReportedBy: groupData.problemReportedBy || deleteField(),
-            overallStartTime: groupData.overallStartTime || null, // Propagate start time
+            overallStartTime: groupData.overallStartTime || null,
         };
 
         if (groupData.overallEndTime) {
@@ -783,3 +786,4 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
+
