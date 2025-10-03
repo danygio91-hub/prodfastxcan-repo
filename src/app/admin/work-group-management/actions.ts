@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -50,6 +51,7 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
 
     revalidatePath('/admin/work-group-management');
     revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
 
     return { success: true, message: `Gruppo ${groupId} annullato. Le commesse sono state slegate.` };
   } catch (error) {

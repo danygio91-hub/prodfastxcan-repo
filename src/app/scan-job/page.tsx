@@ -1996,5 +1996,3 @@ function PhaseCard({ phase, job, handlers }: {
     );
 }
 
-
-

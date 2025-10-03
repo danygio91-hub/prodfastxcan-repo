@@ -682,39 +682,30 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
 export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
     const jobsRef = collection(db, "jobOrders");
-    const groupsRef = collection(db, "workGroups");
-    const collectionsToScan = [jobsRef, groupsRef];
+    const q = firestoreQuery(jobsRef, where("status", "==", "production"));
+    const querySnapshot = await getDocs(q);
 
-    for (const ref of collectionsToScan) {
-        const q = firestoreQuery(ref, where("status", "==", "production"));
-        const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+        return { available: true };
+    }
 
-        if (querySnapshot.empty) {
+    for (const docSnap of querySnapshot.docs) {
+        const job = docSnap.data() as JobOrder;
+        
+        // If we are checking for a group context, ignore jobs belonging to that same group
+        if (currentGroupId && job.workGroupId === currentGroupId) {
             continue;
         }
 
-        for (const doc of querySnapshot.docs) {
-            const item = doc.data() as JobOrder | WorkGroup;
-            
-            // If we are checking availability for resuming a group, we must ignore that same group.
-            if (currentGroupId && item.id === currentGroupId) {
-                continue;
-            }
-             // If the job being checked belongs to the group we are in, ignore it
-            if (currentGroupId && (item as JobOrder).workGroupId === currentGroupId) {
-                continue;
-            }
-
-            for (const phase of (item.phases || [])) {
-                if (phase.status === 'in-progress') {
-                    const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
-                    if (isActive) {
-                        return {
-                            available: false,
-                            activeJobId: (item as JobOrder).ordinePF || item.id,
-                            activePhaseName: phase.name,
-                        };
-                    }
+        for (const phase of (job.phases || [])) {
+            if (phase.status === 'in-progress') {
+                const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
+                if (isActive) {
+                    return {
+                        available: false,
+                        activeJobId: job.ordinePF,
+                        activePhaseName: phase.name,
+                    };
                 }
             }
         }
@@ -791,9 +782,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
-
-    
-
-
-
-
