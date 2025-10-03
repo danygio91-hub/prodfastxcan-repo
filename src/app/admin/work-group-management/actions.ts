@@ -3,7 +3,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { WorkGroup, JobOrder, JobPhase } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -49,18 +49,12 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         const jobsSnapshot = await getDocs(jobsQuery);
 
         jobsSnapshot.forEach(jobDoc => {
-            
-            const finalPhasesState = (groupData.phases || []).map((phase: JobPhase) => {
-                // If a phase was in progress, set it to paused. Keep completed as is.
-                const newStatus = phase.status === 'in-progress' ? 'paused' : phase.status;
-                return { ...phase, status: newStatus, workPeriods: [] }; // Reset work periods to avoid ghost operators
-            });
-            
-            // Set job to a safe, paused state and remove group association
+            // For each job, we set its status to 'paused' and remove the group ID.
+            // The phases are preserved as they were in the group, ensuring progress is not lost.
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
-                status: 'paused', // Force a safe, inactive state.
-                phases: finalPhasesState
+                status: 'paused',
+                phases: groupData.phases || [], // Preserve the final state of the phases from the group
             });
         });
     }
@@ -74,13 +68,14 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
 
-    return { success: true, message: `Gruppo ${groupId} annullato. Le commesse sono state slegate e messe in pausa.` };
+    return { success: true, message: `Gruppo ${groupId} scollegato. Le commesse sono state slegate e messe in pausa.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     console.error("Error dissolving work group:", error);
     return { success: false, message: errorMessage };
   }
 }
+
 
 
 

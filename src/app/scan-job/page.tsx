@@ -1046,7 +1046,7 @@ export default function ScanJobPage() {
 
       const result = await dissolveWorkGroup(activeJob.workGroupId);
        toast({
-          title: result.success ? "Gruppo Annullato" : "Errore",
+          title: result.success ? "Gruppo Scollegato" : "Errore",
           description: result.message,
           variant: result.success ? "default" : "destructive",
       });
@@ -1646,19 +1646,19 @@ export default function ScanJobPage() {
                                 disabled={isAnyPhaseActiveAtAll}
                               >
                                   <Unlink className="mr-2 h-4 w-4" />
-                                  Annulla Gruppo Commesse
+                                  Scollega Gruppo Commesse
                               </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                               <AlertDialogHeader>
-                                  <AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle>
+                                  <AlertDialogTitle>Sei sicuro di voler scollegare il gruppo?</AlertDialogTitle>
                                   <AlertDialogDescription>
                                       Questa azione è irreversibile. Le commesse torneranno individuali. Puoi farlo solo se nessuna fase è in lavorazione.
                                   </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
                                   <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                                  <AlertDialogAction onClick={handleDissolveGroup}>Sì, annulla gruppo</AlertDialogAction>
+                                  <AlertDialogAction onClick={handleDissolveGroup}>Sì, scollega gruppo</AlertDialogAction>
                               </AlertDialogFooter>
                           </AlertDialogContent>
                       </AlertDialog>
@@ -1995,4 +1995,5 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
 
