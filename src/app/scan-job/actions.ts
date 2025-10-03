@@ -99,10 +99,10 @@ export async function verifyAndGetJobOrder(scannedData: {
       if (groupData) {
           return groupData;
       } else {
-          return {
-              error: `Questa commessa fa parte del gruppo ${job.workGroupId}, ma il gruppo non è stato trovato. Contattare un amministratore.`,
-              title: 'Gruppo non Trovato',
-          };
+          // If group is not found, maybe it was dissolved. We should clean up the reference.
+          await updateDoc(jobRef, { workGroupId: deleteField() });
+          // and then return the job itself
+          return job;
       }
   }
 
@@ -190,6 +190,8 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const dataToSave = JSON.parse(JSON.stringify(groupData));
         batch.set(groupRef, dataToSave, { merge: true });
 
+        // --- START PROPAGATION LOGIC ---
+        // This payload contains all the state that needs to be mirrored to individual jobs.
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
             status: groupData.status,
@@ -197,6 +199,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             problemType: groupData.problemType || deleteField(),
             problemNotes: groupData.problemNotes || deleteField(),
             problemReportedBy: groupData.problemReportedBy || deleteField(),
+            overallStartTime: groupData.overallStartTime || null, // Propagate start time
         };
 
         if (groupData.overallEndTime) {
@@ -207,6 +210,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             const jobRef = doc(db, 'jobOrders', jobId);
             batch.update(jobRef, updatePayload);
         });
+        // --- END PROPAGATION LOGIC ---
 
         await batch.commit();
         
@@ -284,11 +288,11 @@ export async function resolveJobProblem(jobId: string, uid: string | undefined |
         transaction.update(itemRef, updatePayload);
 
         if (isGroup) {
-            const groupData = { ...itemData, ...updatePayload } as WorkGroup;
-            const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
-            for (const jobRef of jobRefs) {
+             const groupData = { ...itemData, ...updatePayload } as WorkGroup;
+            (groupData.jobOrderIds || []).forEach(individualJobId => {
+                const jobRef = doc(db, 'jobOrders', individualJobId);
                 transaction.update(jobRef, updatePayload);
-            }
+            });
         }
     });
 
