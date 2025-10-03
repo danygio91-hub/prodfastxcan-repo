@@ -172,7 +172,6 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
     const groupRef = doc(db, "workGroups", groupData.id);
 
     try {
-        const batch = writeBatch(db);
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
         
         if (allPhasesCompleted && !groupData.isProblemReported) {
@@ -181,8 +180,16 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
                 groupData.overallEndTime = new Date();
             }
         }
+
+        // Recalculate group status based on its phases before saving
+        const isAnyPhaseInProgress = groupData.phases.some(p => p.status === 'in-progress');
+        groupData.status = isAnyPhaseInProgress ? 'production' : groupData.status;
+        if (!isAnyPhaseInProgress && groupData.phases.some(p => p.status === 'paused')) {
+            groupData.status = 'paused';
+        }
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
+        const batch = writeBatch(db);
         batch.set(groupRef, dataToSave, { merge: true });
 
         // --- START PROPAGATION LOGIC ---
@@ -609,9 +616,9 @@ export async function searchRawMaterials(
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
     const isGroup = jobId.startsWith('group-');
-    const currentJobId = isGroup ? jobId : undefined;
+    const currentGroupId = isGroup ? jobId : undefined;
 
-    const availability = await isOperatorActiveOnAnyJob(operatorId, currentJobId);
+    const availability = await isOperatorActiveOnAnyJob(operatorId, currentGroupId);
     if (!availability.available) {
         return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
     }
@@ -688,6 +695,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
         for (const doc of querySnapshot.docs) {
             const item = doc.data() as JobOrder | WorkGroup;
             
+            // If we are checking availability for resuming a group, we must ignore that same group.
             if (currentGroupId && item.id === currentGroupId) {
                 continue;
             }
@@ -698,7 +706,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
                     if (isActive) {
                         return {
                             available: false,
-                            activeJobId: item.ordinePF || item.id,
+                            activeJobId: (item as JobOrder).ordinePF || item.id,
                             activePhaseName: phase.name,
                         };
                     }
@@ -780,5 +788,6 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
+
 
 

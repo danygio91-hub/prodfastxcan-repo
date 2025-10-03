@@ -477,7 +477,8 @@ export default function ScanJobPage() {
   const handleResumePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
     
-    const availability = await isOperatorActiveOnAnyJob(operator.id, activeJob.id.startsWith('group-') ? activeJob.id : undefined);
+    const isGroup = activeJob.id.startsWith('group-');
+    const availability = await isOperatorActiveOnAnyJob(operator.id, isGroup ? activeJob.id : undefined);
     if (!availability.available) {
        toast({
           variant: 'destructive',
@@ -1998,4 +1999,5 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
 
