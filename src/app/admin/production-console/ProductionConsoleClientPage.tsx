@@ -104,7 +104,7 @@ function ProductionConsoleView() {
             }) as JobOrder;
         });
         setJobOrders(jobs);
-        if(!workGroups.length) setIsLoading(false);
+        setIsLoading(false); // Set loading to false once we have data
     }, (error) => {
         console.error("Error fetching realtime job orders:", error);
         toast({ variant: "destructive", title: "Errore di Sincronizzazione", description: "Impossibile caricare i dati della console in tempo reale." });
@@ -122,7 +122,6 @@ function ProductionConsoleView() {
             }) as WorkGroup;
         });
         setWorkGroups(groups);
-         if(!jobOrders.length) setIsLoading(false);
     }, (error) => {
         console.error("Error fetching realtime work groups:", error);
     });
@@ -138,7 +137,7 @@ function ProductionConsoleView() {
       unsubscribeGroups();
       unsubscribeOps();
     };
-  }, [toast, jobOrders.length, workGroups.length]);
+  }, [toast]);
 
 
   const synthesizedJobOrders = useMemo(() => {
