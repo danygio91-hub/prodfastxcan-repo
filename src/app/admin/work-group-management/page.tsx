@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
@@ -11,7 +12,10 @@ import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { type WorkGroup } from '@/lib/mock-data';
-import { getWorkGroups, dissolveWorkGroup } from './actions';
+import { dissolveWorkGroup } from './actions';
+import { db } from '@/lib/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,16 +45,33 @@ function WorkGroupManagementContent() {
     }
   }, [groupIdFromUrl]);
 
-  const fetchGroups = async () => {
-    setIsLoading(true);
-    const data = await getWorkGroups();
-    setGroups(data);
-    setIsLoading(false);
-  };
-
   useEffect(() => {
-    fetchGroups();
-  }, []);
+    setIsLoading(true);
+    const groupsRef = collection(db, 'workGroups');
+    const q = query(groupsRef);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const fetchedGroups: WorkGroup[] = snapshot.docs.map(doc => {
+            const data = doc.data();
+            if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+                data.createdAt = data.createdAt.toDate().toISOString();
+            }
+            return { id: doc.id, ...data } as WorkGroup;
+        });
+        setGroups(JSON.parse(JSON.stringify(fetchedGroups)));
+        setIsLoading(false);
+    }, (error) => {
+        console.error("Error fetching realtime groups:", error);
+        toast({
+            variant: "destructive",
+            title: "Errore di Sincronizzazione",
+            description: "Impossibile caricare i gruppi in tempo reale."
+        });
+        setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [toast]);
 
   const filteredGroups = useMemo(() => {
     return searchTerm
@@ -72,9 +93,7 @@ function WorkGroupManagementContent() {
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
-    if (result.success) {
-      await fetchGroups();
-    }
+    // Real-time listener will update the state, no need for manual fetch
     setIsPending(false);
   };
   
