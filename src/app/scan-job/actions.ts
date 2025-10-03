@@ -97,17 +97,19 @@ export async function verifyAndGetJobOrder(scannedData: {
   if (job.workGroupId) {
       const groupData = await getJobOrderById(job.workGroupId);
       if (groupData) {
+          // A group is always considered workable if it exists, its status is handled inside getJobOrderById
           return groupData;
       } else {
           // If group is not found, maybe it was dissolved. We should clean up the reference.
           await updateDoc(jobRef, { workGroupId: deleteField() });
-          // and then return the job itself
+          // and then return the job itself after cleanup
           return job;
       }
   }
 
 
-  if (job.status !== 'production' && job.status !== 'suspended') {
+  // Allow 'paused' jobs to be loaded so they can be resumed.
+  if (!['production', 'suspended', 'paused'].includes(job.status)) {
      return {
       error: `La commessa "${scannedData.ordinePF}" non è in produzione o sospesa. Stato attuale: ${job.status}.`,
       title: 'Commessa non Lavorabile',
@@ -131,6 +133,11 @@ export async function verifyAndGetJobOrder(scannedData: {
   }));
   
   jobCopy.isProblemReported = jobCopy.isProblemReported || false;
+  
+  // For the operator, a paused job should be treated as 'production' to allow interaction
+  if (jobCopy.status === 'paused') {
+      jobCopy.status = 'production';
+  }
 
   return jobCopy;
 }
@@ -192,8 +199,8 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         batch.set(groupRef, dataToSave, { merge: true });
 
         // --- START PROPAGATION LOGIC ---
-        const isAnyPhaseActive = (groupData.phases || []).some(p => p.status === 'in-progress');
-        const statusForJobs = groupData.status === 'completed' ? 'completed' : isAnyPhaseActive ? 'production' : 'paused';
+        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+        const statusForJobs = groupData.status === 'completed' ? 'completed' : isAnyPhaseInProgress ? 'production' : 'paused';
 
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
@@ -786,4 +793,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
-

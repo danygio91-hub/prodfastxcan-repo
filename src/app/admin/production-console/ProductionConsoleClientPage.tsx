@@ -34,6 +34,7 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   if (jobOrder.isProblemReported) return 'Problema';
   if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.status === 'completed') return 'Completata';
+  if (jobOrder.status === 'paused') return 'Sospesa';
 
   // Check phases
   const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
@@ -87,7 +88,7 @@ export default function ProductionConsoleClientPage() {
     const groupsRef = collection(db, "workGroups");
     const opsRef = collection(db, "operators");
 
-    const unsubscribeJobs = onSnapshot(query(jobsRef, where("status", "in", ["production", "suspended", "completed"])), (querySnapshot) => {
+    const unsubscribeJobs = onSnapshot(query(jobsRef, where("status", "in", ["production", "suspended", "completed", "paused"])), (querySnapshot) => {
         const jobs: JobOrder[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return JSON.parse(JSON.stringify(data), (key, value) => {
@@ -105,7 +106,7 @@ export default function ProductionConsoleClientPage() {
         setIsLoading(false);
     });
 
-    const unsubscribeGroups = onSnapshot(query(groupsRef, where("status", "in", ["production", "suspended", "completed"])), (querySnapshot) => {
+    const unsubscribeGroups = onSnapshot(query(groupsRef, where("status", "in", ["production", "suspended", "completed", "paused"])), (querySnapshot) => {
         const groups: WorkGroup[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return JSON.parse(JSON.stringify(data), (key, value) => {
