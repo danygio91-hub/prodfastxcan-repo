@@ -516,7 +516,7 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
 
     // STRATEGY 1: Find the last usage (closing weight) of this lot, as it's most current.
     const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended"]));
+    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
     const snapshot = await getDocs(q);
     const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
 
@@ -625,12 +625,14 @@ export async function searchRawMaterials(
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    const availability = await isOperatorActiveOnAnyJob(operatorId, jobId);
+    const isGroup = jobId.startsWith('group-');
+    const currentJobId = isGroup ? jobId : undefined;
+
+    const availability = await isOperatorActiveOnAnyJob(operatorId, currentJobId);
     if (!availability.available) {
         return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
     }
 
-    const isGroup = jobId.startsWith('group-');
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
     const jobRef = doc(db, collectionName, jobId);
     
@@ -686,7 +688,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
   }
 }
 
-export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
+export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
     const jobsRef = collection(db, "jobOrders");
     const groupsRef = collection(db, "workGroups");
     const collectionsToScan = [jobsRef, groupsRef];
@@ -701,7 +703,9 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentJobId?
 
         for (const doc of querySnapshot.docs) {
             const item = doc.data() as JobOrder | WorkGroup;
-            if (item.id === currentJobId) {
+            
+            // If we are checking for a group context, skip the group itself.
+            if (currentGroupId && item.id === currentGroupId) {
                 continue;
             }
 
@@ -793,3 +797,4 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 }
 
     
+
