@@ -11,8 +11,15 @@ import { ensureAdmin } from '@/lib/server-auth';
 export async function getWorkGroups(): Promise<WorkGroup[]> {
   const groupsCol = collection(db, 'workGroups');
   const snapshot = await getDocs(groupsCol);
-  const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as WorkGroup);
-  return list;
+  const list = snapshot.docs.map(doc => {
+    const data = doc.data();
+    // Convert Firestore Timestamp to a serializable format (ISO string)
+    if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+      data.createdAt = data.createdAt.toDate().toISOString();
+    }
+    return { id: doc.id, ...data } as WorkGroup;
+  });
+  return JSON.parse(JSON.stringify(list)); // Extra safety to ensure plain objects
 }
 
 
@@ -51,3 +58,4 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
