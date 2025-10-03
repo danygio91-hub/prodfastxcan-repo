@@ -617,11 +617,11 @@ export async function searchRawMaterials(
 export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
   try {
     const isGroup = jobId.startsWith('group-');
-    const currentGroupId = isGroup ? jobId : undefined;
-
-    const availability = await isOperatorActiveOnAnyJob(operatorId, currentGroupId);
+    
+    // The check for operator availability is now context-aware.
+    const availability = await isOperatorActiveOnAnyJob(operatorId, isGroup ? jobId : undefined);
     if (!availability.available) {
-        return { success: false, message: 'Operatore già attivo su un\'altra fase.', error: 'OPERATOR_BUSY' };
+        return { success: false, message: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l'attività precedente.`, error: 'OPERATOR_BUSY' };
     }
 
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
@@ -660,16 +660,18 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
             }
         }
         
-        // If it's a group, propagate the phase change to all member jobs
+        // Update the item itself
+        transaction.update(itemRef, { phases: itemToUpdate.phases, status: 'production' });
+
+        // If it's a group, propagate the FULL state to all member jobs
         if (isGroup) {
             const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
+                // Propagate the entire phases array and the new status
                 transaction.update(jobRef, { phases: itemToUpdate.phases, status: 'production' });
             });
         }
-        
-        transaction.update(itemRef, { phases: itemToUpdate.phases, status: 'production' });
     });
 
     revalidatePath('/scan-job'); // Revalidate to update the UI
@@ -692,7 +694,7 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
     for (const docSnap of querySnapshot.docs) {
         const job = docSnap.data() as JobOrder;
         
-        // If we are checking for a group context, ignore jobs belonging to that same group
+        // If we are checking in the context of a group, and this job belongs to that group, skip it.
         if (currentGroupId && job.workGroupId === currentGroupId) {
             continue;
         }

@@ -44,10 +44,14 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     
     const batch = writeBatch(db);
 
-    // Remove the workGroupId from each job order
+    // Reset the state for each job order.
+    // Set status to paused to prevent them from being stuck in an active state.
     jobOrderIds.forEach(jobId => {
       const jobRef = doc(db, 'jobOrders', jobId);
-      batch.update(jobRef, { workGroupId: null });
+      batch.update(jobRef, { 
+        workGroupId: null,
+        status: 'paused', // Force a safe, inactive state.
+      });
     });
 
     // Delete the group document
@@ -59,12 +63,13 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
 
-    return { success: true, message: `Gruppo ${groupId} annullato. Le commesse sono state slegate.` };
+    return { success: true, message: `Gruppo ${groupId} annullato. Le commesse sono state slegate e messe in pausa.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     console.error("Error dissolving work group:", error);
     return { success: false, message: errorMessage };
   }
 }
+
 
 
