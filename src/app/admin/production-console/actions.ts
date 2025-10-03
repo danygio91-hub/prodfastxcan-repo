@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -16,9 +17,13 @@ import { dissolveWorkGroup } from '../work-group-management/actions';
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
 
+    // The status for individual jobs should reflect the group's operational state.
+    // 'paused' is a valid state for the console, but for individual jobs it's still 'production'.
+    const statusToPropagate = groupData.status === 'paused' ? 'production' : groupData.status;
+
     const updatePayload = {
         phases: groupData.phases,
-        status: groupData.status === 'paused' ? 'production' : groupData.status,
+        status: statusToPropagate,
     };
 
     const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
@@ -319,5 +324,7 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     return { success: false, message: errorMessage };
   }
 }
+
+    
 
     
