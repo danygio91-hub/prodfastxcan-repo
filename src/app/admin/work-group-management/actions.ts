@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { WorkGroup, JobOrder } from '@/lib/mock-data';
+import type { WorkGroup, JobOrder, JobPhase } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
 
@@ -44,26 +44,23 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     
     const batch = writeBatch(db);
 
-    // Fetch all job documents to update them
     if (jobOrderIds.length > 0) {
         const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
         const jobsSnapshot = await getDocs(jobsQuery);
 
         jobsSnapshot.forEach(jobDoc => {
-            const jobData = jobDoc.data() as JobOrder;
-            // Reset phase statuses and clear work periods to avoid ghost sessions
-            const cleanedPhases = (jobData.phases || []).map(phase => {
-                if (phase.status === 'in-progress' || phase.status === 'paused') {
-                    return { ...phase, status: 'pending' as const, workPeriods: [] };
-                }
-                return phase;
+            
+            const finalPhasesState = (groupData.phases || []).map((phase: JobPhase) => {
+                // If a phase was in progress, set it to paused. Keep completed as is.
+                const newStatus = phase.status === 'in-progress' ? 'paused' : phase.status;
+                return { ...phase, status: newStatus, workPeriods: [] }; // Reset work periods to avoid ghost operators
             });
             
             // Set job to a safe, paused state and remove group association
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
                 status: 'paused', // Force a safe, inactive state.
-                phases: cleanedPhases
+                phases: finalPhasesState
             });
         });
     }
@@ -84,8 +81,6 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
-
-
 
 
 
