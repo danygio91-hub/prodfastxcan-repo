@@ -44,15 +44,29 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     
     const batch = writeBatch(db);
 
-    // Reset the state for each job order.
-    // Set status to paused to prevent them from being stuck in an active state.
-    jobOrderIds.forEach(jobId => {
-      const jobRef = doc(db, 'jobOrders', jobId);
-      batch.update(jobRef, { 
-        workGroupId: null,
-        status: 'paused', // Force a safe, inactive state.
-      });
-    });
+    // Fetch all job documents to update them
+    if (jobOrderIds.length > 0) {
+        const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
+        const jobsSnapshot = await getDocs(jobsQuery);
+
+        jobsSnapshot.forEach(jobDoc => {
+            const jobData = jobDoc.data() as JobOrder;
+            // Reset phase statuses and clear work periods to avoid ghost sessions
+            const cleanedPhases = (jobData.phases || []).map(phase => {
+                if (phase.status === 'in-progress' || phase.status === 'paused') {
+                    return { ...phase, status: 'pending' as const, workPeriods: [] };
+                }
+                return phase;
+            });
+            
+            // Set job to a safe, paused state and remove group association
+            batch.update(jobDoc.ref, { 
+                workGroupId: null,
+                status: 'paused', // Force a safe, inactive state.
+                phases: cleanedPhases
+            });
+        });
+    }
 
     // Delete the group document
     batch.delete(groupRef);
@@ -70,6 +84,7 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
 
 
 

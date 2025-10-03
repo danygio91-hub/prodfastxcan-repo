@@ -196,7 +196,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         // --- PROPAGATE TO MEMBER JOBS ---
         const updatePayload: { [key: string]: any } = {
             phases: groupData.phases, 
-            status: groupData.status,
+            status: dataToSave.status, // Use the just-calculated status
             isProblemReported: groupData.isProblemReported || false,
             problemType: groupData.problemType || deleteField(),
             problemNotes: groupData.problemNotes || deleteField(),
@@ -784,3 +784,4 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
