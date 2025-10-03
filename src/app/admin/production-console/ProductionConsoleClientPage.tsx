@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff } from 'lucide-react';
@@ -71,14 +72,18 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
 }
 
 
-export default function ProductionConsoleClientPage() {
+function ProductionConsoleView() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  
+  const searchParams = useSearchParams();
+  const groupIdFromUrl = searchParams.get('groupId');
+  const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
+
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -99,24 +104,25 @@ export default function ProductionConsoleClientPage() {
             }) as JobOrder;
         });
         setJobOrders(jobs);
-        setIsLoading(false);
+        if(!workGroups.length) setIsLoading(false);
     }, (error) => {
         console.error("Error fetching realtime job orders:", error);
         toast({ variant: "destructive", title: "Errore di Sincronizzazione", description: "Impossibile caricare i dati della console in tempo reale." });
         setIsLoading(false);
     });
 
-    const unsubscribeGroups = onSnapshot(query(groupsRef, where("status", "in", ["production", "suspended", "completed", "paused"])), (querySnapshot) => {
+    const unsubscribeGroups = onSnapshot(query(groupsRef), (querySnapshot) => {
         const groups: WorkGroup[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return JSON.parse(JSON.stringify(data), (key, value) => {
-                if ((key === 'createdAt') && value && value.seconds !== undefined) {
+                if ((key === 'createdAt' || key === 'overallStartTime' || key === 'overallEndTime') && value && value.seconds !== undefined) {
                     return new Date(value.seconds * 1000);
                 }
                 return value;
             }) as WorkGroup;
         });
         setWorkGroups(groups);
+         if(!jobOrders.length) setIsLoading(false);
     }, (error) => {
         console.error("Error fetching realtime work groups:", error);
     });
@@ -132,24 +138,51 @@ export default function ProductionConsoleClientPage() {
       unsubscribeGroups();
       unsubscribeOps();
     };
-  }, [toast]);
+  }, [toast, jobOrders.length, workGroups.length]);
 
 
-  const workGroupsMap = useMemo(() => {
-    return new Map(workGroups.map(group => [group.id, group]));
-  }, [workGroups]);
+  const synthesizedJobOrders = useMemo(() => {
+    if (workGroups.length === 0) return jobOrders;
+
+    const groupMap = new Map(workGroups.map(g => [g.id, g]));
+    
+    return jobOrders.map(job => {
+      if (!job.workGroupId || !groupMap.has(job.workGroupId)) {
+        return job;
+      }
+      
+      const group = groupMap.get(job.workGroupId)!;
+      // Return a new job object with its state overridden by the group's state
+      return {
+        ...job,
+        status: group.status,
+        phases: group.phases,
+        isProblemReported: group.isProblemReported,
+        problemType: group.problemType,
+        problemNotes: group.problemNotes,
+        problemReportedBy: group.problemReportedBy,
+        overallStartTime: group.overallStartTime,
+        overallEndTime: group.overallEndTime,
+      };
+    });
+  }, [jobOrders, workGroups]);
 
 
   const filteredJobs = useMemo(() => {
     const statusFiltered = activeFilter === 'all'
-      ? jobOrders
-      : jobOrders.filter(job => getOverallStatus(job) === activeFilter);
+      ? synthesizedJobOrders
+      : synthesizedJobOrders.filter(job => getOverallStatus(job) === activeFilter);
       
     if (!searchTerm) {
         return statusFiltered;
     }
     
     const lowercasedFilter = searchTerm.toLowerCase();
+    
+     if (groupIdFromUrl && searchTerm === groupIdFromUrl) {
+      return statusFiltered.filter(job => job.workGroupId === groupIdFromUrl);
+    }
+    
     return statusFiltered.filter(job =>
       (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
@@ -157,8 +190,12 @@ export default function ProductionConsoleClientPage() {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [jobOrders, activeFilter, searchTerm]);
+  }, [synthesizedJobOrders, activeFilter, searchTerm, groupIdFromUrl]);
   
+  const workGroupsMap = useMemo(() => {
+    return new Map(workGroups.map(group => [group.id, group]));
+  }, [workGroups]);
+
   const handleResolveProblem = async () => {
     if (!problemJob || !user) return;
     const result = await resolveJobProblem(problemJob.id, user.uid);
@@ -350,3 +387,18 @@ export default function ProductionConsoleClientPage() {
     </>
   );
 }
+
+export default function ProductionConsoleClientPage() {
+    return (
+        <React.Suspense fallback={
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <p className="mt-4 text-muted-foreground">Caricamento console...</p>
+            </div>
+        }>
+            <ProductionConsoleView />
+        </React.Suspense>
+    )
+}
+
+    

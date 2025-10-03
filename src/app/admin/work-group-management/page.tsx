@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -24,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
-import { Combine, Trash2, Loader2, Unlink, Search } from 'lucide-react';
+import { Combine, Trash2, Loader2, Unlink, Search, Link as LinkIcon } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { useRouter } from 'next/navigation';
@@ -124,7 +125,12 @@ function WorkGroupManagementContent() {
             {isLoading ? renderLoading() : groupList.length > 0 ? (
               groupList.map((group) => (
                 <TableRow key={group.id}>
-                  <TableCell className="font-mono text-xs">{group.id}</TableCell>
+                  <TableCell className="font-mono text-xs flex items-center gap-2">
+                     <Link href={`/admin/production-console?groupId=${group.id}`} title="Vedi commesse nella console">
+                         <LinkIcon className="h-4 w-4 text-primary hover:text-primary/80"/>
+                     </Link>
+                    {group.id}
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 max-w-xs">
                       {(group.jobOrderPFs || []).map(pf => <Badge key={pf} variant="secondary">{pf}</Badge>)}
@@ -222,8 +228,10 @@ function WorkGroupManagementContent() {
 
 export default function WorkGroupManagementPage() {
     return (
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
             <WorkGroupManagementContent />
         </Suspense>
     )
 }
+
+    
