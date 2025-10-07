@@ -120,14 +120,14 @@ export default function ActiveJobStatusBar() {
         <Card className={cn(
             "p-3 shadow-2xl w-full max-w-lg mx-auto pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 transition-all",
             isStatusBarHighlighted && "border-primary ring-4 ring-primary/50",
-            isMyWorkActive ? "bg-blue-500/10" : "bg-orange-500/10"
+            isMyWorkActive ? "bg-accent text-accent-foreground" : "bg-yellow-500/20 text-yellow-800 dark:text-yellow-200 border-yellow-500/30"
         )}>
             <div className="flex items-center justify-between gap-4">
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
-                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                    <p className={cn("text-xs truncate flex items-center gap-1.5", isMyWorkActive ? "text-accent-foreground/80" : "text-yellow-700 dark:text-yellow-300")}>
                        {isMyWorkActive 
-                          ? <span className="h-2 w-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                          ? <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
                           : <span className="h-2 w-2 rounded-full bg-orange-500"></span>
                        }
                        {isMyWorkActive ? 'Fase Attiva:' : 'Fase in Pausa:'} {myRelevantPhase.name}
@@ -138,7 +138,10 @@ export default function ActiveJobStatusBar() {
                         <Button 
                           variant="outline" 
                           size="icon" 
-                          className={cn("h-9 w-9", !isMyWorkActive && "border-orange-500 text-orange-500 hover:bg-orange-500/10 hover:text-orange-600")}
+                          className={cn("h-9 w-9", 
+                            !isMyWorkActive && "border-orange-500 text-orange-500 hover:bg-orange-500/10 hover:text-orange-600",
+                            isMyWorkActive && "bg-background/50 hover:bg-background/70"
+                          )}
                           onClick={() => handlePauseResume(myRelevantPhase.id)} 
                           disabled={activeJob.isProblemReported}
                         >
@@ -149,7 +152,7 @@ export default function ActiveJobStatusBar() {
                         <Button 
                             variant="outline" 
                             size="icon" 
-                            className="h-9 w-9" 
+                            className={cn("h-9 w-9", isMyWorkActive && "bg-background/50 hover:bg-background/70")}
                             onClick={() => handleCompletePhase(myRelevantPhase.id)} 
                             disabled={activeJob.isProblemReported || !isMyWorkActive} // Can only complete if active
                             title="Completa la tua attività per questa fase"
