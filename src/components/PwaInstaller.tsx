@@ -27,11 +27,37 @@ const PwaInstaller = () => {
             setInstallPrompt(e as BeforeInstallPromptEvent);
         };
         
-        // Register service worker on component mount
         if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
             navigator.serviceWorker.register('/sw.js')
-                .then(registration => console.log('Service Worker registered with scope:', registration.scope))
+                .then(registration => {
+                    console.log('Service Worker registered with scope:', registration.scope);
+                    // This logic checks for a new service worker waiting to be activated.
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        if (newWorker) {
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // A new service worker is installed and waiting.
+                                    // We can prompt the user to refresh or just force it.
+                                    // For this app, we force the update to ensure data consistency.
+                                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                                    console.log('New Service Worker installed, activating immediately.');
+                                    // Optional: reload the page to use the new SW immediately
+                                    // window.location.reload(); 
+                                }
+                            });
+                        }
+                    });
+                })
                 .catch(error => console.error('Service Worker registration failed:', error));
+            
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) {
+                    window.location.reload();
+                    refreshing = true;
+                }
+            });
         }
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);

@@ -1,112 +1,104 @@
-// This is the service worker file for the PWA.
+// ProdFastXcan Service Worker
 
 const CACHE_NAME = 'prodfastxcan-cache-v1';
-
-// A list of all the essential files to be cached for the app to work offline.
-const urlsToCache = [
-  '/',
-  '/dashboard',
-  '/scan-job',
-  '/operator',
-  '/report-problem',
-  '/material-loading',
-  '/material-check',
-  '/manifest.json',
-  '/favicon.ico',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
-  '/logo.png'
-  // Note: Next.js assets (_next/static/...) are usually handled by runtime caching
-  // because their names are hashed and change with every build.
+const STATIC_ASSETS = [
+    '/',
+    '/manifest.json',
+    '/icon-192x192.png',
+    '/icon-512x512.png',
+    // Next.js static files are usually prefixed with /_next/static/
+    // We'll cache them dynamically as they are requested.
+];
+const NETWORK_FIRST_PATHS = [
+    '/',
+    '/scan-job',
+    '/dashboard',
+    '/admin/dashboard',
+    '/admin/production-console',
+    '/admin/data-management',
 ];
 
-// Install event: opens the cache and adds the core files to it.
-self.addEventListener('install', (event) => {
-  console.log('Service Worker: Installing...');
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Service Worker: Caching app shell');
-        return cache.addAll(urlsToCache);
-      })
-      .catch(error => {
-        console.error('Service Worker: Failed to cache app shell.', error);
-      })
-  );
-});
-
-// Activate event: cleans up old caches.
-self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Activating...');
-  const cacheWhitelist = [CACHE_NAME];
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheWhitelist.indexOf(cacheName) === -1) {
-            console.log('Service Worker: Deleting old cache', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
-  return self.clients.claim();
-});
-
-// Fetch event: serves assets from cache if available, otherwise fetches from network.
-self.addEventListener('fetch', (event) => {
-  // We only want to handle GET requests.
-  if (event.request.method !== 'GET') {
-    return;
-  }
-  
-  // For navigation requests (to pages), use a network-first strategy.
-  // This ensures users always get the latest HTML, but falls back to cache if offline.
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .catch(() => {
-          console.log('Service Worker: Network fetch failed, serving from cache for navigation.');
-          return caches.match(event.request)
-                .then(response => response || caches.match('/')); // Fallback to root if specific page not cached
+// On install, pre-cache the static shell
+self.addEventListener('install', event => {
+    console.log('[SW] Install');
+    event.waitUntil(
+        caches.open(CACHE_NAME).then(cache => {
+            console.log('[SW] Caching app shell');
+            return cache.addAll(STATIC_ASSETS);
         })
     );
-    return;
-  }
+});
 
-  // For other requests (CSS, JS, images), use a cache-first strategy.
-  // This is fast and efficient for static assets.
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        if (response) {
-          // Found in cache, return it.
-          return response;
-        }
-        
-        // Not in cache, fetch from network, then cache it for next time.
-        return fetch(event.request).then(
-          (networkResponse) => {
-            // Check if we received a valid response
-            if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-              return networkResponse;
-            }
+// On activate, clean up old caches
+self.addEventListener('activate', event => {
+    console.log('[SW] Activate');
+    event.waitUntil(
+        caches.keys().then(cacheNames => {
+            return Promise.all(
+                cacheNames.map(cacheName => {
+                    if (cacheName !== CACHE_NAME) {
+                        console.log('[SW] Deleting old cache:', cacheName);
+                        return caches.delete(cacheName);
+                    }
+                })
+            );
+        })
+    );
+    return self.clients.claim();
+});
 
-            // IMPORTANT: Clone the response. A response is a stream
-            // and because we want the browser to consume the response
-            // as well as the cache consuming the response, we need
-            // to clone it so we have two streams.
-            const responseToCache = networkResponse.clone();
 
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
+self.addEventListener('fetch', event => {
+    const { request } = event;
+    const url = new URL(request.url);
 
-            return networkResponse;
-          }
+    // --- Network First Strategy for HTML pages and key data paths ---
+    // This ensures we always get the latest page structure and critical data.
+    if (request.mode === 'navigate' || NETWORK_FIRST_PATHS.includes(url.pathname)) {
+        event.respondWith(
+            fetch(request)
+                .then(response => {
+                    // If we get a valid response, cache it and return it
+                    if (response && response.status === 200) {
+                        const responseToCache = response.clone();
+                        caches.open(CACHE_NAME).then(cache => {
+                            cache.put(request, responseToCache);
+                        });
+                    }
+                    return response;
+                })
+                .catch(() => {
+                    // If the network fails, serve from cache
+                    return caches.match(request).then(response => {
+                        return response || caches.match('/'); // Fallback to home page
+                    });
+                })
         );
-      })
-  );
+        return;
+    }
+    
+    // --- Cache First Strategy for Static Assets (_next/static) ---
+    // These files are versioned by Next.js, so they are safe to cache aggressively.
+    if (url.pathname.startsWith('/_next/static/')) {
+         event.respondWith(
+            caches.match(request).then(cachedResponse => {
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
+                return fetch(request).then(response => {
+                     const responseToCache = response.clone();
+                     caches.open(CACHE_NAME).then(cache => {
+                        cache.put(request, responseToCache);
+                     });
+                     return response;
+                });
+            })
+        );
+        return;
+    }
+
+    // Default: try network, fallback to cache for other requests
+     event.respondWith(
+        fetch(request).catch(() => caches.match(request))
+    );
 });
