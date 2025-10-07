@@ -1010,11 +1010,41 @@ export default function ScanJobPage() {
             toast({ variant: "default", title: "Commessa già presente", description: "Questa commessa è già stata aggiunta al gruppo." });
             return;
         }
+        
+        // --- NEW VALIDATION ---
+        const getJobProgressState = (job: JobOrder): number => {
+            const sortedPhases = [...(job.phases || [])].sort((a, b) => a.sequence - b.sequence);
+            let lastCompletedIndex = -1;
+            for (let i = 0; i < sortedPhases.length; i++) {
+                if (sortedPhases[i].status === 'completed') {
+                    lastCompletedIndex = i;
+                } else {
+                    break;
+                }
+            }
+            return lastCompletedIndex;
+        };
 
         if (groupScanList.length > 0) {
             const firstJob = groupScanList[0];
+            
+            // Check for cycle, department, and client compatibility
             if (result.workCycleId !== firstJob.workCycleId || result.department !== firstJob.department || result.cliente !== firstJob.cliente) {
                 toast({ variant: "destructive", title: "Commessa non Compatibile", description: "Le commesse devono avere lo stesso Ciclo, Reparto e Cliente per essere concatenate." });
+                return;
+            }
+            
+            // Check for progress state compatibility
+            const firstJobState = getJobProgressState(firstJob);
+            const newJobState = getJobProgressState(result);
+
+            if (firstJobState !== newJobState) {
+                toast({
+                    variant: "destructive",
+                    title: "Avanzamento Diverso",
+                    description: "Le commesse da raggruppare devono trovarsi allo stesso punto del ciclo di lavorazione.",
+                    duration: 7000,
+                });
                 return;
             }
         }
@@ -1653,7 +1683,7 @@ export default function ScanJobPage() {
                               <AlertDialogHeader>
                                   <AlertDialogTitle>Sei sicuro di voler scollegare il gruppo?</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                      Questa azione è irreversibile. Le commesse torneranno individuali. Puoi farlo solo se nessuna fase è in lavorazione.
+                                      Questa azione è irreversibile. Le commesse torneranno individuali e verranno messe in pausa.
                                   </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -1730,7 +1760,7 @@ export default function ScanJobPage() {
                     <Card>
                         <CardHeader>
                              <CardTitle className="flex items-center gap-3"><LinkIcon className="h-7 w-7 text-primary" /> Concatena Commesse</CardTitle>
-                             <CardDescription>Scansiona i QR code delle commesse da raggruppare. Devono avere lo stesso ciclo, reparto e cliente.</CardDescription>
+                             <CardDescription>Scansiona i QR code delle commesse da raggruppare. Devono avere lo stesso ciclo, reparto, cliente e stato di avanzamento.</CardDescription>
                         </CardHeader>
                          <CardContent className="space-y-4">
                             {renderScanArea(handleGroupScan)}
@@ -1995,5 +2025,4 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-
 
