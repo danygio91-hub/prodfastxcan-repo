@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -29,43 +29,37 @@ import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 
+type FilterStatus = OverallStatus | 'all' | 'LIVE';
+
+function isJobLive(jobOrder: JobOrder): boolean {
+    return (jobOrder.phases || []).some(p => p.status === 'in-progress');
+}
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
   if (jobOrder.isProblemReported) return 'Problema';
-  if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
+  if (jobOrder.status === 'suspended') return 'Sospesa';
   if (jobOrder.status === 'completed') return 'Completata';
   
 
   // Check phases
   const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
-  const finishingPhases = (jobOrder.phases || []).filter(p => p.type === 'quality' || p.type === 'packaging');
-
-  const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
-  if (isAnyFinishingActive) return 'In Lavorazione';
-
-  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (isAnyProductionActive) return 'In Lavorazione';
   
-  const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
+  const isAnyPhaseActive = (jobOrder.phases || []).some(p => p.status !== 'pending');
+  if (!isAnyPhaseActive) return 'Da Iniziare';
 
-  if (allPreparationDone) {
-    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed');
-    if (allProductionSkippedOrDone) {
-        return 'Pronto per Finitura';
-    }
-     const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
-      if (isAnyProductionStarted) {
-         return 'In Lavorazione';
-      }
-      return 'Pronto per Produzione';
-  }
+  if (isJobLive(jobOrder)) return 'In Lavorazione';
+
+  const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+  if (!allPreparationDone) return 'In Preparazione';
+
+  const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+  if (allPreparationDone && !allProductionDone) return 'Pronto per Produzione';
   
-  const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
-  if (isAnyPreparationActive) {
-    return 'In Preparazione';
-  }
+  if (allProductionDone) return 'Pronto per Finitura';
+
+  if (jobOrder.status === 'paused') return 'Sospesa';
   
   // Default state if no other condition is met
   return 'Da Iniziare';
@@ -77,7 +71,7 @@ function ProductionConsoleView() {
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<OverallStatus | 'all'>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | null>(null);
   
   const searchParams = useSearchParams();
@@ -168,9 +162,15 @@ function ProductionConsoleView() {
 
 
   const filteredJobs = useMemo(() => {
-    const statusFiltered = activeFilter === 'all'
-      ? synthesizedJobOrders
-      : synthesizedJobOrders.filter(job => getOverallStatus(job) === activeFilter);
+    let statusFiltered: JobOrder[];
+
+    if (activeFilter === 'all') {
+      statusFiltered = synthesizedJobOrders;
+    } else if (activeFilter === 'LIVE') {
+      statusFiltered = synthesizedJobOrders.filter(job => isJobLive(job));
+    } else {
+      statusFiltered = synthesizedJobOrders.filter(job => getOverallStatus(job) === activeFilter);
+    }
       
     if (!searchTerm) {
         return statusFiltered;
@@ -277,15 +277,14 @@ function ProductionConsoleView() {
   }
 
 
-  const filterOptions: (OverallStatus | 'all')[] = [
+  const filterOptions: FilterStatus[] = [
     'all',
-    'Da Iniziare',
-    'In Preparazione',
-    'Pronto per Produzione',
-    'Pronto per Finitura',
+    'LIVE',
     'In Lavorazione',
     'Sospesa',
     'Problema',
+    'Pronto per Produzione',
+    'Pronto per Finitura',
     'Completata'
   ];
 
@@ -322,7 +321,8 @@ function ProductionConsoleView() {
                   onClick={() => setActiveFilter(filter)}
                   className="capitalize px-3 py-1 h-auto"
               >
-                  {filter === 'all' ? 'Tutte' : filter}
+                  {filter === 'LIVE' && <Activity className="mr-2 h-4 w-4 text-red-400 animate-pulse" />}
+                  {filter === 'all' ? 'Tutte' : (filter === 'LIVE' ? 'In Corso (Live)' : filter)}
               </Button>
               ))}
           </div>
@@ -410,7 +410,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-
-    
-
-    
