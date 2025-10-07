@@ -1,104 +1,78 @@
-// ProdFastXcan Service Worker
+// This is a basic Service Worker with a Stale-While-Revalidate strategy.
 
-const CACHE_NAME = 'prodfastxcan-cache-v1';
-const STATIC_ASSETS = [
-    '/',
-    '/manifest.json',
-    '/icon-192x192.png',
-    '/icon-512x512.png',
-    // Next.js static files are usually prefixed with /_next/static/
-    // We'll cache them dynamically as they are requested.
-];
-const NETWORK_FIRST_PATHS = [
-    '/',
-    '/scan-job',
-    '/dashboard',
-    '/admin/dashboard',
-    '/admin/production-console',
-    '/admin/data-management',
+const CACHE_NAME = 'pfxcan-cache-v1';
+const urlsToCache = [
+  '/',
+  '/manifest.json',
+  '/icon-192x192.png',
+  '/icon-512x512.png'
 ];
 
-// On install, pre-cache the static shell
+// Install event: precache the main application shell.
 self.addEventListener('install', event => {
-    console.log('[SW] Install');
-    event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            console.log('[SW] Caching app shell');
-            return cache.addAll(STATIC_ASSETS);
-        })
-    );
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log('Opened cache');
+        return cache.addAll(urlsToCache);
+      })
+  );
 });
 
-// On activate, clean up old caches
+// Activate event: clean up old caches and take control.
 self.addEventListener('activate', event => {
-    console.log('[SW] Activate');
-    event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames.map(cacheName => {
-                    if (cacheName !== CACHE_NAME) {
-                        console.log('[SW] Deleting old cache:', cacheName);
-                        return caches.delete(cacheName);
-                    }
-                })
-            );
+  const cacheWhitelist = [CACHE_NAME];
+  event.waitUntil(
+    caches.keys().then(cacheNames => {
+      return Promise.all(
+        cacheNames.map(cacheName => {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
+            console.log('Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
         })
-    );
-    return self.clients.claim();
+      );
+    })
+  );
+  // Take control of the page immediately.
+  return self.clients.claim();
+});
+
+// Listen for messages from the client to skip the waiting phase.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 
+// Fetch event: apply the Stale-While-Revalidate strategy.
 self.addEventListener('fetch', event => {
-    const { request } = event;
-    const url = new URL(request.url);
+  // We only apply this strategy to navigation requests (i.e., for HTML pages).
+  // Other requests (like Firestore's WebSockets, images, API calls) will pass through to the network directly.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(cache => {
+        // 1. Return the cached version immediately if available (Stale).
+        return cache.match(event.request).then(cachedResponse => {
+          
+          // 2. In the background, fetch a fresh version from the network (Revalidate).
+          const fetchPromise = fetch(event.request).then(networkResponse => {
+            // If the fetch is successful, update the cache with the new version.
+            if (networkResponse.ok) {
+              cache.put(event.request, networkResponse.clone());
+            }
+            return networkResponse;
+          });
 
-    // --- Network First Strategy for HTML pages and key data paths ---
-    // This ensures we always get the latest page structure and critical data.
-    if (request.mode === 'navigate' || NETWORK_FIRST_PATHS.includes(url.pathname)) {
-        event.respondWith(
-            fetch(request)
-                .then(response => {
-                    // If we get a valid response, cache it and return it
-                    if (response && response.status === 200) {
-                        const responseToCache = response.clone();
-                        caches.open(CACHE_NAME).then(cache => {
-                            cache.put(request, responseToCache);
-                        });
-                    }
-                    return response;
-                })
-                .catch(() => {
-                    // If the network fails, serve from cache
-                    return caches.match(request).then(response => {
-                        return response || caches.match('/'); // Fallback to home page
-                    });
-                })
-        );
-        return;
-    }
-    
-    // --- Cache First Strategy for Static Assets (_next/static) ---
-    // These files are versioned by Next.js, so they are safe to cache aggressively.
-    if (url.pathname.startsWith('/_next/static/')) {
-         event.respondWith(
-            caches.match(request).then(cachedResponse => {
-                if (cachedResponse) {
-                    return cachedResponse;
-                }
-                return fetch(request).then(response => {
-                     const responseToCache = response.clone();
-                     caches.open(CACHE_NAME).then(cache => {
-                        cache.put(request, responseToCache);
-                     });
-                     return response;
-                });
-            })
-        );
-        return;
-    }
-
-    // Default: try network, fallback to cache for other requests
-     event.respondWith(
-        fetch(request).catch(() => caches.match(request))
+          // Return the cached response if it exists, otherwise wait for the network response.
+          // This ensures the app works offline if there's something in the cache.
+          return cachedResponse || fetchPromise;
+        });
+      })
     );
+  }
+  // For non-navigation requests, just let the browser handle it (network-first).
+  // This is crucial for Firestore's real-time connection.
+  return;
 });

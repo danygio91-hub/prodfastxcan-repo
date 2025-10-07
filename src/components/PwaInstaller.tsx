@@ -42,8 +42,6 @@ const PwaInstaller = () => {
                                     // For this app, we force the update to ensure data consistency.
                                     newWorker.postMessage({ type: 'SKIP_WAITING' });
                                     console.log('New Service Worker installed, activating immediately.');
-                                    // Optional: reload the page to use the new SW immediately
-                                    // window.location.reload(); 
                                 }
                             });
                         }
