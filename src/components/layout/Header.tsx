@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -32,6 +32,7 @@ const adminNavItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
+  { href: '/admin/work-group-management', label: 'Gruppi Commesse', icon: Combine },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
   { href: '/admin/production-time-analysis', label: 'Analisi Tempi', icon: Timer },
   { href: '/admin/non-conformity-reports', label: 'Non Conformità', icon: ShieldAlert },
