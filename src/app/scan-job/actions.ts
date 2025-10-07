@@ -657,19 +657,27 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // Unlock the next phase's material readiness if it's NOT a preparation phase
-        if (phaseToStart.type !== 'preparation') {
-            const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-            const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
+        // --- UNLOCK NEXT PHASE / POSTPONED QUALITY ---
+        const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
+
+        // Check if there's a postponed quality phase that should now be unlocked.
+        // This happens if the current phase is the new "last" production phase before the postponed one.
+        const postponedQualityPhase = sortedPhases.find((p: JobPhase) => p.postponed && p.sequence > phaseToStart.sequence);
+        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some(p => !p.postponed && p.status === 'pending');
+
+        if (postponedQualityPhase && isThisTheLastNonPostponedPhase) {
+            postponedQualityPhase.materialReady = true;
+        } else {
+            // Original logic: Unlock the next sequential phase
             const nextPhase = sortedPhases[currentPhaseIndex + 1];
-            
-            if (nextPhase && nextPhase.status === 'pending') {
-              nextPhase.materialReady = true;
+            if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
+                nextPhase.materialReady = true;
             }
         }
         
         // Update the item itself
-        transaction.update(itemRef, { phases: itemToUpdate.phases, status: 'production' });
+        transaction.update(itemRef, { phases: sortedPhases, status: 'production' });
 
         // If it's a group, propagate the FULL state to all member jobs
         if (isGroup) {
@@ -677,7 +685,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
                 // Propagate the entire phases array and the new status
-                transaction.update(jobRef, { phases: itemToUpdate.phases, status: 'production' });
+                transaction.update(jobRef, { phases: sortedPhases, status: 'production' });
             });
         }
     });
@@ -689,6 +697,64 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+
+export async function postponeQualityPhase(jobId: string, phaseId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const isGroup = jobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, jobId);
+    
+    await runTransaction(db, async (transaction) => {
+        const docSnap = await transaction.get(itemRef);
+        if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
+        
+        const itemData = docSnap.data() as JobOrder | WorkGroup;
+        const phases = [...itemData.phases];
+        const phaseIndex = phases.findIndex(p => p.id === phaseId);
+        
+        if (phaseIndex === -1 || phases[phaseIndex].type !== 'quality') {
+          throw new Error("Fase di collaudo non trovata o non valida.");
+        }
+        if (phases[phaseIndex].status !== 'pending') {
+          throw new Error("Il collaudo può essere posticipato solo se è in attesa.");
+        }
+
+        // --- Re-sequencing Logic ---
+        const maxSequence = Math.max(...phases.map(p => p.sequence));
+        phases[phaseIndex].sequence = maxSequence + 1;
+        phases[phaseIndex].postponed = true; // Mark as postponed
+        
+        // --- Unlock Next Phase Logic ---
+        const sortedOriginalPhases = [...itemData.phases].sort((a, b) => a.sequence - b.sequence);
+        const originalIndex = sortedOriginalPhases.findIndex(p => p.id === phaseId);
+        const nextPhaseInOriginalOrder = sortedOriginalPhases[originalIndex + 1];
+
+        if (nextPhaseInOriginalOrder) {
+            const nextPhaseInCurrentArray = phases.find(p => p.id === nextPhaseInOriginalOrder.id);
+            if (nextPhaseInCurrentArray) {
+                nextPhaseInCurrentArray.materialReady = true;
+            }
+        }
+        
+        transaction.update(itemRef, { phases: phases });
+
+        if (isGroup) {
+            ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
+                const jobRef = doc(db, 'jobOrders', individualJobId);
+                transaction.update(jobRef, { phases: phases });
+            });
+        }
+    });
+
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Fase di collaudo posticipata con successo.' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
+    console.error("Error postponing quality phase:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
 
 export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
     const jobsRef = collection(db, "jobOrders");
@@ -792,5 +858,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
-
-    

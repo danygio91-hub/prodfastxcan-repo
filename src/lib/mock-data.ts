@@ -43,6 +43,7 @@ export interface JobPhase {
   qualityResult?: 'passed' | 'failed' | null;
   departmentCodes: string[];
   forced?: boolean; // New flag for forced completion
+  postponed?: boolean; // New flag for postponed quality phases
 }
 
 export interface JobOrder {
@@ -287,5 +288,3 @@ export const initialDepartmentMap: Record<string, string> = {
     Officina: 'Officina',
     'N/D': 'Non Definito',
 };
-
-    
