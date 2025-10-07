@@ -92,15 +92,23 @@ export async function verifyAndGetJobOrder(scannedData: {
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
   
+  // If the job belongs to a group, fetch the group data, but ONLY if the group is still active.
   if (job.workGroupId) {
-      const groupData = await getJobOrderById(job.workGroupId);
-      if (groupData) {
-          return groupData;
-      } else {
-          await updateDoc(jobRef, { workGroupId: deleteField() });
-          return job;
+      const groupRef = doc(db, 'workGroups', job.workGroupId);
+      const groupSnap = await getDoc(groupRef);
+      // If the group exists and is in a "workable" state, return the group data.
+      if (groupSnap.exists() && ['production', 'paused'].includes(groupSnap.data()?.status)) {
+          const groupData = await getJobOrderById(job.workGroupId);
+          if (groupData) {
+              return groupData;
+          }
       }
+      // If the group doesn't exist or is completed, treat the job as a standalone job but ensure it's paused.
+      // This happens after a group is dissolved or completed.
+      job.status = 'paused';
+      // We don't remove the workGroupId here, as it can be useful for historical tracking.
   }
+
 
   if (!['production', 'suspended', 'paused'].includes(job.status)) {
      return {
@@ -109,6 +117,7 @@ export async function verifyAndGetJobOrder(scannedData: {
     };
   }
 
+  // This check is now only for non-grouped jobs
   if (!job.workGroupId && (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta)) {
      return {
       error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
@@ -184,7 +193,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         }
         
         const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-        if (groupData.status !== 'completed') {
+        if (groupData.status !== 'completed' && groupData.status !== 'suspended') {
             groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
         
@@ -784,4 +793,3 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
-
