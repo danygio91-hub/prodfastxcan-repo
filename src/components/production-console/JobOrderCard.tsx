@@ -45,7 +45,7 @@ interface ActiveOperator {
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
   if (jobOrder.isProblemReported) return 'Problema';
-  if (jobOrder.status === 'suspended') return 'Sospesa';
+  if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
   if (jobOrder.status === 'completed') return 'Completata';
 
   // Check phases

@@ -183,17 +183,17 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
 
         // --- PREPARE DATA ---
         // Finalize status before saving
+        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+        if (groupData.status !== 'completed' && groupData.status !== 'suspended') {
+            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
+        }
+
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
         if (allPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
                 groupData.overallEndTime = new Date();
             }
-        }
-        
-        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-        if (groupData.status !== 'completed' && groupData.status !== 'suspended') {
-            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));

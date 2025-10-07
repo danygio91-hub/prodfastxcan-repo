@@ -222,7 +222,7 @@ export interface WorkGroup {
     id: string;
     jobOrderIds: string[];
     jobOrderPFs: string[];
-    status: 'production' | 'paused' | 'completed';
+    status: 'production' | 'paused' | 'completed' | 'suspended';
     createdAt: Date;
     createdBy: string;
     totalQuantity: number;
