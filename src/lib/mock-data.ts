@@ -61,7 +61,7 @@ export interface JobOrder {
   problemType?: 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
   problemNotes?: string;
   problemReportedBy?: string;
-  status: 'planned' | 'production' | 'completed' | 'suspended';
+  status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused';
   workCycleId?: string;
   // New fields for internal ODL number
   numeroODLInterno?: string | null;
@@ -286,3 +286,5 @@ export const initialDepartmentMap: Record<string, string> = {
     Officina: 'Officina',
     'N/D': 'Non Definito',
 };
+
+    

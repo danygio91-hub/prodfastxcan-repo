@@ -33,9 +33,9 @@ import { Input } from '@/components/ui/input';
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   // Priority 1: Terminal/Blocking states
   if (jobOrder.isProblemReported) return 'Problema';
-  if (jobOrder.status === 'suspended') return 'Sospesa';
+  if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
   if (jobOrder.status === 'completed') return 'Completata';
-  if (jobOrder.status === 'paused') return 'Sospesa';
+  
 
   // Check phases
   const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
@@ -97,7 +97,7 @@ function ProductionConsoleView() {
         const jobs: JobOrder[] = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return JSON.parse(JSON.stringify(data), (key, value) => {
-                if (['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate'].includes(key) && value && typeof value === 'object' && value.seconds !== undefined) {
+                if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) {
                     return new Date(value.seconds * 1000);
                 }
                 return value;
@@ -399,5 +399,7 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+
+    
 
     
