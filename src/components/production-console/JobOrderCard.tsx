@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff, RefreshCcw } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff, RefreshCcw, EyeOff, ListOrdered } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -35,6 +35,10 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
 import { Badge } from '@/components/ui/badge';
+import { updatePhasesForJob } from '@/app/admin/production-console/actions';
+import { useAuth } from '../auth/AuthProvider';
+import { useToast } from '@/hooks/use-toast';
+
 
 interface ActiveOperator {
   id: string;
@@ -59,10 +63,10 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
   if (isAnyProductionActive) return 'In Lavorazione';
   
-  const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
+  const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
 
   if (allPreparationDone) {
-    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed');
+    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
     if (allProductionSkippedOrDone) {
         return 'Pronto per Finitura';
     }
@@ -94,6 +98,7 @@ function getPhaseIcon(status: JobPhase['status']) {
     case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
     case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
     case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
+    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
   }
 }
@@ -124,7 +129,12 @@ export default function JobOrderCard({
     onResetJobOrderClick: (jobId: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
+  const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
+  const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
+  
+  const { user } = useAuth();
+  const { toast } = useToast();
   
   const activeOperators = useMemo(() => {
     const active: ActiveOperator[] = [];
@@ -151,6 +161,11 @@ export default function JobOrderCard({
     setSelectedOperatorsToPause([]); // Reset selection
     setIsPauseDialogOpen(true);
   };
+
+  const handleOpenPhaseManager = () => {
+    setEditablePhases(jobOrder.phases);
+    setIsPhaseManagerOpen(true);
+  };
   
   const handleConfirmPause = () => {
     if (selectedOperatorsToPause.length > 0) {
@@ -170,6 +185,32 @@ export default function JobOrderCard({
       setSelectedOperatorsToPause([]);
     } else {
       setSelectedOperatorsToPause(activeOperators.map(op => op.id));
+    }
+  };
+
+  const handlePhaseStatusToggle = (phaseId: string) => {
+    setEditablePhases(prevPhases => {
+      const newPhases = prevPhases.map(p => {
+        if (p.id === phaseId) {
+          if (p.status === 'pending') return { ...p, status: 'skipped' as const };
+          if (p.status === 'skipped') return { ...p, status: 'pending' as const };
+        }
+        return p;
+      });
+      return newPhases;
+    });
+  };
+  
+  const handleSaveChanges = async () => {
+    if (!user) return;
+    const result = await updatePhasesForJob(jobOrder.id, editablePhases, user.uid);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+    });
+    if (result.success) {
+      setIsPhaseManagerOpen(false);
     }
   };
 
@@ -277,6 +318,11 @@ export default function JobOrderCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                    <ListOrdered className="mr-2 h-4 w-4" />
+                    <span>Gestisci Fasi</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {isForcedToFinish ? (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -465,7 +511,7 @@ export default function JobOrderCard({
                 jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
                     <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
                         {getPhaseIcon(phase.status)}
-                        <span className="flex-1">{phase.name}</span>
+                        <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
                         {phase.status === 'completed' && overallStatus !== 'Completata' && (
                            <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -543,6 +589,45 @@ export default function JobOrderCard({
                 </Button>
             </DialogFooter>
         </DialogContent>
+    </Dialog>
+    <Dialog open={isPhaseManagerOpen} onOpenChange={setIsPhaseManagerOpen}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Gestione Fasi per: {jobOrder.ordinePF}</DialogTitle>
+          <DialogDescription>
+            Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
+          {editablePhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
+            const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
+            return (
+              <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
+                <div className="flex items-center gap-3">
+                  {getPhaseIcon(phase.status)}
+                  <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
+                </div>
+                {canBeModified ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handlePhaseStatusToggle(phase.id)}
+                  >
+                    {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
+                    {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
+                  </Button>
+                ) : (
+                  <Badge variant="secondary">{phase.status}</Badge>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setIsPhaseManagerOpen(false)}>Annulla</Button>
+          <Button onClick={handleSaveChanges}>Salva Modifiche</Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
     </>
   );

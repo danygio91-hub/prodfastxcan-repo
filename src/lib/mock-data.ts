@@ -29,7 +29,7 @@ export interface MaterialConsumption {
 export interface JobPhase {
   id: string;
   name: string;
-  status: 'pending' | 'in-progress' | 'paused' | 'completed';
+  status: 'pending' | 'in-progress' | 'paused' | 'completed' | 'skipped';
   materialReady: boolean;
   workPeriods: WorkPeriod[];
   sequence: number;

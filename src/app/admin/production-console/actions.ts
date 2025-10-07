@@ -454,9 +454,53 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
     return { success: false, message: errorMessage };
   }
 }
+
+export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
+  await ensureAdmin(uid);
+
+  try {
+    const isGroup = jobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, jobId);
+    
+    // Recalculate material readiness before saving
+    let materialIsReady = true;
+    const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
+    
+    for (const phase of sortedPhases) {
+      phase.materialReady = materialIsReady;
+      if (phase.status === 'pending' || phase.status === 'skipped') {
+        // If the phase is pending or skipped, the next phase's material is NOT ready yet, unless this is a prep phase
+        if (phase.type !== 'preparation') {
+            materialIsReady = false;
+        }
+      }
+    }
+
+    await updateDoc(itemRef, { phases: sortedPhases });
+
+    if (isGroup) {
+        const groupData = (await getDoc(itemRef)).data() as WorkGroup;
+        const batch = writeBatch(db);
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            batch.update(jobRef, { phases: sortedPhases });
+        });
+        await batch.commit();
+    }
+
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/scan-job?jobId=${jobId}`);
+    
+    return { success: true, message: 'Fasi della commessa aggiornate.' };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento delle fasi." };
+  }
+}
     
 
     
+
 
 
 
