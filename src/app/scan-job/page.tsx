@@ -1011,39 +1011,35 @@ export default function ScanJobPage() {
             return;
         }
         
-        // --- NEW VALIDATION ---
-        const getJobProgressState = (job: JobOrder): number => {
+        const getJobProgressSignature = (job: JobOrder): string => {
             const sortedPhases = [...(job.phases || [])].sort((a, b) => a.sequence - b.sequence);
-            let lastCompletedIndex = -1;
-            for (let i = 0; i < sortedPhases.length; i++) {
-                if (sortedPhases[i].status === 'completed') {
-                    lastCompletedIndex = i;
-                } else {
-                    break;
-                }
-            }
-            return lastCompletedIndex;
+            const completedPhaseIds = sortedPhases
+                .filter(p => p.status === 'completed')
+                .map(p => p.id)
+                .join(',');
+            
+            const hasAnyWorkPeriods = sortedPhases.some(p => p.workPeriods && p.workPeriods.length > 0);
+
+            return `${completedPhaseIds}|workStarted:${hasAnyWorkPeriods}`;
         };
 
         if (groupScanList.length > 0) {
             const firstJob = groupScanList[0];
             
-            // Check for cycle, department, and client compatibility
             if (result.workCycleId !== firstJob.workCycleId || result.department !== firstJob.department || result.cliente !== firstJob.cliente) {
                 toast({ variant: "destructive", title: "Commessa non Compatibile", description: "Le commesse devono avere lo stesso Ciclo, Reparto e Cliente per essere concatenate." });
                 return;
             }
             
-            // Check for progress state compatibility
-            const firstJobState = getJobProgressState(firstJob);
-            const newJobState = getJobProgressState(result);
+            const firstJobSignature = getJobProgressSignature(firstJob);
+            const newJobSignature = getJobProgressSignature(result);
 
-            if (firstJobState !== newJobState) {
+            if (firstJobSignature !== newJobSignature) {
                 toast({
                     variant: "destructive",
                     title: "Avanzamento Diverso",
-                    description: "Le commesse da raggruppare devono trovarsi allo stesso punto del ciclo di lavorazione.",
-                    duration: 7000,
+                    description: "Le commesse da raggruppare devono trovarsi allo stesso identico punto del ciclo, senza alcuna lavorazione già avviata su nessuna di esse.",
+                    duration: 9000,
                 });
                 return;
             }
