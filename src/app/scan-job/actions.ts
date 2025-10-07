@@ -91,35 +91,33 @@ export async function verifyAndGetJobOrder(scannedData: {
   }
 
   const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
-  
-  // If the job belongs to a group, fetch the group data, but ONLY if the group is still active.
+
+  // If the job belongs to a group, always prioritize opening the group context.
   if (job.workGroupId) {
-      const groupRef = doc(db, 'workGroups', job.workGroupId);
-      const groupSnap = await getDoc(groupRef);
-      // If the group exists and is in a "workable" state, return the group data.
-      if (groupSnap.exists() && ['production', 'paused'].includes(groupSnap.data()?.status)) {
-          const groupData = await getJobOrderById(job.workGroupId);
-          if (groupData) {
-              return groupData;
-          }
+    const groupRef = doc(db, 'workGroups', job.workGroupId);
+    const groupSnap = await getDoc(groupRef);
+    
+    // If the group exists, return the group data. This forces the user into the group context.
+    if (groupSnap.exists()) {
+      const groupData = await getJobOrderById(job.workGroupId);
+      if (groupData) {
+        return groupData;
       }
-      // If the group doesn't exist or is completed, treat the job as a standalone job but ensure it's paused.
-      // This happens after a group is dissolved or completed.
-      job.status = 'paused';
-      // We don't remove the workGroupId here, as it can be useful for historical tracking.
+    }
+    // If the group does NOT exist (it was dissolved), the code will proceed to treat the job as a standalone job.
   }
 
-
+  // This block is now for standalone jobs or jobs whose group has been dissolved.
   if (!['production', 'suspended', 'paused'].includes(job.status)) {
-     return {
+    return {
       error: `La commessa "${scannedData.ordinePF}" non è in produzione, sospesa o in pausa. Stato attuale: ${job.status}.`,
       title: 'Commessa non Lavorabile',
     };
   }
 
-  // This check is now only for non-grouped jobs
-  if (!job.workGroupId && (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta)) {
-     return {
+  // This check is now only for non-grouped jobs or jobs that have been ungrouped.
+  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) {
+    return {
       error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
       title: 'Dati non Corrispondenti',
     };
@@ -179,9 +177,10 @@ async function getConcatenationPolicy(): Promise<ConcatenationPolicy> {
 
 export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
     const groupRef = doc(db, "workGroups", groupData.id);
-    const batch = writeBatch(db);
-
+    
     try {
+        const batch = writeBatch(db);
+
         // --- PREPARE DATA ---
         // Finalize status before saving
         const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
@@ -793,3 +792,5 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
+    
