@@ -97,7 +97,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
                   dataConsegnaFinale: jobWithDates.dataConsegnaFinale,
                   postazioneLavoro: 'Multi-Commessa',
                   phases: jobWithDates.phases || [],
-                  status: jobWithDates.status === 'paused' ? 'production' : jobWithDates.status,
+                  status: jobWithDates.status,
                   workCycleId: jobWithDates.workCycleId,
                   workGroupId: docSnap.id,
                   overallStartTime: jobWithDates.overallStartTime,
@@ -111,7 +111,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
 
 
             // If the job is no longer in a workable state, clear it.
-            if (jobToSet.status !== 'production' && jobToSet.status !== 'suspended') {
+            if (!['production', 'suspended', 'paused'].includes(jobToSet.status)) {
                  setActiveJobId(null); // This will also clear the local storage
                  setActiveJobState(null);
             } else {
