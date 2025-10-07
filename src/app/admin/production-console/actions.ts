@@ -7,8 +7,8 @@ import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
-import { dissolveWorkGroup } from '../work-group-management/actions';
-import type { ConcatenationPolicy } from '../admin/concatenation-settings/actions';
+import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+import type { ConcatenationPolicy } from '@/app/admin/concatenation-settings/actions';
 
 /**
  * Helper function to propagate state changes from a group to its member job orders.
@@ -457,6 +457,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
     
 
     
+
 
 
 
