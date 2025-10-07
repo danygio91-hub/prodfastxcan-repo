@@ -8,6 +8,7 @@ import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '../work-group-management/actions';
+import type { ConcatenationPolicy } from '../admin/concatenation-settings/actions';
 
 /**
  * Helper function to propagate state changes from a group to its member job orders.
@@ -45,7 +46,7 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
         const updatedPhases = job.phases.map(phase => {
           // Complete only phases of type 'production' that are not yet completed
           if (phase.type === 'production' && phase.status !== 'completed') {
-            return { ...phase, status: 'completed' as const };
+            return { ...phase, status: 'completed' as const, forced: true };
           }
           return phase;
         });
@@ -70,6 +71,53 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error forcing production finish:", error);
+    return { success: false, message: errorMessage };
+  }
+}
+
+export async function revertForceFinish(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+
+    const jobRef = doc(db, 'jobOrders', jobId);
+    
+    await runTransaction(db, async (transaction) => {
+      const jobSnap = await transaction.get(jobRef);
+      if (!jobSnap.exists()) {
+        throw new Error('Commessa non trovata.');
+      }
+      const job = jobSnap.data() as JobOrder;
+
+      const updatedPhases = job.phases.map(phase => {
+        if (phase.forced) {
+          // Revert the phase to pending and remove the forced flag
+          const { forced, ...rest } = phase;
+          return { ...rest, status: 'pending' as const };
+        }
+        return phase;
+      });
+
+      // Also reset material readiness for subsequent non-production phases
+      const finalPhases = updatedPhases.map((phase, index, arr) => {
+          if (phase.type !== 'production' && phase.type !== 'preparation') {
+              const previousPhase = arr[index - 1];
+              if(previousPhase && previousPhase.status !== 'completed') {
+                  return { ...phase, materialReady: false };
+              }
+          }
+          return phase;
+      })
+
+      transaction.update(jobRef, { phases: finalPhases });
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/scan-job?jobId=${jobId}`);
+
+    return { success: true, message: `Annullata forzatura per commessa ${jobId}.` };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error reverting force finish:", error);
     return { success: false, message: errorMessage };
   }
 }
@@ -409,6 +457,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
     
 
     
+
 
 
 

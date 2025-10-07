@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 
@@ -215,6 +215,16 @@ function ProductionConsoleView() {
         variant: result.success ? "default" : "destructive",
     });
   }
+  
+  const handleRevertForceFinish = async (jobId: string) => {
+    if (!user) return;
+    const result = await revertForceFinish(jobId, user.uid);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+  };
 
   const handleForceComplete = async (jobId: string) => {
     if (!user) return;
@@ -335,6 +345,7 @@ function ProductionConsoleView() {
                       allOperators={allOperators}
                       onProblemClick={() => setProblemJob(job)}
                       onForceFinishClick={handleForceFinish}
+                      onRevertForceFinishClick={handleRevertForceFinish}
                       onToggleGuainaClick={handleToggleGuaina}
                       onRevertPhaseClick={handleRevertPhase}
                       onForcePauseClick={handleForcePause}

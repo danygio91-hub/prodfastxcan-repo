@@ -42,6 +42,7 @@ export interface JobPhase {
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
   departmentCodes: string[];
+  forced?: boolean; // New flag for forced completion
 }
 
 export interface JobOrder {

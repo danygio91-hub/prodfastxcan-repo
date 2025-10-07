@@ -103,7 +103,8 @@ export default function JobOrderCard({
     workGroup, 
     allOperators,
     onProblemClick, 
-    onForceFinishClick, 
+    onForceFinishClick,
+    onRevertForceFinishClick,
     onToggleGuainaClick, 
     onRevertPhaseClick, 
     onForcePauseClick,
@@ -114,7 +115,8 @@ export default function JobOrderCard({
     workGroup?: WorkGroup | null; 
     allOperators: Operator[];
     onProblemClick: () => void; 
-    onForceFinishClick: (jobId: string) => void; 
+    onForceFinishClick: (jobId: string) => void;
+    onRevertForceFinishClick: (jobId: string) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
     onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
@@ -189,6 +191,8 @@ export default function JobOrderCard({
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activeOperators.length > 0;
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+
+  const isForcedToFinish = jobOrder.phases.some(p => p.forced);
 
 
   const guainaPhase = jobOrder.phases.find(p => p.name === "Taglio Guaina");
@@ -273,26 +277,49 @@ export default function JobOrderCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <AlertDialog>
-                   <AlertDialogTrigger asChild>
-                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceFinish}>
-                        <FastForward className="mr-2 h-4 w-4" />
-                        <span>Forza a Finitura</span>
+                {isForcedToFinish ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-600">
+                        <Undo2 className="mr-2 h-4 w-4" />
+                        <span>Annulla Forza a Finitura</span>
                       </DropdownMenuItem>
-                   </AlertDialogTrigger>
-                    <AlertDialogContent>
+                    </AlertDialogTrigger>
+                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Forzare l'avanzamento?</AlertDialogTitle>
+                        <AlertDialogTitle>Annullare la forzatura?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Questa azione completerà tutte le fasi di produzione e renderà la commessa pronta per la finitura (collaudo/packaging).
+                          Questa azione ripristinerà le fasi di produzione completate artificialmente allo stato "in attesa".
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction>
+                        <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onRevertForceFinishClick(jobOrder.id)}>Sì, annulla</AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
-                </AlertDialog>
+                  </AlertDialog>
+                ) : (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceFinish}>
+                          <FastForward className="mr-2 h-4 w-4" />
+                          <span>Forza a Finitura</span>
+                        </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Forzare l'avanzamento?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Questa azione completerà tutte le fasi di produzione e renderà la commessa pronta per la finitura (collaudo/packaging).
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annulla</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
+                )}
                  <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceComplete}>
