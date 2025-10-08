@@ -603,6 +603,9 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
     let totalMs = 0;
     let jobPhases: JobPhase[] = [];
     let group: WorkGroup | null = null;
+    
+    // Define a minimum threshold for a phase duration to be considered valid (e.g., 10 seconds)
+    const MINIMUM_VALID_PHASE_DURATION_MS = 10000;
 
     if (job.workGroupId) {
         const groupRef = doc(db, 'workGroups', job.workGroupId);
@@ -623,8 +626,15 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
     const wasAnyPhaseForced = timeTrackingPhases.some(p => p.forced);
     const areAllPhasesCompleted = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
     
-    // A calculation is reliable only if all phases were completed naturally, without being forced.
-    const isReliable = areAllPhasesCompleted && !wasAnyPhaseForced;
+    // Check if any completed, time-tracked phase has an unrealistically short duration.
+    const hasAnomalousShortPhase = timeTrackingPhases.some(p => {
+        if (p.status !== 'completed') return false;
+        const phaseDuration = getPhaseTimeMilliseconds(p);
+        return phaseDuration > 0 && phaseDuration < MINIMUM_VALID_PHASE_DURATION_MS;
+    });
+
+    // A calculation is reliable only if all phases were completed naturally, without forcing, and without anomalous times.
+    const isReliable = areAllPhasesCompleted && !wasAnyPhaseForced && !hasAnomalousShortPhase;
 
     for (const phase of timeTrackingPhases) {
         let phaseTimeMs = 0;
@@ -757,4 +767,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
