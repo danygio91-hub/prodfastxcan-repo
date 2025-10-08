@@ -14,7 +14,7 @@ import { Timer, Save, Loader2, AlertCircle } from 'lucide-react';
 import { getTimeTrackingSettings, saveTimeTrackingSettings, type TimeTrackingSettings } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
