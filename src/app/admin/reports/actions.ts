@@ -665,6 +665,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     const settingsDoc = await getDoc(doc(db, 'configuration', 'timeTrackingSettings'));
     const timeSettings: TimeTrackingSettings = settingsDoc.exists() ? settingsDoc.data() as TimeTrackingSettings : { minimumPhaseDurationSeconds: 10 };
+    const MINIMUM_VALID_PHASE_DURATION_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
 
 
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
@@ -726,9 +727,10 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             }
             
             const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+            const isPhaseTimeValid = phase.status === 'completed' && !phase.forced && phaseTimeMs >= MINIMUM_VALID_PHASE_DURATION_MS;
 
-            // Aggregate phase data if calculation is reliable
-            if (isReliable && phaseTimeMinutes > 0) {
+            // Aggregate phase data if calculation is valid for this specific phase
+            if (isPhaseTimeValid) {
                  if (!phaseDataByArticle[articleCode][phase.name]) {
                     phaseDataByArticle[articleCode][phase.name] = { totalMinutes: 0, totalQuantity: 0 };
                 }
