@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -596,6 +596,17 @@ export default function ScanJobPage() {
     }
     
     handleUpdateAndPersistJob(jobToUpdate);
+  };
+  
+  const handlePostponeQuality = async (phaseId: string) => {
+    if (!activeJob) return;
+    const result = await postponeQualityPhase(activeJob.id, phaseId);
+    toast({
+        title: result.success ? "Operazione Eseguita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    // Real-time listener will update the state
   };
 
 
@@ -1295,7 +1306,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
                 ))}
             </div>
           </>
@@ -1318,7 +1329,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem}} />
+                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
                 ))}
             </div>
           </>
@@ -1848,6 +1859,7 @@ function PhaseCard({ phase, job, handlers }: {
         handleCompletePhase: (phaseId: string) => void,
         handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed', notes?: string) => void,
         handleForceStartPhase?: (phaseId: string) => void,
+        handlePostponeQuality: (phaseId: string) => void,
         openQualityProblemDialog: (isOpen: boolean) => void,
         setPhaseForQualityProblem: (phase: JobPhase) => void,
     }
@@ -1973,9 +1985,13 @@ function PhaseCard({ phase, job, handlers }: {
                       <ThumbsUp className="h-5 w-5" />
                       <span className="text-xs">OK</span>
                   </Button>
-                  <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
+                   <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
                      <ThumbsDown className="h-5 w-5" />
                      <span className="text-xs">NC</span>
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-12 w-16 flex-col border-amber-500 text-amber-500 hover:bg-amber-500/10 hover:text-amber-500" onClick={() => handlers.handlePostponeQuality(phase.id)}>
+                     <ArchiveRestore className="h-5 w-5" />
+                     <span className="text-xs">Posticipa</span>
                   </Button>
               </div>
           )}
