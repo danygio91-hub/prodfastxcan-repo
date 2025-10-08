@@ -39,11 +39,12 @@ import { useAuth } from '../auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 
 
-interface ActiveOperator {
-  id: string;
-  name: string;
+interface ActivePhaseInfo {
+  phaseId: string;
   phaseName: string;
+  operators: { id: string; name: string }[];
 }
+
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
   const allPhases = jobOrder.phases || [];
@@ -141,25 +142,38 @@ export default function JobOrderCard({
   const { user } = useAuth();
   const { toast } = useToast();
   
-  const activeOperators = useMemo(() => {
-    const active: ActiveOperator[] = [];
+  const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
+    const activePhasesMap = new Map<string, ActivePhaseInfo>();
     const source = (jobOrder.id.startsWith('group-') && workGroup) ? workGroup : jobOrder;
-
+    
     if (!source) return [];
 
     (source.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
+            const phaseOperators: ActivePhaseInfo['operators'] = [];
             (phase.workPeriods || []).forEach(wp => {
                 if (wp.end === null) {
                     const operator = allOperators.find(op => op.id === wp.operatorId);
-                    if(operator) {
-                        active.push({ id: operator.id, name: operator.nome, phaseName: phase.name });
+                    if (operator) {
+                        phaseOperators.push({ id: operator.id, name: operator.nome });
                     }
                 }
             });
+
+            if (phaseOperators.length > 0) {
+                if (!activePhasesMap.has(phase.id)) {
+                    activePhasesMap.set(phase.id, {
+                        phaseId: phase.id,
+                        phaseName: phase.name,
+                        operators: [],
+                    });
+                }
+                activePhasesMap.get(phase.id)!.operators.push(...phaseOperators);
+            }
         }
     });
-    return active;
+
+    return Array.from(activePhasesMap.values());
   }, [jobOrder, workGroup, allOperators]);
   
   const handleOpenPauseDialog = () => {
@@ -186,10 +200,11 @@ export default function JobOrderCard({
   };
 
   const toggleSelectAll = () => {
-    if (selectedOperatorsToPause.length === activeOperators.length) {
+    const allActiveOperatorIds = activePhasesWithOperators.flatMap(p => p.operators.map(op => op.id));
+    if (selectedOperatorsToPause.length === allActiveOperatorIds.length) {
       setSelectedOperatorsToPause([]);
     } else {
-      setSelectedOperatorsToPause(activeOperators.map(op => op.id));
+      setSelectedOperatorsToPause(allActiveOperatorIds);
     }
   };
 
@@ -221,7 +236,6 @@ export default function JobOrderCard({
 
 
   const overallStatus = getOverallStatus(jobOrder);
-  const currentPhase = getCurrentPhase(jobOrder.phases);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = jobOrder.phases.length > 0 ? (completedPhasesCount / jobOrder.phases.length) * 100 : 0;
   
@@ -235,7 +249,7 @@ export default function JobOrderCard({
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const isAnyPhaseInProgress = activeOperators.length > 0;
+  const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
@@ -471,30 +485,26 @@ export default function JobOrderCard({
               )}
           </div>
         </div>
-        { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
-           <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-blue-600/10 border-blue-600/20'}`}>
-            <div>
-              <p className={`text-sm font-semibold flex items-center gap-2 ${currentPhase.status === 'paused' ? 'text-orange-600 dark:text-orange-400' : 'text-blue-800 dark:text-blue-300'}`}>
-                {currentPhase.status === 'paused'
-                  ? <PauseCircle className="h-4 w-4" />
-                  : <Wrench className="h-4 w-4" />
-                }
-                <span>
-                  Fase Attuale: {currentPhase.name}
-                  {currentPhase.status === 'paused' && ' (In Pausa)'}
-                </span>
-              </p>
-            </div>
-             {activeOperators.length > 0 && (
-                <div className="mt-2 pl-6">
-                    <p className="text-xs font-semibold flex items-center gap-2 text-muted-foreground">
+        
+        {activePhasesWithOperators.length > 0 && (
+          <div className="p-3 rounded-md border bg-blue-600/10 border-blue-600/20 space-y-2">
+            {activePhasesWithOperators.map(activePhase => (
+              <div key={activePhase.phaseId}>
+                <p className="text-sm font-semibold flex items-center gap-2 text-blue-800 dark:text-blue-300">
+                  <Hourglass className="h-4 w-4 animate-spin" />
+                  <span>Fase Attuale: {activePhase.phaseName}</span>
+                </p>
+                <div className="mt-1 pl-6">
+                    <p className="text-xs font-semibold flex items-center gap-2 text-blue-700 dark:text-blue-400">
                         <Users className="h-4 w-4" />
-                        Operatori: {activeOperators.map(op => op.name).join(', ')}
+                        Operatori: {activePhase.operators.map(op => op.name).join(', ')}
                     </p>
                 </div>
-            )}
+              </div>
+            ))}
           </div>
         )}
+
          {overallStatus === 'Problema' && (
            <TooltipProvider>
             <Tooltip>
@@ -577,12 +587,12 @@ export default function JobOrderCard({
                  <div className="flex items-center space-x-2">
                     <Checkbox
                         id="select-all"
-                        checked={selectedOperatorsToPause.length === activeOperators.length && activeOperators.length > 0}
+                        checked={selectedOperatorsToPause.length === activePhasesWithOperators.flatMap(p => p.operators).length && activePhasesWithOperators.length > 0}
                         onCheckedChange={toggleSelectAll}
                     />
                     <Label htmlFor="select-all">Seleziona Tutti</Label>
                 </div>
-                {activeOperators.map(op => (
+                {activePhasesWithOperators.flatMap(p => p.operators).map(op => (
                     <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
                          <Checkbox
                             id={op.id}
@@ -591,11 +601,10 @@ export default function JobOrderCard({
                          />
                          <Label htmlFor={op.id} className="flex-1">
                             <span className="font-semibold">{op.name}</span>
-                            <span className="text-xs text-muted-foreground"> (Fase: {op.phaseName})</span>
                          </Label>
                     </div>
                 ))}
-                {activeOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questa commessa.</p>}
+                {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questa commessa.</p>}
             </div>
             <DialogFooter>
                 <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
