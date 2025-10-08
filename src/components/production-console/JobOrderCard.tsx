@@ -256,7 +256,7 @@ export default function JobOrderCard({
   return (
     <>
     <Card 
-      className={cn("flex flex-col h-full bg-card/80 hover:bg-card transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
+      className={cn("flex flex-col h-full bg-card hover:bg-card/90 transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
       <CardHeader>
@@ -472,17 +472,27 @@ export default function JobOrderCard({
           </div>
         </div>
         { (overallStatus === 'In Lavorazione' || overallStatus === 'In Preparazione') && currentPhase && (
-           <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-accent/10 border-accent/20'}`}>
-            <p className={`text-sm font-semibold flex items-center gap-2 ${currentPhase.status === 'paused' ? 'text-orange-500' : 'text-accent-foreground'}`}>
-              {currentPhase.status === 'paused'
-                ? <PauseCircle className="h-4 w-4" />
-                : <Wrench className="h-4 w-4" />
-              }
-              <span>
-                Fase Attuale: {currentPhase.name}
-                {currentPhase.status === 'paused' && ' (In Pausa)'}
-              </span>
-            </p>
+           <div className={`p-3 rounded-md border ${currentPhase.status === 'paused' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-blue-600/10 border-blue-600/20'}`}>
+            <div>
+              <p className={`text-sm font-semibold flex items-center gap-2 ${currentPhase.status === 'paused' ? 'text-orange-600 dark:text-orange-400' : 'text-blue-800 dark:text-blue-300'}`}>
+                {currentPhase.status === 'paused'
+                  ? <PauseCircle className="h-4 w-4" />
+                  : <Wrench className="h-4 w-4" />
+                }
+                <span>
+                  Fase Attuale: {currentPhase.name}
+                  {currentPhase.status === 'paused' && ' (In Pausa)'}
+                </span>
+              </p>
+            </div>
+             {activeOperators.length > 0 && (
+                <div className="mt-2 pl-6">
+                    <p className="text-xs font-semibold flex items-center gap-2 text-muted-foreground">
+                        <Users className="h-4 w-4" />
+                        Operatori: {activeOperators.map(op => op.name).join(', ')}
+                    </p>
+                </div>
+            )}
           </div>
         )}
          {overallStatus === 'Problema' && (
