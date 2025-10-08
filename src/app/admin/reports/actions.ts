@@ -433,7 +433,7 @@ export async function getOperatorDetailReport(operatorId: string, targetDateStri
         dateLabels: {
             today: format(referenceDate, 'dd/MM/yyyy', { locale: it }),
             week: `Settimana ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
-            month: format(referenceDate, 'MMMM yyyy', { locale: it }),
+            month: `Mese di ${format(referenceDate, 'MMMM yyyy', { locale: it })}`,
         }
     };
 }
@@ -620,8 +620,11 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
 
     const timeTrackingPhases = jobPhases.filter(p => p.tracksTime !== false);
     
-    // Check if the calculation is reliable. It's reliable if all time-tracked phases are completed.
-    const isReliable = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
+    const wasAnyPhaseForced = timeTrackingPhases.some(p => p.forced);
+    const areAllPhasesCompleted = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
+    
+    // A calculation is reliable only if all phases were completed naturally, without being forced.
+    const isReliable = areAllPhasesCompleted && !wasAnyPhaseForced;
 
     for (const phase of timeTrackingPhases) {
         let phaseTimeMs = 0;

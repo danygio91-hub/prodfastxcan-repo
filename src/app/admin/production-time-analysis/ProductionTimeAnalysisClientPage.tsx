@@ -20,6 +20,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from '@/lib/utils';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface ProductionTimeAnalysisClientPageProps {
   report: ProductionTimeAnalysisReport[];
@@ -127,7 +128,24 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                         <span className="font-semibold text-lg">{item.articleCode}</span>
                                     </div>
                                     <div className="text-right">
-                                        <div className="text-sm text-muted-foreground">Tempo Medio/Pz (Affidabile)</div>
+                                         <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger>
+                                                    <div className="text-sm text-muted-foreground">
+                                                        Tempo Medio/Pz
+                                                        <span className={cn(
+                                                            "ml-1 font-semibold",
+                                                            item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
+                                                        )}>
+                                                            ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
+                                                        </span>
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>Calcolato solo su commesse completate senza forzature.</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
                                         <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
                                     </div>
                                 </div>
