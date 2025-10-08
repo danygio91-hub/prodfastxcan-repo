@@ -49,12 +49,15 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         const jobsSnapshot = await getDocs(jobsQuery);
 
         jobsSnapshot.forEach(jobDoc => {
-            // For each job, we set its status to 'paused' and remove the group ID.
-            // The phases are preserved as they were in the group, ensuring progress is not lost.
+            const cleanPhases = (groupData.phases || []).map(p => {
+                const { forced, ...rest } = p;
+                return rest;
+            });
+            
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
                 status: 'paused',
-                phases: groupData.phases || [], // Preserve the final state of the phases from the group
+                phases: cleanPhases,
             });
         });
     }
@@ -75,6 +78,7 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
 
 
 
