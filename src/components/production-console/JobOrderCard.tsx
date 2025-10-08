@@ -1,5 +1,4 @@
 
-
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,15 +46,21 @@ interface ActiveOperator {
 }
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
-  // Priority 1: Terminal/Blocking states
+  const allPhases = jobOrder.phases || [];
+  const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+  if (allPhasesCompleted || jobOrder.status === 'completed') {
+      return 'Completata';
+  }
+
+  // Priority 1: Terminal/Blocking states (after completion check)
   if (jobOrder.isProblemReported) return 'Problema';
   if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
-  if (jobOrder.status === 'completed') return 'Completata';
 
   // Check phases
-  const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
-  const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
-  const finishingPhases = (jobOrder.phases || []).filter(p => p.type === 'quality' || p.type === 'packaging');
+  const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
+  const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
+  const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
   
   const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
   if (isAnyFinishingActive) return 'In Lavorazione';

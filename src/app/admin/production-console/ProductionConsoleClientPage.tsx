@@ -36,30 +36,46 @@ function isJobLive(jobOrder: JobOrder): boolean {
 }
 
 function getOverallStatus(jobOrder: JobOrder): OverallStatus {
-  // Priority 1: Terminal/Blocking states
+  const allPhases = jobOrder.phases || [];
+  const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+  if (allPhasesCompleted || jobOrder.status === 'completed') {
+    return 'Completata';
+  }
+
+  // Priority 1: Terminal/Blocking states (after completion check)
   if (jobOrder.isProblemReported) return 'Problema';
-  if (jobOrder.status === 'suspended') return 'Sospesa';
-  if (jobOrder.status === 'completed') return 'Completata';
-  
+  if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
 
   // Check phases
-  const preparationPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
-  const productionPhases = (jobOrder.phases || []).filter(p => (p.type ?? 'production') === 'production');
+  const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
+  const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
+  const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
   
-  const isAnyPhaseActive = (jobOrder.phases || []).some(p => p.status !== 'pending');
-  if (!isAnyPhaseActive) return 'Da Iniziare';
+  const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
+  if (isAnyFinishingActive) return 'In Lavorazione';
 
-  if (isJobLive(jobOrder)) return 'In Lavorazione';
-
+  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  if (isAnyProductionActive) return 'In Lavorazione';
+  
   const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-  if (!allPreparationDone) return 'In Preparazione';
 
-  const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-  if (allPreparationDone && !allProductionDone) return 'Pronto per Produzione';
+  if (allPreparationDone) {
+    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    if (allProductionSkippedOrDone) {
+        return 'Pronto per Finitura';
+    }
+     const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+      if (isAnyProductionStarted) {
+         return 'In Lavorazione';
+      }
+      return 'Pronto per Produzione';
+  }
   
-  if (allProductionDone) return 'Pronto per Finitura';
-
-  if (jobOrder.status === 'paused') return 'Sospesa';
+  const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+  if (isAnyPreparationStarted) {
+    return 'In Preparazione';
+  }
   
   // Default state if no other condition is met
   return 'Da Iniziare';
