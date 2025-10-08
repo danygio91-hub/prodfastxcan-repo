@@ -576,6 +576,10 @@ export type ProductionTimeAnalysisReport = {
     totalJobs: number;
     totalQuantity: number;
     averageMinutesPerPiece: number;
+    averagePhaseTimes: Array<{
+        name: string;
+        averageMinutesPerPiece: number;
+    }>;
     jobs: Array<{
         id: string;
         cliente: string;
@@ -664,6 +668,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
 
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
+    const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number } } } = {};
+
 
     const allGroups: Map<string, WorkGroup> = new Map();
 
@@ -686,9 +692,11 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
                 articleCode: articleCode,
                 totalJobs: 0,
                 totalQuantity: 0,
-                averageMinutesPerPiece: 0, // Will be calculated later
+                averageMinutesPerPiece: 0,
+                averagePhaseTimes: [],
                 jobs: [],
             };
+            phaseDataByArticle[articleCode] = {};
         }
 
         const { totalMs, isReliable, phases: jobPhases } = await getJobTimeData(job, timeSettings);
@@ -698,7 +706,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
-        // Calculate phase details based on proportional time if in a group
         const phaseDetailsPromises = jobPhases
           .filter(p => p.tracksTime !== false)
           .map(async (phase) => {
@@ -717,8 +724,18 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             } else {
                 phaseTimeMs = getPhaseTimeMilliseconds(phase);
             }
-
+            
             const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
+
+            // Aggregate phase data if calculation is reliable
+            if (isReliable && phaseTimeMinutes > 0) {
+                 if (!phaseDataByArticle[articleCode][phase.name]) {
+                    phaseDataByArticle[articleCode][phase.name] = { totalMinutes: 0, totalQuantity: 0 };
+                }
+                phaseDataByArticle[articleCode][phase.name].totalMinutes += phaseTimeMinutes;
+                phaseDataByArticle[articleCode][phase.name].totalQuantity += job.qta;
+            }
+
              return {
                 name: phase.name,
                 totalTimeMinutes: phaseTimeMinutes,
@@ -728,7 +745,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
         const resolvedPhaseDetails = (await Promise.all(phaseDetailsPromises)).filter(p => p.totalTimeMinutes > 0);
 
-        // Only add the job to the report if it has some tracked time
         if (totalTimeMinutes > 0) {
             const report = analysisByArticle[articleCode];
             report.totalJobs += 1;
@@ -745,7 +761,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         }
     }
 
-    // Calculate the final average based only on reliable jobs
+    // Calculate the final averages
     for (const articleCode in analysisByArticle) {
         const report = analysisByArticle[articleCode];
         if (report.jobs.length === 0) {
@@ -753,17 +769,23 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             continue;
         }
         
+        // Average for the whole article
         const reliableJobs = report.jobs.filter(j => j.isTimeCalculationReliable);
-        
         const totalMinutesFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
         const totalQuantityFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.qta, 0);
 
         if (totalQuantityFromReliableJobs > 0) {
             report.averageMinutesPerPiece = totalMinutesFromReliableJobs / totalQuantityFromReliableJobs;
         } else {
-            // If no reliable jobs, calculate average from all available jobs for a partial estimate but maybe set it to 0 to indicate it's not final
             report.averageMinutesPerPiece = 0; 
         }
+        
+        // Average for each phase
+        const phaseData = phaseDataByArticle[articleCode];
+        report.averagePhaseTimes = Object.entries(phaseData).map(([phaseName, data]) => ({
+            name: phaseName,
+            averageMinutesPerPiece: data.totalQuantity > 0 ? data.totalMinutes / data.totalQuantity : 0,
+        })).sort((a, b) => a.name.localeCompare(b.name));
     }
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
