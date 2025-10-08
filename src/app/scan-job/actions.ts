@@ -664,7 +664,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         // Check if there's a postponed quality phase that should now be unlocked.
         // This happens if the current phase is the new "last" production phase before the postponed one.
         const postponedQualityPhase = sortedPhases.find((p: JobPhase) => p.postponed && p.sequence > phaseToStart.sequence);
-        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some(p => !p.postponed && p.status === 'pending');
+        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some((p: JobPhase) => !p.postponed && p.status === 'pending');
 
         if (postponedQualityPhase && isThisTheLastNonPostponedPhase) {
             postponedQualityPhase.materialReady = true;
