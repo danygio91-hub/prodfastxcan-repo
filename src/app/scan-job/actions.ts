@@ -657,23 +657,12 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // --- UNLOCK NEXT PHASE / POSTPONED QUALITY ---
+        // --- UNLOCK NEXT PHASE ---
         const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
         const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
-
-        // Check if there's a postponed quality phase that should now be unlocked.
-        // This happens if the current phase is the new "last" production phase before the postponed one.
-        const postponedQualityPhase = sortedPhases.find((p: JobPhase) => p.postponed && p.sequence > phaseToStart.sequence);
-        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some((p: JobPhase) => !p.postponed && p.status === 'pending');
-
-        if (postponedQualityPhase && isThisTheLastNonPostponedPhase) {
-            postponedQualityPhase.materialReady = true;
-        } else {
-            // Original logic: Unlock the next sequential phase
-            const nextPhase = sortedPhases[currentPhaseIndex + 1];
-            if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
-                nextPhase.materialReady = true;
-            }
+        const nextPhase = sortedPhases[currentPhaseIndex + 1];
+        if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
+            nextPhase.materialReady = true;
         }
         
         // Update the item itself
@@ -710,19 +699,20 @@ export async function postponeQualityPhase(jobId: string, phaseId: string): Prom
         
         const itemData = docSnap.data() as JobOrder | WorkGroup;
         const phases = [...itemData.phases];
-        const phaseIndex = phases.findIndex(p => p.id === phaseId);
+        const phaseToMoveIndex = phases.findIndex(p => p.id === phaseId);
         
-        if (phaseIndex === -1 || phases[phaseIndex].type !== 'quality') {
+        if (phaseToMoveIndex === -1 || phases[phaseToMoveIndex].type !== 'quality') {
           throw new Error("Fase di collaudo non trovata o non valida.");
         }
-        if (phases[phaseIndex].status !== 'pending') {
+        if (phases[phaseToMoveIndex].status !== 'pending') {
           throw new Error("Il collaudo può essere posticipato solo se è in attesa.");
         }
 
         // --- Re-sequencing Logic ---
         const maxSequence = Math.max(...phases.map(p => p.sequence));
-        phases[phaseIndex].sequence = maxSequence + 1;
-        phases[phaseIndex].postponed = true; // Mark as postponed
+        phases[phaseToMoveIndex].sequence = maxSequence + 1;
+        phases[phaseToMoveIndex].postponed = true; // Mark as postponed
+        phases[phaseToMoveIndex].materialReady = false; // It's not ready yet
         
         // --- Unlock Next Phase Logic ---
         const sortedOriginalPhases = [...itemData.phases].sort((a, b) => a.sequence - b.sequence);
