@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Timer, Package, Download, ChevronRight, Search, BarChart } from 'lucide-react';
+import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -19,8 +19,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from '@/lib/utils';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useToast } from '@/hooks/use-toast';
 
 interface ProductionTimeAnalysisClientPageProps {
   report: ProductionTimeAnalysisReport[];
@@ -31,6 +38,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
   const [openAccordion, setOpenAccordion] = useState<string | undefined>(undefined);
   const searchParams = useSearchParams();
   const articleCodeFromUrl = searchParams.get('articleCode');
+  const { toast } = useToast();
 
   useEffect(() => {
     if (articleCodeFromUrl) {
@@ -90,6 +98,14 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
     XLSX.utils.book_append_sheet(wb, ws, `Analisi ${articleReport.articleCode}`);
     XLSX.writeFile(wb, `analisi_tempi_${articleReport.articleCode}.xlsx`);
   };
+  
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+        title: "Copiato!",
+        description: `Il codice "${text}" è stato copiato negli appunti.`,
+    });
+  }
     
   return (
       <div className="space-y-6">
@@ -128,35 +144,45 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                 <Accordion type="single" collapsible className="w-full" value={openAccordion} onValueChange={setOpenAccordion}>
                     {filteredReport.map((item) => (
                         <AccordionItem value={item.articleCode} key={item.articleCode}>
-                            <AccordionTrigger>
-                                <div className="flex justify-between items-center w-full pr-4">
-                                    <div className="flex items-center gap-3">
-                                        <Package className="h-5 w-5 text-primary" />
-                                        <span className="font-semibold text-lg">{item.articleCode}</span>
-                                    </div>
-                                    <div className="text-right">
-                                         <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger>
-                                                    <div className="text-sm text-muted-foreground">
-                                                        Tempo Medio/Pz
-                                                        <span className={cn(
-                                                            "ml-1 font-semibold",
-                                                            item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
-                                                        )}>
-                                                            ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
-                                                        </span>
-                                                    </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>Calcolato solo su commesse completate senza forzature.</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
-                                        <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
-                                    </div>
-                                </div>
-                            </AccordionTrigger>
+                          <ContextMenu>
+                            <ContextMenuTrigger>
+                              <AccordionTrigger>
+                                  <div className="flex justify-between items-center w-full pr-4">
+                                      <div className="flex items-center gap-3">
+                                          <Package className="h-5 w-5 text-primary" />
+                                          <span className="font-semibold text-lg">{item.articleCode}</span>
+                                      </div>
+                                      <div className="text-right">
+                                           <TooltipProvider>
+                                              <Tooltip>
+                                                  <TooltipTrigger>
+                                                      <div className="text-sm text-muted-foreground">
+                                                          Tempo Medio/Pz
+                                                          <span className={cn(
+                                                              "ml-1 font-semibold",
+                                                              item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
+                                                          )}>
+                                                              ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
+                                                          </span>
+                                                      </div>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent>
+                                                      <p>Calcolato solo su commesse completate senza forzature.</p>
+                                                  </TooltipContent>
+                                              </Tooltip>
+                                          </TooltipProvider>
+                                          <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
+                                      </div>
+                                  </div>
+                              </AccordionTrigger>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                                <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    Copia Codice Articolo
+                                </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                             <AccordionContent>
                                 <div className="p-4 bg-muted/50 rounded-lg space-y-6">
                                      <div>
