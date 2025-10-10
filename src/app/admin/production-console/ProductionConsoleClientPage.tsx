@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -28,6 +28,13 @@ import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, isSameDay } from 'date-fns';
+import { it } from 'date-fns/locale';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -93,6 +100,8 @@ function ProductionConsoleView() {
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
+  const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
+  const [isDateFilterActive, setIsDateFilterActive] = useState(false);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -188,6 +197,13 @@ function ProductionConsoleView() {
       statusFiltered = synthesizedJobOrders.filter(job => getOverallStatus(job) === activeFilter);
     }
       
+     // Apply date filter only for 'Completata'
+    if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
+      statusFiltered = statusFiltered.filter(job => 
+        job.overallEndTime && isSameDay(new Date(job.overallEndTime), completedDateFilter)
+      );
+    }
+
     if (!searchTerm) {
         return statusFiltered;
     }
@@ -205,7 +221,7 @@ function ProductionConsoleView() {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [synthesizedJobOrders, activeFilter, searchTerm, groupIdFromUrl]);
+  }, [synthesizedJobOrders, activeFilter, searchTerm, groupIdFromUrl, isDateFilterActive, completedDateFilter]);
   
   const workGroupsMap = useMemo(() => {
     return new Map(workGroups.map(group => [group.id, group]));
@@ -328,7 +344,7 @@ function ProductionConsoleView() {
             </div>
         </header>
         
-        <Card className="p-2">
+        <Card className="p-2 space-y-2">
           <div className="flex flex-wrap items-center justify-center gap-2">
               {filterOptions.map(filter => (
               <Button
@@ -342,6 +358,34 @@ function ProductionConsoleView() {
               </Button>
               ))}
           </div>
+           {activeFilter === 'Completata' && (
+              <div className="border-t pt-2 flex items-center justify-center gap-4 flex-wrap">
+                  <div className="flex items-center space-x-2">
+                      <Switch id="date-filter-switch" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
+                      <Label htmlFor="date-filter-switch">Filtra per data</Label>
+                  </div>
+                  <Popover>
+                      <PopoverTrigger asChild>
+                          <Button
+                              variant={"outline"}
+                              className={cn("w-[240px] justify-start text-left font-normal", !completedDateFilter && "text-muted-foreground", !isDateFilterActive && "opacity-50 cursor-not-allowed")}
+                              disabled={!isDateFilterActive}
+                          >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : <span>Scegli una data</span>}
+                          </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="center">
+                          <Calendar
+                              mode="single"
+                              selected={completedDateFilter}
+                              onSelect={setCompletedDateFilter}
+                              initialFocus
+                          />
+                      </PopoverContent>
+                  </Popover>
+              </div>
+          )}
         </Card>
 
         {isLoading ? (
