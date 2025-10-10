@@ -643,8 +643,12 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         
         // Create a mutable copy
         const itemToUpdate = JSON.parse(JSON.stringify(itemData));
-        const phaseToStart = itemToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-        if (!phaseToStart) throw new Error('Fase non trovata nella commessa.');
+        const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
+        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseId);
+        
+        if (currentPhaseIndex === -1) throw new Error('Fase non trovata nella commessa.');
+
+        const phaseToStart = sortedPhases[currentPhaseIndex];
 
         // Validate if the phase is ready to be started
         if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
@@ -657,12 +661,15 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // --- UNLOCK NEXT PHASE ---
-        const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToStart.id);
-        const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
-            nextPhase.materialReady = true;
+        // --- UNLOCK NEXT PHASE (unless it was postponed) ---
+        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some((p: JobPhase) => !p.postponed && p.status === 'pending');
+        
+        // If this is the last phase OR the only remaining ones are postponed, don't unlock anything.
+        if (!isThisTheLastNonPostponedPhase) {
+            const nextPhase = sortedPhases[currentPhaseIndex + 1];
+            if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
+                nextPhase.materialReady = true;
+            }
         }
         
         // Update the item itself
@@ -708,17 +715,18 @@ export async function postponeQualityPhase(jobId: string, phaseId: string): Prom
           throw new Error("Il collaudo può essere posticipato solo se è in attesa.");
         }
 
-        // --- Re-sequencing Logic ---
-        const maxSequence = Math.max(...phases.map(p => p.sequence));
-        phases[phaseToMoveIndex].sequence = maxSequence + 1;
-        phases[phaseToMoveIndex].postponed = true; // Mark as postponed
-        phases[phaseToMoveIndex].materialReady = false; // It's not ready yet
-        
-        // --- Unlock Next Phase Logic ---
+        // --- Identify the next phase in the ORIGINAL order ---
         const sortedOriginalPhases = [...itemData.phases].sort((a, b) => a.sequence - b.sequence);
         const originalIndex = sortedOriginalPhases.findIndex(p => p.id === phaseId);
         const nextPhaseInOriginalOrder = sortedOriginalPhases[originalIndex + 1];
 
+        // --- Re-sequencing Logic ---
+        const maxSequence = Math.max(...phases.map(p => p.sequence));
+        phases[phaseToMoveIndex].sequence = maxSequence + 1;
+        phases[phaseToMoveIndex].postponed = true;
+        phases[phaseToMoveIndex].materialReady = false; // The postponed phase is not ready
+        
+        // --- Unlock the CORRECT next phase ---
         if (nextPhaseInOriginalOrder) {
             const nextPhaseInCurrentArray = phases.find(p => p.id === nextPhaseInOriginalOrder.id);
             if (nextPhaseInCurrentArray) {
@@ -848,3 +856,6 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         return { success: false, message: errorMessage };
     }
 }
+
+
+    
