@@ -497,9 +497,56 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
     return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento delle fasi." };
   }
 }
+
+export async function forceFinishMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const batch = writeBatch(db);
+
+  for (const jobId of jobIds) {
+    const jobRef = doc(db, 'jobOrders', jobId);
+    // Note: This operates on the last known state from the client. For critical ops, a transaction per job is safer.
+    // For this admin action, batch is likely acceptable.
+     const jobSnap = await getDoc(jobRef);
+      if (!jobSnap.exists()) continue;
+      const job = jobSnap.data() as JobOrder;
+
+      const updatedPhases = job.phases.map(phase => {
+        if (phase.type === 'production' && phase.status !== 'completed') {
+          return { ...phase, status: 'completed' as const, forced: true };
+        }
+        return phase;
+      });
+
+      const firstNonProductionPhaseIndex = updatedPhases.findIndex(p => p.type !== 'production' && p.status === 'pending');
+      if (firstNonProductionPhaseIndex !== -1) {
+        updatedPhases[firstNonProductionPhaseIndex].materialReady = true;
+      }
+      
+    batch.update(jobRef, { phases: updatedPhases });
+  }
+
+  await batch.commit();
+  revalidatePath('/admin/production-console');
+  return { success: true, message: `${jobIds.length} commesse forzate a finitura.` };
+}
+
+export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const batch = writeBatch(db);
+
+  jobIds.forEach(jobId => {
+    const jobRef = doc(db, 'jobOrders', jobId);
+    batch.update(jobRef, { status: 'completed', overallEndTime: Timestamp.now() });
+  });
+
+  await batch.commit();
+  revalidatePath('/admin/production-console');
+  return { success: true, message: `${jobIds.length} commesse sono state chiuse forzatamente.` };
+}
     
 
     
+
 
 
 

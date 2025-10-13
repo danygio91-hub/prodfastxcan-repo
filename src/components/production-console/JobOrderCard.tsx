@@ -1,4 +1,5 @@
 
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,6 +114,8 @@ export default function JobOrderCard({
     jobOrder,
     workGroup, 
     allOperators,
+    isSelected,
+    onSelect,
     onProblemClick, 
     onForceFinishClick,
     onRevertForceFinishClick,
@@ -125,6 +128,8 @@ export default function JobOrderCard({
     jobOrder: JobOrder;
     workGroup?: WorkGroup | null; 
     allOperators: Operator[];
+    isSelected: boolean;
+    onSelect: (jobId: string) => void;
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void;
     onRevertForceFinishClick: (jobId: string) => void;
@@ -270,15 +275,27 @@ export default function JobOrderCard({
   return (
     <>
     <Card 
-      className={cn("flex flex-col h-full bg-card hover:bg-card/90 transition-colors duration-300", jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive")}
+      className={cn(
+          "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 relative", 
+          jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
+          isSelected && "border-primary ring-2 ring-primary"
+      )}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
+      <div className="absolute top-2 left-2 z-10">
+          <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => onSelect(jobOrder.id)}
+              aria-label={`Seleziona commessa ${jobOrder.id}`}
+              className="h-5 w-5"
+          />
+      </div>
       <CardHeader>
-        <div className="flex justify-between items-start gap-4">
+        <div className="flex justify-between items-start gap-4 ml-8">
           <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
           <StatusBadge status={overallStatus} />
         </div>
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center ml-8">
         <CardDescription className="flex items-center gap-2 pt-1">
           <Building className="h-4 w-4 text-muted-foreground" />
           {jobOrder.cliente}
