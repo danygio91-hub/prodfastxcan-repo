@@ -283,7 +283,7 @@ export default function JobOrderCard({
     >
       <CardHeader>
           <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-4">
-             <div className="relative pt-1 h-5 w-5 flex items-center justify-center">
+            <div className="pt-1 h-5 w-5 flex items-center justify-center">
               <Checkbox
                   checked={isSelected}
                   onCheckedChange={() => onSelect(jobOrder.id)}
@@ -291,7 +291,7 @@ export default function JobOrderCard({
                   className="h-5 w-5"
               />
             </div>
-            <div className="ml-8">
+            <div>
               <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
               <CardDescription className="flex items-center gap-2 pt-1">
                 <Building className="h-4 w-4 text-muted-foreground" />
