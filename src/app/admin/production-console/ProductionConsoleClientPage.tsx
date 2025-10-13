@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2 } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2 } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -25,6 +25,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -234,6 +241,25 @@ function ProductionConsoleView() {
   useEffect(() => {
     setSelectedJobIds([]);
   }, [activeFilter, searchTerm]);
+  
+  const selectedJobs = useMemo(() => 
+    synthesizedJobOrders.filter(job => selectedJobIds.includes(job.id)),
+    [selectedJobIds, synthesizedJobOrders]
+  );
+  
+  const bulkActionsState = useMemo(() => {
+    if (selectedJobs.length === 0) {
+      return { canForceFinish: false, canForceComplete: false, canToggleGuaina: false };
+    }
+    const canForceFinish = selectedJobs.every(j => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(getOverallStatus(j)));
+    const canForceComplete = selectedJobs.every(j => !isJobLive(j) && getOverallStatus(j) !== 'Completata');
+    const canToggleGuaina = selectedJobs.every(j => {
+        const guainaPhase = j.phases.find(p => p.name === "Taglio Guaina");
+        return guainaPhase && guainaPhase.status === 'pending';
+    });
+    return { canForceFinish, canForceComplete, canToggleGuaina };
+  }, [selectedJobs]);
+
 
   const handleSelectAll = () => {
     if (selectedJobIds.length === filteredJobs.length) {
@@ -271,6 +297,30 @@ function ProductionConsoleView() {
     if (result.success) setSelectedJobIds([]);
   };
 
+  const handleBulkToggleGuaina = async () => {
+    if (!user || selectedJobs.length === 0) return;
+    
+    let successCount = 0;
+    for (const job of selectedJobs) {
+      const guainaPhase = job.phases.find(p => p.name === "Taglio Guaina");
+      if (guainaPhase) {
+        const isGuainaPostponed = (job.phases.find(p => p.type === 'production')?.sequence ?? 0) < guainaPhase.sequence;
+        const result = await toggleGuainaPhasePosition(job.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default');
+        if(result.success) successCount++;
+      }
+    }
+    toast({
+        title: `Operazione completata su ${successCount} di ${selectedJobs.length} commesse.`,
+        description: "Lo stato della fase 'Taglio Guaina' è stato invertito."
+    });
+    if (successCount > 0) setSelectedJobIds([]);
+  }
+  
+  const handleBulkReset = () => {
+     if (selectedJobIds.length === 0) return;
+     selectedJobIds.forEach(id => onResetJobOrderClick(id));
+     setSelectedJobIds([]);
+  };
 
   const handleResolveProblem = async () => {
     if (!problemJob || !user) return;
@@ -343,7 +393,7 @@ function ProductionConsoleView() {
     });
   };
 
-  const handleResetJobOrder = async (jobId: string) => {
+  const onResetJobOrderClick = async (jobId: string) => {
     if (!user) return;
     const result = await resetSingleCompletedJobOrder(jobId, user.uid);
     toast({
@@ -444,41 +494,65 @@ function ProductionConsoleView() {
                   <Label htmlFor="select-all">Seleziona Tutte ({filteredJobs.length})</Label>
               </div>
               {selectedJobIds.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                      <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                  <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura ({selectedJobIds.length})
-                              </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                              <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedJobIds.length} commesse alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
-                      <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                  <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse ({selectedJobIds.length})
-                              </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                               <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedJobIds.length} commesse. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
-                       <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm">
-                                  <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta ({selectedJobIds.length})
-                              </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                               <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedJobIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => { selectedJobIds.forEach(id => handleResetJobOrder(id)); setSelectedJobIds([]); }}>Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        Azioni di Gruppo ({selectedJobIds.length})
+                        <MoreVertical className="ml-2 h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canForceFinish}>
+                                    <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura
+                                </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedJobIds.length} commesse alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canToggleGuaina}>
+                                    <Undo2 className="mr-2 h-4 w-4" /> Posticipa/Ripristina Guaina
+                                </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                             <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle><AlertDialogDescription>Stai per invertire la posizione della fase "Taglio Guaina" per {selectedJobIds.length} commesse. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkToggleGuaina}>Conferma</AlertDialogAction></AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canForceComplete}>
+                                  <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedJobIds.length} commesse. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+
+                        <DropdownMenuSeparator />
+
+                         <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                  <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedJobIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive hover:bg-destructive/90">Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
               )}
           </div>
         )}
@@ -505,7 +579,7 @@ function ProductionConsoleView() {
                       onRevertPhaseClick={handleRevertPhase}
                       onForcePauseClick={handleForcePause}
                       onForceCompleteClick={handleForceComplete}
-                      onResetJobOrderClick={handleResetJobOrder}
+                      onResetJobOrderClick={onResetJobOrderClick}
                       isSelected={selectedJobIds.includes(job.id)}
                       onSelect={handleSelectJob}
                     />
