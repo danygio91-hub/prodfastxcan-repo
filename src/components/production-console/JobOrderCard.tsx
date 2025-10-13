@@ -274,27 +274,25 @@ export default function JobOrderCard({
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
          <CardHeader className="pb-3 space-y-2">
-            {/* Top row with checkbox and status */}
             <div className="flex justify-between items-center gap-4">
-                <Checkbox
-                    checked={isSelected}
-                    onCheckedChange={() => onSelect(jobOrder.id)}
-                    aria-label={`Seleziona commessa ${jobOrder.id}`}
-                    className="h-4 w-4"
-                />
+                <div className="flex items-center gap-3">
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onSelect(jobOrder.id)}
+                        aria-label={`Seleziona commessa ${jobOrder.id}`}
+                        className="h-4 w-4"
+                    />
+                    <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+                </div>
                  <StatusBadge status={overallStatus} />
             </div>
 
-            {/* Second row with title and actions */}
             <div className="flex justify-between items-start pt-1">
-                <div>
-                    <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
-                    <CardDescription className="flex items-center gap-2 pt-1">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        {jobOrder.cliente}
-                    </CardDescription>
-                </div>
-                 <div className="flex items-center gap-1">
+                <CardDescription className="flex items-center gap-2">
+                    <Building className="h-4 w-4 text-muted-foreground" />
+                    {jobOrder.cliente}
+                </CardDescription>
+                <div className="flex items-center gap-1">
                     {!isGroup && (
                         <TooltipProvider>
                             <Tooltip>
@@ -353,6 +351,24 @@ export default function JobOrderCard({
                                 <Users className="mr-2 h-4 w-4" />
                                 <span>Forza Pausa Operatori</span>
                             </DropdownMenuItem>
+                             {canForceFinish && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" />Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
+                                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                             {isForcedToFinish && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700"><Undo2 className="mr-2 h-4 w-4" />Annulla Forzatura</DropdownMenuItem></AlertDialogTrigger>
+                                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Annullare la Forzatura?</AlertDialogTitle><AlertDialogDescription>Le fasi completate forzatamente verranno resettate allo stato 'in attesa'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onRevertForceFinishClick(jobOrder.id)}>Sì, annulla</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                            {canForceComplete && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Commessa</DropdownMenuItem></AlertDialogTrigger>
+                                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questa commessa come 'Completata'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                </AlertDialog>
+                            )}
                             <DropdownMenuSeparator />
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
