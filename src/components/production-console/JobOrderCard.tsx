@@ -283,7 +283,7 @@ export default function JobOrderCard({
     >
       <CardHeader>
           <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-4">
-            <div className="relative pt-1 h-5 w-5 flex items-center justify-center">
+             <div className="relative pt-1 h-5 w-5 flex items-center justify-center">
               <Checkbox
                   checked={isSelected}
                   onCheckedChange={() => onSelect(jobOrder.id)}
@@ -444,6 +444,7 @@ export default function JobOrderCard({
                                 <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
                             </AlertDialogFooter>
                         </AlertDialogContent>
+                    </AlertDialog>
                     )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
