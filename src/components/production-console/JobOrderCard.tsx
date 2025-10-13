@@ -282,12 +282,11 @@ export default function JobOrderCard({
       )}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
-      <div className="absolute top-2 left-2 z-10">
+      <div className="absolute top-4 left-4 z-10 h-5 w-5 flex items-center justify-center">
           <Checkbox
               checked={isSelected}
               onCheckedChange={() => onSelect(jobOrder.id)}
               aria-label={`Seleziona commessa ${jobOrder.id}`}
-              className="h-5 w-5"
           />
       </div>
       <CardHeader>
