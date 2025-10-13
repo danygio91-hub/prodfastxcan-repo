@@ -282,8 +282,8 @@ export default function JobOrderCard({
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
       <CardHeader>
-        <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-4">
-            <div className="pt-1 h-5 w-5 flex items-center justify-center">
+        <div className="grid grid-cols-[auto_1fr_auto] items-start gap-x-4">
+            <div className="pt-1">
                 <Checkbox
                     checked={isSelected}
                     onCheckedChange={() => onSelect(jobOrder.id)}
