@@ -113,6 +113,8 @@ export default function JobOrderCard({
     onForcePauseClick,
     onForceCompleteClick,
     onResetJobOrderClick,
+    isSelected,
+    onSelect,
 }: { 
     jobOrder: JobOrder;
     workGroup?: WorkGroup | null; 
@@ -125,6 +127,8 @@ export default function JobOrderCard({
     onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
     onForceCompleteClick: (jobId: string) => void;
     onResetJobOrderClick: (jobId: string) => void;
+    isSelected: boolean;
+    onSelect: (jobId: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
@@ -260,14 +264,23 @@ export default function JobOrderCard({
   const isGroup = jobOrder.id.startsWith('group-');
 
   return (
-    <>
-    <Card 
-      className={cn(
-          "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
-          jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive"
-      )}
-      onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
-    >
+    <div className="relative">
+      <div className="absolute top-2 left-2 z-10">
+        <Checkbox
+            checked={isSelected}
+            onCheckedChange={() => onSelect(jobOrder.id)}
+            aria-label={`Seleziona commessa ${jobOrder.id}`}
+            className="h-5 w-5"
+        />
+      </div>
+      <Card 
+        className={cn(
+            "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 pl-8", 
+            jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
+            isSelected && "border-primary ring-2 ring-primary/50"
+        )}
+        onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
+      >
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start gap-4">
             <div>
@@ -398,10 +411,11 @@ export default function JobOrderCard({
                 )}
             </div>
             <div className="text-right flex-shrink-0">
-                <Badge className="text-base font-bold py-1 px-3">
-                    <Package className="mr-2 h-4 w-4" />
-                    {jobOrder.qta} pz
-                </Badge>
+                <div className="flex items-center gap-2 justify-end">
+                  <Package className="h-5 w-5 text-muted-foreground" />
+                  <span className="font-bold text-lg">{jobOrder.qta}</span>
+                  <span className="text-muted-foreground">pz</span>
+                </div>
             </div>
          </div>
         
@@ -528,6 +542,6 @@ export default function JobOrderCard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
+    </div>
   );
 }
