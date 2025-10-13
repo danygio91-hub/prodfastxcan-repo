@@ -23,6 +23,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
@@ -474,7 +475,7 @@ function ProductionConsoleView() {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                                <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedJobIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => { selectedJobIds.forEach(id => onResetJobOrderClick(id)); setSelectedJobIds([]); }}>Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
+                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => { selectedJobIds.forEach(id => handleResetJobOrder(id)); setSelectedJobIds([]); }}>Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                       </AlertDialog>
                   </div>
