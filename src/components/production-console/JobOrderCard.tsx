@@ -282,24 +282,24 @@ export default function JobOrderCard({
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
       <CardHeader>
-          <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-4">
+        <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-4">
             <div className="pt-1 h-5 w-5 flex items-center justify-center">
-              <Checkbox
-                  checked={isSelected}
-                  onCheckedChange={() => onSelect(jobOrder.id)}
-                  aria-label={`Seleziona commessa ${jobOrder.id}`}
-                  className="h-5 w-5"
-              />
+                <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={() => onSelect(jobOrder.id)}
+                    className="h-5 w-5"
+                    aria-label={`Seleziona commessa ${jobOrder.id}`}
+                />
             </div>
             <div>
-              <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
-              <CardDescription className="flex items-center gap-2 pt-1">
+                <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+                <CardDescription className="flex items-center gap-2 pt-1">
                 <Building className="h-4 w-4 text-muted-foreground" />
                 {jobOrder.cliente}
-              </CardDescription>
+                </CardDescription>
             </div>
             <StatusBadge status={overallStatus} />
-          </div>
+        </div>
         <div className="flex justify-between items-center mt-2">
             <div></div>
             <TooltipProvider>
