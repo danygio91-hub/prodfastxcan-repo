@@ -113,8 +113,6 @@ export default function JobOrderCard({
     jobOrder,
     workGroup, 
     allOperators,
-    isSelected,
-    onSelect,
     onProblemClick, 
     onForceFinishClick,
     onRevertForceFinishClick,
@@ -127,8 +125,6 @@ export default function JobOrderCard({
     jobOrder: JobOrder;
     workGroup?: WorkGroup | null; 
     allOperators: Operator[];
-    isSelected: boolean;
-    onSelect: (jobId: string) => void;
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void;
     onRevertForceFinishClick: (jobId: string) => void;
@@ -276,21 +272,12 @@ export default function JobOrderCard({
     <Card 
       className={cn(
           "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
-          jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
-          isSelected && "border-primary ring-2 ring-primary"
+          jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive"
       )}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
       <CardHeader>
-        <div className="grid grid-cols-[auto_1fr_auto] items-start gap-x-4">
-            <div className="pt-1">
-                <Checkbox
-                    checked={isSelected}
-                    onCheckedChange={() => onSelect(jobOrder.id)}
-                    className="h-5 w-5"
-                    aria-label={`Seleziona commessa ${jobOrder.id}`}
-                />
-            </div>
+        <div className="flex justify-between items-start gap-4">
             <div>
                 <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
                 <CardDescription className="flex items-center gap-2 pt-1">
@@ -325,7 +312,7 @@ export default function JobOrderCard({
                 <>
                     <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                        <Button asChild variant="ghost" size="icon">
                         <Link href={`/admin/reports/${jobOrder.id}`}>
                             <CheckSquare className="h-4 w-4"/>
                         </Link>
@@ -337,7 +324,7 @@ export default function JobOrderCard({
                     </Tooltip>
                     <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button asChild variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                        <Button asChild variant="ghost" size="icon">
                         <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
                             <Printer className="h-4 w-4"/>
                         </Link>
@@ -351,7 +338,7 @@ export default function JobOrderCard({
                 )}
                 <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon">
                     <MoreVertical className="h-4 w-4" />
                     </Button>
                 </DropdownMenuTrigger>
@@ -559,7 +546,7 @@ export default function JobOrderCard({
                         {phase.status === 'completed' && overallStatus !== 'Completata' && (
                            <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={(e) => e.stopPropagation()}>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
                                       <Undo2 className="h-4 w-4" />
                                   </Button>
                               </AlertDialogTrigger>

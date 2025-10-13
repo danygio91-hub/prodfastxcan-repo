@@ -24,8 +24,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { resolveJobProblem, createWorkGroup } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
+import { resolveJobProblem } from '@/app/scan-job/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -35,7 +35,6 @@ import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { Checkbox } from '@/components/ui/checkbox';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -103,7 +102,6 @@ function ProductionConsoleView() {
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
-  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -322,96 +320,6 @@ function ProductionConsoleView() {
     'Completata'
   ];
 
-  const handleSelectJob = (jobId: string) => {
-    setSelectedJobIds(prev =>
-      prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, id]
-    );
-  };
-
-  const handleSelectAllVisible = () => {
-    const allVisibleIds = filteredJobs.map(j => j.id);
-    if (selectedJobIds.length === allVisibleIds.length) {
-      setSelectedJobIds([]);
-    } else {
-      setSelectedJobIds(allVisibleIds);
-    }
-  };
-  
-  const selectedJobs = useMemo(() => {
-    return synthesizedJobOrders.filter(j => selectedJobIds.includes(j.id));
-  }, [selectedJobIds, synthesizedJobOrders]);
-
-
-  // --- Multiple Actions Logic ---
-  const canForceFinishMultiple = useMemo(() => {
-    if (selectedJobs.length === 0) return false;
-    const validStates = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'];
-    return selectedJobs.every(j => validStates.includes(getOverallStatus(j)));
-  }, [selectedJobs]);
-
-  const canForceCompleteMultiple = useMemo(() => {
-    if (selectedJobs.length === 0) return false;
-    return selectedJobs.every(j => !isJobLive(j) && getOverallStatus(j) !== 'Completata');
-  }, [selectedJobs]);
-  
-  const canCreateGroup = useMemo(() => {
-    if (selectedJobs.length < 2) return false;
-    const firstJob = selectedJobs[0];
-    if (firstJob.workGroupId) return false; // Can't group a job already in a group
-    
-    const firstJobSignature = `${firstJob.workCycleId}-${firstJob.department}-${firstJob.cliente}`;
-    
-    // Check for advanced progress signatures
-    const getJobProgressSignature = (job: JobOrder): string => {
-        const sortedPhases = [...(job.phases || [])].sort((a, b) => a.sequence - b.sequence);
-        const completedPhaseIds = sortedPhases
-            .filter(p => p.status === 'completed')
-            .map(p => p.id)
-            .join(',');
-        
-        const hasAnyWorkPeriods = sortedPhases.some(p => p.workPeriods && p.workPeriods.length > 0);
-
-        return `${completedPhaseIds}|workStarted:${hasAnyWorkPeriods}`;
-    };
-    
-    const firstJobProgress = getJobProgressSignature(firstJob);
-
-    return selectedJobs.every(j => 
-        !j.workGroupId &&
-        `${j.workCycleId}-${j.department}-${j.cliente}` === firstJobSignature &&
-        getJobProgressSignature(j) === firstJobProgress
-    );
-  }, [selectedJobs]);
-
-  const handleCreateGroupAction = async () => {
-      if (!user || !canCreateGroup) return;
-      const result = await createWorkGroup(selectedJobIds, user.id);
-      if (result.success) {
-          toast({ title: "Gruppo Creato", description: "Le commesse sono state raggruppate con successo." });
-          setSelectedJobIds([]);
-      } else {
-          toast({ variant: "destructive", title: "Errore Gruppo", description: result.message });
-      }
-  };
-
-  const handleMultipleAction = async (action: 'forceFinish' | 'forceComplete') => {
-      if (!user) return;
-      
-      let result;
-      if (action === 'forceFinish') {
-          result = await forceFinishMultiple(selectedJobIds, user.uid);
-      } else {
-          result = await forceCompleteMultiple(selectedJobIds, user.uid);
-      }
-      
-      if (result.success) {
-          toast({ title: "Azione Eseguita", description: result.message });
-          setSelectedJobIds([]);
-      } else {
-          toast({ variant: "destructive", title: "Errore Azione Multipla", description: result.message });
-      }
-  };
-
   return (
     <>
       <div className="space-y-6">
@@ -486,16 +394,6 @@ function ProductionConsoleView() {
               <p className="mt-4 text-muted-foreground">Aggiornamento commesse...</p>
           </div>
         ) : filteredJobs.length > 0 ? (
-          <>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="select-all-visible"
-              checked={selectedJobIds.length === filteredJobs.length && filteredJobs.length > 0}
-              onCheckedChange={handleSelectAllVisible}
-              aria-label="Seleziona tutte le commesse visibili"
-            />
-            <Label htmlFor="select-all-visible">Seleziona tutte</Label>
-          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredJobs.map(job => {
                   const workGroup = job.workGroupId ? workGroupsMap.get(job.workGroupId) : null;
@@ -505,8 +403,6 @@ function ProductionConsoleView() {
                       jobOrder={job}
                       workGroup={workGroup} 
                       allOperators={allOperators}
-                      isSelected={selectedJobIds.includes(job.id)}
-                      onSelect={() => handleSelectJob(job.id)}
                       onProblemClick={() => setProblemJob(job)}
                       onForceFinishClick={handleForceFinish}
                       onRevertForceFinishClick={handleRevertForceFinish}
@@ -519,7 +415,6 @@ function ProductionConsoleView() {
                   );
               })}
           </div>
-          </>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg mt-8">
               <Package2 className="h-16 w-16 text-muted-foreground mb-4" />
@@ -559,22 +454,6 @@ function ProductionConsoleView() {
             </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {selectedJobIds.length > 0 && (
-          <div className="fixed bottom-4 inset-x-4 z-50">
-              <Card className="max-w-4xl mx-auto p-3 shadow-2xl bg-secondary/95 backdrop-blur-sm">
-                  <div className="flex items-center justify-between flex-wrap gap-4">
-                      <p className="font-semibold">{selectedJobIds.length} commesse selezionate</p>
-                      <div className="flex items-center gap-2 flex-wrap">
-                          <Button size="sm" variant="outline" onClick={() => setSelectedJobIds([])}><Trash2 className="mr-2 h-4 w-4"/> Annulla Selezione</Button>
-                          <Button size="sm" onClick={handleCreateGroupAction} disabled={!canCreateGroup}><LinkIcon className="mr-2 h-4 w-4"/> Concatena</Button>
-                          <Button size="sm" onClick={() => handleMultipleAction('forceFinish')} disabled={!canForceFinishMultiple}><FastForward className="mr-2 h-4 w-4"/> Forza a Finitura</Button>
-                          <Button size="sm" onClick={() => handleMultipleAction('forceComplete')} disabled={!canForceCompleteMultiple}><PowerOff className="mr-2 h-4 w-4"/> Chiudi</Button>
-                      </div>
-                  </div>
-              </Card>
-          </div>
-      )}
     </>
   );
 }
