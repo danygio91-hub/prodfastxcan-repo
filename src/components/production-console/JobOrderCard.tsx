@@ -1,5 +1,4 @@
 
-
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -266,268 +265,269 @@ export default function JobOrderCard({
 
   return (
     <>
-    <Card 
+      <Card 
         className={cn(
-            "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
+            "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
             jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50"
         )}
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
-      <CardHeader className="pb-3">
-        <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-3">
-          <div className="pt-1">
-             <Checkbox
+        <div className="absolute top-3 left-3 z-10">
+            <Checkbox
                 checked={isSelected}
                 onCheckedChange={() => onSelect(jobOrder.id)}
                 aria-label={`Seleziona commessa ${jobOrder.id}`}
-                className="h-5 w-5"
+                className="h-4 w-4"
             />
-          </div>
-          <div>
-            <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
-            <CardDescription className="flex items-center gap-2 pt-1">
-              <Building className="h-4 w-4 text-muted-foreground" />
-              {jobOrder.cliente}
-            </CardDescription>
-          </div>
-          <div className="text-right flex-shrink-0 flex items-center gap-1">
-            <StatusBadge status={overallStatus} />
-             <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7">
-                    <MoreVertical className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    {!isGroup && (
-                        <>
-                        <DropdownMenuItem asChild>
-                            <Link href={`/admin/reports/${jobOrder.id}`}>
-                                <CheckSquare className="mr-2 h-4 w-4" />
-                                <span>Vedi Dettagli Report</span>
-                            </Link>
-                        </DropdownMenuItem>
-                         <DropdownMenuItem asChild>
-                           <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                                <Printer className="mr-2 h-4 w-4"/>
-                                <span>Stampa Scheda</span>
-                            </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        </>
-                    )}
-                    <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
-                        <ListOrdered className="mr-2 h-4 w-4" />
-                        <span>Gestisci Fasi</span>
-                    </DropdownMenuItem>
-                     {canToggleGuaina && guainaPhase && (
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
-                                <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
-                                </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} Vuoi continuare?
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
-                        <Users className="mr-2 h-4 w-4" />
-                        <span>Forza Pausa Operatori</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                            <RefreshCcw className="mr-2 h-4 w-4" />
-                            <span>Annulla e Resetta</span>
-                            </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
         </div>
-      </CardHeader>
-      <CardContent className="flex-grow space-y-4 pt-0">
-         <div className="flex justify-between items-start gap-4">
-            <div className="space-y-3 text-sm">
-                <p className="flex items-center gap-2 text-muted-foreground">
-                    <ClipboardList className="h-4 w-4" />
-                    <span className="font-semibold text-foreground">{jobOrder.numeroODLInterno || 'N/D'}</span>
-                </p>
-                <p className="flex items-center gap-2 text-muted-foreground">
-                    <Factory className="h-4 w-4" />
-                    {jobOrder.department}
-                </p>
-                <p className="flex items-center gap-2 text-muted-foreground">
-                    <Package className="h-4 w-4" />
-                    {jobOrder.details}
-                </p>
-                {deliveryDate && (
-                    <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
-                        <Calendar className="h-4 w-4" />
-                        <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
-                    </p>
-                )}
+
+        <CardHeader className="pb-3 pl-10">
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+              <CardDescription className="flex items-center gap-2 pt-1">
+                <Building className="h-4 w-4 text-muted-foreground" />
+                {jobOrder.cliente}
+              </CardDescription>
             </div>
-            <div className="text-right flex-shrink-0">
-                <div className="flex items-center gap-1 justify-end">
-                  <Package className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-semibold text-base">{jobOrder.qta}</span>
-                  <span className="text-muted-foreground text-xs">pz</span>
-                </div>
-            </div>
-         </div>
-        
-        <div className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
-            {jobOrder.phases && jobOrder.phases.length > 0 ? (
-                jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
-                        {getPhaseIcon(phase.status)}
-                        <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
-                        {phase.status === 'completed' && overallStatus !== 'Completata' && (
-                           <AlertDialog>
+            <div className="text-right flex-shrink-0 flex items-center gap-1">
+              <StatusBadge status={overallStatus} />
+               <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                      <MoreVertical className="h-4 w-4" />
+                      </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                      {!isGroup && (
+                          <>
+                          <DropdownMenuItem asChild>
+                              <Link href={`/admin/reports/${jobOrder.id}`}>
+                                  <CheckSquare className="mr-2 h-4 w-4" />
+                                  <span>Vedi Dettagli Report</span>
+                              </Link>
+                          </DropdownMenuItem>
+                           <DropdownMenuItem asChild>
+                             <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                                  <Printer className="mr-2 h-4 w-4"/>
+                                  <span>Stampa Scheda</span>
+                              </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          </>
+                      )}
+                      <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                          <ListOrdered className="mr-2 h-4 w-4" />
+                          <span>Gestisci Fasi</span>
+                      </DropdownMenuItem>
+                       {canToggleGuaina && guainaPhase && (
+                          <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                  <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                                      <Undo2 className="h-4 w-4" />
-                                  </Button>
+                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                  {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                                  <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
+                                  </DropdownMenuItem>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
                                   <AlertDialogHeader>
-                                      <AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle>
+                                      <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
                                       <AlertDialogDescription>
-                                          Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?
+                                      Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} Vuoi continuare?
                                       </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                       <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction>
+                                      <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
                                   </AlertDialogFooter>
                               </AlertDialogContent>
                           </AlertDialog>
-                        )}
-                    </div>
-                ))
-            ) : (
-                <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
-            )}
-        </div>
-      </CardContent>
-      <CardFooter className="flex-col items-start gap-2 pt-4">
-        <div className="w-full">
-            <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>Progresso</span>
-                <span>{Math.round(progressPercentage)}%</span>
+                      )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
+                          <Users className="mr-2 h-4 w-4" />
+                          <span>Forza Pausa Operatori</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                              <RefreshCcw className="mr-2 h-4 w-4" />
+                              <span>Annulla e Resetta</span>
+                              </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                              <AlertDialogHeader>
+                                  <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                      Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
+                                  </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                  <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
+                              </AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                  </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-            <Progress value={progressPercentage} className="h-2" />
-        </div>
-      </CardFooter>
-    </Card>
-     <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Seleziona Operatori da Mettere in Pausa</DialogTitle>
-                <DialogDescription>
-                    Scegli quali operatori attivi sulla commessa <span className="font-bold">{jobOrder.ordinePF}</span> vuoi mettere in pausa.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 space-y-3">
-                 <div className="flex items-center space-x-2">
-                    <Checkbox
-                        id="select-all"
-                        checked={selectedOperatorsToPause.length === activePhasesWithOperators.flatMap(p => p.operators).length && activePhasesWithOperators.length > 0}
-                        onCheckedChange={toggleSelectAll}
-                    />
-                    <Label htmlFor="select-all">Seleziona Tutti</Label>
-                </div>
-                {activePhasesWithOperators.flatMap(p => p.operators).map(op => (
-                    <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
-                         <Checkbox
-                            id={op.id}
-                            checked={selectedOperatorsToPause.includes(op.id)}
-                            onCheckedChange={() => toggleOperatorSelection(op.id)}
-                         />
-                         <Label htmlFor={op.id} className="flex-1">
-                            <span className="font-semibold">{op.name}</span>
-                         </Label>
-                    </div>
-                ))}
-                {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questa commessa.</p>}
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
-                <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
-                    Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
-                </Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-    <Dialog open={isPhaseManagerOpen} onOpenChange={setIsPhaseManagerOpen}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Gestione Fasi per: {jobOrder.ordinePF}</DialogTitle>
-          <DialogDescription>
-            Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
-          {editablePhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
-            const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
-            return (
-              <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
-                <div className="flex items-center gap-3">
-                  {getPhaseIcon(phase.status)}
-                  <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
-                </div>
-                {canBeModified ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handlePhaseStatusToggle(phase.id)}
-                  >
-                    {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
-                    {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
-                  </Button>
-                ) : (
-                  <Badge variant="secondary">{phase.status}</Badge>
-                )}
+          </div>
+        </CardHeader>
+        <CardContent className="flex-grow space-y-4 pt-0">
+           <div className="flex justify-between items-start gap-4">
+              <div className="space-y-3 text-sm">
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                      <ClipboardList className="h-4 w-4" />
+                      <span className="font-semibold text-foreground">{jobOrder.numeroODLInterno || 'N/D'}</span>
+                  </p>
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                      <Factory className="h-4 w-4" />
+                      {jobOrder.department}
+                  </p>
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                      <Package className="h-4 w-4" />
+                      {jobOrder.details}
+                  </p>
+                  {deliveryDate && (
+                      <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+                          <Calendar className="h-4 w-4" />
+                          <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
+                      </p>
+                  )}
               </div>
-            );
-          })}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setIsPhaseManagerOpen(false)}>Annulla</Button>
-          <Button onClick={handleSaveChanges}>Salva Modifiche</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  </>
+              <div className="text-right flex-shrink-0">
+                  <div className="flex items-center gap-1 justify-end">
+                    <Package className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-semibold text-base">{jobOrder.qta}</span>
+                    <span className="text-muted-foreground text-xs">pz</span>
+                  </div>
+              </div>
+           </div>
+          
+          <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
+              {jobOrder.phases && jobOrder.phases.length > 0 ? (
+                  jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
+                      <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
+                          {getPhaseIcon(phase.status)}
+                          <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
+                          {phase.status === 'completed' && overallStatus !== 'Completata' && (
+                             <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                                        <Undo2 className="h-4 w-4" />
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                      </div>
+                  ))
+              ) : (
+                  <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
+              )}
+          </div>
+        </CardContent>
+        <CardFooter className="flex-col items-start gap-2 pt-4">
+          <div className="w-full">
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                  <span>Progresso</span>
+                  <span>{Math.round(progressPercentage)}%</span>
+              </div>
+              <Progress value={progressPercentage} className="h-2" />
+          </div>
+        </CardFooter>
+      </Card>
+       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
+          <DialogContent>
+              <DialogHeader>
+                  <DialogTitle>Seleziona Operatori da Mettere in Pausa</DialogTitle>
+                  <DialogDescription>
+                      Scegli quali operatori attivi sulla commessa <span className="font-bold">{jobOrder.ordinePF}</span> vuoi mettere in pausa.
+                  </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-3">
+                   <div className="flex items-center space-x-2">
+                      <Checkbox
+                          id="select-all"
+                          checked={selectedOperatorsToPause.length === activePhasesWithOperators.flatMap(p => p.operators).length && activePhasesWithOperators.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                      />
+                      <Label htmlFor="select-all">Seleziona Tutti</Label>
+                  </div>
+                  {activePhasesWithOperators.flatMap(p => p.operators).map(op => (
+                      <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
+                           <Checkbox
+                              id={op.id}
+                              checked={selectedOperatorsToPause.includes(op.id)}
+                              onCheckedChange={() => toggleOperatorSelection(op.id)}
+                           />
+                           <Label htmlFor={op.id} className="flex-1">
+                              <span className="font-semibold">{op.name}</span>
+                           </Label>
+                      </div>
+                  ))}
+                  {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questa commessa.</p>}
+              </div>
+              <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
+                  <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
+                      Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
+                  </Button>
+              </DialogFooter>
+          </DialogContent>
+      </Dialog>
+      <Dialog open={isPhaseManagerOpen} onOpenChange={setIsPhaseManagerOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Gestione Fasi per: {jobOrder.ordinePF}</DialogTitle>
+            <DialogDescription>
+              Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
+            {editablePhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
+              const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
+              return (
+                <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
+                  <div className="flex items-center gap-3">
+                    {getPhaseIcon(phase.status)}
+                    <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
+                  </div>
+                  {canBeModified ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handlePhaseStatusToggle(phase.id)}
+                    >
+                      {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
+                      {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
+                    </Button>
+                  ) : (
+                    <Badge variant="secondary">{phase.status}</Badge>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPhaseManagerOpen(false)}>Annulla</Button>
+            <Button onClick={handleSaveChanges}>Salva Modifiche</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
