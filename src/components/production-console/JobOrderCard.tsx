@@ -1,4 +1,5 @@
 
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -264,128 +265,113 @@ export default function JobOrderCard({
   const isGroup = jobOrder.id.startsWith('group-');
 
   return (
-    <div className="relative">
-      <div className="absolute top-2 left-2 z-10">
-        <Checkbox
-            checked={isSelected}
-            onCheckedChange={() => onSelect(jobOrder.id)}
-            aria-label={`Seleziona commessa ${jobOrder.id}`}
-            className="h-5 w-5"
-        />
-      </div>
-      <Card 
+    <>
+    <Card 
         className={cn(
-            "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 pl-8", 
+            "flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
             jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50"
         )}
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
       <CardHeader className="pb-3">
-        <div className="flex justify-between items-start gap-4">
-            <div>
-                <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
-                <CardDescription className="flex items-center gap-2 pt-1">
-                <Building className="h-4 w-4 text-muted-foreground" />
-                {jobOrder.cliente}
-                </CardDescription>
-            </div>
-             <div className="text-right flex-shrink-0">
-                <StatusBadge status={overallStatus} />
-                <div className="flex items-center justify-end mt-2">
-                    <TooltipProvider>
+        <div className="grid grid-cols-[auto,1fr,auto] items-start gap-x-3">
+          <div className="pt-1">
+             <Checkbox
+                checked={isSelected}
+                onCheckedChange={() => onSelect(jobOrder.id)}
+                aria-label={`Seleziona commessa ${jobOrder.id}`}
+                className="h-5 w-5"
+            />
+          </div>
+          <div>
+            <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+            <CardDescription className="flex items-center gap-2 pt-1">
+              <Building className="h-4 w-4 text-muted-foreground" />
+              {jobOrder.cliente}
+            </CardDescription>
+          </div>
+          <div className="text-right flex-shrink-0 flex items-center gap-1">
+            <StatusBadge status={overallStatus} />
+             <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                    <MoreVertical className="h-4 w-4" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
                     {!isGroup && (
-                    <>
-                        <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button asChild variant="ghost" size="icon" className="h-7 w-7">
+                        <>
+                        <DropdownMenuItem asChild>
                             <Link href={`/admin/reports/${jobOrder.id}`}>
-                                <CheckSquare className="h-4 w-4"/>
+                                <CheckSquare className="mr-2 h-4 w-4" />
+                                <span>Vedi Dettagli Report</span>
                             </Link>
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>Vedi Dettagli Report</p>
-                        </TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button asChild variant="ghost" size="icon" className="h-7 w-7">
-                            <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                                <Printer className="h-4 w-4"/>
+                        </DropdownMenuItem>
+                         <DropdownMenuItem asChild>
+                           <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                                <Printer className="mr-2 h-4 w-4"/>
+                                <span>Stampa Scheda</span>
                             </Link>
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>Stampa Scheda Lavorazione</p>
-                        </TooltipContent>
-                        </Tooltip>
-                    </>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        </>
                     )}
-                    </TooltipProvider>
-                     <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreVertical className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
-                                <ListOrdered className="mr-2 h-4 w-4" />
-                                <span>Gestisci Fasi</span>
+                    <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                        <ListOrdered className="mr-2 h-4 w-4" />
+                        <span>Gestisci Fasi</span>
+                    </DropdownMenuItem>
+                     {canToggleGuaina && guainaPhase && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                                <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
+                                </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                    Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} Vuoi continuare?
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
+                        <Users className="mr-2 h-4 w-4" />
+                        <span>Forza Pausa Operatori</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                            <RefreshCcw className="mr-2 h-4 w-4" />
+                            <span>Annulla e Resetta</span>
                             </DropdownMenuItem>
-                             {canToggleGuaina && guainaPhase && (
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                        {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
-                                        <span>{isGuainaPostponed ? 'Ripristina Posizione Guaina' : 'Posticipa Taglio Guaina'}</span>
-                                        </DropdownMenuItem>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
-                                <Users className="mr-2 h-4 w-4" />
-                                <span>Forza Pausa Operatori</span>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                    <RefreshCcw className="mr-2 h-4 w-4" />
-                                    <span>Annulla e Resetta</span>
-                                    </DropdownMenuItem>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            </div>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex-grow space-y-4 pt-0">
@@ -411,10 +397,10 @@ export default function JobOrderCard({
                 )}
             </div>
             <div className="text-right flex-shrink-0">
-                <div className="flex items-center gap-2 justify-end">
-                  <Package className="h-5 w-5 text-muted-foreground" />
-                  <span className="font-bold text-lg">{jobOrder.qta}</span>
-                  <span className="text-muted-foreground">pz</span>
+                <div className="flex items-center gap-1 justify-end">
+                  <Package className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-semibold text-base">{jobOrder.qta}</span>
+                  <span className="text-muted-foreground text-xs">pz</span>
                 </div>
             </div>
          </div>
@@ -542,6 +528,6 @@ export default function JobOrderCard({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </div>
+  </>
   );
 }

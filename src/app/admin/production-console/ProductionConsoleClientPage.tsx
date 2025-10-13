@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -34,6 +34,7 @@ import { format, isSameDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
@@ -102,6 +103,8 @@ function ProductionConsoleView() {
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -226,6 +229,47 @@ function ProductionConsoleView() {
   const workGroupsMap = useMemo(() => {
     return new Map(workGroups.map(group => [group.id, group]));
   }, [workGroups]);
+  
+  useEffect(() => {
+    setSelectedJobIds([]);
+  }, [activeFilter, searchTerm]);
+
+  const handleSelectAll = () => {
+    if (selectedJobIds.length === filteredJobs.length) {
+      setSelectedJobIds([]);
+    } else {
+      setSelectedJobIds(filteredJobs.map(j => j.id));
+    }
+  };
+  
+  const handleSelectJob = (jobId: string) => {
+    setSelectedJobIds(prev =>
+      prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]
+    );
+  };
+  
+  const handleBulkForceFinish = async () => {
+    if (!user || selectedJobIds.length === 0) return;
+    const result = await forceFinishMultiple(selectedJobIds, user.uid);
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) setSelectedJobIds([]);
+  };
+
+  const handleBulkForceComplete = async () => {
+    if (!user || selectedJobIds.length === 0) return;
+    const result = await forceCompleteMultiple(selectedJobIds, user.uid);
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) setSelectedJobIds([]);
+  };
+
 
   const handleResolveProblem = async () => {
     if (!problemJob || !user) return;
@@ -387,6 +431,56 @@ function ProductionConsoleView() {
               </div>
           )}
         </Card>
+        
+         {filteredJobs.length > 0 && (
+          <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                  <Checkbox
+                      id="select-all"
+                      checked={selectedJobIds.length > 0 && selectedJobIds.length === filteredJobs.length ? true : selectedJobIds.length > 0 ? 'indeterminate' : false}
+                      onCheckedChange={handleSelectAll}
+                  />
+                  <Label htmlFor="select-all">Seleziona Tutte ({filteredJobs.length})</Label>
+              </div>
+              {selectedJobIds.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                  <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura ({selectedJobIds.length})
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                              <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedJobIds.length} commesse alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
+                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                  <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse ({selectedJobIds.length})
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                               <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedJobIds.length} commesse. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
+                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                       <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm">
+                                  <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta ({selectedJobIds.length})
+                              </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                               <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedJobIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
+                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => { selectedJobIds.forEach(id => onResetJobOrderClick(id)); setSelectedJobIds([]); }}>Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                  </div>
+              )}
+          </div>
+        )}
 
         {isLoading ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -411,6 +505,8 @@ function ProductionConsoleView() {
                       onForcePauseClick={handleForcePause}
                       onForceCompleteClick={handleForceComplete}
                       onResetJobOrderClick={handleResetJobOrder}
+                      isSelected={selectedJobIds.includes(job.id)}
+                      onSelect={handleSelectJob}
                     />
                   );
               })}
