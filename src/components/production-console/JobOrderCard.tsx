@@ -273,7 +273,7 @@ export default function JobOrderCard({
         )}
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
-        <CardHeader className="pb-3 space-y-2">
+         <CardHeader className="pb-3 space-y-2">
             {/* Top row with checkbox and status */}
             <div className="flex justify-between items-center gap-4">
                 <Checkbox
@@ -282,7 +282,7 @@ export default function JobOrderCard({
                     aria-label={`Seleziona commessa ${jobOrder.id}`}
                     className="h-4 w-4"
                 />
-                <StatusBadge status={overallStatus} />
+                 <StatusBadge status={overallStatus} />
             </div>
 
             {/* Second row with title and actions */}
@@ -294,7 +294,7 @@ export default function JobOrderCard({
                         {jobOrder.cliente}
                     </CardDescription>
                 </div>
-                <div className="flex items-center gap-1">
+                 <div className="flex items-center gap-1">
                     {!isGroup && (
                         <TooltipProvider>
                             <Tooltip>
@@ -410,7 +410,7 @@ export default function JobOrderCard({
               <div className="text-right flex-shrink-0">
                   <div className="flex items-center gap-1 justify-end">
                     <Package className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-bold text-base">{jobOrder.qta}</span>
+                    <span className="font-bold">{jobOrder.qta}</span>
                     <span className="text-muted-foreground text-xs">pz</span>
                   </div>
               </div>
@@ -461,7 +461,7 @@ export default function JobOrderCard({
           </div>
         </CardFooter>
       </Card>
-       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
+      <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
           <DialogContent>
               <DialogHeader>
                   <DialogTitle>Seleziona Operatori da Mettere in Pausa</DialogTitle>
