@@ -287,18 +287,22 @@ export default function JobOrderCard({
               checked={isSelected}
               onCheckedChange={() => onSelect(jobOrder.id)}
               aria-label={`Seleziona commessa ${jobOrder.id}`}
+              className="h-5 w-5"
           />
       </div>
       <CardHeader>
-        <div className="flex justify-between items-start gap-4 ml-8">
-          <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
-          <StatusBadge status={overallStatus} />
+        <div className="flex justify-between items-start gap-4">
+            <div className="ml-8">
+              <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
+              <CardDescription className="flex items-center gap-2 pt-1">
+                <Building className="h-4 w-4 text-muted-foreground" />
+                {jobOrder.cliente}
+              </CardDescription>
+            </div>
+            <StatusBadge status={overallStatus} />
         </div>
         <div className="flex justify-between items-center ml-8">
-        <CardDescription className="flex items-center gap-2 pt-1">
-          <Building className="h-4 w-4 text-muted-foreground" />
-          {jobOrder.cliente}
-        </CardDescription>
+        <div></div>
         <TooltipProvider>
           <div className="flex items-center">
             {workGroup && (
