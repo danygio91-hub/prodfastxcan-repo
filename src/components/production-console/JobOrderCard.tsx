@@ -273,21 +273,20 @@ export default function JobOrderCard({
         )}
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
-       <CardHeader className="pb-3 relative">
-            <div className="absolute top-2 left-2 z-10">
-                 <Checkbox
+        <CardHeader className="pb-3 space-y-2">
+            {/* Top row with checkbox and status */}
+            <div className="flex justify-between items-center gap-4">
+                <Checkbox
                     checked={isSelected}
                     onCheckedChange={() => onSelect(jobOrder.id)}
                     aria-label={`Seleziona commessa ${jobOrder.id}`}
-                    className="h-5 w-5"
+                    className="h-4 w-4"
                 />
-            </div>
-            
-            <div className="flex justify-end items-center">
-                 <StatusBadge status={overallStatus} />
+                <StatusBadge status={overallStatus} />
             </div>
 
-            <div className="flex justify-between items-start pt-2">
+            {/* Second row with title and actions */}
+            <div className="flex justify-between items-start pt-1">
                 <div>
                     <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
                     <CardDescription className="flex items-center gap-2 pt-1">
@@ -297,26 +296,24 @@ export default function JobOrderCard({
                 </div>
                 <div className="flex items-center gap-1">
                     {!isGroup && (
-                        <>
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                            <Link href={`/admin/reports/${jobOrder.id}`} target="_blank"><CheckSquare className="h-4 w-4" /></Link>
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                         <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                            <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank"><Printer className="h-4 w-4" /></Link>
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent><p>Stampa Scheda</p></TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        </>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                        <Link href={`/admin/reports/${jobOrder.id}`} target="_blank"><CheckSquare className="h-4 w-4" /></Link>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                        <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank"><Printer className="h-4 w-4" /></Link>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Stampa Scheda</p></TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                     )}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -381,15 +378,11 @@ export default function JobOrderCard({
                     </DropdownMenu>
                 </div>
             </div>
-             {jobOrder.isProblemReported && (
+
+            {jobOrder.isProblemReported && (
                 <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Attendere intervento per risoluzione.
+                    <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato!
                 </p>
-            )}
-            {jobOrder.overallStartTime && (
-                <CardDescription className="text-xs text-muted-foreground mt-1">
-                Iniziata il: {format(new Date(jobOrder.overallStartTime), "dd/MM/yyyy HH:mm:ss")}
-                </CardDescription>
             )}
         </CardHeader>
         <CardContent className="flex-grow space-y-4 pt-0">
