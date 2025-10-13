@@ -1,5 +1,4 @@
 
-
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { type OverallStatus } from "@/lib/types";
@@ -8,8 +7,8 @@ export function StatusBadge({ status }: { status: OverallStatus }) {
   return (
     <Badge
       className={cn(
-        "py-1 px-3 text-xs font-semibold tracking-wide",
-        status === "Da Iniziare" && "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        "py-1 px-2 text-xs font-semibold tracking-wide",
+        status === "Da Iniziare" && "bg-gray-500 text-white hover:bg-gray-500/90",
         status === "In Preparazione" && "bg-cyan-500 text-white hover:bg-cyan-500/90",
         status === "Pronto per Produzione" && "bg-teal-500 text-white hover:bg-teal-500/90",
         status === "Pronto per Finitura" && "bg-indigo-500 text-white hover:bg-indigo-500/90",

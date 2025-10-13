@@ -54,11 +54,9 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
       return 'Completata';
   }
 
-  // Priority 1: Terminal/Blocking states (after completion check)
   if (jobOrder.isProblemReported) return 'Problema';
   if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
 
-  // Check phases
   const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
   const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
   const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
@@ -88,15 +86,9 @@ function getOverallStatus(jobOrder: JobOrder): OverallStatus {
     return 'In Preparazione';
   }
   
-  // Default state if no other condition is met
   return 'Da Iniziare';
 }
 
-
-function getCurrentPhase(phases: JobPhase[]): JobPhase | undefined {
-  // Prioritize in-progress over paused for display
-  return phases.find(p => p.status === 'in-progress') || phases.find(p => p.status === 'paused');
-}
 
 function getPhaseIcon(status: JobPhase['status']) {
   switch (status) {
@@ -177,7 +169,7 @@ export default function JobOrderCard({
   }, [jobOrder, workGroup, allOperators]);
   
   const handleOpenPauseDialog = () => {
-    setSelectedOperatorsToPause([]); // Reset selection
+    setSelectedOperatorsToPause([]);
     setIsPauseDialogOpen(true);
   };
 
@@ -276,7 +268,7 @@ export default function JobOrderCard({
       )}
       onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
     >
-      <CardHeader>
+      <CardHeader className="pb-3">
         <div className="flex justify-between items-start gap-4">
             <div>
                 <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
@@ -285,257 +277,134 @@ export default function JobOrderCard({
                 {jobOrder.cliente}
                 </CardDescription>
             </div>
-            <StatusBadge status={overallStatus} />
-        </div>
-        <div className="flex justify-between items-center mt-2">
-            <div></div>
-            <TooltipProvider>
-            <div className="flex items-center">
-                {workGroup && (
-                    <Tooltip>
+             <div className="text-right flex-shrink-0">
+                <StatusBadge status={overallStatus} />
+                <div className="flex items-center justify-end mt-2">
+                    <TooltipProvider>
+                    {!isGroup && (
+                    <>
+                        <Tooltip>
                         <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="text-blue-500 hover:bg-blue-500/10 hover:text-blue-500" asChild>
-                            <Link href={`/admin/work-group-management?groupId=${workGroup.id}`}>
-                                <LinkIcon className="h-4 w-4" />
+                            <Button asChild variant="ghost" size="icon" className="h-7 w-7">
+                            <Link href={`/admin/reports/${jobOrder.id}`}>
+                                <CheckSquare className="h-4 w-4"/>
                             </Link>
-                        </Button>
+                            </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                            <p className="font-semibold">Gruppo: {workGroup.id}</p>
-                            <ul className="list-disc pl-4 text-xs">
-                                {workGroup.jobOrderPFs?.map(pf => <li key={pf}>{pf}</li>)}
-                            </ul>
+                            <p>Vedi Dettagli Report</p>
                         </TooltipContent>
-                    </Tooltip>
-                )}
-                {!isGroup && (
-                <>
-                    <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button asChild variant="ghost" size="icon">
-                        <Link href={`/admin/reports/${jobOrder.id}`}>
-                            <CheckSquare className="h-4 w-4"/>
-                        </Link>
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <p>Vedi Dettagli Report</p>
-                    </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button asChild variant="ghost" size="icon">
-                        <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
-                            <Printer className="h-4 w-4"/>
-                        </Link>
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <p>Stampa Scheda Lavorazione</p>
-                    </TooltipContent>
-                    </Tooltip>
-                </>
-                )}
-                <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                    <MoreVertical className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
-                        <ListOrdered className="mr-2 h-4 w-4" />
-                        <span>Gestisci Fasi</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    {isForcedToFinish ? (
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                        <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-600">
-                            <Undo2 className="mr-2 h-4 w-4" />
-                            <span>Annulla Forza a Finitura</span>
-                        </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Annullare la forzatura?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                            Questa azione ripristinerà le fasi di produzione completate artificialmente allo stato "in attesa".
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onRevertForceFinishClick(jobOrder.id)}>Sì, annulla</AlertDialogAction>
-                        </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    ) : (
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceFinish}>
-                            <FastForward className="mr-2 h-4 w-4" />
-                            <span>Forza a Finitura</span>
-                            </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                            <AlertDialogTitle>Forzare l'avanzamento?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Questa azione completerà tutte le fasi di produzione e renderà la commessa pronta per la finitura (collaudo/packaging).
-                            </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                        </Tooltip>
+                        <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button asChild variant="ghost" size="icon" className="h-7 w-7">
+                            <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank">
+                                <Printer className="h-4 w-4"/>
+                            </Link>
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>Stampa Scheda Lavorazione</p>
+                        </TooltipContent>
+                        </Tooltip>
+                    </>
                     )}
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!canForceComplete}>
-                            <PowerOff className="mr-2 h-4 w-4" />
-                            <span>Chiudi Commessa</span>
+                    </TooltipProvider>
+                     <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <MoreVertical className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                                <ListOrdered className="mr-2 h-4 w-4" />
+                                <span>Gestisci Fasi</span>
                             </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Forzare la chiusura della commessa?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Questa azione imposterà lo stato della commessa su "Completata" anche se non tutte le fasi di finitura sono state eseguite.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Sì, chiudi commessa</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    {canToggleGuaina && guainaPhase && (
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
-                                <span>{isGuainaPostponed ? 'Ripristina Posizione Guaina' : 'Posticipa Taglio Guaina'}</span>
-                                </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
-                        <Users className="mr-2 h-4 w-4" />
-                        <span>Forza Pausa Operatori</span>
-                    </DropdownMenuItem>
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                            <RefreshCcw className="mr-2 h-4 w-4" />
-                            <span>Annulla e Resetta</span>
+                             {canToggleGuaina && guainaPhase && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                        {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                                        <span>{isGuainaPostponed ? 'Ripristina Posizione Guaina' : 'Posticipa Taglio Guaina'}</span>
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale nel ciclo di preparazione.' : 'posticipare la fase "Taglio Guaina" alla fine del ciclo di produzione.'} Vuoi continuare?
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => onToggleGuainaClick(jobOrder.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
+                                <Users className="mr-2 h-4 w-4" />
+                                <span>Forza Pausa Operatori</span>
                             </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                </DropdownMenuContent>
-                </DropdownMenu>
+                            <DropdownMenuSeparator />
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                    <RefreshCcw className="mr-2 h-4 w-4" />
+                                    <span>Annulla e Resetta</span>
+                                    </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Questa azione è irreversibile. La commessa <span className="font-bold">{jobOrder.ordinePF}</span> verrà riportata allo stato "pianificata", le lavorazioni azzerate e lo stock dei materiali consumati verrà ripristinato.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => onResetJobOrderClick(jobOrder.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla e resetta</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </div>
-            </TooltipProvider>
         </div>
       </CardHeader>
-      <CardContent className="flex-grow space-y-4">
-        <div className="space-y-3 text-sm">
-           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-              <p className="flex items-center gap-2">
-                <ClipboardList className="h-4 w-4 text-muted-foreground" />
-                <span className="font-semibold">{jobOrder.numeroODLInterno || 'N/D'}</span>
-              </p>
-              <p className="flex items-center gap-2 font-bold text-base justify-end">
-                <Package className="h-4 w-4 text-muted-foreground" />
-                {jobOrder.qta} pz
-              </p>
-              <p className="flex items-center gap-2 col-span-2">
-                <Factory className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">{jobOrder.department}</span>
-              </p>
-              <p className="flex items-center gap-2 col-span-2">
-                <Package className="h-4 w-4 text-muted-foreground" />
-                {jobOrder.details}
-              </p>
-              {deliveryDate && (
-                <p className={cn("flex items-center gap-2 font-medium col-span-2", isOverdue ? "text-destructive" : "text-muted-foreground")}>
-                  {isOverdue ? <AlertTriangleIcon className="h-4 w-4"/> : <Calendar className="h-4 w-4" />}
-                  <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
+      <CardContent className="flex-grow space-y-4 pt-0">
+         <div className="flex justify-between items-start gap-4">
+            <div className="space-y-3 text-sm">
+                <p className="flex items-center gap-2 text-muted-foreground">
+                    <ClipboardList className="h-4 w-4" />
+                    <span className="font-semibold text-foreground">{jobOrder.numeroODLInterno || 'N/D'}</span>
                 </p>
-              )}
-          </div>
-        </div>
-        
-        {activePhasesWithOperators.length > 0 && (
-          <div className="p-3 rounded-md border bg-blue-600/10 border-blue-600/20 space-y-2">
-            {activePhasesWithOperators.map(activePhase => (
-              <div key={activePhase.phaseId}>
-                <p className="text-sm font-semibold flex items-center gap-2 text-blue-800 dark:text-blue-300">
-                  <Hourglass className="h-4 w-4 animate-spin" />
-                  <span>Fase Attuale: {activePhase.phaseName}</span>
+                <p className="flex items-center gap-2 text-muted-foreground">
+                    <Factory className="h-4 w-4" />
+                    {jobOrder.department}
                 </p>
-                <div className="mt-1 pl-6">
-                    <p className="text-xs font-semibold flex items-center gap-2 text-blue-700 dark:text-blue-400">
-                        <Users className="h-4 w-4" />
-                        Operatori: {activePhase.operators.map(op => op.name).join(', ')}
+                <p className="flex items-center gap-2 text-muted-foreground">
+                    <Package className="h-4 w-4" />
+                    {jobOrder.details}
+                </p>
+                {deliveryDate && (
+                    <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
+                        <Calendar className="h-4 w-4" />
+                        <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
                     </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-         {overallStatus === 'Problema' && (
-           <TooltipProvider>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <div className="p-3 bg-destructive/10 rounded-md border border-destructive/20">
-                        <p className="text-sm font-semibold flex items-center gap-2 text-destructive-foreground">
-                        <ShieldAlert className="h-4 w-4 text-destructive" />
-                        Problema Segnalato
-                        </p>
-                    </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>{problemDescription}</p>
-                </TooltipContent>
-            </Tooltip>
-           </TooltipProvider>
-        )}
-        {overallStatus === 'Completata' && jobOrder.overallEndTime && (
-             <div className="p-3 bg-green-500/10 rounded-md border border-green-500/20">
-                <p className="text-sm font-semibold flex items-center gap-2 text-green-600">
-                    <CheckCircle2 className="h-4 w-4" />
-                    Completata il: {format(new Date(jobOrder.overallEndTime), 'dd/MM/yyyy HH:mm')}
-                </p>
+                )}
             </div>
-        )}
+            <div className="text-right flex-shrink-0">
+                <Badge className="text-base font-bold py-1 px-3">
+                    <Package className="mr-2 h-4 w-4" />
+                    {jobOrder.qta} pz
+                </Badge>
+            </div>
+         </div>
+        
         <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
             {jobOrder.phases && jobOrder.phases.length > 0 ? (
