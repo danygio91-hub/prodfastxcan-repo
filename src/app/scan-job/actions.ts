@@ -136,12 +136,64 @@ export async function verifyAndGetJobOrder(scannedData: {
   return jobCopy;
 }
 
+function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
+    const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
+    const allPrepCompleted = sortedPhases
+        .filter(p => p.type === 'preparation')
+        .every(p => p.status === 'completed' || p.status === 'skipped');
+
+    for (let i = 0; i < sortedPhases.length; i++) {
+        const currentPhase = sortedPhases[i];
+        
+        if (currentPhase.isIndependent) {
+            currentPhase.materialReady = true;
+            continue;
+        }
+        
+        if (currentPhase.type === 'preparation') {
+            currentPhase.materialReady = true;
+            continue;
+        }
+
+        // --- CORE LOGIC CHANGE IS HERE ---
+        // For a sequential, non-preparation phase:
+        
+        // 1. All preparations MUST be complete.
+        if (!allPrepCompleted) {
+            currentPhase.materialReady = false;
+            continue;
+        }
+
+        // 2. Find the PREVIOUS sequential phase.
+        let previousSequentialPhase: JobPhase | null = null;
+        for (let j = i - 1; j >= 0; j--) {
+            if (!sortedPhases[j].isIndependent) {
+                previousSequentialPhase = sortedPhases[j];
+                break;
+            }
+        }
+        
+        // If there is no previous sequential phase, it's ready (as all preparations are done).
+        if (!previousSequentialPhase) {
+            currentPhase.materialReady = true;
+        } else {
+            // It's ready if the previous one has been started, completed, or skipped.
+            const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped'].includes(previousSequentialPhase.status);
+            currentPhase.materialReady = isPreviousStartedOrDone;
+        }
+    }
+
+    return sortedPhases;
+}
 
 export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; message: string; }> {
     const jobRef = doc(db, "jobOrders", jobData.id);
 
     try {
-        const allPhasesCompleted = (jobData.phases || []).length > 0 && (jobData.phases || []).every(p => p.status === 'completed');
+        const updatedPhases = updatePhasesMaterialReadiness(jobData.phases || []);
+        jobData.phases = updatedPhases;
+
+        const allPhasesCompleted = (jobData.phases || []).length > 0 && (jobData.phases || []).every(p => p.status === 'completed' || p.status === 'skipped');
 
         if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
@@ -182,13 +234,18 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const batch = writeBatch(db);
 
         // --- PREPARE DATA ---
+        
+        // Recalculate material readiness for all phases
+        const updatedPhases = updatePhasesMaterialReadiness(groupData.phases || []);
+        groupData.phases = updatedPhases;
+        
         // Finalize status before saving
         const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
         if (groupData.status !== 'completed' && groupData.status !== 'suspended') {
             groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
 
-        const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed');
+        const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed' || p.status === 'skipped');
         if (allPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
@@ -666,20 +723,16 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
         // --- UNLOCK NEXT PHASE (Modified Logic) ---
-        const nextSequentialPhase = sortedPhases.find((p: JobPhase, index: number) => index > currentPhaseIndex && !p.isIndependent && p.type !== 'preparation');
-
-        if (nextSequentialPhase) {
-            nextSequentialPhase.materialReady = true;
-        }
+        const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
         
         // --- COMMIT ---
-        transaction.update(itemRef, { phases: sortedPhases, status: 'production' });
+        transaction.update(itemRef, { phases: phasesWithReadiness, status: 'production' });
 
         if (isGroup) {
             const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: sortedPhases, status: 'production' });
+                transaction.update(jobRef, { phases: phasesWithReadiness, status: 'production' });
             });
         }
     });
