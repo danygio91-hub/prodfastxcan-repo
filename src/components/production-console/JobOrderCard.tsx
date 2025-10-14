@@ -178,7 +178,7 @@ export default function JobOrderCard({
   };
 
   const handleOpenPhaseManager = () => {
-    setEditablePhases(jobOrder.phases);
+    setEditablePhases([...jobOrder.phases].sort((a,b) => a.sequence - b.sequence));
     setIsPhaseManagerOpen(true);
   };
   
@@ -218,18 +218,17 @@ export default function JobOrderCard({
   
   const handleMovePhase = (index: number, direction: 'up' | 'down') => {
     setEditablePhases(prevPhases => {
-      const newPhases = [...prevPhases];
-      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        const newPhases = [...prevPhases];
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
 
-      if (targetIndex >= 0 && targetIndex < newPhases.length) {
-        // Swap sequences
-        const currentSequence = newPhases[index].sequence;
-        newPhases[index].sequence = newPhases[targetIndex].sequence;
-        newPhases[targetIndex].sequence = currentSequence;
-      }
-      
-      // Re-sort the array based on the new sequences to reflect the change in UI
-      return newPhases.sort((a,b) => a.sequence - b.sequence);
+        if (targetIndex >= 0 && targetIndex < newPhases.length) {
+            // Simple array element swap
+            const temp = newPhases[index];
+            newPhases[index] = newPhases[targetIndex];
+            newPhases[targetIndex] = temp;
+        }
+        
+        return newPhases;
     });
   };
   
@@ -540,7 +539,7 @@ export default function JobOrderCard({
             </DialogDescription>
           </DialogHeader>
            <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
-            {editablePhases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
+            {editablePhases.map((phase, index) => {
               const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
               return (
                 <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
