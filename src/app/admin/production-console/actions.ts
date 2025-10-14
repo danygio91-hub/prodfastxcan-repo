@@ -236,7 +236,7 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       const updatedPhases = phases.map(p => {
         if (p.sequence > revertedPhaseSequence) {
             // Keep material readiness for preparation phases
-            if (p.type === 'preparation') {
+            if (p.type === 'preparation' || p.isIndependent) {
                 return p;
             }
             return {...p, materialReady: false};
@@ -428,7 +428,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
           workPeriods: [],
           materialConsumptions: [],
           qualityResult: null,
-          materialReady: phase.type === 'preparation',
+          materialReady: phase.isIndependent || phase.type === 'preparation',
       }));
       
       transaction.update(jobRef, {
@@ -466,16 +466,35 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
     const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
     
     // Recalculate material readiness based on the new order
-    let materialIsReady = sortedPhases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped');
+    let allPrepCompleted = sortedPhases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped');
     
-    for (const phase of sortedPhases) {
-      if (phase.type !== 'preparation') {
-        phase.materialReady = materialIsReady;
-        // If this phase is not yet done, subsequent phases are not ready.
-        if (phase.status === 'pending') {
-          materialIsReady = false;
+    for (let i = 0; i < sortedPhases.length; i++) {
+        const currentPhase = sortedPhases[i];
+        if (currentPhase.isIndependent || currentPhase.type === 'preparation') {
+            currentPhase.materialReady = true;
+            continue;
         }
-      }
+
+        if (!allPrepCompleted) {
+            currentPhase.materialReady = false;
+            continue;
+        }
+        
+        // Find previous non-independent, non-preparation phase
+        let previousSequentialPhase: JobPhase | null = null;
+        for (let j = i - 1; j >= 0; j--) {
+            if (!sortedPhases[j].isIndependent && sortedPhases[j].type !== 'preparation') {
+                previousSequentialPhase = sortedPhases[j];
+                break;
+            }
+        }
+        
+        if (previousSequentialPhase) {
+            currentPhase.materialReady = previousSequentialPhase.status === 'completed' || previousSequentialPhase.status === 'skipped' || previousSequentialPhase.status === 'in-progress';
+        } else {
+            // This is the first sequential phase after preparations
+            currentPhase.materialReady = true;
+        }
     }
 
     await updateDoc(itemRef, { phases: sortedPhases });
@@ -547,6 +566,7 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
     
 
     
+
 
 
 

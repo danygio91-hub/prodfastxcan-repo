@@ -666,9 +666,10 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
         // --- UNLOCK NEXT PHASE (Modified Logic) ---
-        const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        if (nextPhase && nextPhase.status === 'pending' && !nextPhase.isIndependent) {
-            nextPhase.materialReady = true;
+        const nextSequentialPhase = sortedPhases.find((p: JobPhase, index: number) => index > currentPhaseIndex && !p.isIndependent && p.type !== 'preparation');
+
+        if (nextSequentialPhase) {
+            nextSequentialPhase.materialReady = true;
         }
         
         // --- COMMIT ---
