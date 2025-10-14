@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -20,7 +21,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { GitMerge, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
+import { GitMerge, PlusCircle, Edit, Trash2, Loader2, ArrowLeft, ArrowRight, ChevronsUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
@@ -42,6 +43,11 @@ function WorkCycleManagementContent() {
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isPending, setIsPending] = useState(false);
   const { toast } = useToast();
+  
+  // New state for the two-column picker
+  const [availablePhases, setAvailablePhases] = useState<WorkPhaseTemplate[]>([]);
+  const [selectedPhases, setSelectedPhases] = useState<WorkPhaseTemplate[]>([]);
+
 
   const form = useForm<WorkCycleFormValues>({
     resolver: zodResolver(workCycleSchema),
@@ -59,17 +65,27 @@ function WorkCycleManagementContent() {
     fetchCycles();
     getWorkPhaseTemplates().then(setPhaseTemplates);
   }, []);
+  
+  useEffect(() => {
+    form.setValue('phaseTemplateIds', selectedPhases.map(p => p.id));
+  }, [selectedPhases, form]);
+
 
   const handleOpenDialog = (cycle: WorkCycle | null = null) => {
     setEditingCycle(cycle);
-    if (cycle) {
+    if (cycle && cycle.phaseTemplateIds) {
+      const cyclePhases = cycle.phaseTemplateIds.map(id => phaseTemplates.find(p => p.id === id)).filter(Boolean) as WorkPhaseTemplate[];
+      setSelectedPhases(cyclePhases);
+      setAvailablePhases(phaseTemplates.filter(p => !cycle.phaseTemplateIds.includes(p.id)));
       form.reset({
         id: cycle.id,
         name: cycle.name,
         description: cycle.description,
-        phaseTemplateIds: cycle.phaseTemplateIds || [],
+        phaseTemplateIds: cycle.phaseTemplateIds,
       });
     } else {
+      setAvailablePhases([...phaseTemplates]);
+      setSelectedPhases([]);
       form.reset({ id: undefined, name: "", description: "", phaseTemplateIds: [] });
     }
     setIsDialogOpen(true);
@@ -138,13 +154,26 @@ function WorkCycleManagementContent() {
     setSelectedRows(prev => prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]);
   };
   
-  const getPhaseTypeLabel = (type: WorkPhaseTemplate['type']) => {
-    switch (type) {
-      case 'production': return 'Prod';
-      case 'preparation': return 'Prep';
-      case 'quality': return 'Qual';
-      case 'packaging': return 'Pack';
-      default: return 'N/D';
+  // --- New handlers for two-column picker ---
+  const addPhaseToCycle = (phase: WorkPhaseTemplate) => {
+    setAvailablePhases(prev => prev.filter(p => p.id !== phase.id));
+    setSelectedPhases(prev => [...prev, phase]);
+  };
+
+  const removePhaseFromCycle = (phase: WorkPhaseTemplate) => {
+    setSelectedPhases(prev => prev.filter(p => p.id !== phase.id));
+    setAvailablePhases(prev => [...prev, phase].sort((a,b) => a.sequence - b.sequence));
+  };
+  
+  const movePhase = (index: number, direction: 'up' | 'down') => {
+    const newSelectedPhases = [...selectedPhases];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+    if (targetIndex >= 0 && targetIndex < newSelectedPhases.length) {
+      const temp = newSelectedPhases[index];
+      newSelectedPhases[index] = newSelectedPhases[targetIndex];
+      newSelectedPhases[targetIndex] = temp;
+      setSelectedPhases(newSelectedPhases);
     }
   };
   
@@ -168,7 +197,7 @@ function WorkCycleManagementContent() {
                 Gestione Cicli di Lavorazione
               </h1>
               <p className="text-muted-foreground mt-2">
-                Crea e gestisci i cicli di lavorazione standard da associare alle commesse.
+                Crea e ordina le sequenze di fasi da associare alle commesse.
               </p>
             </header>
             <div className="flex items-center gap-2">
@@ -279,11 +308,11 @@ function WorkCycleManagementContent() {
           </Card>
         
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => {if (isPending) e.preventDefault();}}>
+          <DialogContent className="max-w-4xl" onInteractOutside={(e) => {if (isPending) e.preventDefault();}}>
             <DialogHeader>
               <DialogTitle>{editingCycle ? "Modifica Ciclo" : "Aggiungi Nuovo Ciclo"}</DialogTitle>
               <DialogDescription>
-                Compila i campi e seleziona le fasi da includere in questo ciclo di lavorazione.
+                Compila i campi, quindi aggiungi e ordina le fasi per definire la sequenza di questo ciclo.
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -302,46 +331,58 @@ function WorkCycleManagementContent() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField
-                  control={form.control}
-                  name="phaseTemplateIds"
-                  render={({ field }) => (
-                    <FormItem>
-                      <div className="mb-4">
-                        <FormLabel>Fasi di Lavorazione da Includere</FormLabel>
-                        <FormDescription>Seleziona le fasi che comporranno questo ciclo.</FormDescription>
-                      </div>
-                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border p-4">
-                        {phaseTemplates.map((item) => (
-                           <FormItem
-                            key={item.id}
-                            className="flex flex-row items-center space-x-3 space-y-0"
-                          >
-                            <FormControl>
-                              <Checkbox
-                                checked={field.value?.includes(item.id)}
-                                onCheckedChange={(checked) => {
-                                  const currentValue = field.value || [];
-                                  return checked
-                                    ? field.onChange([...currentValue, item.id])
-                                    : field.onChange(
-                                        currentValue.filter(
-                                          (value) => value !== item.id
-                                        )
-                                      );
-                                }}
-                              />
-                            </FormControl>
-                             <FormLabel className="font-normal text-sm cursor-pointer">
-                                {item.name} <span className='text-muted-foreground'>({getPhaseTypeLabel(item.type)})</span>
-                            </FormLabel>
-                          </FormItem>
-                        ))}
-                      </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    {/* Colonna Fasi Disponibili */}
+                    <div className="space-y-2">
+                        <FormLabel>Fasi Disponibili</FormLabel>
+                        <div className="border rounded-md p-2 space-y-2 min-h-[200px]">
+                            {availablePhases.map(phase => (
+                                <div key={phase.id} className="flex items-center justify-between p-2 bg-background rounded-md">
+                                    <span className="text-sm font-medium">{phase.name}</span>
+                                    <Button type="button" size="icon" variant="outline" className="h-7 w-7" onClick={() => addPhaseToCycle(phase)}>
+                                        <ArrowRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            ))}
+                             {availablePhases.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Nessuna fase da aggiungere.</p>}
+                        </div>
+                    </div>
+                    
+                    {/* Colonna Fasi nel Ciclo */}
+                    <div className="space-y-2">
+                         <FormField
+                            control={form.control}
+                            name="phaseTemplateIds"
+                            render={() => (
+                            <FormItem>
+                               <FormLabel>Fasi nel Ciclo (in ordine di esecuzione)</FormLabel>
+                               <div className="border rounded-md p-2 space-y-2 min-h-[200px]">
+                                   {selectedPhases.map((phase, index) => (
+                                       <div key={phase.id} className="flex items-center justify-between p-2 bg-secondary rounded-md">
+                                            <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => removePhaseFromCycle(phase)}>
+                                                <ArrowLeft className="h-4 w-4" />
+                                            </Button>
+                                            <span className="text-sm font-semibold text-secondary-foreground flex-1 mx-2">{index + 1}. {phase.name}</span>
+                                            <div className="flex flex-col gap-1">
+                                                <Button type="button" size="icon" variant="outline" className="h-6 w-6" disabled={index === 0} onClick={() => movePhase(index, 'up')}>
+                                                    <ArrowUp className="h-3 w-3" />
+                                                </Button>
+                                                <Button type="button" size="icon" variant="outline" className="h-6 w-6" disabled={index === selectedPhases.length - 1} onClick={() => movePhase(index, 'down')}>
+                                                    <ArrowDown className="h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                       </div>
+                                   ))}
+                                    {selectedPhases.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Aggiungi fasi dalla colonna a sinistra.</p>}
+                               </div>
+                                <FormMessage />
+                            </FormItem>
+                         )}
+                        />
+                    </div>
+                </div>
+
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
                   <Button type="submit" disabled={isPending}>
@@ -366,7 +407,5 @@ export default function WorkCycleManagementPage() {
     </AdminAuthGuard>
   );
 }
-
-    
 
     

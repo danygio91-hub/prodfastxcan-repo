@@ -45,6 +45,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
         return [];
     }
     const cycle = cycleSnap.data() as WorkCycle;
+    // The order of phaseTemplateIds is now the source of truth for the sequence.
     const phaseTemplateIds = cycle.phaseTemplateIds;
 
     if (!phaseTemplateIds || phaseTemplateIds.length === 0) {
@@ -53,10 +54,9 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     
     const templatesQuery = query(collection(db, "workPhaseTemplates"));
     const templatesSnap = await getDocs(templatesQuery);
-    const allTemplates = templatesSnap.docs.map(d => d.data() as WorkPhaseTemplate);
-    const allTemplatesMap = new Map(allTemplates.map(t => [t.id, t]));
+    const allTemplatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));
 
-    const phases: JobPhase[] = phaseTemplateIds.map((templateId): JobPhase | null => {
+    const phases: JobPhase[] = phaseTemplateIds.map((templateId, index): JobPhase | null => {
         const template = allTemplatesMap.get(templateId);
         if (!template) {
             console.warn(`Phase template with id ${templateId} not found in a work cycle.`);
@@ -67,9 +67,11 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending' as const,
+            // The first non-preparation phase is marked as ready.
             materialReady: template.type === 'preparation',
             workPeriods: [],
-            sequence: template.sequence,
+            // The sequence is now determined by the order in the cycle's array.
+            sequence: index + 1, 
             type: template.type || 'production',
             tracksTime: template.tracksTime !== false, // Default to true if undefined
             requiresMaterialScan: template.requiresMaterialScan,
@@ -79,9 +81,14 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             qualityResult: null,
             departmentCodes: template.departmentCodes || [],
         };
-    }).filter((p): p is JobPhase => p !== null)
-      .sort((a, b) => a.sequence - b.sequence);
+    }).filter((p): p is JobPhase => p !== null);
     
+    // Set materialReady for the first non-preparation phase if all preparation phases are completed (which they are by default)
+    const firstNonPrepIndex = phases.findIndex(p => p.type !== 'preparation');
+    if (firstNonPrepIndex !== -1) {
+        phases[firstNonPrepIndex].materialReady = true;
+    }
+
     return phases;
 }
 
