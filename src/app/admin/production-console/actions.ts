@@ -464,15 +464,16 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
     const itemRef = doc(db, collectionName, jobId);
     
     // Recalculate material readiness before saving
-    let materialIsReady = true;
+    let materialIsReady = (phases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped'));
+    
     const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
     
     for (const phase of sortedPhases) {
-      phase.materialReady = materialIsReady;
-      if (phase.status === 'pending' || phase.status === 'skipped') {
-        // If the phase is pending or skipped, the next phase's material is NOT ready yet, unless this is a prep phase
-        if (phase.type !== 'preparation') {
-            materialIsReady = false;
+      if (phase.type !== 'preparation') {
+        phase.materialReady = materialIsReady;
+        // The next non-prep phase is NOT ready until this one is started/skipped/completed.
+        if (phase.status === 'pending') {
+          materialIsReady = false;
         }
       }
     }
@@ -546,6 +547,7 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
     
 
     
+
 
 
 

@@ -661,15 +661,11 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // --- UNLOCK NEXT PHASE (unless it was postponed) ---
-        const isThisTheLastNonPostponedPhase = !sortedPhases.slice(currentPhaseIndex + 1).some((p: JobPhase) => !p.postponed && p.status === 'pending');
-        
-        // If this is the last phase OR the only remaining ones are postponed, don't unlock anything.
-        if (!isThisTheLastNonPostponedPhase) {
-            const nextPhase = sortedPhases[currentPhaseIndex + 1];
-            if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
-                nextPhase.materialReady = true;
-            }
+        // --- UNLOCK NEXT PHASE (Modified Logic) ---
+        // Find the next phase in the sequence that is not preparation
+        const nextPhase = sortedPhases.find((p: JobPhase) => p.sequence > phaseToStart.sequence && p.type !== 'preparation');
+        if (nextPhase && nextPhase.status === 'pending') {
+            nextPhase.materialReady = true;
         }
         
         // Update the item itself
