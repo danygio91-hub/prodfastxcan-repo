@@ -1,4 +1,5 @@
 
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -133,6 +134,7 @@ export default function JobOrderCard({
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
   const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
+  const [isOrderChanged, setIsOrderChanged] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   
   const { user } = useAuth();
@@ -179,6 +181,7 @@ export default function JobOrderCard({
 
   const handleOpenPhaseManager = () => {
     setEditablePhases([...jobOrder.phases].sort((a,b) => a.sequence - b.sequence));
+    setIsOrderChanged(false); // Reset on open
     setIsPhaseManagerOpen(true);
   };
   
@@ -214,6 +217,7 @@ export default function JobOrderCard({
         return p;
       });
     });
+    setIsOrderChanged(true);
   };
   
   const handleMovePhase = (index: number, direction: 'up' | 'down') => {
@@ -222,7 +226,6 @@ export default function JobOrderCard({
         const targetIndex = direction === 'up' ? index - 1 : index + 1;
 
         if (targetIndex >= 0 && targetIndex < newPhases.length) {
-            // Simple array element swap
             const temp = newPhases[index];
             newPhases[index] = newPhases[targetIndex];
             newPhases[targetIndex] = temp;
@@ -230,6 +233,7 @@ export default function JobOrderCard({
         
         return newPhases;
     });
+    setIsOrderChanged(true);
   };
   
   const handleSaveChanges = async () => {
@@ -585,7 +589,12 @@ export default function JobOrderCard({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsPhaseManagerOpen(false)}>Annulla</Button>
-            <Button onClick={handleSaveChanges}>Salva Modifiche</Button>
+            <Button 
+                onClick={handleSaveChanges} 
+                className={cn(isOrderChanged && 'bg-amber-500 hover:bg-amber-600 text-white animate-pulse')}
+            >
+                Salva Modifiche
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
