@@ -88,7 +88,7 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
       }
       const job = jobSnap.data() as JobOrder;
 
-      const updatedPhases = job.phases.map(phase => {
+      let updatedPhases = job.phases.map(phase => {
         if (phase.forced) {
           // Revert the phase to pending and remove the forced flag
           const { forced, ...rest } = phase;
@@ -98,17 +98,9 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
       });
 
       // Also reset material readiness for subsequent non-production phases
-      const finalPhases = updatedPhases.map((phase, index, arr) => {
-          if (phase.type !== 'production' && phase.type !== 'preparation') {
-              const previousPhase = arr[index - 1];
-              if(previousPhase && previousPhase.status !== 'completed') {
-                  return { ...phase, materialReady: false };
-              }
-          }
-          return phase;
-      })
+      updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
 
-      transaction.update(jobRef, { phases: finalPhases });
+      transaction.update(jobRef, { phases: updatedPhases });
     });
 
     revalidatePath('/admin/production-console');
@@ -136,56 +128,61 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
     }
 
     const jobRef = doc(db, 'jobOrders', jobId);
-    const jobSnap = await getDoc(jobRef);
-
-    if (!jobSnap.exists()) {
-      throw new Error('Commessa non trovata.');
-    }
-
-    const job = jobSnap.data() as JobOrder;
-    const originalPhases = job.phases || [];
-    const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
-
-    if (phaseIndex === -1) {
-      throw new Error('Fase "Taglio Guaina" non trovata in questa commessa.');
-    }
-
-    const phaseToMove = originalPhases[phaseIndex];
-
-    if (phaseToMove.status !== 'pending') {
-      throw new Error('È possibile spostare la fase solo se non è ancora stata avviata.');
-    }
     
-    const updatedPhases = [...originalPhases];
+    await runTransaction(db, async (transaction) => {
+        const jobSnap = await transaction.get(jobRef);
 
-    if (currentState === 'default') {
-      // Logic to move it before 'Collaudo'
-      const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
-      const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo' || p.type === 'quality');
-      
-      let targetSequence;
-      if (collaudoPhase) {
-        targetSequence = collaudoPhase.sequence - 0.1;
-      } else {
-        // Fallback: move it to the end of production phases
-        const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();
-        targetSequence = lastProductionPhase ? lastProductionPhase.sequence + 1 : 99;
-      }
-      
-      updatedPhases[phaseIndex].sequence = targetSequence;
+        if (!jobSnap.exists()) {
+          throw new Error('Commessa non trovata.');
+        }
 
-    } else {
-      // Restore original sequence from template
-      const templateRef = doc(db, 'workPhaseTemplates', phaseId);
-      const templateSnap = await getDoc(templateRef);
-      if (!templateSnap.exists()) {
-          throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
-      }
-      const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
-      updatedPhases[phaseIndex].sequence = originalSequence;
-    }
+        const job = jobSnap.data() as JobOrder;
+        const originalPhases = job.phases || [];
+        const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
 
-    await updateDoc(jobRef, { phases: updatedPhases });
+        if (phaseIndex === -1) {
+          throw new Error('Fase "Taglio Guaina" non trovata in questa commessa.');
+        }
+
+        const phaseToMove = originalPhases[phaseIndex];
+
+        if (phaseToMove.status !== 'pending') {
+          throw new Error('È possibile spostare la fase solo se non è ancora stata avviata.');
+        }
+        
+        const updatedPhases = [...originalPhases];
+
+        if (currentState === 'default') {
+          // Logic to move it before 'Collaudo'
+          const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
+          const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo' || p.type === 'quality');
+          
+          let targetSequence;
+          if (collaudoPhase) {
+            targetSequence = collaudoPhase.sequence - 0.1;
+          } else {
+            // Fallback: move it to the end of production phases
+            const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();
+            targetSequence = lastProductionPhase ? lastProductionPhase.sequence + 1 : 99;
+          }
+          
+          updatedPhases[phaseIndex].sequence = targetSequence;
+
+        } else {
+          // Restore original sequence from template
+          const templateRef = doc(db, 'workPhaseTemplates', phaseId);
+          const templateSnap = await transaction.get(templateRef);
+          if (!templateSnap.exists()) {
+              throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
+          }
+          const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
+          updatedPhases[phaseIndex].sequence = originalSequence;
+        }
+
+        const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
+
+        transaction.update(jobRef, { phases: finalPhases });
+    });
     
     revalidatePath('/admin/production-console');
     revalidatePath(`/scan-job?jobId=${jobId}`);
@@ -231,24 +228,10 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       phaseToRevert.status = 'paused';
       phaseToRevert.qualityResult = null; // Also reset quality result if any
       
-      // Reset readiness for all subsequent phases to ensure flow integrity
-      const revertedPhaseSequence = phaseToRevert.sequence;
-      const updatedPhases = phases.map(p => {
-        if (p.sequence > revertedPhaseSequence) {
-            // Keep material readiness for preparation phases
-            if (p.type === 'preparation' || p.isIndependent) {
-                return p;
-            }
-            return {...p, materialReady: false};
-        }
-        if (p.id === phaseId) {
-            return phaseToRevert;
-        }
-        return p;
-      });
+      const revertedPhases = updatePhasesMaterialReadiness(phases);
 
       transaction.update(jobRef, { 
-          phases: updatedPhases,
+          phases: revertedPhases,
           status: 'production', // Ensure the overall job status is reverted from 'completed' if it was
           overallEndTime: null // Clear end time if it was set
       });
@@ -463,48 +446,22 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
     const itemRef = doc(db, collectionName, jobId);
     
-    const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
+    // The client sends the phases in the desired order. Here we just re-assign the sequence numbers.
+    const resequencedPhases = phases.map((phase, index) => ({
+      ...phase,
+      sequence: index + 1,
+    }));
     
-    // Recalculate material readiness based on the new order
-    let allPrepCompleted = sortedPhases.filter(p => p.type === 'preparation').every(p => p.status === 'completed' || p.status === 'skipped');
-    
-    for (let i = 0; i < sortedPhases.length; i++) {
-        const currentPhase = sortedPhases[i];
-        if (currentPhase.isIndependent || currentPhase.type === 'preparation') {
-            currentPhase.materialReady = true;
-            continue;
-        }
+    const finalPhases = updatePhasesMaterialReadiness(resequencedPhases);
 
-        if (!allPrepCompleted) {
-            currentPhase.materialReady = false;
-            continue;
-        }
-        
-        // Find previous non-independent, non-preparation phase
-        let previousSequentialPhase: JobPhase | null = null;
-        for (let j = i - 1; j >= 0; j--) {
-            if (!sortedPhases[j].isIndependent && sortedPhases[j].type !== 'preparation') {
-                previousSequentialPhase = sortedPhases[j];
-                break;
-            }
-        }
-        
-        if (previousSequentialPhase) {
-            currentPhase.materialReady = previousSequentialPhase.status === 'completed' || previousSequentialPhase.status === 'skipped' || previousSequentialPhase.status === 'in-progress';
-        } else {
-            // This is the first sequential phase after preparations
-            currentPhase.materialReady = true;
-        }
-    }
-
-    await updateDoc(itemRef, { phases: sortedPhases });
+    await updateDoc(itemRef, { phases: finalPhases });
 
     if (isGroup) {
         const groupData = (await getDoc(itemRef)).data() as WorkGroup;
         const batch = writeBatch(db);
         (groupData.jobOrderIds || []).forEach(individualJobId => {
             const jobRef = doc(db, 'jobOrders', individualJobId);
-            batch.update(jobRef, { phases: sortedPhases });
+            batch.update(jobRef, { phases: finalPhases });
         });
         await batch.commit();
     }
@@ -537,12 +494,9 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
         return phase;
       });
 
-      const firstNonProductionPhaseIndex = updatedPhases.findIndex(p => p.type !== 'production' && p.status === 'pending');
-      if (firstNonProductionPhaseIndex !== -1) {
-        updatedPhases[firstNonProductionPhaseIndex].materialReady = true;
-      }
+      const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
       
-    batch.update(jobRef, { phases: updatedPhases });
+    batch.update(jobRef, { phases: finalPhases });
   }
 
   await batch.commit();
@@ -564,8 +518,51 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
   return { success: true, message: `${jobIds.length} commesse sono state chiuse forzatamente.` };
 }
     
+function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
+    const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
 
+    const allPrepCompleted = sortedPhases
+        .filter(p => p.type === 'preparation')
+        .every(p => p.status === 'completed' || p.status === 'skipped');
+
+    for (let i = 0; i < sortedPhases.length; i++) {
+        const currentPhase = sortedPhases[i];
+
+        if (currentPhase.isIndependent || currentPhase.type === 'preparation') {
+            currentPhase.materialReady = true;
+            continue;
+        }
+
+        // For sequential phases (production, quality, packaging)
+        // Condition 1: All preparations must be complete.
+        if (!allPrepCompleted) {
+            currentPhase.materialReady = false;
+            continue;
+        }
+
+        // Condition 2: Check the preceding sequential phase.
+        let previousSequentialPhase: JobPhase | null = null;
+        for (let j = i - 1; j >= 0; j--) {
+            if (!sortedPhases[j].isIndependent) {
+                previousSequentialPhase = sortedPhases[j];
+                break;
+            }
+        }
+        
+        if (!previousSequentialPhase) {
+             // This is the first sequential phase after preparations, so it's ready.
+            currentPhase.materialReady = true;
+        } else {
+            // It's ready if the previous one has been started or is done.
+            const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped'].includes(previousSequentialPhase.status);
+            currentPhase.materialReady = isPreviousStartedOrDone;
+        }
+    }
+
+    return sortedPhases;
+}
     
+
 
 
 

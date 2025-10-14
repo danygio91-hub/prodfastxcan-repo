@@ -107,7 +107,7 @@ export async function verifyAndGetJobOrder(scannedData: {
     // If the group does NOT exist (it was dissolved), the code will proceed to treat the job as a standalone job.
   }
 
-  // This block is now for standalone jobs or jobs whose group has been dissolved.
+  // This block is now for standalone jobs or jobs that have been ungrouped.
   if (!['production', 'suspended', 'paused'].includes(job.status)) {
     return {
       error: `La commessa "${scannedData.ordinePF}" non è in produzione, sospesa o in pausa. Stato attuale: ${job.status}.`,
@@ -137,34 +137,33 @@ export async function verifyAndGetJobOrder(scannedData: {
 }
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
-    const sortedPhases = [...phases].sort((a,b) => a.sequence - b.sequence);
+    const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
+
     const allPrepCompleted = sortedPhases
         .filter(p => p.type === 'preparation')
         .every(p => p.status === 'completed' || p.status === 'skipped');
 
     for (let i = 0; i < sortedPhases.length; i++) {
         const currentPhase = sortedPhases[i];
-        
-        if (currentPhase.isIndependent) {
-            currentPhase.materialReady = true;
-            continue;
-        }
-        
+
         if (currentPhase.type === 'preparation') {
             currentPhase.materialReady = true;
             continue;
         }
 
-        // --- CORE LOGIC CHANGE IS HERE ---
-        // For a sequential, non-preparation phase:
-        
-        // 1. All preparations MUST be complete.
+        if (currentPhase.isIndependent) {
+            currentPhase.materialReady = true;
+            continue;
+        }
+
+        // For sequential phases (production, quality, packaging)
+        // Condition 1: All preparations must be complete.
         if (!allPrepCompleted) {
             currentPhase.materialReady = false;
             continue;
         }
 
-        // 2. Find the PREVIOUS sequential phase.
+        // Condition 2: Check the preceding sequential phase.
         let previousSequentialPhase: JobPhase | null = null;
         for (let j = i - 1; j >= 0; j--) {
             if (!sortedPhases[j].isIndependent) {
@@ -173,11 +172,11 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
             }
         }
         
-        // If there is no previous sequential phase, it's ready (as all preparations are done).
         if (!previousSequentialPhase) {
+             // This is the first sequential phase after preparations, so it's ready.
             currentPhase.materialReady = true;
         } else {
-            // It's ready if the previous one has been started, completed, or skipped.
+            // It's ready if the previous one has been started or is done.
             const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped'].includes(previousSequentialPhase.status);
             currentPhase.materialReady = isPreviousStartedOrDone;
         }
@@ -775,22 +774,15 @@ export async function postponeQualityPhase(jobId: string, phaseId: string): Prom
         const maxSequence = Math.max(...phases.map(p => p.sequence));
         phases[phaseToMoveIndex].sequence = maxSequence + 1;
         phases[phaseToMoveIndex].postponed = true;
-        phases[phaseToMoveIndex].materialReady = false; // The postponed phase is not ready
         
-        // --- Unlock the CORRECT next phase ---
-        if (nextPhaseInOriginalOrder) {
-            const nextPhaseInCurrentArray = phases.find(p => p.id === nextPhaseInOriginalOrder.id);
-            if (nextPhaseInCurrentArray) {
-                nextPhaseInCurrentArray.materialReady = true;
-            }
-        }
+        const updatedPhasesWithReadiness = updatePhasesMaterialReadiness(phases);
         
-        transaction.update(itemRef, { phases: phases });
+        transaction.update(itemRef, { phases: updatedPhasesWithReadiness });
 
         if (isGroup) {
             ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: phases });
+                transaction.update(jobRef, { phases: updatedPhasesWithReadiness });
             });
         }
     });
