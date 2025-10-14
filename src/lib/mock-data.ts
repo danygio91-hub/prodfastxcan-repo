@@ -35,15 +35,16 @@ export interface JobPhase {
   sequence: number;
   workstationScannedAndVerified?: boolean;
   type?: 'preparation' | 'production' | 'quality' | 'packaging';
-  tracksTime?: boolean; // New field
+  tracksTime?: boolean;
   requiresMaterialScan?: boolean;
-  requiresMaterialSearch?: boolean; // New field
-  materialConsumptions: MaterialConsumption[]; // Changed from singular to plural
+  requiresMaterialSearch?: boolean;
+  materialConsumptions: MaterialConsumption[];
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
   departmentCodes: string[];
-  forced?: boolean; // New flag for forced completion
-  postponed?: boolean; // New flag for postponed quality phases
+  forced?: boolean;
+  postponed?: boolean;
+  isIndependent?: boolean; // New field
 }
 
 export interface JobOrder {
@@ -99,10 +100,11 @@ export interface WorkPhaseTemplate {
   departmentCodes: string[];
   sequence: number;
   type: 'preparation' | 'production' | 'quality' | 'packaging';
-  tracksTime?: boolean; // New field
+  tracksTime?: boolean;
   requiresMaterialScan?: boolean;
-  requiresMaterialSearch?: boolean; // New field
+  requiresMaterialSearch?: boolean;
   allowedMaterialTypes?: Array<RawMaterialType>;
+  isIndependent?: boolean; // New field
 }
 
 export interface Workstation {

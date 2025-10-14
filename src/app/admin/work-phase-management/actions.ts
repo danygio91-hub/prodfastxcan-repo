@@ -23,6 +23,7 @@ const workPhaseSchema = z.object({
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(), // Keep as string array
+  isIndependent: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
 });
 
 // --- Actions ---
@@ -56,6 +57,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         requiresMaterialScan: formData.get('requiresMaterialScan'),
         requiresMaterialSearch: formData.get('requiresMaterialSearch'),
         allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
+        isIndependent: formData.get('isIndependent'),
     };
 
     // We can't use the enum from mock-data anymore as it's dynamic
@@ -73,7 +75,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         };
     }
 
-    const { id, name, description, departmentCodes, type, tracksTime, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes } = validatedFields.data;
+    const { id, name, description, departmentCodes, type, tracksTime, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes, isIndependent } = validatedFields.data;
 
     const dataToSave: Partial<WorkPhaseTemplate> = {
         name,
@@ -84,6 +86,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
         requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
         allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[]) || [],
+        isIndependent: isIndependent || false,
     };
 
     if (id) {
@@ -120,6 +123,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             requiresMaterialScan: dataToSave.requiresMaterialScan,
             requiresMaterialSearch: dataToSave.requiresMaterialSearch,
             allowedMaterialTypes: dataToSave.allowedMaterialTypes,
+            isIndependent: dataToSave.isIndependent,
             sequence: newSequence,
         };
         await setDoc(phaseRef, newPhase);

@@ -650,39 +650,40 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
         const phaseToStart = sortedPhases[currentPhaseIndex];
 
-        // Validate if the phase is ready to be started
+        // --- VALIDATION LOGIC ---
         if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
-        if (!phaseToStart.materialReady) throw new Error('Il materiale per questa fase non è pronto.');
         if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
 
-        // Start the phase
+        // If the phase is not independent, it must have its material ready.
+        if (!phaseToStart.isIndependent && !phaseToStart.materialReady) {
+            throw new Error('Il materiale per questa fase non è pronto.');
+        }
+
+        // --- START PHASE LOGIC ---
         phaseToStart.status = 'in-progress';
         itemToUpdate.status = 'production';
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
         // --- UNLOCK NEXT PHASE (Modified Logic) ---
-        // Find the next phase in the sequence
         const nextPhase = sortedPhases[currentPhaseIndex + 1];
-        if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
+        if (nextPhase && nextPhase.status === 'pending' && !nextPhase.isIndependent) {
             nextPhase.materialReady = true;
         }
         
-        // Update the item itself
+        // --- COMMIT ---
         transaction.update(itemRef, { phases: sortedPhases, status: 'production' });
 
-        // If it's a group, propagate the FULL state to all member jobs
         if (isGroup) {
             const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
-                // Propagate the entire phases array and the new status
                 transaction.update(jobRef, { phases: sortedPhases, status: 'production' });
             });
         }
     });
 
-    revalidatePath('/scan-job'); // Revalidate to update the UI
+    revalidatePath('/scan-job'); 
     revalidatePath('/admin/production-console');
     return { success: true, message: `Fase avviata con successo.` };
   } catch (error) {

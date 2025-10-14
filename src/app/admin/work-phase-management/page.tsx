@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -40,6 +41,7 @@ const workPhaseSchema = z.object({
   requiresMaterialScan: z.boolean().default(false).optional(),
   requiresMaterialSearch: z.boolean().default(false).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(),
+  isIndependent: z.boolean().default(false).optional(),
 });
 
 
@@ -58,7 +60,7 @@ export default function WorkPhaseManagementClientPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [], isIndependent: false },
   });
   
   const fetchAllData = async () => {
@@ -90,9 +92,10 @@ export default function WorkPhaseManagementClientPage() {
         requiresMaterialScan: phase.requiresMaterialScan || false,
         requiresMaterialSearch: phase.requiresMaterialSearch || false,
         allowedMaterialTypes: phase.allowedMaterialTypes || [],
+        isIndependent: phase.isIndependent || false,
       });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [] });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [], isIndependent: false });
     }
     setIsDialogOpen(true);
   };
@@ -115,6 +118,7 @@ export default function WorkPhaseManagementClientPage() {
         if (values.requiresMaterialScan) formData.append('requiresMaterialScan', 'on');
         if (values.requiresMaterialSearch) formData.append('requiresMaterialSearch', 'on');
     }
+    if (values.isIndependent) formData.append('isIndependent', 'on');
     (values.allowedMaterialTypes || []).forEach(type => formData.append('allowedMaterialTypes', type));
 
 
@@ -466,6 +470,28 @@ export default function WorkPhaseManagementClientPage() {
                           </FormLabel>
                           <FormDescription>
                               Se attivo, il tempo speso in questa fase verrà conteggiato.
+                          </FormDescription>
+                          </div>
+                          <FormControl>
+                          <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                          />
+                          </FormControl>
+                      </FormItem>
+                      )}
+                    />
+                     <FormField
+                      control={form.control}
+                      name="isIndependent"
+                      render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                          <FormLabel className="text-base">
+                              Lavorazione Indipendente
+                          </FormLabel>
+                          <FormDescription>
+                            Se attivo, la fase non seguirà la sequenza e sarà avviabile in qualsiasi momento.
                           </FormDescription>
                           </div>
                           <FormControl>

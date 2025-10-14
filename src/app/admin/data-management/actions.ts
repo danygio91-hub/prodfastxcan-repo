@@ -63,14 +63,15 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             return null;
         }
 
+        const isIndependent = template.isIndependent || false;
+
         return {
             id: template.id,
             name: template.name,
             status: 'pending' as const,
-            // The first non-preparation phase is marked as ready.
-            materialReady: template.type === 'preparation',
+            // Independent phases or preparation phases are ready from the start (after prep is done)
+            materialReady: isIndependent || template.type === 'preparation',
             workPeriods: [],
-            // The sequence is now determined by the order in the cycle's array.
             sequence: index + 1, 
             type: template.type || 'production',
             tracksTime: template.tracksTime !== false, // Default to true if undefined
@@ -80,13 +81,17 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             materialConsumptions: [],
             qualityResult: null,
             departmentCodes: template.departmentCodes || [],
+            isIndependent,
         };
     }).filter((p): p is JobPhase => p !== null);
     
-    // Set materialReady for the first non-preparation phase if all preparation phases are completed (which they are by default)
-    const firstNonPrepIndex = phases.findIndex(p => p.type !== 'preparation');
-    if (firstNonPrepIndex !== -1) {
-        phases[firstNonPrepIndex].materialReady = true;
+    // Set materialReady for the first non-preparation, non-independent phase
+    const allPrepPhasesCompleted = true; // By default on creation
+    if (allPrepPhasesCompleted) {
+        const firstSequentialProdPhaseIndex = phases.findIndex(p => p.type !== 'preparation' && !p.isIndependent);
+        if (firstSequentialProdPhaseIndex !== -1) {
+            phases[firstSequentialProdPhaseIndex].materialReady = true;
+        }
     }
 
     return phases;
