@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff, RefreshCcw, EyeOff, ListOrdered } from 'lucide-react';
+import { Package, Building, Wrench, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, AlertTriangle as AlertTriangleIcon, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Pause, Users, Link as LinkIcon, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -203,17 +203,33 @@ export default function JobOrderCard({
       setSelectedOperatorsToPause(allActiveOperatorIds);
     }
   };
-
+  
   const handlePhaseStatusToggle = (phaseId: string) => {
     setEditablePhases(prevPhases => {
-      const newPhases = prevPhases.map(p => {
+      return prevPhases.map(p => {
         if (p.id === phaseId) {
           if (p.status === 'pending') return { ...p, status: 'skipped' as const };
           if (p.status === 'skipped') return { ...p, status: 'pending' as const };
         }
         return p;
       });
-      return newPhases;
+    });
+  };
+  
+  const handleMovePhase = (index: number, direction: 'up' | 'down') => {
+    setEditablePhases(prevPhases => {
+      const newPhases = [...prevPhases];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+
+      if (targetIndex >= 0 && targetIndex < newPhases.length) {
+        // Swap sequences
+        const currentSequence = newPhases[index].sequence;
+        newPhases[index].sequence = newPhases[targetIndex].sequence;
+        newPhases[targetIndex].sequence = currentSequence;
+      }
+      
+      // Re-sort the array based on the new sequences to reflect the change in UI
+      return newPhases.sort((a,b) => a.sequence - b.sequence);
     });
   };
   
@@ -274,8 +290,8 @@ export default function JobOrderCard({
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
          <CardHeader className="pb-3 space-y-2">
-            <div className="flex justify-between items-center gap-4">
-                <div className="flex items-center gap-3">
+             <div className="flex justify-between items-center gap-4">
+                 <div className="flex items-center gap-3">
                     <Checkbox
                         checked={isSelected}
                         onCheckedChange={() => onSelect(jobOrder.id)}
@@ -286,9 +302,8 @@ export default function JobOrderCard({
                 </div>
                  <StatusBadge status={overallStatus} />
             </div>
-
-            <div className="flex justify-between items-start pt-1">
-                <CardDescription className="flex items-center gap-2">
+            <div className="flex justify-between items-center gap-4">
+                 <CardDescription className="flex items-center gap-2">
                     <Building className="h-4 w-4 text-muted-foreground" />
                     {jobOrder.cliente}
                 </CardDescription>
@@ -320,7 +335,7 @@ export default function JobOrderCard({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                           <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
                                 <ListOrdered className="mr-2 h-4 w-4" />
                                 <span>Gestisci Fasi</span>
                             </DropdownMenuItem>
@@ -524,8 +539,8 @@ export default function JobOrderCard({
               Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
-            {editablePhases.sort((a,b) => a.sequence - b.sequence).map(phase => {
+           <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
+            {editablePhases.sort((a,b) => a.sequence - b.sequence).map((phase, index) => {
               const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
               return (
                 <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
@@ -533,18 +548,38 @@ export default function JobOrderCard({
                     {getPhaseIcon(phase.status)}
                     <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
                   </div>
-                  {canBeModified ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handlePhaseStatusToggle(phase.id)}
-                    >
-                      {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
-                      {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
-                    </Button>
-                  ) : (
-                    <Badge variant="secondary">{phase.status}</Badge>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {canBeModified ? (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleMovePhase(index, 'up')}
+                          disabled={index === 0 || !canBeModified}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleMovePhase(index, 'down')}
+                          disabled={index === editablePhases.length - 1 || !canBeModified}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handlePhaseStatusToggle(phase.id)}
+                        >
+                          {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
+                          {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
+                        </Button>
+                      </>
+                    ) : (
+                      <Badge variant="secondary">{phase.status}</Badge>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -558,3 +593,4 @@ export default function JobOrderCard({
     </>
   );
 }
+
