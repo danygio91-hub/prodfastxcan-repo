@@ -6,8 +6,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
+import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -44,6 +45,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
+import { StatusBadge } from '@/components/production-console/StatusBadge';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -51,7 +53,7 @@ function isJobLive(jobOrder: JobOrder): boolean {
     return (jobOrder.phases || []).some(p => p.status === 'in-progress');
 }
 
-function getOverallStatus(jobOrder: JobOrder): OverallStatus {
+function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
   const allPhases = jobOrder.phases || [];
   const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
 
@@ -104,7 +106,7 @@ function ProductionConsoleView() {
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
-  const [problemJob, setProblemJob] = useState<JobOrder | null>(null);
+  const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
@@ -168,110 +170,138 @@ function ProductionConsoleView() {
       unsubscribeOps();
     };
   }, [toast]);
+  
+  const workGroupsMap = useMemo(() => new Map(workGroups.map(g => [g.id, g])), [workGroups]);
+  
+  const { standaloneJobs, groupedJobs } = useMemo(() => {
+    const grouped = new Map<string, JobOrder[]>();
+    const standalone: JobOrder[] = [];
 
-
-  const synthesizedJobOrders = useMemo(() => {
-    if (workGroups.length === 0) return jobOrders;
-
-    const groupMap = new Map(workGroups.map(g => [g.id, g]));
-    
-    return jobOrders.map(job => {
-      if (!job.workGroupId || !groupMap.has(job.workGroupId)) {
-        return job;
+    jobOrders.forEach(job => {
+      if (job.workGroupId && workGroupsMap.has(job.workGroupId)) {
+        if (!grouped.has(job.workGroupId)) {
+          grouped.set(job.workGroupId, []);
+        }
+        grouped.get(job.workGroupId)!.push(job);
+      } else {
+        standalone.push(job);
       }
-      
-      const group = groupMap.get(job.workGroupId)!;
-      // Return a new job object with its state overridden by the group's state
-      return {
-        ...job,
-        status: group.status,
-        phases: group.phases,
-        isProblemReported: group.isProblemReported,
-        problemType: group.problemType,
-        problemNotes: group.problemNotes,
-        problemReportedBy: group.problemReportedBy,
-        overallStartTime: group.overallStartTime,
-        overallEndTime: group.overallEndTime,
-      };
     });
-  }, [jobOrders, workGroups]);
+    return { standaloneJobs: standalone, groupedJobs: grouped };
+  }, [jobOrders, workGroupsMap]);
 
 
-  const filteredJobs = useMemo(() => {
-    let statusFiltered: JobOrder[];
-
-    if (activeFilter === 'all') {
-      statusFiltered = synthesizedJobOrders;
-    } else if (activeFilter === 'LIVE') {
-      statusFiltered = synthesizedJobOrders.filter(job => isJobLive(job));
-    } else {
-      statusFiltered = synthesizedJobOrders.filter(job => getOverallStatus(job) === activeFilter);
+  const filteredStandaloneJobs = useMemo(() => {
+    let filtered = standaloneJobs;
+    if (activeFilter !== 'all') {
+      if (activeFilter === 'LIVE') {
+        filtered = filtered.filter(job => isJobLive(job));
+      } else {
+        filtered = filtered.filter(job => getOverallStatus(job) === activeFilter);
+      }
     }
-      
-     // Apply date filter only for 'Completata'
+    
     if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
-      statusFiltered = statusFiltered.filter(job => 
+      filtered = filtered.filter(job => 
         job.overallEndTime && isSameDay(new Date(job.overallEndTime), completedDateFilter)
       );
     }
+    
+    if (!searchTerm) return filtered;
 
-    if (!searchTerm) {
-        return statusFiltered;
-    }
-    
     const lowercasedFilter = searchTerm.toLowerCase();
-    
-     if (groupIdFromUrl && searchTerm === groupIdFromUrl) {
-      return statusFiltered.filter(job => job.workGroupId === groupIdFromUrl);
-    }
-    
-    return statusFiltered.filter(job =>
+    return filtered.filter(job =>
       (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
       (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [synthesizedJobOrders, activeFilter, searchTerm, groupIdFromUrl, isDateFilterActive, completedDateFilter]);
+  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter]);
   
-  const workGroupsMap = useMemo(() => {
-    return new Map(workGroups.map(group => [group.id, group]));
-  }, [workGroups]);
+  const filteredGroupedJobs = useMemo(() => {
+    const filtered = new Map<string, JobOrder[]>();
+
+    for (const [groupId, jobs] of groupedJobs.entries()) {
+      const group = workGroupsMap.get(groupId);
+      if (!group) continue;
+      
+      let isGroupVisible = true;
+      if (activeFilter !== 'all') {
+        if (activeFilter === 'LIVE') {
+          isGroupVisible = isJobLive(group);
+        } else {
+          isGroupVisible = getOverallStatus(group) === activeFilter;
+        }
+      }
+      
+      if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
+        if (!group.overallEndTime || !isSameDay(new Date(group.overallEndTime), completedDateFilter)) {
+          isGroupVisible = false;
+        }
+      }
+
+      if (searchTerm) {
+        const lowercasedFilter = searchTerm.toLowerCase();
+        const groupMatches = groupId.toLowerCase().includes(lowercasedFilter) || 
+                             group.details.toLowerCase().includes(lowercasedFilter) ||
+                             group.cliente.toLowerCase().includes(lowercasedFilter);
+
+        const anyJobMatches = jobs.some(job =>
+          job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+          job.details.toLowerCase().includes(lowercasedFilter) ||
+          (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+          (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter)
+        );
+
+        if (!groupMatches && !anyJobMatches) {
+          isGroupVisible = false;
+        }
+      }
+
+      if (isGroupVisible) {
+        filtered.set(groupId, jobs);
+      }
+    }
+    return filtered;
+  }, [groupedJobs, workGroupsMap, activeFilter, searchTerm, isDateFilterActive, completedDateFilter]);
   
+  const jobCount = filteredStandaloneJobs.length + filteredGroupedJobs.size;
+
   useEffect(() => {
     setSelectedJobIds([]);
   }, [activeFilter, searchTerm]);
   
-  const selectedJobs = useMemo(() => 
-    synthesizedJobOrders.filter(job => selectedJobIds.includes(job.id)),
-    [selectedJobIds, synthesizedJobOrders]
+  const selectedStandaloneJobs = useMemo(() => 
+    standaloneJobs.filter(job => selectedJobIds.includes(job.id)),
+    [selectedJobIds, standaloneJobs]
   );
   
   const bulkActionsState = useMemo(() => {
-    if (selectedJobs.length === 0) {
+    if (selectedStandaloneJobs.length === 0) {
       return { canForceFinish: false, canForceComplete: false, canToggleGuaina: false };
     }
-    const canForceFinish = selectedJobs.every(j => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(getOverallStatus(j)));
-    const canForceComplete = selectedJobs.every(j => !isJobLive(j) && getOverallStatus(j) !== 'Completata');
-    const canToggleGuaina = selectedJobs.every(j => {
+    const canForceFinish = selectedStandaloneJobs.every(j => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(getOverallStatus(j)));
+    const canForceComplete = selectedStandaloneJobs.every(j => !isJobLive(j) && getOverallStatus(j) !== 'Completata');
+    const canToggleGuaina = selectedStandaloneJobs.every(j => {
         const guainaPhase = j.phases.find(p => p.name === "Taglio Guaina");
         return guainaPhase && guainaPhase.status === 'pending';
     });
     return { canForceFinish, canForceComplete, canToggleGuaina };
-  }, [selectedJobs]);
+  }, [selectedStandaloneJobs]);
 
 
   const handleSelectAll = () => {
-    if (selectedJobIds.length === filteredJobs.length) {
+    if (selectedJobIds.length === filteredStandaloneJobs.length) {
       setSelectedJobIds([]);
     } else {
-      setSelectedJobIds(filteredJobs.map(j => j.id));
+      setSelectedJobIds(filteredStandaloneJobs.map(j => j.id));
     }
   };
   
   const handleSelectJob = (jobId: string) => {
     setSelectedJobIds(prev =>
-      prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, jobId]
+      prev.includes(jobId) ? prev.filter(id => id !== jobId) : [...prev, id]
     );
   };
   
@@ -298,10 +328,10 @@ function ProductionConsoleView() {
   };
 
   const handleBulkToggleGuaina = async () => {
-    if (!user || selectedJobs.length === 0) return;
+    if (!user || selectedStandaloneJobs.length === 0) return;
     
     let successCount = 0;
-    for (const job of selectedJobs) {
+    for (const job of selectedStandaloneJobs) {
       const guainaPhase = job.phases.find(p => p.name === "Taglio Guaina");
       if (guainaPhase) {
         const isGuainaPostponed = (job.phases.find(p => p.type === 'production')?.sequence ?? 0) < guainaPhase.sequence;
@@ -310,7 +340,7 @@ function ProductionConsoleView() {
       }
     }
     toast({
-        title: `Operazione completata su ${successCount} di ${selectedJobs.length} commesse.`,
+        title: `Operazione completata su ${successCount} di ${selectedStandaloneJobs.length} commesse.`,
         description: "Lo stato della fase 'Taglio Guaina' è stato invertito."
     });
     if (successCount > 0) setSelectedJobIds([]);
@@ -402,6 +432,15 @@ function ProductionConsoleView() {
       variant: result.success ? "default" : "destructive",
     });
   }
+  
+  const handleDissolveGroup = async (groupId: string) => {
+    const result = await dissolveWorkGroup(groupId);
+    toast({
+      title: result.success ? "Gruppo Annullato" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+  }
 
 
   const filterOptions: FilterStatus[] = [
@@ -483,15 +522,16 @@ function ProductionConsoleView() {
           )}
         </Card>
         
-         {filteredJobs.length > 0 && (
+         {jobCount > 0 && (
           <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                   <Checkbox
                       id="select-all"
-                      checked={selectedJobIds.length > 0 && selectedJobIds.length === filteredJobs.length ? true : selectedJobIds.length > 0 ? 'indeterminate' : false}
+                      checked={selectedJobIds.length > 0 && selectedJobIds.length === filteredStandaloneJobs.length ? true : selectedJobIds.length > 0 ? 'indeterminate' : false}
                       onCheckedChange={handleSelectAll}
+                      disabled={filteredStandaloneJobs.length === 0}
                   />
-                  <Label htmlFor="select-all">Seleziona Tutte ({filteredJobs.length})</Label>
+                  <Label htmlFor="select-all">Seleziona Tutte ({jobCount})</Label>
               </div>
               {selectedJobIds.length > 0 && (
                   <DropdownMenu>
@@ -562,29 +602,82 @@ function ProductionConsoleView() {
               <Loader2 className="h-12 w-12 animate-spin text-primary" />
               <p className="mt-4 text-muted-foreground">Aggiornamento commesse...</p>
           </div>
-        ) : filteredJobs.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredJobs.map(job => {
-                  const workGroup = job.workGroupId ? workGroupsMap.get(job.workGroupId) : null;
-                  return (
-                    <JobOrderCard 
-                      key={job.id} 
-                      jobOrder={job}
-                      workGroup={workGroup} 
-                      allOperators={allOperators}
-                      onProblemClick={() => setProblemJob(job)}
-                      onForceFinishClick={handleForceFinish}
-                      onRevertForceFinishClick={handleRevertForceFinish}
-                      onToggleGuainaClick={handleToggleGuaina}
-                      onRevertPhaseClick={handleRevertPhase}
-                      onForcePauseClick={handleForcePause}
-                      onForceCompleteClick={handleForceComplete}
-                      onResetJobOrderClick={onResetJobOrderClick}
-                      isSelected={selectedJobIds.includes(job.id)}
-                      onSelect={handleSelectJob}
-                    />
-                  );
-              })}
+        ) : jobCount > 0 ? (
+          <div className="space-y-8">
+            {Array.from(filteredGroupedJobs.entries()).map(([groupId, jobsInGroup]) => {
+              const group = workGroupsMap.get(groupId)!;
+              return (
+                <Card key={groupId} className="border-2 border-primary/50 bg-primary/5">
+                  <CardContent className="p-4 space-y-4">
+                    <div className="flex justify-between items-center gap-4 flex-wrap">
+                      <div className="flex items-center gap-3">
+                          <Combine className="h-6 w-6 text-primary" />
+                          <h3 className="font-bold text-lg">Gruppo: {group.id}</h3>
+                          <StatusBadge status={getOverallStatus(group)} />
+                      </div>
+                      <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="destructive">
+                              <Unlink className="mr-2 h-4 w-4" /> Annulla Gruppo
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                              <AlertDialogHeader>
+                                  <AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                      Questa azione è irreversibile. Le commesse torneranno individuali e le lavorazioni di gruppo andranno perse.
+                                  </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                  <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => handleDissolveGroup(group.id)}>Sì, annulla</AlertDialogAction>
+                              </AlertDialogFooter>
+                          </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pt-2">
+                       {jobsInGroup.map(job => (
+                          <JobOrderCard
+                            key={job.id}
+                            jobOrder={job}
+                            workGroup={group}
+                            allOperators={allOperators}
+                            onProblemClick={() => setProblemJob(group)}
+                            onForceFinishClick={handleForceFinish}
+                            onRevertForceFinishClick={handleRevertForceFinish}
+                            onToggleGuainaClick={handleToggleGuaina}
+                            onRevertPhaseClick={handleRevertPhase}
+                            onForcePauseClick={handleForcePause}
+                            onForceCompleteClick={handleForceComplete}
+                            onResetJobOrderClick={onResetJobOrderClick}
+                            isSelected={false} // Selection not applicable for grouped jobs
+                            onSelect={() => {}} // Pass empty fn
+                          />
+                       ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredStandaloneJobs.map(job => (
+                  <JobOrderCard 
+                    key={job.id} 
+                    jobOrder={job}
+                    allOperators={allOperators}
+                    onProblemClick={() => setProblemJob(job)}
+                    onForceFinishClick={handleForceFinish}
+                    onRevertForceFinishClick={handleRevertForceFinish}
+                    onToggleGuainaClick={handleToggleGuaina}
+                    onRevertPhaseClick={handleRevertPhase}
+                    onForcePauseClick={handleForcePause}
+                    onForceCompleteClick={handleForceComplete}
+                    onResetJobOrderClick={onResetJobOrderClick}
+                    isSelected={selectedJobIds.includes(job.id)}
+                    onSelect={handleSelectJob}
+                  />
+              ))}
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg mt-8">
