@@ -118,6 +118,9 @@ function ProductionConsoleView() {
 
   const { toast } = useToast();
   const { user } = useAuth();
+  
+  const jobsLoadedRef = useRef(false);
+  const groupsLoadedRef = useRef(false);
 
   useEffect(() => {
     setIsLoading(true);
@@ -136,7 +139,10 @@ function ProductionConsoleView() {
             }) as JobOrder;
         });
         setJobOrders(jobs);
-        setIsLoading(false); // Set loading to false once we have data
+        jobsLoadedRef.current = true;
+        if (groupsLoadedRef.current) {
+          setIsLoading(false);
+        }
     }, (error) => {
         console.error("Error fetching realtime job orders:", error);
         toast({ variant: "destructive", title: "Errore di Sincronizzazione", description: "Impossibile caricare i dati della console in tempo reale." });
@@ -154,8 +160,13 @@ function ProductionConsoleView() {
             }) as WorkGroup;
         });
         setWorkGroups(groups);
+        groupsLoadedRef.current = true;
+        if (jobsLoadedRef.current) {
+            setIsLoading(false);
+        }
     }, (error) => {
         console.error("Error fetching realtime work groups:", error);
+        setIsLoading(false);
     });
     
     const unsubscribeOps = onSnapshot(opsRef, (querySnapshot) => {
