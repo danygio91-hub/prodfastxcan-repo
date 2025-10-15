@@ -259,9 +259,9 @@ export default function JobOrderCard({
 
   const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
+  const isAnyPhaseActive = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
-  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  const canForceComplete = !isAnyPhaseActive && overallStatus !== 'Completata';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
 
@@ -274,7 +274,8 @@ export default function JobOrderCard({
       
   const isGuainaPostponed = guainaPhase && firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
 
-  const canToggleGuaina = guainaPhase && (guainaPhase.status === 'pending' || guainaPhase.status === 'paused');
+  const isWorkInProgress = jobOrder.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  const canToggleGuaina = guainaPhase && (guainaPhase.status === 'pending' || guainaPhase.status === 'paused') && !isWorkInProgress;
   
   const isPartOfGroup = !!workGroup;
 
@@ -365,7 +366,7 @@ export default function JobOrderCard({
                                   </AlertDialog>
                               )}
                                <DropdownMenuSeparator />
-                               <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
+                               <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseActive}>
                                   <Users className="mr-2 h-4 w-4" />
                                   <span>Forza Pausa Operatori</span>
                               </DropdownMenuItem>

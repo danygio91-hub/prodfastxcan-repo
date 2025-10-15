@@ -1,4 +1,3 @@
-
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -111,6 +110,7 @@ export default function WorkGroupCard({
     onForceCompleteClick,
     onDissolveGroupClick,
     onOpenPhaseManager,
+    onToggleGuainaClick,
     isSelected,
     onSelect,
 }: { 
@@ -123,6 +123,7 @@ export default function WorkGroupCard({
     onForceCompleteClick: (groupId: string) => void;
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
+    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     isSelected: boolean;
     onSelect: (groupId: string) => void;
 }) {
@@ -195,6 +196,16 @@ export default function WorkGroupCard({
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  
+  const guainaPhase = group.phases.find(p => p.name === "Taglio Guaina");
+  const isWorkInProgress = group.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  const canToggleGuaina = guainaPhase && (guainaPhase.status === 'pending' || guainaPhase.status === 'paused') && !isWorkInProgress;
+  
+  const firstProductionPhase = group.phases
+      .filter(p => p.type === 'production')
+      .sort((a,b) => a.sequence - b.sequence)[0];
+  const isGuainaPostponed = guainaPhase && firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
+
 
   return (
     <>
@@ -245,6 +256,29 @@ export default function WorkGroupCard({
                                   <ListOrdered className="mr-2 h-4 w-4" />
                                   <span>Gestisci Fasi</span>
                               </DropdownMenuItem>
+                             {canToggleGuaina && guainaPhase && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                        {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                                        <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} L'esecuzione di questa azione su un gruppo ne causerà lo scioglimento immediato. Vuoi continuare?
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma e Sciogli</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                               <DropdownMenuSeparator />
                                <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
                                   <Users className="mr-2 h-4 w-4" />
                                   <span>Forza Pausa Operatori</span>
