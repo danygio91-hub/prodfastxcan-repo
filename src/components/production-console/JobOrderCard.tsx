@@ -68,7 +68,6 @@ export default function JobOrderCard({
     onResetJobOrderClick,
     isSelected,
     onSelect,
-    getOverallStatus,
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
@@ -82,7 +81,6 @@ export default function JobOrderCard({
     onResetJobOrderClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
-    getOverallStatus: (job: JobOrder) => OverallStatus;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
@@ -92,6 +90,49 @@ export default function JobOrderCard({
   
   const { user } = useAuth();
   const { toast } = useToast();
+
+  const getOverallStatus = (jobOrder: JobOrder): OverallStatus => {
+    const allPhases = jobOrder.phases || [];
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPhasesCompleted || jobOrder.status === 'completed') {
+      return 'Completata';
+    }
+
+    if (jobOrder.isProblemReported) return 'Problema';
+    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
+
+    const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
+    const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
+    const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
+    
+    const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
+    if (isAnyFinishingActive) return 'In Lavorazione';
+
+    const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+    if (isAnyProductionActive) return 'In Lavorazione';
+    
+    const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPreparationDone) {
+      const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+      if (allProductionSkippedOrDone) {
+          return 'Pronto per Finitura';
+      }
+       const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+        if (isAnyProductionStarted) {
+           return 'In Lavorazione';
+        }
+        return 'Pronto per Produzione';
+    }
+    
+    const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+    if (isAnyPreparationStarted) {
+      return 'In Preparazione';
+    }
+    
+    return 'Da Iniziare';
+  }
   
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -208,8 +249,6 @@ export default function JobOrderCard({
     : null;
     
   const isOverdue = deliveryDate && isPast(deliveryDate) && overallStatus !== 'Completata';
-
-  const problemDescription = jobOrder.problemType ? `${jobOrder.problemType.replace(/_/g, ' ')}: ${jobOrder.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
   
   const isAnyPhaseActive = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);

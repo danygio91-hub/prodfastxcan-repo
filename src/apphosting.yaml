@@ -1,0 +1,22 @@
+# Specifies the version of the App Hosting platform.
+specVersion: v1alpha1
+
+# Specifies the region where the backend is hosted.
+region: europe-west1
+
+# Defines the build and run settings for the application.
+run:
+  # Specifies the command to run the application.
+  # This should be the 'start' script from package.json.
+  command: npm run start
+  # Specifies the scaling settings for the backend.
+  scaling:
+    minInstances: 0
+
+# Defines the build settings for the application.
+build:
+  steps:
+    - name: install
+      command: npm install
+    - name: build
+      command: npm run build
