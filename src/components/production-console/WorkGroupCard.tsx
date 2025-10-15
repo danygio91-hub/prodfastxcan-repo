@@ -1,5 +1,4 @@
 
-
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -108,13 +107,10 @@ export default function WorkGroupCard({
     allOperators,
     onProblemClick,
     onForceFinishClick,
-    onRevertForceFinishClick,
-    onToggleGuainaClick,
-    onRevertPhaseClick,
     onForcePauseClick,
     onForceCompleteClick,
-    onResetJobOrderClick,
     onDissolveGroupClick,
+    onOpenPhaseManager,
     isSelected,
     onSelect,
 }: { 
@@ -123,25 +119,16 @@ export default function WorkGroupCard({
     allOperators: Operator[];
     onProblemClick: () => void;
     onForceFinishClick: (groupId: string) => void;
-    onRevertForceFinishClick: (groupId: string) => void;
-    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
-    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
     onForcePauseClick: (groupId: string, operatorIds: string[]) => void;
     onForceCompleteClick: (groupId: string) => void;
-    onResetJobOrderClick: (jobId: string) => void;
     onDissolveGroupClick: (groupId: string) => void;
+    onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
-  const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
-  const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
-  const [isOrderChanged, setIsOrderChanged] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
-  
-  const { user } = useAuth();
-  const { toast } = useToast();
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -178,12 +165,6 @@ export default function WorkGroupCard({
     setSelectedOperatorsToPause([]);
     setIsPauseDialogOpen(true);
   };
-
-  const handleOpenPhaseManager = () => {
-    setEditablePhases([...group.phases].sort((a,b) => a.sequence - b.sequence));
-    setIsOrderChanged(false);
-    setIsPhaseManagerOpen(true);
-  };
   
   const handleConfirmPause = () => {
     if (selectedOperatorsToPause.length > 0) {
@@ -204,45 +185,6 @@ export default function WorkGroupCard({
       setSelectedOperatorsToPause([]);
     } else {
       setSelectedOperatorsToPause(allActiveOperatorIds);
-    }
-  };
-  
-  const handlePhaseStatusToggle = (phaseId: string) => {
-    setEditablePhases(prevPhases => {
-      const newPhases = prevPhases.map(p => {
-        if (p.id === phaseId) {
-          if (p.status === 'pending') return { ...p, status: 'skipped' as const };
-          if (p.status === 'skipped') return { ...p, status: 'pending' as const };
-        }
-        return p;
-      });
-      setIsOrderChanged(true);
-      return newPhases;
-    });
-  };
-  
-  const handleMovePhase = (index: number, direction: 'up' | 'down') => {
-    setEditablePhases(prevPhases => {
-        const newPhases = [...prevPhases];
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
-        if (targetIndex >= 0 && targetIndex < newPhases.length) {
-            [newPhases[index], newPhases[targetIndex]] = [newPhases[targetIndex], newPhases[index]];
-        }
-        setIsOrderChanged(true);
-        return newPhases;
-    });
-  };
-  
-  const handleSaveChanges = async () => {
-    if (!user) return;
-    const result = await updatePhasesForJob(group.id, editablePhases, user.uid);
-    toast({
-        title: result.success ? "Successo" : "Errore",
-        description: result.message,
-        variant: result.success ? 'default' : 'destructive',
-    });
-    if (result.success) {
-      setIsPhaseManagerOpen(false);
     }
   };
 
@@ -299,7 +241,7 @@ export default function WorkGroupCard({
                               </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                             <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                             <DropdownMenuItem onSelect={() => onOpenPhaseManager(group)} disabled={overallStatus === 'Completata'}>
                                   <ListOrdered className="mr-2 h-4 w-4" />
                                   <span>Gestisci Fasi</span>
                               </DropdownMenuItem>
@@ -329,7 +271,7 @@ export default function WorkGroupCard({
                                   </AlertDialogTrigger>
                                   <AlertDialogContent>
                                       <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente.</AlertDialogDescription></AlertDialogHeader>
-                                      <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
+                                      <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
                                   </AlertDialogContent>
                               </AlertDialog>
                           </DropdownMenuContent>

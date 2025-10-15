@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -31,8 +31,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -98,6 +99,17 @@ function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
   return 'Da Iniziare';
 }
 
+function getPhaseIcon(status: JobPhase['status']) {
+  switch (status) {
+    case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
+    case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
+    case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
+    case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
+    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
+    default: return <Circle className="h-4 w-4 text-muted-foreground" />;
+  }
+}
+
 
 function ProductionConsoleView() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
@@ -106,6 +118,7 @@ function ProductionConsoleView() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
+  const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
@@ -113,6 +126,9 @@ function ProductionConsoleView() {
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  
+  const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
+  const [isOrderChanged, setIsOrderChanged] = useState(false);
 
 
   const { toast } = useToast();
@@ -427,7 +443,51 @@ function ProductionConsoleView() {
       variant: result.success ? "default" : "destructive",
     });
   }
-
+  
+  const handleOpenPhaseManager = (item: JobOrder | WorkGroup) => {
+    setPhaseManagedItem(item);
+    setEditablePhases([...item.phases].sort((a,b) => a.sequence - b.sequence));
+    setIsOrderChanged(false);
+  };
+  
+  const handlePhaseStatusToggle = (phaseId: string) => {
+    setEditablePhases(prevPhases => {
+      const newPhases = prevPhases.map(p => {
+        if (p.id === phaseId) {
+          if (p.status === 'pending') return { ...p, status: 'skipped' as const };
+          if (p.status === 'skipped') return { ...p, status: 'pending' as const };
+        }
+        return p;
+      });
+      setIsOrderChanged(true);
+      return newPhases;
+    });
+  };
+  
+  const handleMovePhase = (index: number, direction: 'up' | 'down') => {
+    setEditablePhases(prevPhases => {
+        const newPhases = [...prevPhases];
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        if (targetIndex >= 0 && targetIndex < newPhases.length) {
+            [newPhases[index], newPhases[targetIndex]] = [newPhases[targetIndex], newPhases[index]];
+        }
+        setIsOrderChanged(true);
+        return newPhases;
+    });
+  };
+  
+  const handleSaveChanges = async () => {
+    if (!user || !phaseManagedItem) return;
+    const result = await updatePhasesForJob(phaseManagedItem.id, editablePhases, user.uid);
+    toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+    });
+    if (result.success) {
+      setPhaseManagedItem(null);
+    }
+  };
 
   const filterOptions: FilterStatus[] = [
     'all',
@@ -589,13 +649,10 @@ function ProductionConsoleView() {
                   allOperators={allOperators}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
-                  onRevertForceFinishClick={handleRevertForceFinish}
-                  onToggleGuainaClick={handleToggleGuaina}
-                  onRevertPhaseClick={handleRevertPhase}
                   onForcePauseClick={handleForcePause}
                   onForceCompleteClick={handleForceComplete}
-                  onResetJobOrderClick={onResetJobOrderClick}
                   onDissolveGroupClick={handleDissolveGroup}
+                  onOpenPhaseManager={handleOpenPhaseManager}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
               />
@@ -633,6 +690,71 @@ function ProductionConsoleView() {
           </div>
         )}
       </div>
+      
+      <Dialog open={!!phaseManagedItem} onOpenChange={(open) => !open && setPhaseManagedItem(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Gestione Fasi per: {phaseManagedItem?.id}</DialogTitle>
+            <DialogDescription>
+              Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
+            </DialogDescription>
+          </DialogHeader>
+           <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
+            {editablePhases.map((phase, index) => {
+              const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
+              return (
+                <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
+                  <div className="flex items-center gap-3">
+                    {getPhaseIcon(phase.status)}
+                    <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {canBeModified ? (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleMovePhase(index, 'up')}
+                          disabled={index === 0 || !canBeModified}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleMovePhase(index, 'down')}
+                          disabled={index === editablePhases.length - 1 || !canBeModified}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handlePhaseStatusToggle(phase.id)}
+                        >
+                          {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
+                          {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
+                        </Button>
+                      </>
+                    ) : (
+                      <Badge variant="secondary">{phase.status}</Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPhaseManagedItem(null)}>Annulla</Button>
+            <Button 
+                onClick={handleSaveChanges} 
+                className={cn(isOrderChanged && 'bg-amber-500 hover:bg-amber-600 text-white animate-pulse')}
+            >
+                Salva Modifiche
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
        <AlertDialog open={!!problemJob} onOpenChange={(open) => !open && setProblemJob(null)}>
         <AlertDialogContent>
@@ -673,5 +795,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-
-    
