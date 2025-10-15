@@ -656,6 +656,7 @@ function ProductionConsoleView() {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   onToggleGuainaClick={handleToggleGuaina}
+                  getOverallStatus={getOverallStatus}
               />
             ))}
             {filteredStandaloneJobs.map(job => (

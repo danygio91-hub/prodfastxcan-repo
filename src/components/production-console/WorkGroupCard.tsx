@@ -82,7 +82,7 @@ export default function WorkGroupCard({
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     isSelected: boolean;
     onSelect: (groupId: string) => void;
-    getOverallStatus: (group: WorkGroup) => OverallStatus;
+    getOverallStatus: (item: JobOrder | WorkGroup) => OverallStatus;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
