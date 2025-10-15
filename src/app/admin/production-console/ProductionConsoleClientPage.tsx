@@ -673,6 +673,7 @@ function ProductionConsoleView() {
                   onResetJobOrderClick={onResetJobOrderClick}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
+                  getOverallStatus={getOverallStatus}
                 />
             ))}
           </div>
