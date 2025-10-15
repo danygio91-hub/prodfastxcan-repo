@@ -47,6 +47,7 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
+import { Badge } from '@/components/ui/badge';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -803,3 +804,5 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+
+    
