@@ -22,7 +22,8 @@ build:
     command: npm install
   # Specifies the command to build the application.
   # This should be the 'build' script from package.json.
-  command: npm run build
+  build:
+    command: npm run build
   # Specifies the output directory of the build.
   # For Next.js, this is typically '.next'.
   outputDir: .next
