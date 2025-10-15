@@ -659,6 +659,7 @@ function ProductionConsoleView() {
                   overallStatus={getOverallStatus(group)}
                    onRevertPhaseClick={() => {}}
                    onResetJobOrderClick={() => {}}
+                   getOverallStatus={getOverallStatus}
               />
             ))}
             {filteredStandaloneJobs.map(job => (

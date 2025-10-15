@@ -69,6 +69,7 @@ export default function WorkGroupCard({
     isSelected,
     onSelect,
     overallStatus,
+    getOverallStatus,
 }: { 
     group: WorkGroup;
     jobsInGroup: JobOrder[];
@@ -85,6 +86,7 @@ export default function WorkGroupCard({
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
+    getOverallStatus: (job: JobOrder) => OverallStatus;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
