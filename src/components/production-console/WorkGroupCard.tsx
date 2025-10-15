@@ -33,8 +33,6 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '../auth/AuthProvider';
-import { useToast } from '@/hooks/use-toast';
 import JobOrderCard from './JobOrderCard';
 
 
@@ -66,9 +64,11 @@ export default function WorkGroupCard({
     onDissolveGroupClick,
     onOpenPhaseManager,
     onToggleGuainaClick,
+    onRevertPhaseClick,
+    onResetJobOrderClick,
     isSelected,
     onSelect,
-    getOverallStatus,
+    overallStatus,
 }: { 
     group: WorkGroup;
     jobsInGroup: JobOrder[];
@@ -80,9 +80,11 @@ export default function WorkGroupCard({
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
+    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
+    onResetJobOrderClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
-    getOverallStatus: (item: JobOrder | WorkGroup) => OverallStatus;
+    overallStatus: OverallStatus;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -146,7 +148,6 @@ export default function WorkGroupCard({
     }
   };
 
-  const overallStatus = getOverallStatus(group);
   const completedPhasesCount = group.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = group.phases.length > 0 ? (completedPhasesCount / group.phases.length) * 100 : 0;
   
@@ -349,9 +350,10 @@ export default function WorkGroupCard({
                               onForcePauseClick={() => {}}
                               onForceCompleteClick={() => {}}
                               onResetJobOrderClick={() => {}}
+                              onOpenPhaseManager={() => {}}
                               isSelected={false}
                               onSelect={() => {}}
-                              getOverallStatus={getOverallStatus}
+                              overallStatus={getOverallStatus(job)}
                           />
                       ))}
                   </div>

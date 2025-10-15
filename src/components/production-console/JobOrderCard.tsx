@@ -33,10 +33,6 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
 import { Badge } from '@/components/ui/badge';
-import { updatePhasesForJob } from '@/app/admin/production-console/actions';
-import { useAuth } from '../auth/AuthProvider';
-import { useToast } from '@/hooks/use-toast';
-
 
 interface ActivePhaseInfo {
   phaseId: string;
@@ -66,9 +62,10 @@ export default function JobOrderCard({
     onForcePauseClick,
     onForceCompleteClick,
     onResetJobOrderClick,
+    onOpenPhaseManager,
     isSelected,
     onSelect,
-    getOverallStatus
+    overallStatus
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
@@ -80,18 +77,14 @@ export default function JobOrderCard({
     onForcePauseClick: (jobId: string, operatorIds: string[]) => void; 
     onForceCompleteClick: (jobId: string) => void;
     onResetJobOrderClick: (jobId: string) => void;
+    onOpenPhaseManager: (item: JobOrder) => void;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
-    getOverallStatus: (jobOrder: JobOrder) => OverallStatus;
+    overallStatus: OverallStatus;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
-  const [isPhaseManagerOpen, setIsPhaseManagerOpen] = useState(false);
-  const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
-  const [isOrderChanged, setIsOrderChanged] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   
-  const { user } = useAuth();
-  const { toast } = useToast();
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -128,12 +121,6 @@ export default function JobOrderCard({
     setSelectedOperatorsToPause([]);
     setIsPauseDialogOpen(true);
   };
-
-  const handleOpenPhaseManager = () => {
-    setEditablePhases([...jobOrder.phases].sort((a,b) => a.sequence - b.sequence));
-    setIsOrderChanged(false); // Reset on open
-    setIsPhaseManagerOpen(true);
-  };
   
   const handleConfirmPause = () => {
     if (selectedOperatorsToPause.length > 0) {
@@ -157,48 +144,6 @@ export default function JobOrderCard({
     }
   };
   
-  const handlePhaseStatusToggle = (phaseId: string) => {
-    setEditablePhases(prevPhases => {
-      const newPhases = prevPhases.map(p => {
-        if (p.id === phaseId) {
-          if (p.status === 'pending') return { ...p, status: 'skipped' as const };
-          if (p.status === 'skipped') return { ...p, status: 'pending' as const };
-        }
-        return p;
-      });
-      setIsOrderChanged(true);
-      return newPhases;
-    });
-  };
-  
-  const handleMovePhase = (index: number, direction: 'up' | 'down') => {
-    setEditablePhases(prevPhases => {
-        const newPhases = [...prevPhases];
-        const targetIndex = direction === 'up' ? index - 1 : index + 1;
-
-        if (targetIndex >= 0 && targetIndex < newPhases.length) {
-            [newPhases[index], newPhases[targetIndex]] = [newPhases[targetIndex], newPhases[index]];
-        }
-        setIsOrderChanged(true);
-        return newPhases;
-    });
-  };
-  
-  const handleSaveChanges = async () => {
-    if (!user) return;
-    const result = await updatePhasesForJob(jobOrder.id, editablePhases, user.uid);
-    toast({
-        title: result.success ? "Successo" : "Errore",
-        description: result.message,
-        variant: result.success ? 'default' : 'destructive',
-    });
-    if (result.success) {
-      setIsPhaseManagerOpen(false);
-    }
-  };
-
-
-  const overallStatus = getOverallStatus(jobOrder);
   const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = jobOrder.phases.length > 0 ? (completedPhasesCount / jobOrder.phases.length) * 100 : 0;
   
@@ -289,7 +234,7 @@ export default function JobOrderCard({
                               </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                             <DropdownMenuItem onSelect={handleOpenPhaseManager} disabled={overallStatus === 'Completata'}>
+                             <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'Completata'}>
                                   <ListOrdered className="mr-2 h-4 w-4" />
                                   <span>Gestisci Fasi</span>
                               </DropdownMenuItem>
@@ -485,70 +430,6 @@ export default function JobOrderCard({
                   </Button>
               </DialogFooter>
           </DialogContent>
-      </Dialog>
-      <Dialog open={isPhaseManagerOpen} onOpenChange={setIsPhaseManagerOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Gestione Fasi per: {jobOrder.ordinePF}</DialogTitle>
-            <DialogDescription>
-              Bypassa le fasi non necessarie o ripristina quelle saltate. Le modifiche sono possibili solo per le fasi non ancora iniziate.
-            </DialogDescription>
-          </DialogHeader>
-           <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
-            {editablePhases.map((phase, index) => {
-              const canBeModified = phase.status === 'pending' || phase.status === 'skipped';
-              return (
-                <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", !canBeModified && 'bg-muted/50 opacity-70')}>
-                  <div className="flex items-center gap-3">
-                    {getPhaseIcon(phase.status)}
-                    <span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {canBeModified ? (
-                      <>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleMovePhase(index, 'up')}
-                          disabled={index === 0 || !canBeModified}
-                        >
-                          <ArrowUp className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleMovePhase(index, 'down')}
-                          disabled={index === editablePhases.length - 1 || !canBeModified}
-                        >
-                          <ArrowDown className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handlePhaseStatusToggle(phase.id)}
-                        >
-                          {phase.status === 'pending' ? <EyeOff className="mr-2 h-4 w-4" /> : <Undo2 className="mr-2 h-4 w-4" />}
-                          {phase.status === 'pending' ? 'Bypassa' : 'Ripristina'}
-                        </Button>
-                      </>
-                    ) : (
-                      <Badge variant="secondary">{phase.status}</Badge>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPhaseManagerOpen(false)}>Annulla</Button>
-            <Button 
-                onClick={handleSaveChanges} 
-                className={cn(isOrderChanged && 'bg-amber-500 hover:bg-amber-600 text-white animate-pulse')}
-            >
-                Salva Modifiche
-            </Button>
-          </DialogFooter>
-        </DialogContent>
       </Dialog>
     </>
   );

@@ -49,56 +49,6 @@ import { StatusBadge } from '@/components/production-console/StatusBadge';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
-function isJobLive(jobOrder: JobOrder | WorkGroup): boolean {
-    return (jobOrder.phases || []).some(p => p.status === 'in-progress');
-}
-
-function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
-  const allPhases = jobOrder.phases || [];
-  const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-
-  if (allPhasesCompleted || jobOrder.status === 'completed') {
-    return 'Completata';
-  }
-
-  // Priority 1: Terminal/Blocking states (after completion check)
-  if (jobOrder.isProblemReported) return 'Problema';
-  if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
-
-  // Check phases
-  const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
-  const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
-  const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
-  
-  const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
-  if (isAnyFinishingActive) return 'In Lavorazione';
-
-  const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-  if (isAnyProductionActive) return 'In Lavorazione';
-  
-  const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-
-  if (allPreparationDone) {
-    const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-    if (allProductionSkippedOrDone) {
-        return 'Pronto per Finitura';
-    }
-     const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
-      if (isAnyProductionStarted) {
-         return 'In Lavorazione';
-      }
-      return 'Pronto per Produzione';
-  }
-  
-  const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
-  if (isAnyPreparationStarted) {
-    return 'In Preparazione';
-  }
-  
-  // Default state if no other condition is met
-  return 'Da Iniziare';
-}
-
 function getPhaseIcon(status: JobPhase['status']) {
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
@@ -136,6 +86,56 @@ function ProductionConsoleView() {
   
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
+
+  const getOverallStatus = useCallback((jobOrder: JobOrder | WorkGroup): OverallStatus => {
+    const allPhases = jobOrder.phases || [];
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPhasesCompleted || jobOrder.status === 'completed') {
+      return 'Completata';
+    }
+
+    // Priority 1: Terminal/Blocking states (after completion check)
+    if (jobOrder.isProblemReported) return 'Problema';
+    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
+
+    // Check phases
+    const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
+    const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
+    const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
+    
+    const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
+    if (isAnyFinishingActive) return 'In Lavorazione';
+
+    const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
+    if (isAnyProductionActive) return 'In Lavorazione';
+    
+    const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPreparationDone) {
+      const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+      if (allProductionSkippedOrDone) {
+          return 'Pronto per Finitura';
+      }
+      const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
+        if (isAnyProductionStarted) {
+          return 'In Lavorazione';
+        }
+        return 'Pronto per Produzione';
+    }
+    
+    const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+    if (isAnyPreparationStarted) {
+      return 'In Preparazione';
+    }
+    
+    // Default state if no other condition is met
+    return 'Da Iniziare';
+  }, []);
+
+  const isJobLive = useCallback((jobOrder: JobOrder | WorkGroup): boolean => {
+      return (jobOrder.phases || []).some(p => p.status === 'in-progress');
+  }, []);
 
   useEffect(() => {
     setIsLoading(true);
@@ -243,7 +243,7 @@ function ProductionConsoleView() {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter]);
+  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, getOverallStatus, isJobLive]);
   
   const filteredGroups = useMemo(() => {
     let groups = Array.from(workGroupsMap.values());
@@ -280,7 +280,7 @@ function ProductionConsoleView() {
 
         return groupMatches || anyJobMatches;
     });
-}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter]);
+}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, getOverallStatus, isJobLive]);
   
   const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
 
@@ -308,7 +308,7 @@ function ProductionConsoleView() {
     const canReset = selectedStandaloneJobs.every(job => job.status === 'completed');
 
     return { canForceFinish, canForceComplete, canReset };
-  }, [selectedStandaloneJobs, selectedGroups]);
+  }, [selectedStandaloneJobs, selectedGroups, getOverallStatus, isJobLive]);
 
 
   const handleSelectAll = () => {
@@ -656,7 +656,9 @@ function ProductionConsoleView() {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   onToggleGuainaClick={handleToggleGuaina}
-                  getOverallStatus={getOverallStatus}
+                  overallStatus={getOverallStatus(group)}
+                   onRevertPhaseClick={() => {}}
+                   onResetJobOrderClick={() => {}}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -672,9 +674,10 @@ function ProductionConsoleView() {
                   onForcePauseClick={handleForcePause}
                   onForceCompleteClick={handleForceComplete}
                   onResetJobOrderClick={onResetJobOrderClick}
+                  onOpenPhaseManager={handleOpenPhaseManager}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
-                  getOverallStatus={getOverallStatus}
+                  overallStatus={getOverallStatus(job)}
                 />
             ))}
           </div>
