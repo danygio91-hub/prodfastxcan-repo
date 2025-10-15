@@ -33,7 +33,6 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
 import { Badge } from '@/components/ui/badge';
-import { updatePhasesForJob } from '@/app/admin/production-console/actions';
 import { useAuth } from '../auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import JobOrderCard from './JobOrderCard';
