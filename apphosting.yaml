@@ -17,6 +17,9 @@ run:
 
 # Defines the build settings for the application.
 build:
+  # Specifies the command to fetch dependencies.
+  fetch:
+    command: npm install
   # Specifies the command to build the application.
   # This should be the 'build' script from package.json.
   command: npm run build
