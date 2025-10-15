@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
