@@ -250,8 +250,6 @@ export default function WorkGroupCard({
   const completedPhasesCount = group.phases.filter(p => p.status === 'completed').length;
   const progressPercentage = group.phases.length > 0 ? (completedPhasesCount / group.phases.length) * 100 : 0;
   
-  const problemDescription = group.problemType ? `${group.problemType.replace(/_/g, ' ')}: ${group.problemNotes || 'Nessuna nota.'}` : 'Vedi dettagli per risolvere.';
-  
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
@@ -260,7 +258,7 @@ export default function WorkGroupCard({
     <>
       <Card 
         className={cn(
-            "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-primary/50", 
+            "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", 
             group.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50",
         )}
@@ -275,10 +273,16 @@ export default function WorkGroupCard({
                         aria-label={`Seleziona gruppo ${group.id}`}
                         className="h-4 w-4"
                     />
-                    <CardTitle className="font-headline text-lg flex items-center gap-2">
-                       <Combine className="h-5 w-5 text-primary" />
-                       Gruppo: {group.id}
-                    </CardTitle>
+                    <TooltipProvider>
+                       <Tooltip>
+                           <TooltipTrigger>
+                               <Combine className="h-5 w-5 text-teal-400" />
+                           </TooltipTrigger>
+                           <TooltipContent>
+                               <p>Gruppo: {group.id}</p>
+                           </TooltipContent>
+                       </Tooltip>
+                   </TooltipProvider>
                 </div>
                  <StatusBadge status={overallStatus} />
             </div>
@@ -355,6 +359,13 @@ export default function WorkGroupCard({
                   </div>
               </div>
            </div>
+
+             <div className="space-y-1 text-sm">
+                <p className="font-semibold text-foreground/80">Commesse nel Gruppo:</p>
+                <div className="flex flex-wrap gap-1">
+                    {group.jobOrderPFs?.map(pf => <Badge key={pf} variant="secondary">{pf}</Badge>)}
+                </div>
+             </div>
           
           <div className="space-y-2">
               <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
