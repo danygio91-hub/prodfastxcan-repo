@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -146,30 +144,31 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
 
         const phaseToMove = originalPhases[phaseIndex];
 
-        if (phaseToMove.status !== 'pending') {
-          throw new Error('È possibile spostare la fase solo se non è ancora stata avviata.');
+        if (!['pending', 'paused'].includes(phaseToMove.status)) {
+            throw new Error('È possibile spostare la fase solo se non è ancora stata avviata o è in pausa.');
         }
         
         const updatedPhases = [...originalPhases];
 
         if (currentState === 'default') {
-          // Logic to move it before 'Collaudo'
+          // Logic to move it after the last 'production' phase
           const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
-          const collaudoPhase = phasesSorted.find(p => p.name.toLowerCase() === 'collaudo' || p.type === 'quality');
+          const productionPhases = phasesSorted.filter(p => p.type === 'production');
           
           let targetSequence;
-          if (collaudoPhase) {
-            targetSequence = collaudoPhase.sequence - 0.1;
+          if (productionPhases.length > 0) {
+            const lastProductionPhase = productionPhases[productionPhases.length - 1];
+            targetSequence = lastProductionPhase.sequence + 0.1; // Place it right after
           } else {
-            // Fallback: move it to the end of production phases
-            const lastProductionPhase = phasesSorted.filter(p => p.type === 'production').pop();
-            targetSequence = lastProductionPhase ? lastProductionPhase.sequence + 1 : 99;
+            // Fallback if no production phases exist: move it towards the end but before quality/packaging
+            const firstQualityPhase = phasesSorted.find(p => p.type === 'quality' || p.type === 'packaging');
+            targetSequence = firstQualityPhase ? firstQualityPhase.sequence - 0.1 : 99;
           }
           
           updatedPhases[phaseIndex].sequence = targetSequence;
+          updatedPhases[phaseIndex].postponed = true;
 
-        } else {
-          // Restore original sequence from template
+        } else { // 'postponed' -> revert to original
           const templateRef = doc(db, 'workPhaseTemplates', phaseId);
           const templateSnap = await transaction.get(templateRef);
           if (!templateSnap.exists()) {
@@ -177,6 +176,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
           }
           const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
           updatedPhases[phaseIndex].sequence = originalSequence;
+          delete updatedPhases[phaseIndex].postponed;
         }
 
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
@@ -521,26 +521,34 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
 
+    // This checks if all *preparation* phases that haven't been postponed are complete.
     const allPrepCompleted = sortedPhases
-        .filter(p => p.type === 'preparation')
+        .filter(p => p.type === 'preparation' && !p.postponed)
         .every(p => p.status === 'completed' || p.status === 'skipped');
 
     for (let i = 0; i < sortedPhases.length; i++) {
         const currentPhase = sortedPhases[i];
 
-        if (currentPhase.isIndependent || currentPhase.type === 'preparation') {
+        // An independent phase is always ready, regardless of anything else.
+        if (currentPhase.isIndependent) {
             currentPhase.materialReady = true;
             continue;
         }
 
-        // For sequential phases (production, quality, packaging)
-        // Condition 1: All preparations must be complete.
+        // A preparation phase is always considered ready to start.
+        if (currentPhase.type === 'preparation') {
+            currentPhase.materialReady = true;
+            continue;
+        }
+        
+        // --- For sequential phases (production, quality, packaging) ---
+        // Rule 1: All non-postponed preparation phases must be complete.
         if (!allPrepCompleted) {
             currentPhase.materialReady = false;
             continue;
         }
 
-        // Condition 2: Check the preceding sequential phase.
+        // Rule 2: Find the true preceding sequential phase.
         let previousSequentialPhase: JobPhase | null = null;
         for (let j = i - 1; j >= 0; j--) {
             if (!sortedPhases[j].isIndependent) {
@@ -550,10 +558,10 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
         }
         
         if (!previousSequentialPhase) {
-             // This is the first sequential phase after preparations, so it's ready.
+             // This is the FIRST sequential phase after preparations, so it's ready.
             currentPhase.materialReady = true;
         } else {
-            // It's ready if the previous one has been started or is done.
+            // It's ready if the previous one has been started, completed or skipped.
             const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped'].includes(previousSequentialPhase.status);
             currentPhase.materialReady = isPreviousStartedOrDone;
         }
@@ -562,17 +570,3 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     return sortedPhases;
 }
     
-
-
-
-
-
-
-
-
-
-
-
-
-
-
