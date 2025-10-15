@@ -102,7 +102,6 @@ function getPhaseIcon(status: JobPhase['status']) {
 
 export default function JobOrderCard({ 
     jobOrder,
-    workGroup, 
     allOperators,
     onProblemClick, 
     onForceFinishClick,
@@ -116,7 +115,6 @@ export default function JobOrderCard({
     onSelect,
 }: { 
     jobOrder: JobOrder;
-    workGroup?: WorkGroup | null; 
     allOperators: Operator[];
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void;
@@ -140,11 +138,8 @@ export default function JobOrderCard({
   
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
-    const source = (jobOrder.id.startsWith('group-') && workGroup) ? workGroup : jobOrder;
     
-    if (!source) return [];
-
-    (source.phases || []).forEach(phase => {
+    (jobOrder.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
             const phaseOperators: ActivePhaseInfo['operators'] = [];
             (phase.workPeriods || []).forEach(wp => {
@@ -170,7 +165,7 @@ export default function JobOrderCard({
     });
 
     return Array.from(activePhasesMap.values());
-  }, [jobOrder, workGroup, allOperators]);
+  }, [jobOrder, allOperators]);
   
   const handleOpenPauseDialog = () => {
     setSelectedOperatorsToPause([]);
@@ -277,7 +272,7 @@ export default function JobOrderCard({
   const isWorkInProgress = jobOrder.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
   const canToggleGuaina = guainaPhase && (guainaPhase.status === 'pending' || guainaPhase.status === 'paused') && !isWorkInProgress;
   
-  const isPartOfGroup = !!workGroup;
+  const isPartOfGroup = !!jobOrder.workGroupId;
 
   return (
     <>
