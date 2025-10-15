@@ -383,7 +383,6 @@ export default function WorkGroupCard({
                           <JobOrderCard
                               key={job.id}
                               jobOrder={job}
-                              workGroup={group}
                               allOperators={allOperators}
                               onProblemClick={() => {}}
                               onForceFinishClick={() => {}}
