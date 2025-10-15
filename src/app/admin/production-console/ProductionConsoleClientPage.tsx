@@ -322,7 +322,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
   };
   
@@ -655,6 +655,7 @@ function ProductionConsoleView() {
                   onOpenPhaseManager={handleOpenPhaseManager}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
+                  onToggleGuainaClick={handleToggleGuaina}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
