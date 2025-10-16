@@ -142,8 +142,12 @@ function ProductionConsoleView() {
   }, []);
   
   const isOverdue = (item: JobOrder | WorkGroup) => {
-    const deliveryDate = item.dataConsegnaFinale ? parseISO(item.dataConsegnaFinale) : null;
-    return deliveryDate && isPast(deliveryDate) && getOverallStatus(item) !== 'Completata';
+    const deliveryDateString = item.dataConsegnaFinale;
+    if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) {
+        return false;
+    }
+    const deliveryDate = parseISO(deliveryDateString);
+    return isPast(deliveryDate) && getOverallStatus(item) !== 'Completata';
   };
 
   useEffect(() => {
@@ -611,7 +615,7 @@ function ProductionConsoleView() {
                         <MoreVertical className="ml-2 h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
+                     <DropdownMenuContent align="start">
                         {bulkActionsState.canForceFinish && (
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
@@ -638,7 +642,7 @@ function ProductionConsoleView() {
                                 </AlertDialogContent>
                             </AlertDialog>
                         )}
-                        {bulkActionsState.canReset && (
+                         {bulkActionsState.canReset && (
                           <>
                            <DropdownMenuSeparator />
                              <AlertDialog>
@@ -679,9 +683,9 @@ function ProductionConsoleView() {
                   onForceCompleteClick={handleForceComplete}
                   onDissolveGroupClick={handleDissolveGroup}
                   onOpenPhaseManager={handleOpenPhaseManager}
+                  onToggleGuainaClick={handleToggleGuaina}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
-                  onToggleGuainaClick={handleToggleGuaina}
                   overallStatus={getOverallStatus(group)}
                    onRevertPhaseClick={() => {}}
                    onResetJobOrderClick={() => {}}

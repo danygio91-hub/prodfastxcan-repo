@@ -215,7 +215,7 @@ export async function getJobDetailReport(jobId: string) {
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
 
     // Operator mapping part, remains the same
-    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
+    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))];
     const operatorsMap = new Map<string, string>();
     if (operatorIds.length > 0) {
         const chunks = [];
@@ -233,11 +233,12 @@ export async function getJobDetailReport(jobId: string) {
         }
     }
     
-    const phasesWithOperatorNames = phasesWithDetails.map(phase => {
-        const phaseOperatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
+    const phasesWithOperatorNames = phasesWithDetails.map(p => {
+        const phaseOperatorIds = [...new Set((p.phase.workPeriods || []).map(p => p.operatorId))];
         const operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
         return {
-            ...phase,
+            ...p.phase,
+            timeElapsed: formatDuration(p.timeMs),
             operators: operatorNames || 'N/A',
         };
     });
@@ -579,35 +580,26 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
     const timeSettings: TimeTrackingSettings = settingsDoc.exists() ? settingsDoc.data() as TimeTrackingSettings : { minimumPhaseDurationSeconds: 10 };
     const MINIMUM_VALID_PHASE_DURATION_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
 
+    let groupSnap;
     if (job.workGroupId) {
         const groupRef = doc(db, 'workGroups', job.workGroupId);
-        const groupSnap = await getDoc(groupRef);
-        
-        // Reliability is ALWAYS false for any job that was part of a group.
-        isReliable = false;
+        groupSnap = await getDoc(groupRef);
+    }
 
-        if (groupSnap.exists()) {
-            const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-            const groupPhases = group.phases || [];
+    if (job.workGroupId && groupSnap && groupSnap.exists()) {
+        const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+        isReliable = false; // Always unreliable if it was part of a group
 
-            phasesWithDetails = groupPhases.map(groupPhase => {
-                const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
-                const phaseTimeMs = group.totalQuantity > 0 ? (totalGroupTimeMs / group.totalQuantity) * job.qta : 0;
-                totalMs += phaseTimeMs;
-                return { phase: groupPhase, timeMs: phaseTimeMs };
-            });
-        } else {
-             // Group doesn't exist (dissolved). Fallback to individual job's data,
-             // but reliability is still false because it WAS part of a group.
-             const individualPhases = job.phases || [];
-             phasesWithDetails = individualPhases.map(phase => {
-                 const phaseTimeMs = getPhaseTimeMilliseconds(phase);
-                 totalMs += phaseTimeMs;
-                 return { phase, timeMs: phaseTimeMs };
-             });
-        }
+        const groupPhases = group.phases || [];
+        phasesWithDetails = groupPhases.map(groupPhase => {
+            const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+            const phaseTimeMs = group.totalQuantity > 0 ? (totalGroupTimeMs / group.totalQuantity) * job.qta : 0;
+            totalMs += phaseTimeMs;
+            // We need to return the phase data from the group, as that's where time was tracked
+            return { phase: groupPhase, timeMs: phaseTimeMs };
+        });
     } else {
-        // Standalone job logic
+        // Fallback for standalone jobs OR jobs where the group has been dissolved
         const individualPhases = job.phases || [];
         const timeTrackingPhases = individualPhases.filter(p => p.tracksTime !== false);
         
@@ -620,6 +612,10 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
         });
         
         isReliable = areAllPhasesCompleted && !wasAnyPhaseForced && !hasAnomalousShortPhase;
+        
+        if (job.workGroupId) { // If it was part of a group, even if dissolved, it's not reliable
+          isReliable = false;
+        }
 
         phasesWithDetails = individualPhases.map(phase => {
             const phaseTimeMs = getPhaseTimeMilliseconds(phase);
@@ -741,6 +737,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 
 

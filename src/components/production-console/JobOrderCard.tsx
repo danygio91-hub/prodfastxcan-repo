@@ -181,7 +181,8 @@ export default function JobOrderCard({
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
             jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50",
-            isPartOfGroup && "shadow-none border-border/70"
+            isPartOfGroup && "shadow-none border-border/70",
+            isOverdue && 'border-destructive/30'
         )}
         onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
       >
@@ -211,7 +212,7 @@ export default function JobOrderCard({
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                        <Link href={`/admin/reports/${jobOrder.id}`} target="_blank"><CheckSquare className="h-4 w-4" /></Link>
+                                        <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>

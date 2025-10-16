@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import Link from 'next/link';
@@ -10,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getJobDetailReport, updateWorkPeriodsForPhase } from '../actions';
 import { notFound } from 'next/navigation';
-import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2 } from 'lucide-react';
+import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2, ThumbsDown } from 'lucide-react';
 import type { JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 import { format, parseISO, toDate } from 'date-fns';
@@ -40,7 +41,7 @@ type EditableWorkPeriod = Omit<WorkPeriod, 'start' | 'end'> & {
 function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
   if (status === 'completed') {
     if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-    if (qualityResult === 'failed') return <XCircle className="h-4 w-4 text-destructive" />;
+    if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
     return <CheckCircle2 className="h-4 w-4 text-green-500" />;
   }
   switch (status) {
@@ -201,7 +202,7 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
                     <Badge variant="outline" className={cn(report.status === 'completed' ? 'border-green-500 text-green-500' : 'border-yellow-500 text-yellow-500')}>Stato</Badge>
                     <div>
                         <p className="text-muted-foreground">Stato Globale</p>
-                        <p className="font-semibold">{report.status === 'completed' ? 'Completata' : 'In Lavorazione'}</p>
+                        <p className="font-semibold">{report.status ? (report.status.charAt(0).toUpperCase() + report.status.slice(1)) : 'N/D'}</p>
                     </div>
                 </div>
             </CardContent>
@@ -241,12 +242,12 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
                             </TableCell>
                             <TableCell>
                               {phase.tracksTime !== false ? (
-                                phase.timeElapsed
+                                (phase as any).timeElapsed
                               ) : (
                                 <span className="text-muted-foreground italic">Non tracciato</span>
                               )}
                             </TableCell>
-                            <TableCell>{phase.operators}</TableCell>
+                            <TableCell>{(phase as any).operators}</TableCell>
                             {isSupervisorOrAdmin && (
                                 <TableCell className="text-right">
                                     <Button variant="outline" size="icon" onClick={() => handleOpenEditModal(phase)} disabled={(phase.workPeriods || []).length === 0}>
