@@ -248,7 +248,7 @@ export async function getJobDetailReport(jobId: string) {
         let timeElapsedMs = 0;
         let operatorNames = 'N/A';
 
-        // Use group data for time calculation if available
+        // Use group data for time calculation if available AND group was found
         if (group && group.phases) {
             const groupPhase = group.phases.find(p => p.id === phase.id);
             if (groupPhase) {
@@ -650,7 +650,9 @@ async function getJobTimeData(job: JobOrder, settings: TimeTrackingSettings): Pr
         } else {
              phaseTimeMs = getPhaseTimeMilliseconds(phase);
         }
-        totalMs += phaseTimeMs;
+        if (phaseTimeMs > 0) {
+            totalMs += phaseTimeMs;
+        }
     }
     
     return { totalMs, isReliable, phases: jobPhases };
@@ -793,4 +795,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
