@@ -888,7 +888,7 @@ function ProductionConsoleView() {
             </AlertDialogHeader>
             <AlertDialogFooter>
                 <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                { (operator?.role === 'supervisor' || operator?.role === 'admin') && problemJob?.isProblemReported && (
+                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
                   <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </AlertDialogAction>
