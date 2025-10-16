@@ -5,7 +5,7 @@
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup } from '@/lib/mock-data';
-import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
+import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, format, getWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -265,7 +265,7 @@ export async function getJobDetailReport(jobId: string) {
             operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
         }
         
-        if(phase.tracksTime !== false) {
+        if (phase.tracksTime !== false && timeElapsedMs > 0) {
           totalTimeElapsedMs += timeElapsedMs;
         }
 
@@ -747,7 +747,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
         const resolvedPhaseDetails = (await Promise.all(phaseDetailsPromises)).filter(p => p.totalTimeMinutes > 0);
 
-        if (totalTimeMinutes > 0) {
+        // Only add job to report if it has some recorded time.
+        if (totalTimeMinutes > 0 || job.status === 'completed') {
             const report = analysisByArticle[articleCode];
             report.totalJobs += 1;
             report.totalQuantity += job.qta;
@@ -792,3 +793,4 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
