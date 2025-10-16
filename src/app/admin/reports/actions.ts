@@ -211,21 +211,12 @@ export async function getJobDetailReport(jobId: string) {
     if (!jobSnap.exists()) return null;
     
     let jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
-    let workGroupId = jobDetail.workGroupId;
-    let group: WorkGroup | null = null;
     
-    // If the job was part of a group, fetch the group's data to calculate proportional time
-    if (workGroupId) {
-        const groupRef = doc(db, 'workGroups', workGroupId);
-        const groupSnap = await getDoc(groupRef);
-        if (groupSnap.exists()) {
-            group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-        }
-    }
+    const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
 
-    const operatorIds = [...new Set((jobDetail.phases || []).flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
+    // Operator mapping part, remains the same
+    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.workPeriods || []).map(wp => wp.operatorId)))];
     const operatorsMap = new Map<string, string>();
-
     if (operatorIds.length > 0) {
         const chunks = [];
         for (let i = 0; i < operatorIds.length; i += 30) {
@@ -241,45 +232,20 @@ export async function getJobDetailReport(jobId: string) {
             }
         }
     }
-
-    let totalTimeElapsedMs = 0;
-
-    const phasesWithDetails = (jobDetail.phases || []).map(phase => {
-        let timeElapsedMs = 0;
-        let operatorNames = 'N/A';
-
-        // Use group data for time calculation if available AND group was found
-        if (group && group.phases) {
-            const groupPhase = group.phases.find(p => p.id === phase.id);
-            if (groupPhase) {
-                const totalGroupTimeMs = calculateTimeForPeriods(groupPhase.workPeriods || []);
-                const timePerUnit = group.totalQuantity > 0 ? totalGroupTimeMs / group.totalQuantity : 0;
-                timeElapsedMs = timePerUnit * jobDetail.qta;
-                
-                const phaseOperatorIds = [...new Set((groupPhase.workPeriods || []).map(p => p.operatorId))];
-                operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
-            }
-        } else { // Fallback to individual job data if not in a group or group data is missing
-            timeElapsedMs = calculateTimeForPeriods(phase.workPeriods || []);
-            const phaseOperatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
-            operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
-        }
-        
-        if (phase.tracksTime !== false && timeElapsedMs > 0) {
-          totalTimeElapsedMs += timeElapsedMs;
-        }
-
+    
+    const phasesWithOperatorNames = phasesWithDetails.map(phase => {
+        const phaseOperatorIds = [...new Set((phase.workPeriods || []).map(p => p.operatorId))];
+        const operatorNames = phaseOperatorIds.map(id => operatorsMap.get(id) || 'Sconosciuto').join(', ');
         return {
             ...phase,
-            timeElapsed: formatDuration(timeElapsedMs),
             operators: operatorNames || 'N/A',
         };
     });
-    
+
     return {
         ...jobDetail,
-        phases: phasesWithDetails,
-        totalTimeElapsed: formatDuration(totalTimeElapsedMs),
+        phases: phasesWithOperatorNames,
+        totalTimeElapsed: formatDuration(totalMs),
         operatorsMap: Object.fromEntries(operatorsMap),
     };
 }
@@ -604,59 +570,69 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
     }, 0);
 }
 
-async function getJobTimeData(job: JobOrder, settings: TimeTrackingSettings): Promise<{ totalMs: number; isReliable: boolean; phases: JobPhase[] }> {
+async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> }> {
     let totalMs = 0;
-    let jobPhases: JobPhase[] = [];
-    let group: WorkGroup | null = null;
-    
-    const MINIMUM_VALID_PHASE_DURATION_MS = (settings.minimumPhaseDurationSeconds || 10) * 1000;
+    let isReliable = true;
+    let phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> = [];
+
+    const settingsDoc = await getDoc(doc(db, 'configuration', 'timeTrackingSettings'));
+    const timeSettings: TimeTrackingSettings = settingsDoc.exists() ? settingsDoc.data() as TimeTrackingSettings : { minimumPhaseDurationSeconds: 10 };
+    const MINIMUM_VALID_PHASE_DURATION_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
 
     if (job.workGroupId) {
         const groupRef = doc(db, 'workGroups', job.workGroupId);
         const groupSnap = await getDoc(groupRef);
+        
+        // Reliability is ALWAYS false for any job that was part of a group.
+        isReliable = false;
+
         if (groupSnap.exists()) {
-            group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-            jobPhases = group.phases || [];
+            const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
+            const groupPhases = group.phases || [];
+
+            phasesWithDetails = groupPhases.map(groupPhase => {
+                const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
+                const phaseTimeMs = group.totalQuantity > 0 ? (totalGroupTimeMs / group.totalQuantity) * job.qta : 0;
+                totalMs += phaseTimeMs;
+                return { phase: groupPhase, timeMs: phaseTimeMs };
+            });
         } else {
-            jobPhases = job.phases || [];
+             // Group doesn't exist (dissolved). Fallback to individual job's data,
+             // but reliability is still false because it WAS part of a group.
+             const individualPhases = job.phases || [];
+             phasesWithDetails = individualPhases.map(phase => {
+                 const phaseTimeMs = getPhaseTimeMilliseconds(phase);
+                 totalMs += phaseTimeMs;
+                 return { phase, timeMs: phaseTimeMs };
+             });
         }
     } else {
-        jobPhases = job.phases || [];
-    }
+        // Standalone job logic
+        const individualPhases = job.phases || [];
+        const timeTrackingPhases = individualPhases.filter(p => p.tracksTime !== false);
+        
+        const wasAnyPhaseForced = timeTrackingPhases.some(p => p.forced);
+        const areAllPhasesCompleted = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
+        const hasAnomalousShortPhase = timeTrackingPhases.some(p => {
+            if (p.status !== 'completed') return false;
+            const phaseDuration = getPhaseTimeMilliseconds(p);
+            return phaseDuration > 0 && phaseDuration < MINIMUM_VALID_PHASE_DURATION_MS;
+        });
+        
+        isReliable = areAllPhasesCompleted && !wasAnyPhaseForced && !hasAnomalousShortPhase;
 
-    const timeTrackingPhases = jobPhases.filter(p => p.tracksTime !== false);
-    
-    const wasAnyPhaseForced = timeTrackingPhases.some(p => p.forced);
-    const areAllPhasesCompleted = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
-    
-    const hasAnomalousShortPhase = timeTrackingPhases.some(p => {
-        if (p.status !== 'completed') return false;
-        const phaseDuration = getPhaseTimeMilliseconds(p);
-        return phaseDuration > 0 && phaseDuration < MINIMUM_VALID_PHASE_DURATION_MS;
-    });
-
-    const isReliable = areAllPhasesCompleted && !wasAnyPhaseForced && !hasAnomalousShortPhase;
-
-    for (const phase of timeTrackingPhases) {
-        let phaseTimeMs = 0;
-        if (job.workGroupId && group) {
-            const groupPhase = (group.phases || []).find(p => p.id === phase.id);
-            if (groupPhase) {
-                const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
-                phaseTimeMs = (group.totalQuantity > 0) 
-                    ? (totalGroupTimeMs / group.totalQuantity) * job.qta 
-                    : 0;
+        phasesWithDetails = individualPhases.map(phase => {
+            const phaseTimeMs = getPhaseTimeMilliseconds(phase);
+            if (phase.tracksTime !== false) {
+                 totalMs += phaseTimeMs;
             }
-        } else {
-             phaseTimeMs = getPhaseTimeMilliseconds(phase);
-        }
-        if (phaseTimeMs > 0) {
-            totalMs += phaseTimeMs;
-        }
+            return { phase, timeMs: phaseTimeMs };
+        });
     }
-    
-    return { totalMs, isReliable, phases: jobPhases };
+
+    return { totalMs, isReliable, phasesWithDetails };
 }
+
 
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
@@ -674,18 +650,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number } } } = {};
 
 
-    const allGroups: Map<string, WorkGroup> = new Map();
-
-    for (const job of jobsToAnalyze) {
-        if (job.workGroupId && !allGroups.has(job.workGroupId)) {
-             const groupRef = doc(db, 'workGroups', job.workGroupId);
-             const groupSnap = await getDoc(groupRef);
-             if (groupSnap.exists()) {
-                allGroups.set(job.workGroupId, convertTimestampsToDates(groupSnap.data()) as WorkGroup);
-             }
-        }
-    }
-
     for (const job of jobsToAnalyze) {
         const articleCode = job.details;
         if (!articleCode) continue;
@@ -702,54 +666,36 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             phaseDataByArticle[articleCode] = {};
         }
 
-        const { totalMs, isReliable, phases: jobPhases } = await getJobTimeData(job, timeSettings);
+        const { totalMs, isReliable, phasesWithDetails } = await getJobTimeData(job);
         const totalTimeMinutes = totalMs / (1000 * 60);
         
-        if (job.qta <= 0) continue; // Skip jobs with no quantity
+        if (job.qta <= 0) continue;
         
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
-        const phaseDetailsPromises = jobPhases
-          .filter(p => p.tracksTime !== false)
-          .map(async (phase) => {
-            let phaseTimeMs = 0;
-             if (job.workGroupId) {
-                const group = allGroups.get(job.workGroupId);
-                 if (group) {
-                    const groupPhase = (group.phases || []).find(p => p.id === phase.id);
-                    if (groupPhase) {
-                        const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
-                        phaseTimeMs = (group.totalQuantity > 0)
-                            ? (totalGroupTimeMs / group.totalQuantity) * job.qta
-                            : 0;
-                    }
-                }
-            } else {
-                phaseTimeMs = getPhaseTimeMilliseconds(phase);
-            }
+        const phaseDetailsForReport = phasesWithDetails
+          .filter(p => p.phase.tracksTime !== false && p.timeMs > 0)
+          .map(p => {
+            const phaseTimeMinutes = p.timeMs / (1000 * 60);
             
-            const phaseTimeMinutes = phaseTimeMs / (1000 * 60);
-            const isPhaseTimeValid = phase.status === 'completed' && !phase.forced && phaseTimeMs >= MINIMUM_VALID_PHASE_DURATION_MS;
-
-            // Aggregate phase data if calculation is valid for this specific phase
-            if (isPhaseTimeValid) {
-                 if (!phaseDataByArticle[articleCode][phase.name]) {
-                    phaseDataByArticle[articleCode][phase.name] = { totalMinutes: 0, totalQuantity: 0 };
+            // Only aggregate phase data for the article's average if the entire job is reliable
+            if (isReliable) {
+                 if (!phaseDataByArticle[articleCode][p.phase.name]) {
+                    phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0 };
                 }
-                phaseDataByArticle[articleCode][phase.name].totalMinutes += phaseTimeMinutes;
-                phaseDataByArticle[articleCode][phase.name].totalQuantity += job.qta;
+                phaseDataByArticle[articleCode][p.phase.name].totalMinutes += phaseTimeMinutes;
+                phaseDataByArticle[articleCode][p.phase.name].totalQuantity += job.qta;
             }
 
              return {
-                name: phase.name,
+                name: p.phase.name,
                 totalTimeMinutes: phaseTimeMinutes,
                 minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
             };
         });
 
-        const resolvedPhaseDetails = (await Promise.all(phaseDetailsPromises)).filter(p => p.totalTimeMinutes > 0);
 
-        // Only add job to report if it has some recorded time.
+        // Only add job to report if it has some recorded time or is completed.
         if (totalTimeMinutes > 0 || job.status === 'completed') {
             const report = analysisByArticle[articleCode];
             report.totalJobs += 1;
@@ -761,7 +707,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
                 totalTimeMinutes: totalTimeMinutes,
                 minutesPerPiece: minutesPerPiece,
                 isTimeCalculationReliable: isReliable,
-                phases: resolvedPhaseDetails,
+                phases: phaseDetailsForReport,
             });
         }
     }
@@ -795,5 +741,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 
