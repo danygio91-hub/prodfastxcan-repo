@@ -5,7 +5,7 @@
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup } from '@/lib/mock-data';
-import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, format, getWeek } from 'date-fns';
+import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -565,7 +565,11 @@ export type ProductionTimeAnalysisReport = {
 function getPhaseTimeMilliseconds(phase: JobPhase): number {
     return (phase.workPeriods || []).reduce((phaseTotal, period) => {
         if (period.start && period.end) {
-            return phaseTotal + (new Date(period.end).getTime() - new Date(period.start).getTime());
+            const startTime = new Date(period.start).getTime();
+            const endTime = new Date(period.end).getTime();
+            if (!isNaN(startTime) && !isNaN(endTime)) {
+                return phaseTotal + (endTime - startTime);
+            }
         }
         return phaseTotal;
     }, 0);
@@ -737,6 +741,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 
 
