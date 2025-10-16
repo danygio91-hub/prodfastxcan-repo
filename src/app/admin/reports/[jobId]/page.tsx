@@ -232,7 +232,7 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
                             <TableCell>
                                 <div className="flex items-center gap-2">
                                     {getPhaseIcon(phase.status, phase.qualityResult)}
-                                    <span>{phase.status.charAt(0).toUpperCase() + phase.status.slice(1)}</span>
+                                    <span>{phase.status ? phase.status.charAt(0).toUpperCase() + phase.status.slice(1) : 'N/D'}</span>
                                 </div>
                             </TableCell>
                             <TableCell>
