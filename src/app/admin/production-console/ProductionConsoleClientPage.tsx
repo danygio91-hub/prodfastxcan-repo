@@ -34,8 +34,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { resolveJobProblem, reportMaterialMissing, resolveMaterialMissing } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion } from './actions';
+import { resolveJobProblem } from '@/app/scan-job/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -93,7 +93,7 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
+ const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
     const allPhases = item.phases || [];
   
     // Highest priority: check for specific blocking states
@@ -912,3 +912,4 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+

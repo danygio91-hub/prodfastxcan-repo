@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -620,4 +621,98 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 
     return sortedPhases;
 }
+
+export async function reportMaterialMissing(
+  itemId: string,
+  phaseId: string,
+  uid: string
+): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid); // Or a specific operator permission check
+  const isGroup = itemId.startsWith('group-');
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const itemSnap = await transaction.get(itemRef);
+      if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+      
+      const itemData = itemSnap.data() as JobOrder | WorkGroup;
+      const phases = [...itemData.phases];
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+
+      if (phaseIndex === -1) throw new Error("Fase non trovata.");
+      
+      phases[phaseIndex].materialStatus = 'missing';
+      phases[phaseIndex].materialReady = false; // Explicitly set to false
+
+      // Also set the main problem flag on the job
+      transaction.update(itemRef, { 
+        phases,
+        isProblemReported: true,
+        problemType: 'MANCA_MATERIALE',
+        problemReportedBy: (await getDoc(doc(db, 'operators', uid))).data()?.nome || 'Admin'
+      });
+      
+      if (isGroup) {
+        await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases } as WorkGroup);
+      }
+    });
+
+    revalidatePath('/admin/production-console');
+    return { success: true, message: 'Mancanza materiale segnalata.' };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
+  }
+}
+
+export async function resolveMaterialMissing(
+  itemId: string,
+  phaseId: string,
+  uid: string
+): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const isGroup = itemId.startsWith('group-');
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const itemSnap = await transaction.get(itemRef);
+      if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+      
+      const itemData = itemSnap.data() as JobOrder | WorkGroup;
+      let phases = [...itemData.phases];
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+
+      if (phaseIndex === -1) throw new Error("Fase non trovata.");
+      
+      phases[phaseIndex].materialStatus = 'available';
+      // Recalculate readiness for all phases after resolving
+      phases = updatePhasesMaterialReadiness(phases);
+      
+      // Check if there are any other phases with missing material
+      const anyOtherMissing = phases.some(p => p.materialStatus === 'missing');
+
+      const updatePayload: { [key: string]: any } = { phases };
+      if (!anyOtherMissing) {
+        updatePayload.isProblemReported = false;
+        updatePayload.problemType = deleteField();
+        updatePayload.problemReportedBy = deleteField();
+      }
+
+      transaction.update(itemRef, updatePayload);
+      
+      if (isGroup) {
+        await propagateGroupUpdatesToJobs(transaction, { ...itemData, ...updatePayload } as WorkGroup);
+      }
+    });
+
+    revalidatePath('/admin/production-console');
+    return { success: true, message: 'Problema materiale risolto.' };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
+  }
+}
     
+
