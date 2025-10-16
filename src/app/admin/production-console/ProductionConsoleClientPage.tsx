@@ -291,27 +291,25 @@ function ProductionConsoleView() {
     setSelectedIds([]);
   }, [activeFilter, searchTerm]);
 
-  const selectedStandaloneJobs = useMemo(() =>
-    standaloneJobs.filter(j => selectedIds.includes(j.id)),
-    [selectedIds, standaloneJobs]
-  );
-
-  const selectedGroups = useMemo(() =>
-    filteredGroups.filter(g => selectedIds.includes(g.id)),
-    [selectedIds, filteredGroups]
-  );
+  const selectedItems = useMemo(() => {
+      const selectedJobs = standaloneJobs.filter(j => selectedIds.includes(j.id));
+      const selectedGroups = workGroups.filter(g => selectedIds.includes(g.id));
+      return [...selectedJobs, ...selectedGroups];
+  }, [selectedIds, standaloneJobs, workGroups]);
   
   const bulkActionsState = useMemo(() => {
-    const allSelectedItems = [...selectedStandaloneJobs, ...selectedGroups];
-    if (allSelectedItems.length === 0) {
+    if (selectedItems.length === 0) {
       return { canForceFinish: false, canForceComplete: false, canReset: false };
     }
-    const canForceFinish = allSelectedItems.every(item => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(getOverallStatus(item)));
-    const canForceComplete = allSelectedItems.every(item => !isJobLive(item) && getOverallStatus(item) !== 'Completata');
-    const canReset = selectedStandaloneJobs.every(job => getOverallStatus(job) === 'Completata');
+    
+    const statuses = selectedItems.map(item => getOverallStatus(item));
+    
+    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(status));
+    const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
+    const canReset = statuses.every(status => status === 'Completata');
 
     return { canForceFinish, canForceComplete, canReset };
-  }, [selectedStandaloneJobs, selectedGroups, getOverallStatus, isJobLive]);
+  }, [selectedItems, getOverallStatus, isJobLive]);
 
 
   const handleSelectAll = () => {
@@ -325,7 +323,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
     );
   };
   
@@ -591,34 +589,32 @@ function ProductionConsoleView() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      {bulkActionsState.canForceFinish && (
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                      <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura
-                                  </DropdownMenuItem>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedIds.length} item alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
-                                  <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
-                      )}
-
-                      {bulkActionsState.canForceComplete && (
-                          <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                 <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                                    <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse/Gruppi
-                                </DropdownMenuItem>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                  <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedIds.length} item. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
-                                  <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
-                              </AlertDialogContent>
-                          </AlertDialog>
+                        {bulkActionsState.canForceFinish && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                        <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura
+                                    </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedIds.length} item alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         )}
-                        
+                        {bulkActionsState.canForceComplete && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                        <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse/Gruppi
+                                    </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedIds.length} item. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
                         {bulkActionsState.canReset && (
                           <>
                            <DropdownMenuSeparator />
