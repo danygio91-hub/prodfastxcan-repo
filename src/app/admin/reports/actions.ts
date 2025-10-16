@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
@@ -53,32 +54,35 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   }, 0);
 }
 
-function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
-    const allPhases = jobOrder.phases || [];
-    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
+    const allPhases = item.phases || [];
 
-    if (allPhasesCompleted || jobOrder.status === 'completed') {
+    // Highest priority: check for specific blocking states
+    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
+    if (item.isProblemReported) return 'Problema';
+
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    if (allPhasesCompleted || item.status === 'completed') {
       return 'Completata';
     }
-    if (jobOrder.isProblemReported) return 'Problema';
 
-    const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
-    const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
-    
     const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
     if (isAnyPhaseInProgress) return 'In Lavorazione';
 
-    // Check if all non-postponed preparation phases are done
+    // Logic based on progression
+    const preparationPhases = allPhases.filter(p => p.type === 'preparation');
+    const productionPhases = allPhases.filter(p => p.type === 'production');
+
     const allPrepDone = preparationPhases
-        .filter(p => !p.postponed)
-        .every(p => p.status === 'completed' || p.status === 'skipped');
+      .filter(p => !p.postponed)
+      .every(p => p.status === 'completed' || p.status === 'skipped');
 
     if (allPrepDone) {
-      const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-      if (allProductionSkippedOrDone) {
+        const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        if (allProductionDone) {
           return 'Pronto per Finitura';
-      }
-      return 'Pronto per Produzione';
+        }
+        return 'Pronto per Produzione';
     }
     
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
@@ -86,7 +90,8 @@ function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
       return 'In Preparazione';
     }
     
-    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') {
+    // Fallback to 'Sospesa' if no specific state is met and it's not active
+    if (item.status === 'suspended' || item.status === 'paused') {
         return 'Sospesa';
     }
 
@@ -317,110 +322,6 @@ export async function updateWorkPeriodsForPhase(
     console.error("Error updating work periods:", error);
     return { success: false, message: errorMessage };
   }
-}
-
-
-export async function getOperatorDetailReport(operatorId: string, targetDateString?: string) {
-    const operatorRef = doc(db, "operators", operatorId);
-    const operatorSnap = await getDoc(operatorRef);
-    if (!operatorSnap.exists()) {
-        return null;
-    }
-    const operator = operatorSnap.data() as Operator;
-
-    const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-
-    const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
-    
-    const operatorPeriods: (WorkPeriod & {jobId: string, phaseName: string})[] = [];
-    jobs.forEach(job => {
-        (job.phases || []).forEach(phase => {
-            (phase.workPeriods || []).forEach(wp => {
-                if (wp.operatorId === operatorId) {
-                    operatorPeriods.push({ ...wp, jobId: job.id, phaseName: phase.name });
-                }
-            });
-        });
-    });
-
-    const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
-    const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
-    const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
-
-    const getTimeInInterval = (interval: { start: Date, end: Date }) => {
-        return operatorPeriods.reduce((acc, period) => {
-            const periodStart = new Date(period.start);
-            const periodEnd = period.end ? new Date(period.end) : new Date();
-             if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) return acc;
-            
-            const overlapStart = Math.max(periodStart.getTime(), interval.start.getTime());
-            const overlapEnd = Math.min(periodEnd.getTime(), interval.end.getTime());
-
-            if (overlapStart < overlapEnd) {
-                return acc + (overlapEnd - overlapStart);
-            }
-            return acc;
-        }, 0);
-    };
-    
-    const workSummaryByJob: { [jobId: string]: { cliente: string; details: string; phases: { [phaseName: string]: { duration: number; date: string } } } } = {};
-
-    operatorPeriods.forEach(period => {
-        const job = jobs.find(j => j.id === period.jobId);
-        if (!job) return;
-
-        const periodStart = new Date(period.start);
-        if (periodStart < todayInterval.start || periodStart > todayInterval.end) {
-          return; // Skip periods outside the selected day
-        }
-        
-        const periodEnd = period.end ? new Date(period.end) : new Date();
-        const duration = periodEnd.getTime() - periodStart.getTime();
-
-        const workDate = format(periodStart, 'yyyy-MM-dd');
-
-        if (!workSummaryByJob[period.jobId]) {
-            workSummaryByJob[period.jobId] = {
-                cliente: job.cliente,
-                details: job.details,
-                phases: {}
-            };
-        }
-        
-        const phaseKey = `${workDate}#${period.phaseName}`;
-        if (!workSummaryByJob[period.jobId].phases[phaseKey]) {
-            workSummaryByJob[period.jobId].phases[phaseKey] = { duration: 0, date: workDate };
-        }
-        workSummaryByJob[period.jobId].phases[phaseKey].duration += duration;
-    });
-
-    const jobsWorkedOn = Object.entries(workSummaryByJob).map(([jobId, data]) => ({
-        id: jobId,
-        cliente: data.cliente,
-        details: data.details,
-        phases: Object.entries(data.phases).map(([key, phaseData]) => {
-            const [date, name] = key.split('#');
-            return {
-                name,
-                time: formatDuration(phaseData.duration),
-                date,
-            };
-        }).filter(p => p.time !== '00:00:00'),
-    })).filter(j => j.phases.length > 0);
-
-    return {
-        operator,
-        timeToday: formatDuration(getTimeInInterval(todayInterval)),
-        timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
-        timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
-        jobsWorkedOn,
-        dateLabels: {
-            today: format(referenceDate, 'dd/MM/yyyy', { locale: it }),
-            week: `Settimana ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
-            month: `Mese di ${format(referenceDate, 'MMMM yyyy', { locale: it })}`,
-        }
-    };
 }
 
 
@@ -758,6 +659,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 
 

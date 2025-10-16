@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, AlertTriangle } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, AlertTriangle, Boxes } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -92,47 +92,48 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  const getOverallStatus = useCallback((jobOrder: JobOrder | WorkGroup): OverallStatus => {
-    const allPhases = jobOrder.phases || [];
-    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+  const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
+    const allPhases = item.phases || [];
 
-    if (allPhasesCompleted || jobOrder.status === 'completed') {
+    // Highest priority: check for specific blocking states
+    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
+    if (item.isProblemReported) return 'Problema';
+
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    if (allPhasesCompleted || item.status === 'completed') {
       return 'Completata';
     }
-    if (jobOrder.isProblemReported) return 'Problema';
 
-    const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
-    const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
-    
-    // Check if all non-postponed preparation phases are done
-    const allPrepDone = preparationPhases
-        .filter(p => !p.postponed)
-        .every(p => p.status === 'completed' || p.status === 'skipped');
-        
     const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
+
+    // Logic based on progression
+    const preparationPhases = allPhases.filter(p => p.type === 'preparation');
+    const productionPhases = allPhases.filter(p => p.type === 'production');
+
+    const allPrepDone = preparationPhases
+      .filter(p => !p.postponed)
+      .every(p => p.status === 'completed' || p.status === 'skipped');
 
     if (allPrepDone) {
-        if (isAnyPhaseInProgress) return 'In Lavorazione';
-        
-        const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-        if (allProductionSkippedOrDone) {
+        const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        if (allProductionDone) {
           return 'Pronto per Finitura';
         }
         return 'Pronto per Produzione';
     }
-    
-    if (isAnyPhaseInProgress) return 'In Lavorazione';
     
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
     if (isAnyPreparationStarted) {
       return 'In Preparazione';
     }
     
-    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') {
+    // Fallback to 'Sospesa' if no specific state is met and it's not active
+    if (item.status === 'suspended' || item.status === 'paused') {
         return 'Sospesa';
     }
 
-    return 'Da Iniziare';
+    return 'Da Iniziare'; // Should normally not be seen in this console
   }, []);
 
   const isJobLive = useCallback((jobOrder: JobOrder | WorkGroup): boolean => {
@@ -321,7 +322,7 @@ function ProductionConsoleView() {
     
     const statuses = selectedItems.map(item => getOverallStatus(item));
     
-    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(status));
+    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
     const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
     const canReset = statuses.every(status => status === 'Completata');
 
@@ -340,7 +341,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
     );
   };
   
@@ -531,15 +532,16 @@ function ProductionConsoleView() {
     // The UI will update automatically via the onSnapshot listener.
   };
 
-  const filterOptions: FilterStatus[] = [
-    'all',
-    'LIVE',
-    'In Lavorazione',
-    'Sospesa',
-    'Problema',
-    'Pronto per Produzione',
-    'Pronto per Finitura',
-    'Completata'
+  const filterOptions: { label: string; value: FilterStatus; icon: React.ElementType }[] = [
+    { label: 'Tutte', value: 'all', icon: Briefcase },
+    { label: 'In Corso (Live)', value: 'LIVE', icon: Activity },
+    { label: 'In Lavorazione', value: 'In Lavorazione', icon: Hourglass },
+    { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
+    { label: 'Manca Mat.', value: 'Manca Materiale', icon: Boxes },
+    { label: 'Problema', value: 'Problema', icon: ShieldAlert },
+    { label: 'Pronto per Produzione', value: 'Pronto per Produzione', icon: PlayCircle },
+    { label: 'Pronto per Finitura', value: 'Pronto per Finitura', icon: CheckSquare },
+    { label: 'Completata', value: 'Completata', icon: CheckCircle2 },
   ];
 
   return (
@@ -567,16 +569,16 @@ function ProductionConsoleView() {
         </header>
         
         <Card className="p-2 space-y-2">
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-1">
               {filterOptions.map(filter => (
               <Button
-                  key={filter}
-                  variant={activeFilter === filter ? 'default' : 'ghost'}
-                  onClick={() => setActiveFilter(filter)}
-                  className="capitalize px-3 py-1 h-auto"
+                  key={filter.value}
+                  variant={activeFilter === filter.value ? 'default' : 'ghost'}
+                  onClick={() => setActiveFilter(filter.value)}
+                  className="capitalize px-3 py-1 h-auto text-xs sm:text-sm"
               >
-                  {filter === 'LIVE' && <Activity className="mr-2 h-4 w-4 text-red-400 animate-pulse" />}
-                  {filter === 'all' ? 'Tutte' : (filter === 'LIVE' ? 'In Corso (Live)' : filter)}
+                  <filter.icon className={cn("mr-2 h-4 w-4", filter.value === 'LIVE' && "text-red-400 animate-pulse")} />
+                  {filter.label}
               </Button>
               ))}
           </div>
@@ -859,21 +861,33 @@ function ProductionConsoleView() {
        <AlertDialog open={!!problemJob} onOpenChange={(open) => !open && setProblemJob(null)}>
         <AlertDialogContent>
             <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.ordinePF}</AlertDialogTitle>
+                <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.id}</AlertDialogTitle>
                 <AlertDialogDescription asChild>
                     <div className="space-y-2 text-sm pt-2">
-                        <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
-                        <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
-                        <div>
-                            <p className="font-bold text-foreground">Note Operatore:</p>
-                            <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
-                        </div>
+                       { (problemJob?.phases || []).some(p => p.materialStatus === 'missing') && (
+                           <div>
+                                <p className="font-bold text-foreground">Materiale Mancante per la fase:</p>
+                                <ul className="list-disc pl-5 text-destructive">
+                                   {(problemJob?.phases || []).filter(p => p.materialStatus === 'missing').map(p => <li key={p.id}>{p.name}</li>)}
+                                </ul>
+                           </div>
+                       )}
+                        { problemJob?.isProblemReported && (
+                          <>
+                            <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
+                            <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
+                            <div>
+                                <p className="font-bold text-foreground">Note Operatore:</p>
+                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
+                            </div>
+                          </>
+                        )}
                     </div>
                 </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
                 <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
+                { (operator?.role === 'supervisor' || operator?.role === 'admin') && problemJob?.isProblemReported && (
                   <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </AlertDialogAction>
@@ -897,9 +911,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-
-    
-
-
-
-
