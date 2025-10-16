@@ -417,7 +417,7 @@ function ProductionConsoleView() {
 
   const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
       if (!user) return;
-      const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
+      const result = await toggleGuainaPhasePosition(jobId, phaseId);
       toast({
         title: result.success ? "Operazione Riuscita" : "Errore",
         description: result.message,
@@ -839,7 +839,7 @@ function ProductionConsoleView() {
                     <span className={cn('font-medium', phase.status !== 'pending' && 'text-muted-foreground')}>{phase.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {isMissing ? (
+                     {isMissing ? (
                        <Button size="sm" variant="secondary" onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)} disabled={phase.status !== 'pending'}>
                           <Unlock className="mr-2 h-4 w-4" /> Risolvi
                        </Button>
@@ -912,4 +912,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-

@@ -115,7 +115,7 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
 }
 
 
-export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
+export async function toggleGuainaPhasePosition(jobId: string, phaseId: string): Promise<{ success: boolean; message: string }> {
   try {
     const isGroup = jobId.startsWith('group-');
     
@@ -151,8 +151,9 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
         }
         
         const updatedPhases = [...originalPhases];
+        const isCurrentlyPostponed = phaseToMove.postponed === true;
 
-        if (currentState === 'default') {
+        if (!isCurrentlyPostponed) {
           // Logic to move it after the last 'production' phase
           const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
           const productionPhases = phasesSorted.filter(p => p.type === 'production');
@@ -191,7 +192,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string, 
 
     return { 
       success: true, 
-      message: `Posizione della fase "Taglio Guaina" ${currentState === 'default' ? 'posticipata' : 'ripristinata'}.` 
+      message: `Posizione della fase "Taglio Guaina" aggiornata.` 
     };
 
   } catch (error) {
@@ -646,12 +647,14 @@ export async function reportMaterialMissing(
       phases[phaseIndex].materialStatus = 'missing';
       phases[phaseIndex].materialReady = false; // Explicitly set to false
 
+      const operator = (await getDoc(doc(db, 'operators', uid))).data() as Operator;
+
       // Also set the main problem flag on the job
       transaction.update(itemRef, { 
         phases,
         isProblemReported: true,
         problemType: 'MANCA_MATERIALE',
-        problemReportedBy: (await getDoc(doc(db, 'operators', uid))).data()?.nome || 'Admin'
+        problemReportedBy: operator?.nome || 'Admin'
       });
       
       if (isGroup) {
@@ -691,15 +694,24 @@ export async function resolveMaterialMissing(
       // Recalculate readiness for all phases after resolving
       phases = updatePhasesMaterialReadiness(phases);
       
-      // Check if there are any other phases with missing material
+      // Check if there are any other phases with missing material or other problems
       const anyOtherMissing = phases.some(p => p.materialStatus === 'missing');
+      const isOtherProblemPresent = itemData.problemType && itemData.problemType !== 'MANCA_MATERIALE';
+
 
       const updatePayload: { [key: string]: any } = { phases };
-      if (!anyOtherMissing) {
+      if (!anyOtherMissing && !isOtherProblemPresent) {
+        // Only resolve the main problem flag if NO other problems exist.
         updatePayload.isProblemReported = false;
         updatePayload.problemType = deleteField();
         updatePayload.problemReportedBy = deleteField();
+        updatePayload.problemNotes = deleteField();
+      } else if (!anyOtherMissing && isOtherProblemPresent) {
+        // If we resolved the material issue, but another problem exists,
+        // we keep the main flag but could clear the material-specific type if needed.
+        // For simplicity, we just leave it as is. The main flag indicates *a* problem.
       }
+
 
       transaction.update(itemRef, updatePayload);
       
@@ -715,4 +727,3 @@ export async function resolveMaterialMissing(
   }
 }
     
-
