@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -138,11 +139,17 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
 
     const allPrepCompleted = sortedPhases
-        .filter(p => p.type === 'preparation')
+        .filter(p => p.type === 'preparation' && p.postponed !== true)
         .every(p => p.status === 'completed' || p.status === 'skipped');
 
     for (let i = 0; i < sortedPhases.length; i++) {
         const currentPhase = sortedPhases[i];
+        
+        // If material is marked as missing, it's not ready. This has priority.
+        if (currentPhase.materialStatus === 'missing') {
+            currentPhase.materialReady = false;
+            continue;
+        }
 
         if (currentPhase.type === 'preparation') {
             currentPhase.materialReady = true;
@@ -155,7 +162,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
         }
 
         // For sequential phases (production, quality, packaging)
-        // Condition 1: All preparations must be complete.
+        // Condition 1: All non-postponed preparations must be complete.
         if (!allPrepCompleted) {
             currentPhase.materialReady = false;
             continue;
@@ -175,7 +182,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
             currentPhase.materialReady = true;
         } else {
             // It's ready if the previous one has been started or is done.
-            const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped'].includes(previousSequentialPhase.status);
+            const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped', 'paused'].includes(previousSequentialPhase.status);
             currentPhase.materialReady = isPreviousStartedOrDone;
         }
     }
@@ -898,4 +905,70 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
     }
 }
 
+export async function reportMaterialMissing(
+  itemId: string,
+  phaseId: string,
+  uid: string
+): Promise<{ success: boolean; message: string }> {
+  
+  const isGroup = itemId.startsWith('group-');
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const itemSnap = await transaction.get(itemRef);
+      if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+      
+      const itemData = itemSnap.data() as JobOrder | WorkGroup;
+      const phases = [...itemData.phases];
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+
+      if (phaseIndex === -1) throw new Error("Fase non trovata.");
+      
+      phases[phaseIndex].materialStatus = 'missing';
+      phases[phaseIndex].materialReady = false;
+
+      const operatorDoc = await transaction.get(doc(db, 'operators', uid));
+      const operatorName = operatorDoc.exists() ? operatorDoc.data().nome : 'Operatore';
+      
+      const updatePayload: any = { 
+        phases,
+        isProblemReported: true,
+        problemType: 'MANCA_MATERIALE',
+        problemReportedBy: operatorName,
+      };
+
+      if (phases[phaseIndex].status === 'in-progress') {
+        const myWorkPeriodIndex = phases[phaseIndex].workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
+        if (myWorkPeriodIndex !== -1) {
+            phases[phaseIndex].workPeriods[myWorkPeriodIndex].end = new Date();
+        }
+        const isAnyoneElseWorking = phases[phaseIndex].workPeriods.some(wp => wp.end === null);
+        if (!isAnyoneElseWorking) {
+            phases[phaseIndex].status = 'paused';
+        }
+        updatePayload.status = isAnyPhaseInProgress(phases) ? 'production' : 'paused';
+      }
+
+      transaction.update(itemRef, updatePayload);
+      
+      if (isGroup) {
+        ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, updatePayload);
+        });
+      }
+    });
+
+    revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Mancanza materiale segnalata. La fase è stata messa in pausa.' };
+  } catch (e) {
+    return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
+  }
+}
     
+function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
+    return phases.some(p => p.status === 'in-progress');
+}

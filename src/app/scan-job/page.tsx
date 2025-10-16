@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -1093,6 +1093,15 @@ export default function ScanJobPage() {
       }
     }
     // --- END GROUP SCANNING LOGIC ---
+    const handleMaterialMissing = async (phaseId: string) => {
+      if (!activeJob || !operator) return;
+      const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid);
+      toast({
+        title: result.success ? "Segnalazione Inviata" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+      });
+  };
 
   if (step === 'loading') {
     return (
@@ -1306,7 +1315,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleMaterialMissing}} />
                 ))}
             </div>
           </>
@@ -1329,7 +1338,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleOpenMaterialScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleMaterialMissing}} />
                 ))}
             </div>
           </>
@@ -1862,6 +1871,7 @@ function PhaseCard({ phase, job, handlers }: {
         handlePostponeQuality: (phaseId: string) => void,
         openQualityProblemDialog: (isOpen: boolean) => void,
         setPhaseForQualityProblem: (phase: JobPhase) => void,
+        handleMaterialMissing: (phaseId: string) => void,
     }
 }) {
     const { operator } = useAuth();
@@ -1934,6 +1944,12 @@ function PhaseCard({ phase, job, handlers }: {
               Altri operatori sono attivi su questa fase.
             </p>
           )}
+           {phase.materialStatus === 'missing' && (
+                <p className="text-xs text-red-500 font-semibold mt-2 flex items-center gap-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    Materiale segnalato come mancante.
+                </p>
+            )}
 
 
           {phase.qualityResult && (
@@ -1973,6 +1989,31 @@ function PhaseCard({ phase, job, handlers }: {
               >
                   <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
               </Button>
+          )}
+           {phase.type === 'preparation' && phase.status === 'pending' && (
+             <AlertDialog>
+                <AlertDialogTrigger asChild>
+                    <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={!operatorHasPermissionForDepartment || phase.materialStatus === 'missing'}
+                    >
+                        <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
+                    </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Stai per segnalare che il materiale per la fase "{phase.name}" è mancante. Questo bloccherà la fase. Vuoi procedere?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handlers.handleMaterialMissing(phase.id)}>Sì, segnala</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
           )}
           {canStartPhase && phase.type !== 'quality' && (
               <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
@@ -2037,4 +2078,3 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-
