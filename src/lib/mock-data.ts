@@ -31,6 +31,7 @@ export interface JobPhase {
   name: string;
   status: 'pending' | 'in-progress' | 'paused' | 'completed' | 'skipped';
   materialReady: boolean;
+  materialStatus?: 'available' | 'missing'; // New field for specific material status
   workPeriods: WorkPeriod[];
   sequence: number;
   workstationScannedAndVerified?: boolean;
