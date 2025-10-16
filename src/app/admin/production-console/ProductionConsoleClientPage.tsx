@@ -41,7 +41,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, isSameDay } from 'date-fns';
+import { format, isSameDay, isPast, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -78,6 +78,7 @@ function ProductionConsoleView() {
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
+  const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
@@ -139,6 +140,11 @@ function ProductionConsoleView() {
   const isJobLive = useCallback((jobOrder: JobOrder | WorkGroup): boolean => {
       return (jobOrder.phases || []).some(p => p.status === 'in-progress');
   }, []);
+  
+  const isOverdue = (item: JobOrder | WorkGroup) => {
+    const deliveryDate = item.dataConsegnaFinale ? parseISO(item.dataConsegnaFinale) : null;
+    return deliveryDate && isPast(deliveryDate) && getOverallStatus(item) !== 'Completata';
+  };
 
   useEffect(() => {
     setIsLoading(true);
@@ -222,6 +228,11 @@ function ProductionConsoleView() {
 
   const filteredStandaloneJobs = useMemo(() => {
     let filtered = standaloneJobs;
+
+    if (showOnlyOverdue) {
+        filtered = filtered.filter(isOverdue);
+    }
+    
     if (activeFilter !== 'all') {
       if (activeFilter === 'LIVE') {
         filtered = filtered.filter(job => isJobLive(job));
@@ -246,10 +257,14 @@ function ProductionConsoleView() {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, getOverallStatus, isJobLive]);
+  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, getOverallStatus, isJobLive]);
   
   const filteredGroups = useMemo(() => {
     let groups = Array.from(workGroupsMap.values());
+
+    if (showOnlyOverdue) {
+        groups = groups.filter(isOverdue);
+    }
 
     if (activeFilter !== 'all') {
         if (activeFilter === 'LIVE') {
@@ -283,7 +298,7 @@ function ProductionConsoleView() {
 
         return groupMatches || anyJobMatches;
     });
-}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, getOverallStatus, isJobLive]);
+}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, getOverallStatus, isJobLive]);
   
   const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
 
@@ -539,12 +554,20 @@ function ProductionConsoleView() {
               </Button>
               ))}
           </div>
-           {activeFilter === 'Completata' && (
-              <div className="border-t pt-2 flex items-center justify-center gap-4 flex-wrap">
-                  <div className="flex items-center space-x-2">
-                      <Switch id="date-filter-switch" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
-                      <Label htmlFor="date-filter-switch">Filtra per data</Label>
-                  </div>
+           <div className="border-t pt-2 flex items-center justify-center gap-4 flex-wrap">
+                  {activeFilter === 'Completata' ? (
+                      <div className="flex items-center space-x-2">
+                          <Switch id="date-filter-switch" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
+                          <Label htmlFor="date-filter-switch">Filtra per data</Label>
+                      </div>
+                  ) : (
+                       <div className="flex items-center space-x-2">
+                          <Switch id="overdue-filter-switch" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} />
+                          <Label htmlFor="overdue-filter-switch" className="text-destructive">Filtra Ritardi</Label>
+                      </div>
+                  )}
+
+                  {activeFilter === 'Completata' && (
                   <Popover>
                       <PopoverTrigger asChild>
                           <Button
@@ -565,8 +588,8 @@ function ProductionConsoleView() {
                           />
                       </PopoverContent>
                   </Popover>
-              </div>
-          )}
+                  )}
+           </div>
         </Card>
         
          {jobCount > 0 && (
