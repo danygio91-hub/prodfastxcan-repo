@@ -3,7 +3,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine, Boxes } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -63,6 +63,7 @@ export default function WorkGroupCard({
     onForceCompleteClick,
     onDissolveGroupClick,
     onOpenPhaseManager,
+    onOpenMaterialManager,
     onToggleGuainaClick,
     onRevertPhaseClick,
     onResetJobOrderClick,
@@ -80,6 +81,7 @@ export default function WorkGroupCard({
     onForceCompleteClick: (groupId: string) => void;
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
+    onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
     onResetJobOrderClick: (jobId: string) => void;
@@ -91,6 +93,7 @@ export default function WorkGroupCard({
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
+  const hasMaterialMissing = group.phases.some(p => p.materialStatus === 'missing');
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -172,10 +175,10 @@ export default function WorkGroupCard({
       <Card 
         className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", 
-            group.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
+            (group.isProblemReported || hasMaterialMissing) && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50",
         )}
-        onClick={group.isProblemReported ? onProblemClick : undefined}
+        onClick={(group.isProblemReported || hasMaterialMissing) ? onProblemClick : undefined}
       >
          <CardHeader className="pb-3 space-y-2">
              <div className="flex justify-between items-center gap-4">
@@ -215,6 +218,10 @@ export default function WorkGroupCard({
                              <DropdownMenuItem onSelect={() => onOpenPhaseManager(group)} disabled={overallStatus === 'Completata'}>
                                   <ListOrdered className="mr-2 h-4 w-4" />
                                   <span>Gestisci Fasi</span>
+                              </DropdownMenuItem>
+                               <DropdownMenuItem onSelect={() => onOpenMaterialManager(group)} disabled={overallStatus === 'Completata'}>
+                                  <Boxes className="mr-2 h-4 w-4" />
+                                  <span>Gestisci Materiali</span>
                               </DropdownMenuItem>
                              {canToggleGuaina && guainaPhase && (
                                 <AlertDialog>
@@ -273,9 +280,10 @@ export default function WorkGroupCard({
                 </div>
             </div>
 
-            {group.isProblemReported && (
+            {(group.isProblemReported || hasMaterialMissing) && (
                 <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                    <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato!
+                    <ShieldAlert className="mr-2 h-4 w-4" />
+                     {group.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
                 </p>
             )}
         </CardHeader>
@@ -354,6 +362,7 @@ export default function WorkGroupCard({
                               onForceCompleteClick={() => {}}
                               onResetJobOrderClick={() => {}}
                               onOpenPhaseManager={() => {}}
+                              onOpenMaterialManager={() => {}}
                               isSelected={false}
                               onSelect={() => {}}
                               overallStatus={getOverallStatus(job)}

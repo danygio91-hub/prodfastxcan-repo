@@ -3,7 +3,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -63,6 +63,7 @@ export default function JobOrderCard({
     onForceCompleteClick,
     onResetJobOrderClick,
     onOpenPhaseManager,
+    onOpenMaterialManager,
     onRevertCompletionClick,
     isSelected,
     onSelect,
@@ -79,6 +80,7 @@ export default function JobOrderCard({
     onForceCompleteClick: (jobId: string) => void;
     onResetJobOrderClick: (jobId: string) => void;
     onOpenPhaseManager: (item: JobOrder) => void;
+    onOpenMaterialManager: (item: JobOrder) => void;
     onRevertCompletionClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
@@ -87,6 +89,7 @@ export default function JobOrderCard({
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   
+  const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -181,12 +184,12 @@ export default function JobOrderCard({
       <Card 
         className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300", 
-            jobOrder.isProblemReported && "cursor-pointer border-destructive/50 hover:border-destructive",
+            (jobOrder.isProblemReported || hasMaterialMissing) && "cursor-pointer border-destructive/50 hover:border-destructive",
             isSelected && "border-primary ring-2 ring-primary/50",
             isPartOfGroup && "shadow-none border-border/70",
             isOverdue && 'border-destructive/30'
         )}
-        onClick={jobOrder.isProblemReported ? onProblemClick : undefined}
+        onClick={(jobOrder.isProblemReported || hasMaterialMissing) ? onProblemClick : undefined}
       >
          <CardHeader className="pb-3 space-y-2">
              <div className="flex justify-between items-center gap-4">
@@ -240,6 +243,10 @@ export default function JobOrderCard({
                              <DropdownMenuItem onSelect={() => onOpenPhaseManager(jobOrder)} disabled={overallStatus === 'Completata'}>
                                   <ListOrdered className="mr-2 h-4 w-4" />
                                   <span>Gestisci Fasi</span>
+                              </DropdownMenuItem>
+                               <DropdownMenuItem onSelect={() => onOpenMaterialManager(jobOrder)} disabled={overallStatus === 'Completata'}>
+                                  <Boxes className="mr-2 h-4 w-4" />
+                                  <span>Gestisci Materiali</span>
                               </DropdownMenuItem>
                               {canToggleGuaina && guainaPhase && (
                                   <AlertDialog>
@@ -335,9 +342,10 @@ export default function JobOrderCard({
                 </div>
             </div>
 
-            {jobOrder.isProblemReported && (
+            {(jobOrder.isProblemReported || hasMaterialMissing) && (
                 <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                    <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato!
+                    <ShieldAlert className="mr-2 h-4 w-4" /> 
+                    {jobOrder.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
                 </p>
             )}
         </CardHeader>

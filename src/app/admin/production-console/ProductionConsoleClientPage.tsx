@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -34,7 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { resolveJobProblem } from '@/app/scan-job/actions';
+import { resolveJobProblem, reportMaterialMissing, resolveMaterialMissing } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -72,6 +72,7 @@ function ProductionConsoleView() {
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
+  const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
@@ -103,21 +104,24 @@ function ProductionConsoleView() {
     const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
     const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
     
-    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
-    if (isAnyPhaseInProgress) return 'In Lavorazione';
-
     // Check if all non-postponed preparation phases are done
     const allPrepDone = preparationPhases
         .filter(p => !p.postponed)
         .every(p => p.status === 'completed' || p.status === 'skipped');
+        
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
 
     if (allPrepDone) {
-      const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-      if (allProductionSkippedOrDone) {
+        if (isAnyPhaseInProgress) return 'In Lavorazione';
+        
+        const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        if (allProductionSkippedOrDone) {
           return 'Pronto per Finitura';
-      }
-      return 'Pronto per Produzione';
+        }
+        return 'Pronto per Produzione';
     }
+    
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
     
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
     if (isAnyPreparationStarted) {
@@ -513,6 +517,20 @@ function ProductionConsoleView() {
     }
   };
 
+  const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus: 'available' | 'missing' | undefined) => {
+    if (!user) return;
+    
+    const action = (currentStatus === 'missing') ? resolveMaterialMissing : reportMaterialMissing;
+    const result = await action(itemId, phaseId, user.id);
+
+    toast({
+        title: result.success ? "Operazione Riuscita" : "Errore",
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+    });
+    // The UI will update automatically via the onSnapshot listener.
+  };
+
   const filterOptions: FilterStatus[] = [
     'all',
     'LIVE',
@@ -687,6 +705,7 @@ function ProductionConsoleView() {
                   onForceCompleteClick={handleForceComplete}
                   onDissolveGroupClick={handleDissolveGroup}
                   onOpenPhaseManager={handleOpenPhaseManager}
+                  onOpenMaterialManager={() => setMaterialManagedItem(group)}
                   onToggleGuainaClick={handleToggleGuaina}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
@@ -711,6 +730,7 @@ function ProductionConsoleView() {
                   onForceCompleteClick={handleForceComplete}
                   onResetJobOrderClick={onResetJobOrderClick}
                   onOpenPhaseManager={handleOpenPhaseManager}
+                  onOpenMaterialManager={() => setMaterialManagedItem(job)}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}
@@ -797,6 +817,44 @@ function ProductionConsoleView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      
+      <Dialog open={!!materialManagedItem} onOpenChange={(open) => !open && setMaterialManagedItem(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Gestione Materiale per: {materialManagedItem?.id}</DialogTitle>
+            <DialogDescription>
+             Segnala la mancanza di materiale per una fase di preparazione o risolvi una segnalazione esistente.
+            </DialogDescription>
+          </DialogHeader>
+           <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
+            {(materialManagedItem?.phases || []).filter(p => p.type === 'preparation').map((phase) => {
+              const isMissing = phase.materialStatus === 'missing';
+              return (
+                <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", phase.status !== 'pending' && 'bg-muted/50 opacity-70')}>
+                  <div className="flex items-center gap-3">
+                     {isMissing ? <PackageX className="h-5 w-5 text-destructive" /> : <PackageCheck className="h-5 w-5 text-green-500" />}
+                    <span className={cn('font-medium', phase.status !== 'pending' && 'text-muted-foreground')}>{phase.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isMissing ? (
+                       <Button size="sm" variant="secondary" onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)} disabled={phase.status !== 'pending'}>
+                          <Unlock className="mr-2 h-4 w-4" /> Risolvi
+                       </Button>
+                    ) : (
+                       <Button size="sm" variant="destructive" onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)} disabled={phase.status !== 'pending'}>
+                           <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
+                       </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMaterialManagedItem(null)}>Chiudi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
        <AlertDialog open={!!problemJob} onOpenChange={(open) => !open && setProblemJob(null)}>
         <AlertDialogContent>
@@ -841,5 +899,6 @@ export default function ProductionConsoleClientPage() {
 }
 
     
+
 
 
