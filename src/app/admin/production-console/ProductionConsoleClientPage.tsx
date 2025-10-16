@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -6,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, AlertTriangle, Boxes, PlayCircle, CheckSquare } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -48,6 +49,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -103,6 +105,9 @@ function ProductionConsoleView() {
       return 'Completata';
     }
   
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
+    
     // Logic based on progression
     const preparationPhases = allPhases.filter(p => p.type === 'preparation');
     const productionPhases = allPhases.filter(p => p.type === 'production');
@@ -119,9 +124,6 @@ function ProductionConsoleView() {
         return 'Pronto per Produzione';
     }
   
-    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
-    if (isAnyPhaseInProgress) return 'In Lavorazione';
-    
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
     if (isAnyPreparationStarted) {
       return 'In Preparazione';
@@ -521,7 +523,7 @@ function ProductionConsoleView() {
     if (!user) return;
     
     const action = (currentStatus === 'missing') ? resolveMaterialMissing : reportMaterialMissing;
-    const result = await action(itemId, phaseId, user.id);
+    const result = await action(itemId, phaseId, user.uid);
 
     toast({
         title: result.success ? "Operazione Riuscita" : "Errore",
