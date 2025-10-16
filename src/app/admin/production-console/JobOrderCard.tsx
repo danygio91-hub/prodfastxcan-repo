@@ -8,7 +8,7 @@ import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import {
@@ -31,7 +31,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '../ui/label';
+import { Label } from '@/components/ui/label';
 
 interface ActivePhaseInfo {
   phaseId: string;
@@ -211,7 +211,7 @@ export default function JobOrderCard({
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                        <Link href={`/admin/reports/${jobOrder.id}`} target="_blank"><CheckSquare className="h-4 w-4" /></Link>
+                                        <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
