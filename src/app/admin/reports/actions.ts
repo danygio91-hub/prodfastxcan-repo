@@ -5,7 +5,7 @@
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup } from '@/lib/mock-data';
-import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format, getWeek } from 'date-fns';
+import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { OverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
@@ -54,10 +54,50 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   }, 0);
 }
 
+function getOverallStatus(jobOrder: JobOrder | WorkGroup): OverallStatus {
+    const allPhases = jobOrder.phases || [];
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPhasesCompleted || jobOrder.status === 'completed') {
+      return 'Completata';
+    }
+    if (jobOrder.isProblemReported) return 'Problema';
+
+    const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
+    const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
+    
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
+
+    // Check if all non-postponed preparation phases are done
+    const allPrepDone = preparationPhases
+        .filter(p => !p.postponed)
+        .every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPrepDone) {
+      const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+      if (allProductionSkippedOrDone) {
+          return 'Pronto per Finitura';
+      }
+      return 'Pronto per Produzione';
+    }
+    
+    const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+    if (isAnyPreparationStarted) {
+      return 'In Preparazione';
+    }
+    
+    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') {
+        return 'Sospesa';
+    }
+
+    return 'Da Iniziare';
+}
+
 
 export async function getJobsReport() {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "completed", "suspended"]));
+    const q = query(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
     const jobsSnapshot = await getDocs(q);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
@@ -100,33 +140,11 @@ export async function getJobsReport() {
             })
             .join(', ');
 
-        let overallStatus: OverallStatus;
-        if (job.status === 'suspended') {
-            overallStatus = 'Sospesa';
-        } else if (job.isProblemReported) {
-            overallStatus = 'Problema';
-        } else if (job.status === 'completed') {
-            overallStatus = 'Completata';
-        } else if (job.status === 'production') {
-            const preparationPhases = (job.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
-            const allPreparationDone = preparationPhases.every(p => p.status === 'completed');
-            const isAnyPreparationActive = preparationPhases.some(p => p.status !== 'pending');
-
-            if (isAnyPreparationActive && !allPreparationDone) {
-                overallStatus = 'In Preparazione';
-            } else {
-                overallStatus = 'In Lavorazione';
-            }
-        } else {
-            overallStatus = 'Da Iniziare';
-        }
-
-
         return {
             id: job.id,
             cliente: job.cliente,
             details: job.details,
-            status: overallStatus,
+            status: getOverallStatus(job),
             timeElapsed: formatDuration(timeElapsedMs),
             operators: operators || 'N/A',
             deliveryDate: job.dataConsegnaFinale || 'N/D',
@@ -741,6 +759,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 
 

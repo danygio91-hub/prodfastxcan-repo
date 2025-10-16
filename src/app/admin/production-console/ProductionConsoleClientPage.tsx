@@ -98,34 +98,25 @@ function ProductionConsoleView() {
     if (allPhasesCompleted || jobOrder.status === 'completed') {
       return 'Completata';
     }
-
-    // Priority 1: Terminal/Blocking states (after completion check)
     if (jobOrder.isProblemReported) return 'Problema';
-    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') return 'Sospesa';
 
-    // Check phases
     const preparationPhases = allPhases.filter(p => (p.type ?? 'production') === 'preparation');
     const productionPhases = allPhases.filter(p => (p.type ?? 'production') === 'production');
-    const finishingPhases = allPhases.filter(p => p.type === 'quality' || p.type === 'packaging');
     
-    const isAnyFinishingActive = finishingPhases.some(p => p.status !== 'pending');
-    if (isAnyFinishingActive) return 'In Lavorazione';
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
 
-    const isAnyProductionActive = productionPhases.some(p => p.status === 'in-progress' || p.status === 'paused');
-    if (isAnyProductionActive) return 'In Lavorazione';
-    
-    const allPreparationDone = preparationPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    // Check if all non-postponed preparation phases are done
+    const allPrepDone = preparationPhases
+        .filter(p => !p.postponed)
+        .every(p => p.status === 'completed' || p.status === 'skipped');
 
-    if (allPreparationDone) {
+    if (allPrepDone) {
       const allProductionSkippedOrDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
       if (allProductionSkippedOrDone) {
           return 'Pronto per Finitura';
       }
-      const isAnyProductionStarted = productionPhases.some(p => p.status !== 'pending');
-        if (isAnyProductionStarted) {
-          return 'In Lavorazione';
-        }
-        return 'Pronto per Produzione';
+      return 'Pronto per Produzione';
     }
     
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
@@ -133,7 +124,10 @@ function ProductionConsoleView() {
       return 'In Preparazione';
     }
     
-    // Default state if no other condition is met
+    if (jobOrder.status === 'suspended' || jobOrder.status === 'paused') {
+        return 'Sospesa';
+    }
+
     return 'Da Iniziare';
   }, []);
 
@@ -847,4 +841,5 @@ export default function ProductionConsoleClientPage() {
 }
 
     
+
 
