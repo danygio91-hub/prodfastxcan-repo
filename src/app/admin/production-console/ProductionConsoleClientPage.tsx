@@ -93,6 +93,21 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
+  // This effect will listen for changes in the main data lists (jobOrders, workGroups)
+  // and update the state of the currently open dialog (`materialManagedItem`).
+  // This ensures the dialog content is always in sync with the real-time data.
+  useEffect(() => {
+    if (materialManagedItem) {
+      const isGroup = materialManagedItem.id.startsWith('group-');
+      const sourceList = isGroup ? workGroups : jobOrders;
+      const updatedItem = sourceList.find(item => item.id === materialManagedItem.id);
+      if (updatedItem) {
+        setMaterialManagedItem(updatedItem);
+      }
+    }
+  }, [jobOrders, workGroups, materialManagedItem]);
+
+
  const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
     const allPhases = item.phases || [];
   
@@ -912,3 +927,5 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+
+    
