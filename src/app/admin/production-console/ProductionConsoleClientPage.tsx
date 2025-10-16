@@ -86,7 +86,7 @@ function ProductionConsoleView() {
 
 
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, operator } = useAuth();
   
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
@@ -821,7 +821,7 @@ function ProductionConsoleView() {
             </AlertDialogHeader>
             <AlertDialogFooter>
                 <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                { (user?.role === 'supervisor' || user?.role === 'admin') && (
+                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
                   <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </AlertDialogAction>
@@ -847,3 +847,4 @@ export default function ProductionConsoleClientPage() {
 }
 
     
+
