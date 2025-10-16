@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -434,6 +434,16 @@ function ProductionConsoleView() {
         variant: result.success ? "default" : "destructive",
     });
   };
+  
+  const handleRevertCompletion = async (itemId: string) => {
+    if (!user) return;
+    const result = await revertCompletion(itemId, user.uid);
+    toast({
+      title: result.success ? "Operazione Riuscita" : "Errore",
+      description: result.message,
+      variant: result.success ? 'default' : 'destructive',
+    });
+  }
 
   const handleForcePause = async (jobId: string, operatorIdsToPause: string[]) => {
     if (!user) return;
@@ -702,6 +712,7 @@ function ProductionConsoleView() {
                   onRevertForceFinishClick={handleRevertForceFinish}
                   onToggleGuainaClick={handleToggleGuaina}
                   onRevertPhaseClick={handleRevertPhase}
+                  onRevertCompletionClick={handleRevertCompletion}
                   onForcePauseClick={handleForcePause}
                   onForceCompleteClick={handleForceComplete}
                   onResetJobOrderClick={onResetJobOrderClick}
@@ -810,7 +821,7 @@ function ProductionConsoleView() {
             </AlertDialogHeader>
             <AlertDialogFooter>
                 <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
+                { (user?.role === 'supervisor' || user?.role === 'admin') && (
                   <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </AlertDialogAction>

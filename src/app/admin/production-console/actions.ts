@@ -439,6 +439,51 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
   }
 }
 
+export async function revertCompletion(itemId: string, uid: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const isGroup = itemId.startsWith('group-');
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
+
+  try {
+      await runTransaction(db, async (transaction) => {
+          const itemSnap = await transaction.get(itemRef);
+          if (!itemSnap.exists()) {
+              throw new Error("Commessa o gruppo non trovato.");
+          }
+          if (itemSnap.data().status !== 'completed') {
+              throw new Error("L'item non è completato. Impossibile riaprire.");
+          }
+          
+          const isAnyPhaseActive = (itemSnap.data().phases || []).some((p: JobPhase) => p.status === 'in-progress');
+          const newStatus = isAnyPhaseActive ? 'production' : 'paused';
+
+          const updatePayload: { [key: string]: any } = {
+              status: newStatus,
+              overallEndTime: deleteField(),
+          };
+          
+          transaction.update(itemRef, updatePayload);
+          
+          if (isGroup) {
+              const groupData = itemSnap.data() as WorkGroup;
+              (groupData.jobOrderIds || []).forEach(jobId => {
+                  const jobRef = doc(db, 'jobOrders', jobId);
+                  transaction.update(jobRef, updatePayload);
+              });
+          }
+      });
+      
+      revalidatePath('/admin/production-console');
+      return { success: true, message: "Commessa riaperta con successo allo stato precedente." };
+  } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
+      console.error("Error reverting completion:", error);
+      return { success: false, message: errorMessage };
+  }
+}
+
+
 export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
   await ensureAdmin(uid);
 
