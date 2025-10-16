@@ -1464,7 +1464,7 @@ export default function ScanJobPage() {
                   scannedMaterialForPhase.type === 'GUAINA' ? (
                        <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                                 <FormField
                                     control={tubiGuainaWithdrawalForm.control}
                                     name="unit"
@@ -1489,7 +1489,7 @@ export default function ScanJobPage() {
                   ) : scannedMaterialForPhase.type === 'TUBI' ? (
                       <Form {...tubiGuainaWithdrawalForm}>
                           <form onSubmit={tubiGuainaWithdrawalForm.handleSubmit(onTubiGuainaWithdrawalSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                               <FormField
                                   control={tubiGuainaWithdrawalForm.control}
                                   name="unit"
@@ -1525,7 +1525,7 @@ export default function ScanJobPage() {
                   ) : (
                       <Form {...phaseMaterialForm}>
                           <form onSubmit={phaseMaterialForm.handleSubmit(onPhaseMaterialSubmit)} className="space-y-4">
-                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardDescription></CardHeader></Card>
+                              <Card><CardHeader><CardTitle className="text-lg">{scannedMaterialForPhase.code}</CardTitle><CardDescription>{scannedMaterialForPhase.description}</CardHeader></Card>
                               
                               <FormField control={phaseMaterialForm.control} name="lottoBobina" render={({ field }) => (
                                   <FormItem>
@@ -1883,7 +1883,7 @@ function PhaseCard({ phase, job, handlers }: {
     const operatorHasPermissionForDepartment = isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
     const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
 
-    const canStartPhase = operatorHasPermissionForDepartment && !job.isProblemReported && phase.status === 'pending' && phase.materialReady;
+    const canStartPhase = operatorHasPermissionForDepartment && phase.status === 'pending' && phase.materialReady;
     const canPausePhase = !job.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
     const canResumePhase = operatorHasPermissionForDepartment && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
@@ -1901,7 +1901,7 @@ function PhaseCard({ phase, job, handlers }: {
       }
     }
     
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
@@ -1990,13 +1990,13 @@ function PhaseCard({ phase, job, handlers }: {
                   <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
               </Button>
           )}
-           {phase.type === 'preparation' && phase.status === 'pending' && (
+           {phase.type === 'preparation' && phase.status === 'pending' && phase.materialStatus !== 'missing' && (
              <AlertDialog>
                 <AlertDialogTrigger asChild>
                     <Button
                         size="sm"
                         variant="destructive"
-                        disabled={!operatorHasPermissionForDepartment || phase.materialStatus === 'missing'}
+                        disabled={!operatorHasPermissionForDepartment}
                     >
                         <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
                     </Button>
@@ -2078,3 +2078,4 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
