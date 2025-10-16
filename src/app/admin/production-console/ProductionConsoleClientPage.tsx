@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -7,7 +6,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, AlertTriangle, Boxes } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, AlertTriangle, Boxes, PlayCircle, CheckSquare } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -94,27 +93,24 @@ function ProductionConsoleView() {
 
   const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
     const allPhases = item.phases || [];
-
+  
     // Highest priority: check for specific blocking states
     if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
     if (item.isProblemReported) return 'Problema';
-
+  
     const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
     if (allPhasesCompleted || item.status === 'completed') {
       return 'Completata';
     }
-
-    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
-    if (isAnyPhaseInProgress) return 'In Lavorazione';
-
+  
     // Logic based on progression
     const preparationPhases = allPhases.filter(p => p.type === 'preparation');
     const productionPhases = allPhases.filter(p => p.type === 'production');
-
+  
     const allPrepDone = preparationPhases
       .filter(p => !p.postponed)
       .every(p => p.status === 'completed' || p.status === 'skipped');
-
+  
     if (allPrepDone) {
         const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
         if (allProductionDone) {
@@ -122,6 +118,9 @@ function ProductionConsoleView() {
         }
         return 'Pronto per Produzione';
     }
+  
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
     
     const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
     if (isAnyPreparationStarted) {
@@ -132,7 +131,7 @@ function ProductionConsoleView() {
     if (item.status === 'suspended' || item.status === 'paused') {
         return 'Sospesa';
     }
-
+  
     return 'Da Iniziare'; // Should normally not be seen in this console
   }, []);
 
@@ -911,3 +910,5 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+
+    
