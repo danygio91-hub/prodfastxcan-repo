@@ -349,6 +349,7 @@ export default function WorkGroupCard({
                               onRevertForceFinishClick={() => {}}
                               onToggleGuainaClick={() => {}}
                               onRevertPhaseClick={() => {}}
+                              onRevertCompletionClick={() => {}}
                               onForcePauseClick={() => {}}
                               onForceCompleteClick={() => {}}
                               onResetJobOrderClick={() => {}}
