@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -305,9 +306,9 @@ function ProductionConsoleView() {
     if (allSelectedItems.length === 0) {
       return { canForceFinish: false, canForceComplete: false, canReset: false };
     }
-    const canForceFinish = allSelectedItems.every(item => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(getOverallStatus(item)));
+    const canForceFinish = allSelectedItems.every(item => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(getOverallStatus(item)));
     const canForceComplete = allSelectedItems.every(item => !isJobLive(item) && getOverallStatus(item) !== 'Completata');
-    const canReset = selectedStandaloneJobs.every(job => job.status === 'completed');
+    const canReset = selectedStandaloneJobs.every(job => getOverallStatus(job) === 'Completata');
 
     return { canForceFinish, canForceComplete, canReset };
   }, [selectedStandaloneJobs, selectedGroups, getOverallStatus, isJobLive]);
@@ -590,36 +591,40 @@ function ProductionConsoleView() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canForceFinish}>
-                                    <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura
+                      {bulkActionsState.canForceFinish && (
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                      <FastForward className="mr-2 h-4 w-4" /> Forza a Finitura
+                                  </DropdownMenuItem>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedIds.length} item alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
+                                  <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                      )}
+
+                      {bulkActionsState.canForceComplete && (
+                          <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                 <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                    <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse/Gruppi
                                 </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per forzare {selectedIds.length} item alla finitura. Le fasi di produzione verranno completate d'ufficio.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                               <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canForceComplete}>
-                                  <PowerOff className="mr-2 h-4 w-4" /> Chiudi Commesse/Gruppi
-                              </DropdownMenuItem>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedIds.length} item. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-
-                        {activeFilter === 'Completata' && (
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                  <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente {selectedIds.length} item. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
+                                  <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                        
+                        {bulkActionsState.canReset && (
                           <>
                            <DropdownMenuSeparator />
                              <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={!bulkActionsState.canReset} className="text-destructive focus:text-destructive">
+                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
                                       <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta
                                   </DropdownMenuItem>
                                 </AlertDialogTrigger>
