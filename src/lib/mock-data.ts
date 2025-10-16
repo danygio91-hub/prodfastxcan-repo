@@ -72,6 +72,7 @@ export interface JobOrder {
   odlCreationDate?: Date;
   // New field for job chaining
   workGroupId?: string | null;
+  forcedCompletion?: boolean; // New flag for forced closures
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -247,6 +248,7 @@ export interface WorkGroup {
     overallEndTime?: Date | null;
     qta?: number; // Alias for totalQuantity
     ordinePF?: string; // Alias for jobOrderPFs joined
+    forcedCompletion?: boolean; // New flag for forced closures
 }
 
 

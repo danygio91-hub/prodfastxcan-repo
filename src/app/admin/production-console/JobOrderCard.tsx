@@ -3,7 +3,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 
 interface ActivePhaseInfo {
   phaseId: string;
@@ -62,6 +63,7 @@ export default function JobOrderCard({
     onForceCompleteClick,
     onResetJobOrderClick,
     onOpenPhaseManager,
+    onRevertCompletionClick,
     isSelected,
     onSelect,
     overallStatus
@@ -77,6 +79,7 @@ export default function JobOrderCard({
     onForceCompleteClick: (jobId: string) => void;
     onResetJobOrderClick: (jobId: string) => void;
     onOpenPhaseManager: (item: JobOrder) => void;
+    onRevertCompletionClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
     overallStatus: OverallStatus;
@@ -282,6 +285,28 @@ export default function JobOrderCard({
                                       <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Commessa</DropdownMenuItem></AlertDialogTrigger>
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questa commessa come 'Completata'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
+                              )}
+                               {jobOrder.forcedCompletion && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700">
+                                      <ArchiveRestore className="mr-2 h-4 w-4" />
+                                      <span>Riapri Commessa</span>
+                                    </DropdownMenuItem>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei sicuro di voler riaprire?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Questa azione riporterà la commessa al suo ultimo stato di avanzamento, annullando la chiusura forzata.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => onRevertCompletionClick(jobOrder.id)}>Sì, riapri</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
                               )}
                               <DropdownMenuSeparator />
                               <AlertDialog>

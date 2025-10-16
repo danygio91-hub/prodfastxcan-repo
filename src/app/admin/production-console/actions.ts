@@ -336,6 +336,7 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     await updateDoc(jobRef, {
       status: 'completed',
       overallEndTime: Timestamp.now(),
+      forcedCompletion: true, // Add this flag
     });
 
     revalidatePath('/admin/production-console');
@@ -451,8 +452,11 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           if (!itemSnap.exists()) {
               throw new Error("Commessa o gruppo non trovato.");
           }
-          if (itemSnap.data().status !== 'completed') {
-              throw new Error("L'item non è completato. Impossibile riaprire.");
+          const itemData = itemSnap.data() as JobOrder | WorkGroup;
+
+          // Crucial Check: Only allow reverting if forcedCompletion is true.
+          if (!itemData.forcedCompletion) {
+              throw new Error("Impossibile riaprire una commessa completata naturalmente. Usa 'Annulla e Resetta' per azzerarla.");
           }
           
           const isAnyPhaseActive = (itemSnap.data().phases || []).some((p: JobPhase) => p.status === 'in-progress');
@@ -461,6 +465,7 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           const updatePayload: { [key: string]: any } = {
               status: newStatus,
               overallEndTime: deleteField(),
+              forcedCompletion: deleteField(), // Remove the flag
           };
           
           transaction.update(itemRef, updatePayload);
@@ -556,7 +561,7 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
 
   jobIds.forEach(jobId => {
     const jobRef = doc(db, 'jobOrders', jobId);
-    batch.update(jobRef, { status: 'completed', overallEndTime: Timestamp.now() });
+    batch.update(jobRef, { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
   });
 
   await batch.commit();
