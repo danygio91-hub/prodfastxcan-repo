@@ -931,8 +931,8 @@ export async function reportMaterialMissing(
       phases[phaseIndex].materialStatus = 'missing';
       phases[phaseIndex].materialReady = false;
 
-      const operatorDoc = await transaction.get(doc(db, 'operators', uid));
-      const operatorName = operatorDoc.exists() ? operatorDoc.data().nome : 'Operatore Sconosciuto';
+      const operatorDocSnap = await getDoc(doc(db, 'operators', uid));
+      const operatorName = operatorDocSnap.exists() ? operatorDocSnap.data().nome : 'Sconosciuto';
       
       const updatePayload: any = { 
         phases,
@@ -975,3 +975,4 @@ export async function reportMaterialMissing(
 function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
     return phases.some(p => p.status === 'in-progress');
 }
+

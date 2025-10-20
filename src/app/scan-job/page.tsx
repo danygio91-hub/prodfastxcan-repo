@@ -42,6 +42,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 import { Textarea } from '@/components/ui/textarea';
+import Link from 'next/link';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -164,45 +165,6 @@ export default function ScanJobPage() {
         streamRef.current = null;
     }
   }, []);
-
-  const handleStartOverallJob = useCallback((jobToStart: JobOrder) => {
-    if (!jobToStart || !operator) return;
-     if (jobToStart.isProblemReported && operator.role !== 'supervisor' && operator.role !== 'admin') {
-      toast({
-        variant: "destructive",
-        title: "Lavorazione Bloccata",
-        description: "Un problema è stato segnalato per questa commessa. Solo un supervisore o admin può procedere.",
-      });
-      setStep('initial');
-      return;
-    }
-    
-    const isResuming = jobToStart.status === 'suspended';
-
-    const jobWithStartTime = {
-        ...jobToStart,
-        status: 'production' as const,
-        overallStartTime: jobToStart.overallStartTime || new Date(),
-        phases: (jobToStart.phases || []).map(p => ({
-            ...p,
-            workPeriods: p.workPeriods || [], 
-            materialConsumptions: p.materialConsumptions || [],
-            workstationScannedAndVerified: p.workstationScannedAndVerified || false,
-        }))
-    };
-    
-    handleUpdateAndPersistJob(jobWithStartTime);
-    
-    // Set the active job ID, which triggers the real-time listener
-    setActiveJobId(jobWithStartTime.id); 
-    
-    toast({
-      title: isResuming ? "Lavorazione Ripresa" : "Lavorazione Avviata",
-      description: `Lavoro ${isResuming ? 'ripreso' : 'iniziato'} per commessa ${jobToStart.id}.`,
-      action: <PlayCircle className="text-primary" />,
-    });
-  }, [handleUpdateAndPersistJob, toast, setActiveJobId, operator]);
-
 
   const handleScannedData = useCallback(async (data: string) => {
     stopCamera();
@@ -1482,26 +1444,10 @@ function PhaseCard({ phase, job, handlers }: {
           </div>
           
           <div className="mt-3 flex flex-wrap gap-2">
-           {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
-             <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="destructive" disabled={!phase.materialReady}>
-                        <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Stai per segnalare che il materiale per questa fase non è disponibile. La fase e la commessa verranno bloccate.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                        <AlertDialogAction onClick={handlers.handleMaterialMissing}>Sì, segnala</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-             </AlertDialog>
+          {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
+             <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing} disabled={!phase.materialReady}>
+                <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
+            </Button>
           )}
 
           {canStartPhase && phase.type !== 'quality' && (
@@ -1567,3 +1513,4 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+

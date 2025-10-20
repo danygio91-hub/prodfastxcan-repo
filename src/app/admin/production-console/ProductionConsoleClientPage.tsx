@@ -898,7 +898,7 @@ function ProductionConsoleView() {
                                 </ul>
                            </div>
                        )}
-                        { problemJob?.isProblemReported && (
+                        { problemJob?.isProblemReported && problemJob?.problemType !== 'MANCA_MATERIALE' && (
                           <>
                             <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
                             <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
@@ -937,5 +937,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-
-    
