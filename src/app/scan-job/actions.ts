@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
@@ -976,3 +976,13 @@ function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
     return phases.some(p => p.status === 'in-progress');
 }
 
+
+export async function getOperatorById(uid: string): Promise<Operator | null> {
+    const q = query(collection(db, "operators"), where("uid", "==", uid));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+        const operatorDoc = querySnapshot.docs[0];
+        return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+    }
+    return null;
+}

@@ -884,11 +884,11 @@ function ProductionConsoleView() {
         </DialogContent>
       </Dialog>
 
-       <AlertDialog open={!!problemJob} onOpenChange={(open) => !open && setProblemJob(null)}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.id}</AlertDialogTitle>
-                <AlertDialogDescription asChild>
+       <Dialog open={!!problemJob} onOpenChange={(open) => !open && setProblemJob(null)}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.id}</DialogTitle>
+                <DialogDescription asChild>
                     <div className="space-y-4 text-sm pt-4">
                         {problemJob?.problemType === 'MANCA_MATERIALE' && (
                            <div>
@@ -913,18 +913,18 @@ function ProductionConsoleView() {
                             </div>
                         )}
                     </div>
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setProblemJob(null)}>Chiudi</Button>
                 { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
-                  <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
+                  <Button onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
-                  </AlertDialogAction>
+                  </Button>
                 )}
-            </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
