@@ -890,23 +890,27 @@ function ProductionConsoleView() {
                 <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.id}</AlertDialogTitle>
                 <AlertDialogDescription asChild>
                     <div className="space-y-4 text-sm pt-4">
-                       { (problemJob?.phases || []).some(p => p.materialStatus === 'missing') && (
+                        {problemJob?.problemType === 'MANCA_MATERIALE' && (
                            <div>
-                                <p className="font-bold text-foreground">Materiale Mancante per la fase:</p>
+                                <p className="font-bold text-foreground">Materiale Mancante per le fasi:</p>
                                 <ul className="list-disc pl-5 text-destructive">
                                    {(problemJob?.phases || []).filter(p => p.materialStatus === 'missing').map(p => <li key={p.id}>{p.name}</li>)}
                                 </ul>
                            </div>
-                       )}
+                        )}
                         { problemJob?.isProblemReported && problemJob?.problemType !== 'MANCA_MATERIALE' && (
                           <>
                             <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{problemJob?.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
-                            <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy || 'N/D'}</p>
+                          </>
+                        )}
+                        {problemJob?.problemReportedBy && (
+                            <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy}</p>
+                        )}
+                        {problemJob?.problemNotes && (
                             <div>
                                 <p className="font-bold text-foreground">Note Operatore:</p>
-                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
+                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes}</p>
                             </div>
-                          </>
                         )}
                     </div>
                 </AlertDialogDescription>

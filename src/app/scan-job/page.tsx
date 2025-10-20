@@ -114,6 +114,7 @@ export default function ScanJobPage() {
 
   const problemForm = useForm<ProblemReportFormValues>({
     resolver: zodResolver(problemReportSchema),
+    defaultValues: { notes: "" }
   });
 
   const forceJobDataRefresh = useCallback(async (jobId: string) => {
@@ -767,6 +768,7 @@ export default function ScanJobPage() {
                 variant: result.success ? "default" : "destructive",
             });
             if (result.success) {
+                problemForm.reset({notes: ""});
                 setMaterialMissingPhase(null);
             }
         });
@@ -1104,7 +1106,7 @@ export default function ScanJobPage() {
   };
   
     const renderMaterialMissingDialog = () => (
-        <Dialog open={!!materialMissingPhase} onOpenChange={(open) => !open && setMaterialMissingPhase(null)}>
+        <Dialog open={!!materialMissingPhase} onOpenChange={(open) => { if (!open) { setMaterialMissingPhase(null); problemForm.reset({notes: ""}); }}}>
             <DialogContent>
                 <Form {...problemForm}>
                     <form onSubmit={problemForm.handleSubmit((data) => {
@@ -1135,7 +1137,7 @@ export default function ScanJobPage() {
                             />
                         </div>
                         <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => setMaterialMissingPhase(null)}>Annulla</Button>
+                            <Button type="button" variant="ghost" onClick={() => { setMaterialMissingPhase(null); problemForm.reset({notes: ""}); }}>Annulla</Button>
                             <Button type="submit" variant="destructive" disabled={isPending}>
                                 {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                                 Conferma Segnalazione
@@ -1445,7 +1447,7 @@ function PhaseCard({ phase, job, handlers }: {
           
           <div className="mt-3 flex flex-wrap gap-2">
           {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
-             <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing} disabled={!phase.materialReady}>
+             <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing}>
                 <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
             </Button>
           )}
@@ -1513,4 +1515,3 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-
