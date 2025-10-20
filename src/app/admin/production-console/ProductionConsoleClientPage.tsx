@@ -357,7 +357,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
   };
   
@@ -904,7 +904,7 @@ function ProductionConsoleView() {
                           </>
                         )}
                         {problemJob?.problemReportedBy && (
-                            <p><strong className="text-foreground">Segnalato da:</strong> {problemJob?.problemReportedBy}</p>
+                            <p><strong className="text-foreground">Segnalato da:</strong> {problemJob.problemReportedBy}</p>
                         )}
                         {problemJob?.problemNotes && (
                             <div>
