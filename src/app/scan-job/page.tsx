@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -413,7 +414,7 @@ export default function ScanJobPage() {
     }
 
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Messa in Pausa", description: `La tua attività per la fase "${phaseToPause.name}" è in pausa.` });
+    toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
   };
 
   const handleResumePhase = async (phaseId: string) => {
@@ -425,7 +426,7 @@ export default function ScanJobPage() {
        toast({
           variant: 'destructive',
           title: 'Azione bloccata',
-          description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l'attività precedente.`,
+          description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l\'attività precedente.`,
         });
         setIsStatusBarHighlighted(true);
         return;
@@ -1361,7 +1362,7 @@ function PhaseCard({ phase, job, handlers }: {
       }
     }
     
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
