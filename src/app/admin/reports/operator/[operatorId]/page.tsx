@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { getOperatorDetailReport } from '../actions';
+import { getOperatorDetailReport } from '@/app/admin/reports/actions';
 import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Briefcase, Loader2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -24,7 +24,7 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
   const searchParams = useSearchParams();
   const dateFromParams = searchParams.get('date');
 
-  const [report, setReport] = useState<OperatorDetailReport>(null);
+  const [report, setReport] = useState<OperatorDetailReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     dateFromParams ? new Date(dateFromParams) : new Date()
