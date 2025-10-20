@@ -553,7 +553,7 @@ export default function ScanJobPage() {
       }
     }
     
-    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || operator.reparto.includes('MAG'))) {
+    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
         return;
@@ -1095,7 +1095,7 @@ export default function ScanJobPage() {
     // --- END GROUP SCANNING LOGIC ---
     const handleMaterialMissing = async (phaseId: string) => {
       if (!activeJob || !operator) return;
-      const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid);
+      const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid as string);
       toast({
         title: result.success ? "Segnalazione Inviata" : "Errore",
         description: result.message,
@@ -1217,7 +1217,7 @@ export default function ScanJobPage() {
                      <Form {...problemForm}>
                         <form onSubmit={problemForm.handleSubmit(onProblemSubmit)}>
                             <div className="py-4 space-y-4">
-                                <FormField control={problemForm.control} name="problemType" render={({ field }) => ( <FormItem className="space-y-3"><FormLabel>Tipo di Problema</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-2"><FormItem><RadioGroupItem value="FERMO_MACCHINA" id="r1" className="peer sr-only" /><Label htmlFor="r1" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">FERMO MACCHINA</Label></FormItem><FormItem><RadioGroupItem value="MANCA_MATERIALE" id="r2" className="peer sr-only" /><Label htmlFor="r2" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">MANCA MATERIALE</Label></FormItem><FormItem><RadioGroupItem value="PROBLEMA_QUALITA" id="r3" className="peer sr-only" /><Label htmlFor="r3" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">PROBLEMA QUALITÀ</Label></FormItem><FormItem><RadioGroupItem value="ALTRO" id="r4" className="peer sr-only" /><Label htmlFor="r4" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">ALTRO</Label></FormItem></RadioGroup></FormControl><FormMessage /></FormItem>)} />
+                                <FormField control={problemForm.control} name="problemType" render={({ field }) => ( <FormItem className="space-y-3"><FormLabel>Tipo di Problema</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-2"><FormItem><RadioGroupItem value="FERMO_MACCHINA" id="r1" className="peer sr-only" /><Label htmlFor="r1" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">FERMO MACCHINA</Label></FormItem><FormItem><RadioGroupItem value="MANCA_MATERIALE" id="r2" className="peer sr-only" /><Label htmlFor="r2" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">MANCA MATERIALE</Label></FormItem><FormItem><RadioGroupItem value="PROBLEMA_QUALITA" id="r3" className="peer sr-only" /><Label htmlFor="r3" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">PROBLEMA QUALITÀ</Label></FormItem><FormItem><RadioGroupItem value="ALTRO" id="r4" className="peer sr-only" /><Label htmlFor="r4" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">ALTRO</Label></FormItem></RadioGroup></FormControl><FormMessage /></FormItem>)} />
                                 <FormField control={problemForm.control} name="notes" render={({ field }) => ( <FormItem><FormLabel>Note Aggiuntive</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
                             </div>
                             <DialogFooter>
@@ -1944,12 +1944,6 @@ function PhaseCard({ phase, job, handlers }: {
               Altri operatori sono attivi su questa fase.
             </p>
           )}
-           {phase.materialStatus === 'missing' && (
-                <p className="text-xs text-red-500 font-semibold mt-2 flex items-center gap-1">
-                    <AlertTriangle className="h-4 w-4" />
-                    Materiale segnalato come mancante.
-                </p>
-            )}
 
 
           {phase.qualityResult && (
@@ -1989,31 +1983,6 @@ function PhaseCard({ phase, job, handlers }: {
               >
                   <Plus className="mr-2 h-4 w-4" /> Aggiungi Materiale
               </Button>
-          )}
-           {phase.type === 'preparation' && phase.status === 'pending' && phase.materialStatus !== 'missing' && (
-             <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={!operatorHasPermissionForDepartment}
-                    >
-                        <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Stai per segnalare che il materiale per la fase "{phase.name}" è mancante. Questo bloccherà la fase. Vuoi procedere?
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handlers.handleMaterialMissing(phase.id)}>Sì, segnala</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
           )}
           {canStartPhase && phase.type !== 'quality' && (
               <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
@@ -2078,4 +2047,3 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-

@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -112,7 +112,6 @@ function ProductionConsoleView() {
     const allPhases = item.phases || [];
   
     // Highest priority: check for specific blocking states
-    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
     if (item.isProblemReported) return 'Problema';
   
     const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
@@ -338,7 +337,7 @@ function ProductionConsoleView() {
     
     const statuses = selectedItems.map(item => getOverallStatus(item));
     
-    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
+    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(status));
     const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
     const canReset = statuses.every(status => status === 'Completata');
 
@@ -534,26 +533,12 @@ function ProductionConsoleView() {
     }
   };
 
-  const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus: 'available' | 'missing' | undefined) => {
-    if (!user) return;
-    
-    const action = (currentStatus === 'missing') ? resolveMaterialMissing : reportMaterialMissing;
-    const result = await action(itemId, phaseId, user.uid);
-
-    toast({
-        title: result.success ? "Operazione Riuscita" : "Errore",
-        description: result.message,
-        variant: result.success ? 'default' : 'destructive',
-    });
-    // The UI will update automatically via the onSnapshot listener.
-  };
-
   const filterOptions: { label: string; value: FilterStatus; icon: React.ElementType }[] = [
     { label: 'Tutte', value: 'all', icon: Briefcase },
+    { label: 'Da Iniziare', value: 'Da Iniziare', icon: Circle },
     { label: 'In Corso (Live)', value: 'LIVE', icon: Activity },
     { label: 'In Lavorazione', value: 'In Lavorazione', icon: Hourglass },
     { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
-    { label: 'Manca Mat.', value: 'Manca Materiale', icon: Boxes },
     { label: 'Problema', value: 'Problema', icon: ShieldAlert },
     { label: 'Pronto per Produzione', value: 'Pronto per Produzione', icon: PlayCircle },
     { label: 'Pronto per Finitura', value: 'Pronto per Finitura', icon: CheckSquare },
@@ -855,11 +840,11 @@ function ProductionConsoleView() {
                   </div>
                   <div className="flex items-center gap-2">
                      {isMissing ? (
-                       <Button size="sm" variant="secondary" onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)} disabled={phase.status !== 'pending'}>
+                       <Button size="sm" variant="secondary" disabled={phase.status !== 'pending'}>
                           <Unlock className="mr-2 h-4 w-4" /> Risolvi
                        </Button>
                     ) : (
-                       <Button size="sm" variant="destructive" onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)} disabled={phase.status !== 'pending'}>
+                       <Button size="sm" variant="destructive" disabled={phase.status !== 'pending'}>
                            <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
                        </Button>
                     )}
