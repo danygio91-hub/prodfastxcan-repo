@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion } from './actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing } from './actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -112,6 +112,7 @@ function ProductionConsoleView() {
     const allPhases = item.phases || [];
   
     // Highest priority: check for specific blocking states
+    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
     if (item.isProblemReported) return 'Problema';
   
     const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
@@ -337,7 +338,7 @@ function ProductionConsoleView() {
     
     const statuses = selectedItems.map(item => getOverallStatus(item));
     
-    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema'].includes(status));
+    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
     const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
     const canReset = statuses.every(status => status === 'Completata');
 
@@ -507,6 +508,18 @@ function ProductionConsoleView() {
       return newPhases;
     });
   };
+
+  const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus?: 'available' | 'missing') => {
+    if (!user) return;
+    const action = currentStatus === 'missing' ? resolveMaterialMissing : reportMaterialMissing;
+    const result = await action(itemId, phaseId, user.uid);
+     toast({
+        title: result.success ? "Successo" : "Errore",
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+    });
+    // Realtime listener will handle the update
+  };
   
   const handleMovePhase = (index: number, direction: 'up' | 'down') => {
     setEditablePhases(prevPhases => {
@@ -540,6 +553,7 @@ function ProductionConsoleView() {
     { label: 'In Lavorazione', value: 'In Lavorazione', icon: Hourglass },
     { label: 'Sospesa', value: 'Sospesa', icon: PauseCircle },
     { label: 'Problema', value: 'Problema', icon: ShieldAlert },
+    { label: 'Manca Materiale', value: 'Manca Materiale', icon: PackageX },
     { label: 'Pronto per Produzione', value: 'Pronto per Produzione', icon: PlayCircle },
     { label: 'Pronto per Finitura', value: 'Pronto per Finitura', icon: CheckSquare },
     { label: 'Completata', value: 'Completata', icon: CheckCircle2 },
@@ -839,15 +853,26 @@ function ProductionConsoleView() {
                     <span className={cn('font-medium', phase.status !== 'pending' && 'text-muted-foreground')}>{phase.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                     {isMissing ? (
-                       <Button size="sm" variant="secondary" disabled={phase.status !== 'pending'}>
-                          <Unlock className="mr-2 h-4 w-4" /> Risolvi
-                       </Button>
-                    ) : (
-                       <Button size="sm" variant="destructive" disabled={phase.status !== 'pending'}>
-                           <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
-                       </Button>
-                    )}
+                     <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant={isMissing ? 'secondary' : 'destructive'} disabled={phase.status !== 'pending'}>
+                           {isMissing ? <Unlock className="mr-2 h-4 w-4" /> : <AlertTriangle className="mr-2 h-4 w-4" />}
+                           {isMissing ? 'Risolvi' : 'Manca Materiale'}
+                        </Button>
+                      </AlertDialogTrigger>
+                       <AlertDialogContent>
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                  {isMissing ? 'Stai per marcare il materiale come disponibile, sbloccando la fase.' : 'Stai per marcare il materiale come mancante, bloccando la fase e la commessa.'}
+                              </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleMaterialStatusToggle(materialManagedItem!.id, phase.id, phase.materialStatus)}>Conferma</AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                     </AlertDialog>
                   </div>
                 </div>
               );

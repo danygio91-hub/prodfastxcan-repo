@@ -1,4 +1,3 @@
-
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { type OverallStatus } from "@/lib/types";
@@ -14,7 +13,7 @@ export function StatusBadge({ status }: { status: OverallStatus }) {
         status === "Pronto per Finitura" && "bg-indigo-500 text-white hover:bg-indigo-500/90",
         status === "In Lavorazione" && "bg-blue-600 text-white hover:bg-blue-600/90 animate-pulse",
         status === "Completata" && "bg-primary text-primary-foreground hover:bg-primary/90",
-        status === "Problema" && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        (status === "Problema" || status === "Manca Materiale") && "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         status === "Sospesa" && "bg-yellow-500 text-white"
       )}
     >

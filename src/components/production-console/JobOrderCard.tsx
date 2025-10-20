@@ -88,8 +88,8 @@ export default function JobOrderCard({
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
-  
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
+  
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
