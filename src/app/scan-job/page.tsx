@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -40,6 +41,7 @@ import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvid
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
+import { Textarea } from '@/components/ui/textarea';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -106,6 +108,8 @@ export default function ScanJobPage() {
 
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
+  
+  const [materialMissingPhase, setMaterialMissingPhase] = useState<JobPhase | null>(null);
 
   const problemForm = useForm<ProblemReportFormValues>({
     resolver: zodResolver(problemReportSchema),
@@ -790,16 +794,21 @@ export default function ScanJobPage() {
         setActiveJobId(null);
       }
     }
-    // --- END GROUP SCANNING LOGIC ---
-    const handleMaterialMissing = async (phaseId: string) => {
-      if (!activeJob || !operator) return;
-      const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid as string);
-      toast({
-        title: result.success ? "Segnalazione Inviata" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-      });
-  };
+    
+    const handleMaterialMissing = (phaseId: string, notes: string) => {
+        if (!activeJob || !operator) return;
+        startTransition(async () => {
+            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid as string, notes);
+            toast({
+                title: result.success ? "Segnalazione Inviata" : "Errore",
+                description: result.message,
+                variant: result.success ? "default" : "destructive",
+            });
+            if (result.success) {
+                setMaterialMissingPhase(null);
+            }
+        });
+    };
 
   if (step === 'loading') {
     return (
@@ -1013,7 +1022,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
                 ))}
             </div>
           </>
@@ -1036,7 +1045,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing, handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
                 ))}
             </div>
           </>
@@ -1132,6 +1141,49 @@ export default function ScanJobPage() {
     );
   };
   
+    const renderMaterialMissingDialog = () => (
+        <Dialog open={!!materialMissingPhase} onOpenChange={(open) => !open && setMaterialMissingPhase(null)}>
+            <DialogContent>
+                <Form {...problemForm}>
+                    <form onSubmit={problemForm.handleSubmit((data) => {
+                        if (materialMissingPhase) {
+                            handleMaterialMissing(materialMissingPhase.id, data.notes || '');
+                        }
+                    })}>
+                        <DialogHeader>
+                            <DialogTitle>Segnala Materiale Mancante</DialogTitle>
+                            <DialogDescription>
+                                Stai segnalando la mancanza di materiale per la fase <span className="font-bold">{materialMissingPhase?.name}</span>.
+                                La lavorazione verrà bloccata. Aggiungi una nota per specificare cosa manca.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                            <FormField
+                                control={problemForm.control}
+                                name="notes"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Note (es. codice, quantità mancante)</FormLabel>
+                                        <FormControl>
+                                            <Textarea {...field} placeholder="Specifica quale materiale manca..." />
+                                        </FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={() => setMaterialMissingPhase(null)}>Annulla</Button>
+                            <Button type="submit" variant="destructive" disabled={isPending}>
+                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                Conferma Segnalazione
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
+    );
 
   return (
     <AuthGuard>
@@ -1270,6 +1322,7 @@ export default function ScanJobPage() {
           
           {renderPhaseScanDialog()}
           {renderContinueOrCloseDialog()}
+          {renderMaterialMissingDialog()}
 
             <Dialog open={isQualityProblemDialogOpen} onOpenChange={setIsQualityProblemDialogOpen}>
                 <DialogContent>
@@ -1323,7 +1376,7 @@ function PhaseCard({ phase, job, handlers }: {
     job: JobOrder,
     handlers: {
         handleOpenPhaseScanDialog: (phase: JobPhase) => void,
-        handleMaterialMissing: (phaseId: string) => void,
+        handleMaterialMissing: () => void,
         handlePausePhase: (phaseId: string) => void,
         handleResumePhase: (phaseId: string) => void,
         handleCompletePhase: (phaseId: string) => void,
@@ -1432,7 +1485,7 @@ function PhaseCard({ phase, job, handlers }: {
            {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
              <AlertDialog>
                 <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="destructive">
+                    <Button size="sm" variant="destructive" disabled={!phase.materialReady}>
                         <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
                     </Button>
                 </AlertDialogTrigger>
@@ -1445,7 +1498,7 @@ function PhaseCard({ phase, job, handlers }: {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Annulla</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handlers.handleMaterialMissing(phase.id)}>Sì, segnala</AlertDialogAction>
+                        <AlertDialogAction onClick={handlers.handleMaterialMissing}>Sì, segnala</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
              </AlertDialog>

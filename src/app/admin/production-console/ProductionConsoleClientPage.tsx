@@ -889,7 +889,7 @@ function ProductionConsoleView() {
             <AlertDialogHeader>
                 <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="text-destructive"/> Dettaglio Problema: {problemJob?.id}</AlertDialogTitle>
                 <AlertDialogDescription asChild>
-                    <div className="space-y-2 text-sm pt-2">
+                    <div className="space-y-4 text-sm pt-4">
                        { (problemJob?.phases || []).some(p => p.materialStatus === 'missing') && (
                            <div>
                                 <p className="font-bold text-foreground">Materiale Mancante per la fase:</p>

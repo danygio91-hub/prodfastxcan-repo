@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -908,7 +909,8 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
 export async function reportMaterialMissing(
   itemId: string,
   phaseId: string,
-  uid: string
+  uid: string,
+  notes?: string,
 ): Promise<{ success: boolean; message: string }> {
   
   const isGroup = itemId.startsWith('group-');
@@ -930,13 +932,14 @@ export async function reportMaterialMissing(
       phases[phaseIndex].materialReady = false;
 
       const operatorDoc = await transaction.get(doc(db, 'operators', uid));
-      const operatorName = operatorDoc.exists() ? operatorDoc.data().nome : 'Operatore';
+      const operatorName = operatorDoc.exists() ? operatorDoc.data().nome : 'Operatore Sconosciuto';
       
       const updatePayload: any = { 
         phases,
         isProblemReported: true,
         problemType: 'MANCA_MATERIALE',
         problemReportedBy: operatorName,
+        problemNotes: notes || '',
       };
 
       if (phases[phaseIndex].status === 'in-progress') {
