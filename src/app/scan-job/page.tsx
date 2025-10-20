@@ -1430,7 +1430,7 @@ function PhaseCard({ phase, job, handlers }: {
           </div>
           
           <div className="mt-3 flex flex-wrap gap-2">
-          {phase.status === 'pending' && !phase.materialReady && operatorHasPermissionForDepartment && (
+          {phase.type === 'preparation' && phase.status === 'pending' && !phase.materialReady && operatorHasPermissionForDepartment && (
              <AlertDialog>
                 <AlertDialogTrigger asChild>
                     <Button size="sm" variant="destructive">
