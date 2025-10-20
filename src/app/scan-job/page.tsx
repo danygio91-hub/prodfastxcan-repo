@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -1430,7 +1429,7 @@ function PhaseCard({ phase, job, handlers }: {
           </div>
           
           <div className="mt-3 flex flex-wrap gap-2">
-          {phase.type === 'preparation' && phase.status === 'pending' && !phase.materialReady && operatorHasPermissionForDepartment && (
+           {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
              <AlertDialog>
                 <AlertDialogTrigger asChild>
                     <Button size="sm" variant="destructive">
@@ -1451,6 +1450,7 @@ function PhaseCard({ phase, job, handlers }: {
                 </AlertDialogContent>
              </AlertDialog>
           )}
+
           {canStartPhase && phase.type !== 'quality' && (
               <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
                   <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
