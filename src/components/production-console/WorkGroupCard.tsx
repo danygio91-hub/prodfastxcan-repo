@@ -315,12 +315,15 @@ export default function WorkGroupCard({
           {isAnyPhaseInProgress && (
               <>
                 <Separator />
-                <div className="space-y-2">
-                    <h4 className="text-sm font-semibold text-foreground/80">Operatori Attivi</h4>
+                <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-foreground/80 flex items-center gap-2">
+                        <Hourglass className="h-4 w-4 animate-spin"/>
+                        Operatori Attivi
+                    </h4>
                     {activePhasesWithOperators.map(info => (
-                        <div key={info.phaseId}>
-                           <p className="font-medium text-primary">{info.phaseName}:</p>
-                           <div className="flex flex-wrap gap-2 pl-4">
+                        <div key={info.phaseId} className="pl-2">
+                           <p className="font-semibold text-primary">{info.phaseName}:</p>
+                           <div className="flex flex-wrap gap-2 pt-1">
                                {info.operators.map(op => (
                                    <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1">
                                        <User className="h-3 w-3" />
