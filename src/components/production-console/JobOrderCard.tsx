@@ -382,9 +382,9 @@ export default function JobOrderCard({
            </div>
            
            {isAnyPhaseActive && (
-              <div className="rounded-md bg-blue-950/50 p-3 space-y-3">
+              <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-400/10 p-3 space-y-3 animate-pulse dark:bg-cyan-900/20">
                   <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-                      <Hourglass className="h-4 w-4 animate-spin"/>
+                      <Hourglass className="h-4 w-4 text-cyan-500"/>
                       Operatori Attivi
                   </h4>
                   {activePhasesWithOperators.map(info => (
