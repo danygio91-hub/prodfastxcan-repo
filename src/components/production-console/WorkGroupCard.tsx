@@ -3,7 +3,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine, Boxes } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine, Boxes, User } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -34,6 +34,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '../ui/label';
 import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
+import { Separator } from '../ui/separator';
 
 
 interface ActivePhaseInfo {
@@ -324,6 +325,27 @@ export default function WorkGroupCard({
                   <p className="text-sm text-muted-foreground">Nessuna fase definita per questo gruppo.</p>
               )}
           </div>
+           {isAnyPhaseActive && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                    <h4 className="text-sm font-semibold text-foreground/80">Operatori Attivi</h4>
+                    {activePhasesWithOperators.map(info => (
+                        <div key={info.phaseId}>
+                           <p className="font-medium text-primary">{info.phaseName}:</p>
+                           <div className="flex flex-wrap gap-2 pl-4">
+                               {info.operators.map(op => (
+                                   <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1">
+                                       <User className="h-3 w-3" />
+                                       {op.name}
+                                   </Badge>
+                               ))}
+                           </div>
+                        </div>
+                    ))}
+                </div>
+              </>
+          )}
            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}>
                 <View className="mr-2 h-4 w-4" />
                 Esplodi e Vedi Dettagli Commesse ({jobsInGroup.length})
