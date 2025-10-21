@@ -29,12 +29,19 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package } from 'lucide-react';
+import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy } from 'lucide-react';
 import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type getOperatorsReport } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { useToast } from '@/hooks/use-toast';
 
 type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
@@ -80,6 +87,7 @@ export default function ReportsClientPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [jobsSearchTerm, setJobsSearchTerm] = useState('');
   const router = useRouter();
+  const { toast } = useToast();
 
 
   const fetchWithdrawals = React.useCallback(async () => {
@@ -219,6 +227,18 @@ export default function ReportsClientPage({
     XLSX.utils.book_append_sheet(wb, ws, "Report Prelievi");
     XLSX.writeFile(wb, "report_prelievi_magazzino.xlsx");
   };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+        title: "Copiato!",
+        description: `"${text}" è stato copiato negli appunti.`,
+    });
+  }
+
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
   
   const renderLoadingRow = (colspan: number) => (
     <TableRow>
@@ -302,9 +322,21 @@ export default function ReportsClientPage({
                         <TableRow key={job.id}>
                           <TableCell className="font-medium">{job.id}</TableCell>
                           <TableCell>
-                            <Link href={`/admin/production-time-analysis?articleCode=${encodeURIComponent(job.details)}`} className="hover:underline text-primary">
-                               {job.details}
-                            </Link>
+                            <ContextMenu>
+                                <ContextMenuTrigger className="hover:underline text-primary cursor-pointer">
+                                  {job.details}
+                                </ContextMenuTrigger>
+                                <ContextMenuContent>
+                                  <ContextMenuItem onSelect={() => handleNavigateToAnalysis(job.details)}>
+                                    <BarChart3 className="mr-2 h-4 w-4"/>
+                                    Analisi Tempi Articolo
+                                  </ContextMenuItem>
+                                  <ContextMenuItem onSelect={() => handleCopy(job.details)}>
+                                    <Copy className="mr-2 h-4 w-4"/>
+                                    Copia Codice Articolo
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                            </ContextMenu>
                           </TableCell>
                           <TableCell><StatusBadge status={job.status as OverallStatus} /></TableCell>
                           <TableCell>{job.timeElapsed}</TableCell>

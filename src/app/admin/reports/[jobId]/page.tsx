@@ -10,8 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getJobDetailReport, updateWorkPeriodsForPhase } from '../actions';
-import { notFound } from 'next/navigation';
-import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2, ThumbsDown } from 'lucide-react';
+import { notFound, useRouter } from 'next/navigation';
+import { BarChart3, ArrowLeft, Package, User, Clock, Calendar, CheckCircle2, Circle, Hourglass, ShieldAlert, XCircle, Pencil, Save, Loader2, ThumbsDown, Copy } from 'lucide-react';
 import type { JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 import { format, parseISO, toDate } from 'date-fns';
@@ -26,6 +26,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
@@ -56,6 +62,7 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
   const { jobId } = params;
   const { operator } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   
   const [report, setReport] = useState<Awaited<ReturnType<typeof getJobDetailReport>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -119,6 +126,18 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
     setIsSaving(false);
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+        title: "Copiato!",
+        description: `Il codice "${text}" è stato copiato negli appunti.`,
+    });
+  }
+
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
+
   if (isLoading || !report) {
     if (!isLoading && !report) {
         notFound();
@@ -167,13 +186,27 @@ export default function JobReportDetailPage({ params }: { params: { jobId: strin
               )}
             </CardHeader>
             <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-sm">
-                <div className="flex items-center gap-3">
-                    <Package className="h-6 w-6 text-primary"/>
-                    <div>
-                        <p className="text-muted-foreground">Articolo</p>
-                        <p className="font-semibold">{report.details}</p>
-                    </div>
-                </div>
+                <ContextMenu>
+                  <ContextMenuTrigger>
+                      <div className="flex items-center gap-3 p-2 rounded-md hover:bg-muted cursor-pointer">
+                          <Package className="h-6 w-6 text-primary"/>
+                          <div>
+                              <p className="text-muted-foreground">Articolo</p>
+                              <p className="font-semibold">{report.details}</p>
+                          </div>
+                      </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                      <ContextMenuItem onSelect={() => handleNavigateToAnalysis(report.details)}>
+                          <BarChart3 className="mr-2 h-4 w-4"/>
+                          Analisi Tempi Articolo
+                      </ContextMenuItem>
+                       <ContextMenuItem onSelect={() => handleCopy(report.details)}>
+                          <Copy className="mr-2 h-4 w-4"/>
+                          Copia Codice Articolo
+                      </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
                 <div className="flex items-center gap-3">
                     <User className="h-6 w-6 text-primary"/>
                     <div>
