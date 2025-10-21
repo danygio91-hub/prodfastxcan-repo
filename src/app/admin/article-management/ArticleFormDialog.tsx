@@ -72,10 +72,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
             billOfMaterials: article.billOfMaterials || [],
         });
         } else {
+        const defaultBOM = Array(10).fill({ component: '', unit: 'n', quantity: 1, size: '' });
         form.reset({
             id: undefined,
             code: '',
-            billOfMaterials: [],
+            billOfMaterials: defaultBOM,
         });
         }
     }
@@ -151,7 +152,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                               <SelectTrigger><SelectValue placeholder="Unità" /></SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="pz">pz</SelectItem>
+                              <SelectItem value="n">n</SelectItem>
                               <SelectItem value="mt">mt</SelectItem>
                               <SelectItem value="kg">kg</SelectItem>
                             </SelectContent>
@@ -198,7 +199,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                 type="button"
                 variant="outline"
                 className="w-full mt-4"
-                onClick={() => append({ component: '', unit: 'pz', quantity: 1, size: '' })}
+                onClick={() => append({ component: '', unit: 'n', quantity: 1, size: '' })}
               >
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Aggiungi Componente
