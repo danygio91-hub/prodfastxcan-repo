@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -931,8 +930,8 @@ export async function reportMaterialMissing(
       phases[phaseIndex].materialStatus = 'missing';
       phases[phaseIndex].materialReady = false;
 
-      const operatorDocSnap = await getDoc(doc(db, 'operators', uid));
-      const operatorName = operatorDocSnap.exists() ? operatorDocSnap.data().nome : 'Sconosciuto';
+      const operatorDocSnap = await getOperatorById(uid);
+      const operatorName = operatorDocSnap ? operatorDocSnap.nome : 'Sconosciuto';
       
       const updatePayload: any = { 
         phases,
@@ -978,7 +977,7 @@ function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
 
 
 export async function getOperatorById(uid: string): Promise<Operator | null> {
-    const q = query(collection(db, "operators"), where("uid", "==", uid));
+    const q = firestoreQuery(collection(db, "operators"), where("uid", "==", uid));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
         const operatorDoc = querySnapshot.docs[0];
@@ -986,3 +985,5 @@ export async function getOperatorById(uid: string): Promise<Operator | null> {
     }
     return null;
 }
+
+    
