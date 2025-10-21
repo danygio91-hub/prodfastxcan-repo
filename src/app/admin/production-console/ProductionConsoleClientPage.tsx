@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, AlertTriangle } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, AlertTriangle, BarChart3, Copy } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -33,6 +33,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing } from './actions';
@@ -50,6 +56,7 @@ import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useRouter } from 'next/navigation';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -89,6 +96,7 @@ function ProductionConsoleView() {
 
   const { toast } = useToast();
   const { user, operator } = useAuth();
+  const router = useRouter();
   
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
@@ -546,6 +554,18 @@ function ProductionConsoleView() {
     }
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+        title: "Copiato!",
+        description: `Il codice "${text}" è stato copiato negli appunti.`,
+    });
+  }
+
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
+
   const filterOptions: { label: string; value: FilterStatus; icon: React.ElementType }[] = [
     { label: 'Tutte', value: 'all', icon: Briefcase },
     { label: 'Da Iniziare', value: 'Da Iniziare', icon: Circle },
@@ -751,6 +771,8 @@ function ProductionConsoleView() {
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}
+                  onNavigateToAnalysis={handleNavigateToAnalysis}
+                  onCopyArticleCode={handleCopy}
                 />
             ))}
           </div>

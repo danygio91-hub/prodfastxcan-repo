@@ -3,7 +3,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -18,6 +18,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -68,7 +74,9 @@ export default function JobOrderCard({
     onRevertCompletionClick,
     isSelected,
     onSelect,
-    overallStatus
+    overallStatus,
+    onNavigateToAnalysis,
+    onCopyArticleCode,
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
@@ -86,6 +94,8 @@ export default function JobOrderCard({
     isSelected: boolean;
     onSelect: (jobId: string) => void;
     overallStatus: OverallStatus;
+    onNavigateToAnalysis: (articleCode: string) => void;
+    onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
@@ -361,10 +371,24 @@ export default function JobOrderCard({
                       <Factory className="h-4 w-4" />
                       {jobOrder.department}
                   </p>
-                  <p className="flex items-center gap-2 text-muted-foreground">
-                      <Package className="h-4 w-4" />
-                      {jobOrder.details}
-                  </p>
+                  <ContextMenu>
+                    <ContextMenuTrigger>
+                      <p className="flex items-center gap-2 text-muted-foreground hover:text-primary cursor-pointer">
+                          <Package className="h-4 w-4" />
+                          {jobOrder.details}
+                      </p>
+                    </ContextMenuTrigger>
+                     <ContextMenuContent>
+                        <ContextMenuItem onSelect={() => onNavigateToAnalysis(jobOrder.details)}>
+                            <BarChart3 className="mr-2 h-4 w-4"/>
+                            Analisi Tempi Articolo
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => onCopyArticleCode(jobOrder.details)}>
+                            <Copy className="mr-2 h-4 w-4"/>
+                            Copia Codice Articolo
+                        </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                   {deliveryDate && (
                       <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
                           <Calendar className="h-4 w-4" />
@@ -382,7 +406,7 @@ export default function JobOrderCard({
            </div>
            
            {isAnyPhaseActive && (
-              <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-400/10 p-3 space-y-3 animate-pulse dark:bg-cyan-900/20">
+              <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                   <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
                       <Hourglass className="h-4 w-4 text-cyan-500"/>
                       Operatori Attivi
