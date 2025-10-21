@@ -312,20 +312,7 @@ export default function WorkGroupCard({
                 </div>
              </div>
           
-          <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
-              {group.phases && group.phases.length > 0 ? (
-                  group.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                      <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
-                          {getPhaseIcon(phase.status)}
-                          <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
-                      </div>
-                  ))
-              ) : (
-                  <p className="text-sm text-muted-foreground">Nessuna fase definita per questo gruppo.</p>
-              )}
-          </div>
-           {isAnyPhaseActive && (
+          {isAnyPhaseInProgress && (
               <>
                 <Separator />
                 <div className="space-y-2">
@@ -344,8 +331,23 @@ export default function WorkGroupCard({
                         </div>
                     ))}
                 </div>
+                <Separator />
               </>
           )}
+
+          <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
+              {group.phases && group.phases.length > 0 ? (
+                  group.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
+                      <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
+                          {getPhaseIcon(phase.status)}
+                          <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
+                      </div>
+                  ))
+              ) : (
+                  <p className="text-sm text-muted-foreground">Nessuna fase definita per questo gruppo.</p>
+              )}
+          </div>
            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}>
                 <View className="mr-2 h-4 w-4" />
                 Esplodi e Vedi Dettagli Commesse ({jobsInGroup.length})
