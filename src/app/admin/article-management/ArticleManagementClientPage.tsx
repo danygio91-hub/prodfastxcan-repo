@@ -56,7 +56,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
     setIsFormOpen(true);
   };
   
-  const handleFormClose = (refresh: boolean) => {
+  const handleFormClose = (refresh: boolean = false) => {
     setIsFormOpen(false);
     setEditingArticle(null);
     if(refresh) {

@@ -64,18 +64,20 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
   });
 
   useEffect(() => {
-    if (article) {
-      form.reset({
-        id: article.id,
-        code: article.code,
-        billOfMaterials: article.billOfMaterials || [],
-      });
-    } else {
-      form.reset({
-        id: undefined,
-        code: '',
-        billOfMaterials: [],
-      });
+    if (isOpen) {
+        if (article) {
+        form.reset({
+            id: article.id,
+            code: article.code,
+            billOfMaterials: article.billOfMaterials || [],
+        });
+        } else {
+        form.reset({
+            id: undefined,
+            code: '',
+            billOfMaterials: [],
+        });
+        }
     }
   }, [article, form, isOpen]);
 
