@@ -1,5 +1,6 @@
 
 
+
 // --- Type Definitions ---
 
 export interface Department {
@@ -156,6 +157,19 @@ export interface RawMaterial {
   currentWeightKg: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
   stock?: number; // Derived field for display, calculated from batches
+}
+
+export interface BillOfMaterialsItem {
+  component: string;
+  unit: string;
+  quantity: number;
+  size?: string;
+}
+
+export interface Article {
+  id: string;
+  code: string;
+  billOfMaterials: BillOfMaterialsItem[];
 }
 
 

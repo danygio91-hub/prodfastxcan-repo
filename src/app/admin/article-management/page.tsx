@@ -1,7 +1,7 @@
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getProductionTimeAnalysisReport } from '../reports/actions';
+import { getArticles } from './actions';
 import ArticleManagementClientPage from './ArticleManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -9,8 +9,7 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function ArticleManagementPage() {
-  const productionReport = await getProductionTimeAnalysisReport();
-  const initialArticles = productionReport.map(item => ({ code: item.articleCode }));
+  const initialArticles = await getArticles();
 
   return (
     <AdminAuthGuard>
