@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -312,27 +313,27 @@ export default function WorkGroupCard({
                 </div>
              </div>
           
-          {isAnyPhaseInProgress && (
-              <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-400/10 p-3 space-y-3 animate-pulse dark:bg-cyan-900/20">
-                  <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-                      <Hourglass className="h-4 w-4 text-cyan-500"/>
-                      Operatori Attivi
-                  </h4>
-                  {activePhasesWithOperators.map(info => (
-                      <div key={info.phaseId} className="pl-2">
-                         <p className="font-semibold text-primary">{info.phaseName}:</p>
-                         <div className="flex flex-wrap gap-2 pt-1">
-                             {info.operators.map(op => (
-                                 <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
-                                     <User className="h-3 w-3" />
-                                     {op.name}
-                                 </Badge>
-                             ))}
-                         </div>
-                      </div>
-                  ))}
-              </div>
-          )}
+           {isAnyPhaseInProgress && (
+                <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
+                    <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
+                        <Hourglass className="h-4 w-4 text-cyan-500"/>
+                        Operatori Attivi
+                    </h4>
+                    {activePhasesWithOperators.map(info => (
+                        <div key={info.phaseId} className="pl-2">
+                           <p className="font-semibold text-primary">{info.phaseName}:</p>
+                           <div className="flex flex-wrap gap-2 pt-1">
+                               {info.operators.map(op => (
+                                   <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
+                                       <User className="h-3 w-3" />
+                                       {op.name}
+                                   </Badge>
+                               ))}
+                           </div>
+                        </div>
+                    ))}
+                </div>
+            )}
           <Separator />
 
           <div className="space-y-2">
@@ -390,6 +391,8 @@ export default function WorkGroupCard({
                               isSelected={false}
                               onSelect={() => {}}
                               overallStatus={getOverallStatus(job)}
+                              onNavigateToAnalysis={() => {}}
+                              onCopyArticleCode={() => {}}
                           />
                       ))}
                   </div>
@@ -399,3 +402,5 @@ export default function WorkGroupCard({
     </>
   );
 }
+
+    
