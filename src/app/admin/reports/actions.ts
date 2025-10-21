@@ -227,6 +227,89 @@ export async function getOperatorsReport(targetDateString?: string) {
     });
 }
 
+export async function getOperatorDetailReport(operatorId: string, date: string) {
+    const operatorRef = doc(db, "operators", operatorId);
+    const operatorSnap = await getDoc(operatorRef);
+
+    if (!operatorSnap.exists()) {
+        return null;
+    }
+
+    const operator = operatorSnap.data() as Operator;
+    const targetDate = new Date(date);
+    const dayStart = startOfDay(targetDate);
+    const dayEnd = endOfDay(targetDate);
+
+    const jobsSnapshot = await getDocs(query(collection(db, "jobOrders")));
+    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+
+    const jobsWorkedOn: {
+        id: string,
+        details: string,
+        cliente: string,
+        phases: { name: string, time: string, date: string }[]
+    }[] = [];
+
+    const dateLabels = {
+        today: format(targetDate, 'dd MMMM yyyy', { locale: it }),
+        week: `Settimana ${getWeek(targetDate, { weekStartsOn: 1 })}`,
+        month: format(targetDate, 'MMMM yyyy', { locale: it }),
+    };
+
+    const timeMetrics = await getOperatorsReport(date);
+    const operatorMetrics = timeMetrics.find(op => op.id === operatorId);
+
+
+    jobs.forEach(job => {
+        const phasesWorkedOn: { name: string, time: string, date: string }[] = [];
+        
+        (job.phases || []).forEach(phase => {
+            const timeInPhaseMs = (phase.workPeriods || [])
+                .filter(wp => wp.operatorId === operatorId)
+                .reduce((acc, period) => {
+                    if (!period.start) return acc;
+                    const periodStart = new Date(period.start);
+                    const periodEnd = period.end ? new Date(period.end) : new Date();
+
+                    const overlapStart = Math.max(periodStart.getTime(), dayStart.getTime());
+                    const overlapEnd = Math.min(periodEnd.getTime(), dayEnd.getTime());
+
+                    if (overlapStart < overlapEnd) {
+                        return acc + (overlapEnd - overlapStart);
+                    }
+                    return acc;
+                }, 0);
+            
+            if (timeInPhaseMs > 0) {
+                phasesWorkedOn.push({
+                    name: phase.name,
+                    time: formatDuration(timeInPhaseMs),
+                    date: format(new Date(phase.workPeriods[0].start), 'dd/MM/yyyy'),
+                });
+            }
+        });
+
+        if (phasesWorkedOn.length > 0) {
+            jobsWorkedOn.push({
+                id: job.ordinePF,
+                details: job.details,
+                cliente: job.cliente,
+                phases: phasesWorkedOn
+            });
+        }
+    });
+
+    return {
+        operator,
+        timeToday: operatorMetrics?.timeToday || '00:00:00',
+        timeWeek: operatorMetrics?.timeWeek || '00:00:00',
+        timeMonth: operatorMetrics?.timeMonth || '00:00:00',
+        dateLabels,
+        jobsWorkedOn,
+    };
+}
+
+
 export async function getJobDetailReport(jobId: string) {
     const jobRef = doc(db, "jobOrders", jobId);
     const jobSnap = await getDoc(jobRef);
@@ -659,11 +742,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-
-
-
-
-
-
-
-
