@@ -30,20 +30,29 @@ import {
 import type { Article } from '@/lib/mock-data';
 import ArticleFormDialog from './ArticleFormDialog';
 import { deleteArticle, saveArticle } from './actions';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface ArticleManagementClientPageProps {
   initialArticles: Article[];
 }
 
 export default function ArticleManagementClientPage({ initialArticles }: ArticleManagementClientPageProps) {
-  const [searchTerm, setSearchTerm] = useState('');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const articleCodeFromUrl = searchParams.get('code');
+  
+  const [searchTerm, setSearchTerm] = useState(articleCodeFromUrl || '');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const router = useRouter();
+
+  useEffect(() => {
+    if (articleCodeFromUrl) {
+      setSearchTerm(articleCodeFromUrl);
+    }
+  }, [articleCodeFromUrl]);
 
   const filteredArticles = useMemo(() => {
     if (!searchTerm) {
