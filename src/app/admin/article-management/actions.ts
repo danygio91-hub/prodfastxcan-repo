@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Article, BillOfMaterialsItem, JobOrder } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -56,19 +56,23 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
   }
 
   const { id, code, billOfMaterials } = validatedFields.data;
-  const docId = id || code;
+  
+  const existingArticleSnap = await getDoc(doc(db, 'articles', code));
+
+  const docId = id || existingArticleSnap.id || code;
   const docRef = doc(db, 'articles', docId);
 
   const articleData: Article = {
     id: docId,
     code,
-    billOfMaterials,
+    // Filter out empty components that might come from the UI
+    billOfMaterials: (billOfMaterials || []).filter(item => item.component && item.component.trim() !== ''),
   };
 
   try {
     await setDoc(docRef, articleData, { merge: true });
     revalidatePath('/admin/article-management');
-    return { success: true, message: `Articolo ${id ? 'aggiornato' : 'creato'} con successo.` };
+    return { success: true, message: `Articolo ${existingArticleSnap.exists() || id ? 'aggiornato' : 'creato'} con successo.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     return { success: false, message: errorMessage };

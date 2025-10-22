@@ -1,13 +1,14 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2 } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Article } from '@/lib/mock-data';
 import ArticleFormDialog from './ArticleFormDialog';
-import { deleteArticle } from './actions';
+import { deleteArticle, saveArticle } from './actions';
 import { useRouter } from 'next/navigation';
 
 interface ArticleManagementClientPageProps {
@@ -38,6 +39,8 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
 
@@ -75,6 +78,107 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
       router.refresh();
     }
   };
+  
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      { 
+        "Codice Articolo": "ART-001",
+        "Componente": "COMP-A",
+        "Unità di Misura": "n",
+        "Quantità": 2,
+        "Numero/Misura": "Misure opzionali"
+      },
+       { 
+        "Codice Articolo": "ART-001",
+        "Componente": "COMP-B",
+        "Unità di Misura": "mt",
+        "Quantità": 1.5,
+        "Numero/Misura": ""
+      },
+       { 
+        "Codice Articolo": "ART-002",
+        "Componente": "COMP-C",
+        "Unità di Misura": "kg",
+        "Quantità": 0.5,
+        "Numero/Misura": ""
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Distinta Base");
+    XLSX.writeFile(wb, "template_distinta_base.xlsx");
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+  
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    toast({ title: 'Importazione in corso...', description: 'Analisi del file Excel.' });
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+      const articlesToImport: { [code: string]: Omit<Article, 'id'> } = {};
+
+      for (const row of json) {
+        const articleCode = row['Codice Articolo'] || row['codice articolo'];
+        const component = row['Componente'] || row['componente'];
+        const quantity = row['Quantità'] || row['quantità'];
+        
+        if (!articleCode || !component || !quantity) {
+          continue; 
+        }
+
+        if (!articlesToImport[articleCode]) {
+          articlesToImport[articleCode] = {
+            code: articleCode,
+            billOfMaterials: [],
+          };
+        }
+        
+        articlesToImport[articleCode].billOfMaterials.push({
+          component: String(component),
+          unit: String(row['Unità di Misura'] || row['unità di misura'] || 'n'),
+          quantity: Number(quantity),
+          size: String(row['Numero/Misura'] || row['numero/misura'] || ''),
+        });
+      }
+      
+      const articlePromises = Object.values(articlesToImport).map(articleData => saveArticle(articleData));
+      const results = await Promise.all(articlePromises);
+      
+      const successCount = results.filter(r => r.success).length;
+      const errorCount = results.length - successCount;
+
+      toast({
+        title: "Importazione Completata",
+        description: `${successCount} articoli importati/aggiornati. ${errorCount > 0 ? `${errorCount} con errori.` : ''}`,
+      });
+
+      if (successCount > 0) {
+        router.refresh();
+      }
+
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Errore Importazione",
+        description: error instanceof Error ? error.message : "Impossibile leggere o processare il file.",
+      });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
 
   return (
@@ -90,7 +194,16 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
               Visualizza e gestisci la distinta base per ogni articolo.
             </p>
           </div>
-          <div className="flex items-center gap-2 pt-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2 pt-2 w-full sm:w-auto flex-wrap">
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+            <Button onClick={handleDownloadTemplate} variant="outline" size="sm">
+              <Download className="mr-2 h-4 w-4" />
+              Scarica Template
+            </Button>
+            <Button onClick={handleImportClick} variant="outline" size="sm" disabled={isImporting}>
+               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
+              Importa DB
+            </Button>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
