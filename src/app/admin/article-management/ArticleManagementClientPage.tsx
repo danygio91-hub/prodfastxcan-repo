@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -246,7 +247,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                       <TableRow key={article.code}>
                         <TableCell>
                             <ContextMenu>
-                              <ContextMenuTrigger className="font-medium">{article.code}</ContextMenuTrigger>
+                              <ContextMenuTrigger className="font-medium hover:text-primary hover:underline cursor-pointer">{article.code}</ContextMenuTrigger>
                               <ContextMenuContent>
                                 <ContextMenuItem onSelect={() => handleNavigateToAnalysis(article.code)}>
                                   <BarChart3 className="mr-2 h-4 w-4" />

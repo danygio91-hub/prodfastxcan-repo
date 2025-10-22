@@ -155,7 +155,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                   <div className="flex justify-between items-center w-full pr-4">
                                       <div className="flex items-center gap-3">
                                           <Package className="h-5 w-5 text-primary" />
-                                          <span className="font-semibold text-lg">{item.articleCode}</span>
+                                          <span className="font-semibold text-lg hover:text-primary hover:underline cursor-pointer">{item.articleCode}</span>
                                       </div>
                                       <div className="text-right">
                                            <TooltipProvider>

@@ -375,7 +375,7 @@ export default function JobOrderCard({
                     <ContextMenuTrigger>
                       <p className="flex items-center gap-2 text-muted-foreground hover:text-primary cursor-pointer">
                           <Package className="h-4 w-4" />
-                          {jobOrder.details}
+                          <span className="hover:underline">{jobOrder.details}</span>
                       </p>
                     </ContextMenuTrigger>
                      <ContextMenuContent>

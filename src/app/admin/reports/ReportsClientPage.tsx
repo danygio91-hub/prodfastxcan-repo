@@ -323,7 +323,7 @@ export default function ReportsClientPage({
                           <TableCell className="font-medium">{job.id}</TableCell>
                           <TableCell>
                             <ContextMenu>
-                                <ContextMenuTrigger className="hover:underline text-primary cursor-pointer">
+                                <ContextMenuTrigger className="hover:text-primary hover:underline cursor-pointer">
                                   {job.details}
                                 </ContextMenuTrigger>
                                 <ContextMenuContent>
