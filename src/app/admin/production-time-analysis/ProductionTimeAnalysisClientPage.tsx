@@ -4,14 +4,14 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy } from 'lucide-react';
+import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy, ClipboardList } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -38,6 +38,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
   const [openAccordion, setOpenAccordion] = useState<string | undefined>(undefined);
   const searchParams = useSearchParams();
   const articleCodeFromUrl = searchParams.get('articleCode');
+  const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -106,6 +107,10 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
         description: `Il codice "${text}" è stato copiato negli appunti.`,
     });
   }
+  
+  const handleNavigateToArticle = (articleCode: string) => {
+    router.push(`/admin/article-management?code=${encodeURIComponent(articleCode)}`);
+  };
     
   return (
       <div className="space-y-6">
@@ -177,6 +182,10 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                               </AccordionTrigger>
                             </ContextMenuTrigger>
                             <ContextMenuContent>
+                                <ContextMenuItem onSelect={() => handleNavigateToArticle(item.articleCode)}>
+                                  <ClipboardList className="mr-2 h-4 w-4" />
+                                  Gestisci Distinta Base
+                                </ContextMenuItem>
                                 <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
                                     <Copy className="mr-2 h-4 w-4" />
                                     Copia Codice Articolo

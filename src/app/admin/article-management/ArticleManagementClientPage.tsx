@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2 } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -179,7 +179,10 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
-
+  
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
 
   return (
     <>
@@ -245,7 +248,14 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
                             <ContextMenu>
                               <ContextMenuTrigger className="font-medium">{article.code}</ContextMenuTrigger>
                               <ContextMenuContent>
-                                <ContextMenuItem disabled>Analisi Tempi Articolo</ContextMenuItem>
+                                <ContextMenuItem onSelect={() => handleNavigateToAnalysis(article.code)}>
+                                  <BarChart3 className="mr-2 h-4 w-4" />
+                                  Analisi Tempi Articolo
+                                </ContextMenuItem>
+                                 <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!", description: "Codice articolo copiato negli appunti."}))}>
+                                  <Copy className="mr-2 h-4 w-4" />
+                                  Copia Codice Articolo
+                                </ContextMenuItem>
                               </ContextMenuContent>
                             </ContextMenu>
                         </TableCell>
