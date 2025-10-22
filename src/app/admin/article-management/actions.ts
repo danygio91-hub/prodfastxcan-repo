@@ -57,22 +57,25 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 
   const { id, code, billOfMaterials } = validatedFields.data;
   
-  const existingArticleSnap = await getDoc(doc(db, 'articles', code));
-
-  const docId = id || existingArticleSnap.id || code;
+  // Use the article code as the primary ID to ensure uniqueness.
+  // This is crucial for the "create or update" logic.
+  const docId = code;
   const docRef = doc(db, 'articles', docId);
+  const existingArticleSnap = await getDoc(docRef);
 
   const articleData: Article = {
     id: docId,
     code,
-    // Filter out empty components that might come from the UI
-    billOfMaterials: (billOfMaterials || []).filter(item => item.component && item.component.trim() !== ''),
+    // Filter out empty or invalid components that might come from the UI or import
+    billOfMaterials: (billOfMaterials || []).filter(item => item.component && item.component.trim() !== '' && item.quantity > 0),
   };
 
   try {
+    // setDoc with merge:true will create the document if it doesn't exist,
+    // or update it if it does. This handles both creating and updating articles.
     await setDoc(docRef, articleData, { merge: true });
     revalidatePath('/admin/article-management');
-    return { success: true, message: `Articolo ${existingArticleSnap.exists() || id ? 'aggiornato' : 'creato'} con successo.` };
+    return { success: true, message: `Articolo ${existingArticleSnap.exists() ? 'aggiornato' : 'creato'} con successo.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     return { success: false, message: errorMessage };
