@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -149,49 +148,49 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                 <Accordion type="single" collapsible className="w-full" value={openAccordion} onValueChange={setOpenAccordion}>
                     {filteredReport.map((item) => (
                         <AccordionItem value={item.articleCode} key={item.articleCode}>
-                          <ContextMenu>
-                            <ContextMenuTrigger>
-                              <AccordionTrigger>
-                                  <div className="flex justify-between items-center w-full pr-4">
-                                      <div className="flex items-center gap-3">
-                                          <Package className="h-5 w-5 text-primary" />
-                                          <span className="font-semibold text-lg hover:text-primary hover:underline cursor-pointer">{item.articleCode}</span>
-                                      </div>
-                                      <div className="text-right">
-                                           <TooltipProvider>
-                                              <Tooltip>
-                                                  <TooltipTrigger>
-                                                      <div className="text-sm text-muted-foreground">
-                                                          Tempo Medio/Pz
-                                                          <span className={cn(
-                                                              "ml-1 font-semibold",
-                                                              item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
-                                                          )}>
-                                                              ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
-                                                          </span>
-                                                      </div>
-                                                  </TooltipTrigger>
-                                                  <TooltipContent>
-                                                      <p>Calcolato solo su commesse completate senza forzature.</p>
-                                                  </TooltipContent>
-                                              </Tooltip>
-                                          </TooltipProvider>
-                                          <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
-                                      </div>
+                          <AccordionTrigger>
+                              <div className="flex justify-between items-center w-full pr-4">
+                                  <div className="flex items-center gap-3">
+                                      <Package className="h-5 w-5 text-primary" />
+                                      <ContextMenu>
+                                        <ContextMenuTrigger>
+                                            <span className="font-semibold text-lg hover:text-primary hover:underline cursor-pointer">{item.articleCode}</span>
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent>
+                                            <ContextMenuItem onSelect={() => handleNavigateToArticle(item.articleCode)}>
+                                                <ClipboardList className="mr-2 h-4 w-4" />
+                                                Gestisci Distinta Base
+                                            </ContextMenuItem>
+                                            <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
+                                                <Copy className="mr-2 h-4 w-4" />
+                                                Copia Codice Articolo
+                                            </ContextMenuItem>
+                                        </ContextMenuContent>
+                                      </ContextMenu>
                                   </div>
-                              </AccordionTrigger>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => handleNavigateToArticle(item.articleCode)}>
-                                  <ClipboardList className="mr-2 h-4 w-4" />
-                                  Gestisci Distinta Base
-                                </ContextMenuItem>
-                                <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
-                                    <Copy className="mr-2 h-4 w-4" />
-                                    Copia Codice Articolo
-                                </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
+                                  <div className="text-right">
+                                       <TooltipProvider>
+                                          <Tooltip>
+                                              <TooltipTrigger>
+                                                  <div className="text-sm text-muted-foreground">
+                                                      Tempo Medio/Pz
+                                                      <span className={cn(
+                                                          "ml-1 font-semibold",
+                                                          item.averageMinutesPerPiece > 0 ? "text-green-600 dark:text-green-500" : "text-amber-600 dark:text-amber-500"
+                                                      )}>
+                                                          ({item.averageMinutesPerPiece > 0 ? 'Affidabile' : 'Parziale'})
+                                                      </span>
+                                                  </div>
+                                              </TooltipTrigger>
+                                              <TooltipContent>
+                                                  <p>Calcolato solo su commesse completate senza forzature.</p>
+                                              </TooltipContent>
+                                          </Tooltip>
+                                      </TooltipProvider>
+                                      <div className="font-bold text-lg text-primary">{item.averageMinutesPerPiece > 0 ? `${item.averageMinutesPerPiece.toFixed(4)} min` : 'N/D'}</div>
+                                  </div>
+                              </div>
+                          </AccordionTrigger>
                             <AccordionContent>
                                 <div className="p-4 bg-muted/50 rounded-lg space-y-6">
                                      <div>

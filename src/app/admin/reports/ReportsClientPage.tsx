@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useMemo, useTransition } from 'react';
@@ -110,12 +109,8 @@ export default function ReportsClientPage({
   }, [operatorDate]);
 
   useEffect(() => {
-    fetchWithdrawals();
-  }, [fetchWithdrawals]);
-  
-  useEffect(() => {
-    fetchOperators();
-  }, [fetchOperators]);
+    // No initial fetch, will be triggered by tab change or date change
+  }, []);
   
   const filteredAndGroupedWithdrawals = useMemo(() => {
     const filtered = searchTerm
@@ -240,6 +235,15 @@ export default function ReportsClientPage({
     router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
   };
   
+  const handleTabChange = (value: string) => {
+    if (value === 'operatori' && operatorsReport.length === 0) {
+      fetchOperators();
+    }
+    if (value === 'prelievi' && withdrawalsReport.length === 0) {
+      fetchWithdrawals();
+    }
+  };
+
   const renderLoadingRow = (colspan: number) => (
     <TableRow>
       <TableCell colSpan={colspan} className="h-24 text-center">
@@ -266,7 +270,7 @@ export default function ReportsClientPage({
           </p>
         </header>
 
-        <Tabs defaultValue="commesse">
+        <Tabs defaultValue="commesse" onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="commesse">
               <Briefcase className="mr-2 h-4 w-4"/>
@@ -495,51 +499,14 @@ export default function ReportsClientPage({
                                     />
                                 </PopoverContent>
                             </Popover>
+                            <Button onClick={fetchWithdrawals} variant="secondary" size="sm" disabled={isPendingWithdrawals}>
+                                {isPendingWithdrawals ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Search className="mr-2 h-4 w-4"/>}
+                                Cerca
+                            </Button>
                             <Button onClick={handleExportWithdrawals} variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
                                 <Download className="mr-2 h-4 w-4" />
-                                Esporta Excel
+                                Esporta
                             </Button>
-                            {selectedWithdrawals.length > 0 && (
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" size="sm" disabled={isDeleting}>
-                                            <Trash2 className="mr-2 h-4 w-4" />
-                                            Elimina ({selectedWithdrawals.length})
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                Stai per eliminare {selectedWithdrawals.length} report di prelievo. Questa azione è irreversibile.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleDeleteSelected}>Continua</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                             <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button variant="outline" size="sm" disabled={isPendingWithdrawals || isDeleting || withdrawalsReport.length === 0}>
-                                        Svuota Elenco
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Questa azione è irreversibile. Verranno eliminati tutti i report di prelievo dal sistema.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={handleDeleteAll}>Sì, elimina tutto</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
                           </div>
                       </div>
                   </CardHeader>

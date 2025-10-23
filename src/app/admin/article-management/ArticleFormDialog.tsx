@@ -123,88 +123,90 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              <h4 className="font-semibold">Componenti Distinta Base</h4>
-              {fields.map((field, index) => (
-                <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md relative">
-                   <div className="col-span-12 sm:col-span-4">
-                    <FormField
-                      control={form.control}
-                      name={`billOfMaterials.${index}.component`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Componente</FormLabel>
-                          <FormControl><Input placeholder="Codice componente..." {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-4">
+                <h4 className="font-semibold">Componenti Distinta Base</h4>
+                {fields.map((field, index) => (
+                  <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md relative">
+                    <div className="col-span-12 sm:col-span-4">
+                      <FormField
+                        control={form.control}
+                        name={`billOfMaterials.${index}.component`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Componente</FormLabel>
+                            <FormControl><Input placeholder="Codice componente..." {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="col-span-6 sm:col-span-2">
+                      <FormField
+                        control={form.control}
+                        name={`billOfMaterials.${index}.unit`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>UM</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger><SelectValue placeholder="Unità" /></SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="n">n</SelectItem>
+                                <SelectItem value="mt">mt</SelectItem>
+                                <SelectItem value="kg">kg</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="col-span-6 sm:col-span-2">
+                      <FormField
+                        control={form.control}
+                        name={`billOfMaterials.${index}.quantity`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Quantità</FormLabel>
+                            <FormControl><Input type="number" step="any" placeholder="0.0" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="col-span-12 sm:col-span-3">
+                      <FormField
+                        control={form.control}
+                        name={`billOfMaterials.${index}.size`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Numero/Misura</FormLabel>
+                            <FormControl><Input placeholder="Es. 3,5x16mm" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="absolute top-2 right-2">
+                      <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="col-span-6 sm:col-span-2">
-                    <FormField
-                      control={form.control}
-                      name={`billOfMaterials.${index}.unit`}
-                      render={({ field }) => (
-                         <FormItem>
-                          <FormLabel>UM</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger><SelectValue placeholder="Unità" /></SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="n">n</SelectItem>
-                              <SelectItem value="mt">mt</SelectItem>
-                              <SelectItem value="kg">kg</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <div className="col-span-6 sm:col-span-2">
-                    <FormField
-                      control={form.control}
-                      name={`billOfMaterials.${index}.quantity`}
-                      render={({ field }) => (
-                         <FormItem>
-                          <FormLabel>Quantità</FormLabel>
-                          <FormControl><Input type="number" step="any" placeholder="0.0" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                   <div className="col-span-12 sm:col-span-3">
-                    <FormField
-                      control={form.control}
-                      name={`billOfMaterials.${index}.size`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Numero/Misura</FormLabel>
-                          <FormControl><Input placeholder="Es. 3,5x16mm" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                   <div className="absolute top-2 right-2">
-                     <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full mt-4"
-                onClick={() => append({ component: '', unit: 'n', quantity: 1, size: '' })}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Aggiungi Componente
-              </Button>
-            </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full mt-4"
+                  onClick={() => append({ component: '', unit: 'n', quantity: 1, size: '' })}
+                >
+                  <PlusCircle className="mr-2 h-4 w-4" />
+                  Aggiungi Componente
+                </Button>
+              </div>
+            </ScrollArea>
             
             <DialogFooter className="p-4 border-t sticky bottom-0 bg-background">
               <Button type="button" variant="outline" onClick={() => onClose()}>Annulla</Button>

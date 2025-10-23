@@ -37,7 +37,7 @@ export async function getArticles(): Promise<Article[]> {
   articleCodesFromJobs.forEach(code => {
     if (!existingArticles.has(code)) {
       existingArticles.set(code, {
-        id: code,
+        id: code, // Use code as ID for jobs that don't have a formal article entry yet
         code: code,
         billOfMaterials: [],
       });
@@ -55,10 +55,9 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     return { success: false, message: 'Dati non validi.' };
   }
 
-  const { id, code, billOfMaterials } = validatedFields.data;
+  const { code, billOfMaterials } = validatedFields.data;
   
-  // Use the article code as the primary ID to ensure uniqueness.
-  // This is crucial for the "create or update" logic.
+  // Use the article code as the primary ID to ensure uniqueness and enable "create or update" logic.
   const docId = code;
   const docRef = doc(db, 'articles', docId);
   const existingArticleSnap = await getDoc(docRef);
@@ -71,9 +70,9 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
   };
 
   try {
-    // setDoc with merge:true will create the document if it doesn't exist,
-    // or update it if it does. This handles both creating and updating articles.
-    await setDoc(docRef, articleData, { merge: true });
+    // setDoc without merge will create or completely overwrite the document.
+    // This is the desired behavior for BOM management: an import replaces the old BOM.
+    await setDoc(docRef, articleData);
     revalidatePath('/admin/article-management');
     return { success: true, message: `Articolo ${existingArticleSnap.exists() ? 'aggiornato' : 'creato'} con successo.` };
   } catch (error) {

@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
@@ -121,7 +120,7 @@ export async function getJobsReport() {
         }
 
         for (const chunk of chunks) {
-            if (chunk.length > 0) { // Ensure chunk is not empty
+             if (chunk.length > 0) { // Ensure chunk is not empty
                 const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
@@ -160,7 +159,18 @@ export async function getOperatorsReport(targetDateString?: string) {
     const operatorsSnapshot = await getDocs(collection(db, "operators"));
     const operators = operatorsSnapshot.docs.map(doc => doc.data() as Operator);
     
-    const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
+    const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
+    
+    const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
+    const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
+    const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
+    
+    // Fetch only the jobs relevant to the widest time interval (this month)
+    const jobsSnapshot = await getDocs(
+      query(collection(db, "jobOrders"), 
+        where("odlCreationDate", ">=", Timestamp.fromDate(thisMonthInterval.start)),
+      )
+    );
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const allWorkPeriods = jobs.flatMap(job => 
@@ -168,12 +178,6 @@ export async function getOperatorsReport(targetDateString?: string) {
             (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))
         )
     );
-    
-    const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
-    
-    const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
-    const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
-    const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
     return operators.map(op => {
         const operatorPeriods = allWorkPeriods.filter(p => p.operatorId === op.id);
@@ -415,10 +419,10 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     let q = query(withdrawalsRef);
 
     if (dateRange && dateRange.from) {
-        q = query(q, where("withdrawalDate", ">=", Timestamp.fromDate(dateRange.from)));
+        q = query(q, where("withdrawalDate", ">=", Timestamp.fromDate(startOfDay(dateRange.from))));
     }
     if (dateRange && dateRange.to) {
-        q = query(q, where("withdrawalDate", "<=", Timestamp.fromDate(dateRange.to)));
+        q = query(q, where("withdrawalDate", "<=", Timestamp.fromDate(endOfDay(dateRange.to))));
     }
 
     const snapshot = await getDocs(q);
