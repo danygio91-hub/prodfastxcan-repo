@@ -225,7 +225,7 @@ export async function getOperatorsReport(targetDateString?: string) {
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
             timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
             todayDate: format(referenceDate, 'dd/MM/yyyy'),
-            weekLabel: `Week ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
+            weekLabel: `Settimana ${getWeek(referenceDate, { weekStartsOn: 1 })}`,
             monthLabel: format(referenceDate, 'MMMM yyyy', { locale: it }),
         };
     });
