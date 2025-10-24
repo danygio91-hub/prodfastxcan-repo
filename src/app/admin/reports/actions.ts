@@ -678,11 +678,12 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
         const phaseDetailsForReport = phasesWithDetails
-          .filter(p => p.phase.tracksTime !== false) // Include all phases that track time, even if time is 0
+          .filter(p => p.phase.tracksTime !== false) // Include all phases that track time
           .map(p => {
             const phaseTimeMinutes = p.timeMs / (1000 * 60);
             
             // Collect phase data for averaging ONLY IF the specific phase was completed normally
+            // This is the key change: it contributes to phase averages even if the job as a whole isn't reliable.
             if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MINIMUM_VALID_PHASE_DURATION_MS) {
                  if (!phaseDataByArticle[articleCode][p.phase.name]) {
                     phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0 };
@@ -739,5 +740,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
 

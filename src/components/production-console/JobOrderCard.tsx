@@ -64,14 +64,14 @@ function getPhaseIcon(status: JobPhase['status']) {
 
 function formatTime(seconds: number): string {
     if (seconds < 0) seconds = 0;
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    const totalMinutes = Math.round(seconds / 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
-  const [elapsedTime, setElapsedTime] = useState('00:00:00');
+  const [elapsedTime, setElapsedTime] = useState('00:00');
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -477,9 +477,9 @@ export default function JobOrderCard({
               </div>
            </div>
            
-           <div className="p-3 rounded-lg border bg-background/50 space-y-2">
+           <div className="p-2 rounded-lg border bg-background/50 space-y-1">
                 <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
+                    <div className="flex items-center gap-2 text-xs font-semibold">
                         <Timer className="h-4 w-4 text-primary"/>
                         Ore Rimanenti Stimate
                     </div>
@@ -493,7 +493,7 @@ export default function JobOrderCard({
                                 onClick={updateRemainingTime}
                                 disabled={!analysisData?.isTimeCalculationReliable}
                             >
-                                <RefreshCcw className="h-4 w-4" />
+                                <RefreshCcw className="h-3 w-3" />
                             </Button>
                            </TooltipTrigger>
                            <TooltipContent>
@@ -503,9 +503,9 @@ export default function JobOrderCard({
                    </TooltipProvider>
                 </div>
                 {analysisData?.isTimeCalculationReliable ? (
-                     <p className="font-mono text-xl font-bold text-primary">{remainingTime || 'Calcolo...'}</p>
+                     <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime || 'Calcolo...'}</p>
                 ) : (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger>
@@ -550,11 +550,11 @@ export default function JobOrderCard({
             <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
             {jobOrder.phases && jobOrder.phases.length > 0 ? (
                 jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <div key={phase.id} className="p-3 rounded-lg border bg-background/50 space-y-2">
+                    <div key={phase.id} className="p-2 rounded-lg border bg-background/50 space-y-1">
                         <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
                                 {getPhaseIcon(phase.status)}
-                                <span className={cn("font-medium", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
+                                <span className={cn("text-xs font-semibold uppercase tracking-wider", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
                             </div>
                             {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
                                 <AlertDialog>
@@ -570,12 +570,12 @@ export default function JobOrderCard({
                                 </AlertDialog>
                             )}
                         </div>
-                        <div className="grid grid-cols-2 gap-4 text-center">
-                            <div className="p-2 rounded-md bg-muted/50">
-                                <Label className="text-xs text-muted-foreground">Tempo Effettivo</Label>
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                            <div className="p-1 rounded-md bg-muted/50">
+                                <Label className="text-xs text-muted-foreground">Tempo Eff.</Label>
                                 <PhaseLiveTimer phase={phase} />
                             </div>
-                            <div className="p-2 rounded-md bg-muted/50">
+                            <div className="p-1 rounded-md bg-muted/50">
                                 <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
                                 <p className="font-mono text-lg">
                                     {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
@@ -646,5 +646,7 @@ export default function JobOrderCard({
 }
 
     
+
+
 
 
