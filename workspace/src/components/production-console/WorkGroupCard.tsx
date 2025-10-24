@@ -9,7 +9,7 @@ import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import {
@@ -32,10 +32,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '../ui/label';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
@@ -69,6 +69,8 @@ export default function WorkGroupCard({
     onOpenPhaseManager,
     onOpenMaterialManager,
     onToggleGuainaClick,
+    onRevertPhaseClick,
+    onResetJobOrderClick,
     isSelected,
     onSelect,
     overallStatus,
@@ -403,5 +405,3 @@ export default function WorkGroupCard({
     </>
   );
 }
-
-    
