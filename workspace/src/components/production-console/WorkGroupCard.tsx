@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +9,7 @@ import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Button } from './button';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import {
@@ -31,10 +32,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from './label';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
-import { Separator } from './separator';
+import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
@@ -401,3 +402,5 @@ export default function WorkGroupCard({
     </>
   );
 }
+
+    
