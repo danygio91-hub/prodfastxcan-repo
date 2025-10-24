@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
@@ -257,7 +258,7 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
     const dateLabels = {
         today: format(targetDate, 'dd MMMM yyyy', { locale: it }),
         week: `Settimana ${getWeek(targetDate, { weekStartsOn: 1 })}`,
-        month: format(targetDate, 'MMMM yyyy', { locale: it }),
+        month: `MMMM yyyy`,
     };
 
     const timeMetrics = await getOperatorsReport(date);
@@ -683,8 +684,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
           .map(p => {
             const phaseTimeMinutes = p.timeMs / (1000 * 60);
             
-            // Only aggregate phase data for the article's average if the entire job is reliable
-            if (isReliable) {
+            // Collect phase data for averaging regardless of job reliability
+            if (p.phase.status === 'completed') {
                  if (!phaseDataByArticle[articleCode][p.phase.name]) {
                     phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0 };
                 }
@@ -746,3 +747,4 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+

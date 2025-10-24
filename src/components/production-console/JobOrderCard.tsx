@@ -62,14 +62,13 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-function formatMinutesAsHHMMSS(minutes: number): string {
+function formatMinutesAsHHMM(minutes: number): string {
     if (minutes <= 0 || !isFinite(minutes)) {
-        return '00:00:00';
+        return '00:00';
     }
     const hours = Math.floor(minutes / 60);
     const remainingMinutes = Math.floor(minutes % 60);
-    const seconds = Math.round((minutes * 60) % 60);
-    return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}`;
 }
 
 
@@ -131,7 +130,7 @@ export default function JobOrderCard({
     const totalEstimatedMinutes = analysisData.averageMinutesPerPiece * jobOrder.qta;
     const remainingMinutes = totalEstimatedMinutes - completedPhasesTotalMinutes;
     
-    setRemainingTime(formatMinutesAsHHMMSS(remainingMinutes));
+    setRemainingTime(formatMinutesAsHHMM(remainingMinutes));
   }, [analysisData, jobOrder]);
   
   useEffect(() => {
@@ -520,7 +519,7 @@ export default function JobOrderCard({
                           <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
                           <Badge variant="outline" className="font-mono text-xs">
                              {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                ? `${(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta).toFixed(0)} min`
+                                ? `${formatMinutesAsHHMM(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta)}`
                                 : 'N/D'
                              }
                           </Badge>
@@ -606,3 +605,4 @@ export default function JobOrderCard({
 }
 
     
+
