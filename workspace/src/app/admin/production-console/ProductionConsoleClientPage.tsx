@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -741,6 +740,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   group={group}
                   jobsInGroup={jobsByGroupId.get(group.id) || []}
                   allOperators={allOperators}
+                  analysisData={analysisMap.get(group.details)}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
                   onForcePauseClick={handleForcePause}
@@ -752,9 +752,9 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
-                  getOverallStatus={getOverallStatus}
-                  onRevertPhaseClick={() => {}}
-                  onResetJobOrderClick={() => {}}
+                   onRevertPhaseClick={() => {}}
+                   onResetJobOrderClick={() => {}}
+                   getOverallStatus={getOverallStatus}
               />
             ))}
             {filteredStandaloneJobs.map(job => (

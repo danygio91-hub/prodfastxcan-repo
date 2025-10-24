@@ -380,6 +380,7 @@ export default function WorkGroupCard({
                               key={job.id}
                               jobOrder={job}
                               allOperators={allOperators}
+                              analysisData={analysisData}
                               onProblemClick={() => {}}
                               onForceFinishClick={() => {}}
                               onRevertForceFinishClick={() => {}}
@@ -403,5 +404,3 @@ export default function WorkGroupCard({
           </DialogContent>
       </Dialog>
     </>
-  );
-}
