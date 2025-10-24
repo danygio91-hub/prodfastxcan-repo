@@ -102,7 +102,7 @@ function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
     return () => clearInterval(interval);
   }, [phase]);
 
-  return <span className="font-mono text-lg">{elapsedTime}</span>;
+  return <p className="font-mono text-lg">{elapsedTime}</p>;
 }
 
 
@@ -477,9 +477,9 @@ export default function JobOrderCard({
               </div>
            </div>
            
-           <div className="p-2 rounded-lg border bg-background/50 space-y-1">
+           <div className="p-3 rounded-lg border bg-background/50 space-y-2">
                 <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-xs font-semibold">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
                         <Timer className="h-4 w-4 text-primary"/>
                         Ore Rimanenti Stimate
                     </div>
@@ -493,7 +493,7 @@ export default function JobOrderCard({
                                 onClick={updateRemainingTime}
                                 disabled={!analysisData?.isTimeCalculationReliable}
                             >
-                                <RefreshCcw className="h-3 w-3" />
+                                <RefreshCcw className="h-4 w-4" />
                             </Button>
                            </TooltipTrigger>
                            <TooltipContent>
@@ -550,7 +550,7 @@ export default function JobOrderCard({
             <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
             {jobOrder.phases && jobOrder.phases.length > 0 ? (
                 jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <div key={phase.id} className="p-2 rounded-lg border bg-background/50 space-y-1">
+                    <div key={phase.id} className="p-2 rounded-lg border bg-background/50 space-y-2">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                                 {getPhaseIcon(phase.status)}
