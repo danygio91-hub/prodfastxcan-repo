@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle } from 'lucide-react';
-import { format, parseISO, isPast } from 'date-fns';
+import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -62,13 +62,47 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-function formatMinutesAsHHMM(minutes: number): string {
-    if (minutes <= 0 || !isFinite(minutes)) {
-        return '00:00';
+function formatTime(seconds: number): string {
+    if (seconds < 0) seconds = 0;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
+  const [elapsedTime, setElapsedTime] = useState('00:00:00');
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    const activeWorkPeriod = phase.workPeriods?.find(wp => wp.end === null);
+
+    if (phase.status === 'in-progress' && activeWorkPeriod) {
+      const startTime = new Date(activeWorkPeriod.start).getTime();
+      
+      const updateTimer = () => {
+        const now = Date.now();
+        const totalSeconds = Math.floor((now - startTime) / 1000);
+        setElapsedTime(formatTime(totalSeconds));
+      };
+
+      updateTimer(); // Initial update
+      interval = setInterval(updateTimer, 1000);
+    } else {
+        const totalSeconds = (phase.workPeriods || []).reduce((acc, wp) => {
+            if(wp.end) {
+                return acc + differenceInSeconds(new Date(wp.end), new Date(wp.start));
+            }
+            return acc;
+        }, 0);
+        setElapsedTime(formatTime(totalSeconds));
     }
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = Math.floor(minutes % 60);
-    return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}`;
+
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  return <span className="font-mono text-lg">{elapsedTime}</span>;
 }
 
 
@@ -130,11 +164,13 @@ export default function JobOrderCard({
     const totalEstimatedMinutes = analysisData.averageMinutesPerPiece * jobOrder.qta;
     const remainingMinutes = totalEstimatedMinutes - completedPhasesTotalMinutes;
     
-    setRemainingTime(formatMinutesAsHHMM(remainingMinutes));
+    setRemainingTime(formatTime(remainingMinutes * 60)); // convert minutes to seconds for formatTime
   }, [analysisData, jobOrder]);
   
   useEffect(() => {
     updateRemainingTime();
+    const interval = setInterval(updateRemainingTime, 60000); // update every minute
+    return () => clearInterval(interval);
   }, [updateRemainingTime]);
 
 
@@ -511,45 +547,50 @@ export default function JobOrderCard({
           <Separator />
 
           <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
-              {jobOrder.phases && jobOrder.phases.length > 0 ? (
-                  jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                      <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
-                          {getPhaseIcon(phase.status)}
-                          <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
-                          <Badge variant="outline" className="font-mono text-xs">
-                             {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                ? `${formatMinutesAsHHMM(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta)}`
-                                : 'N/D'
-                             }
-                          </Badge>
-                          {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
-                             <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
-                                        <Undo2 className="h-4 w-4" />
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                      </div>
-                  ))
-              ) : (
-                  <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
-              )}
-          </div>
+            <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
+            {jobOrder.phases && jobOrder.phases.length > 0 ? (
+                jobOrder.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
+                    <div key={phase.id} className="p-3 rounded-lg border bg-background/50 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                                {getPhaseIcon(phase.status)}
+                                <span className={cn("font-medium", phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span>
+                            </div>
+                            {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                                            <Undo2 className="h-4 w-4" />
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Ripristinare la fase?</AlertDialogTitle><AlertDialogDescription>Questa azione riporterà la fase "{phase.name}" allo stato di pausa, conservando il tempo di lavoro già registrato. Sei sicuro?</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onRevertPhaseClick(jobOrder.id, phase.id)}>Sì, ripristina</AlertDialogAction></AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-center">
+                            <div className="p-2 rounded-md bg-muted/50">
+                                <Label className="text-xs text-muted-foreground">Tempo Effettivo</Label>
+                                <PhaseLiveTimer phase={phase} />
+                            </div>
+                            <div className="p-2 rounded-md bg-muted/50">
+                                <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
+                                <p className="font-mono text-lg">
+                                    {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                        ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
+                                        : 'N/D'
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                ))
+            ) : (
+                <p className="text-sm text-muted-foreground">Nessuna fase definita per questa commessa.</p>
+            )}
+        </div>
         </CardContent>
         <CardFooter className="flex-col items-start gap-2 pt-4">
           <div className="w-full">
@@ -605,4 +646,5 @@ export default function JobOrderCard({
 }
 
     
+
 

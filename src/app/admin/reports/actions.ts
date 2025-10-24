@@ -643,7 +643,7 @@ async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isRelia
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["completed", "production", "suspended"]));
+    const q = query(jobsRef, where("status", "in", ["completed", "production", "suspended", "paused"]));
     const jobsSnapshot = await getDocs(q);
     const jobsToAnalyze = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
@@ -651,10 +651,8 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const timeSettings: TimeTrackingSettings = settingsDoc.exists() ? settingsDoc.data() as TimeTrackingSettings : { minimumPhaseDurationSeconds: 10 };
     const MINIMUM_VALID_PHASE_DURATION_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
 
-
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
     const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number } } } = {};
-
 
     for (const job of jobsToAnalyze) {
         const articleCode = job.details;
@@ -680,12 +678,12 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
         const phaseDetailsForReport = phasesWithDetails
-          .filter(p => p.phase.tracksTime !== false && p.timeMs > 0)
+          .filter(p => p.phase.tracksTime !== false) // Include all phases that track time, even if time is 0
           .map(p => {
             const phaseTimeMinutes = p.timeMs / (1000 * 60);
             
-            // Collect phase data for averaging regardless of job reliability
-            if (p.phase.status === 'completed') {
+            // Collect phase data for averaging ONLY IF the specific phase was completed normally
+            if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MINIMUM_VALID_PHASE_DURATION_MS) {
                  if (!phaseDataByArticle[articleCode][p.phase.name]) {
                     phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0 };
                 }
@@ -700,22 +698,18 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             };
         });
 
-
-        // Only add job to report if it has some recorded time or is completed.
-        if (totalTimeMinutes > 0 || job.status === 'completed') {
-            const report = analysisByArticle[articleCode];
-            report.totalJobs += 1;
-            report.totalQuantity += job.qta;
-            report.jobs.push({
-                id: job.ordinePF,
-                cliente: job.cliente,
-                qta: job.qta,
-                totalTimeMinutes: totalTimeMinutes,
-                minutesPerPiece: minutesPerPiece,
-                isTimeCalculationReliable: isReliable,
-                phases: phaseDetailsForReport,
-            });
-        }
+        const report = analysisByArticle[articleCode];
+        report.totalJobs += 1;
+        report.totalQuantity += job.qta;
+        report.jobs.push({
+            id: job.ordinePF,
+            cliente: job.cliente,
+            qta: job.qta,
+            totalTimeMinutes: totalTimeMinutes,
+            minutesPerPiece: minutesPerPiece,
+            isTimeCalculationReliable: isReliable,
+            phases: phaseDetailsForReport,
+        });
     }
 
     // Calculate the final averages
@@ -726,7 +720,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             continue;
         }
         
-        // Average for the whole article
         const reliableJobs = report.jobs.filter(j => j.isTimeCalculationReliable);
         const totalMinutesFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
         const totalQuantityFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.qta, 0);
@@ -737,7 +730,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             report.averageMinutesPerPiece = 0; 
         }
         
-        // Average for each phase
         const phaseData = phaseDataByArticle[articleCode];
         report.averagePhaseTimes = Object.entries(phaseData).map(([phaseName, data]) => ({
             name: phaseName,
@@ -747,4 +739,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 

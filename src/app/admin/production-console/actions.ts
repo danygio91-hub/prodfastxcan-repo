@@ -9,7 +9,7 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import type { ConcatenationPolicy } from '@/app/admin/concatenation-settings/actions';
-import { getProductionTimeAnalysisReport, type ProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport, type ProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 
 
 export type ProductionTimeData = {
@@ -19,26 +19,23 @@ export type ProductionTimeData = {
 };
 
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
-    const report = await getProductionTimeAnalysisReport();
+    const report = await fetchProductionTimeAnalysisReport();
     const analysisMap = new Map<string, ProductionTimeData>();
 
     for (const articleReport of report) {
-        // We only consider reliable data for estimations
-        if (articleReport.averageMinutesPerPiece > 0) {
-            const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
-            articleReport.averagePhaseTimes.forEach(phase => {
-                if (phase.averageMinutesPerPiece > 0) {
-                    phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece };
-                }
-            });
+        // We consider all data for estimations, reliability is just a flag
+        const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
+        articleReport.averagePhaseTimes.forEach(phase => {
+            if (phase.averageMinutesPerPiece > 0) {
+                phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece };
+            }
+        });
 
-            analysisMap.set(articleReport.articleCode, {
-                averageMinutesPerPiece: articleReport.averageMinutesPerPiece,
-                // The overall average is reliable only if there are reliable jobs
-                isTimeCalculationReliable: articleReport.jobs.some(j => j.isTimeCalculationReliable),
-                phases: phaseTimes,
-            });
-        }
+        analysisMap.set(articleReport.articleCode, {
+            averageMinutesPerPiece: articleReport.averageMinutesPerPiece,
+            isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)),
+            phases: phaseTimes,
+        });
     }
     return analysisMap;
 }
@@ -696,6 +693,7 @@ export async function reportMaterialMissing(
     });
 
     revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
     return { success: true, message: 'Mancanza materiale segnalata.' };
   } catch (e) {
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
@@ -759,7 +757,4 @@ export async function resolveMaterialMissing(
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
   }
 }
-    
-
-    
     
