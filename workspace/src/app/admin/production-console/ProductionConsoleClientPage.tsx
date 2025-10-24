@@ -751,6 +751,8 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
+                   onRevertPhaseClick={() => {}}
+                   onResetJobOrderClick={() => {}}
                    getOverallStatus={getOverallStatus}
                    analysisData={analysisMap.get(group.details)}
               />
