@@ -1,4 +1,3 @@
-
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +8,7 @@ import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button } from './button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import {
@@ -32,10 +31,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
+import { Label } from './label';
 import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
-import { Separator } from '@/components/ui/separator';
+import { Separator } from './separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
@@ -69,8 +68,6 @@ export default function WorkGroupCard({
     onOpenPhaseManager,
     onOpenMaterialManager,
     onToggleGuainaClick,
-    onRevertPhaseClick,
-    onResetJobOrderClick,
     isSelected,
     onSelect,
     overallStatus,
@@ -88,8 +85,6 @@ export default function WorkGroupCard({
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
-    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
-    onResetJobOrderClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
