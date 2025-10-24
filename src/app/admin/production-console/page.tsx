@@ -5,12 +5,13 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
+import { getProductionTimeAnalysisMap } from './actions';
 
 export const dynamic = 'force-dynamic';
 
-export default function ProductionConsolePage() {
-  // Data fetching is now handled on the client-side
-  // to improve navigation performance. The client component will show a loading state.
+export default async function ProductionConsolePage() {
+  const analysisMap = await getProductionTimeAnalysisMap();
+  
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -20,7 +21,7 @@ export default function ProductionConsolePage() {
                 <p className="ml-4 text-muted-foreground">Caricamento console...</p>
              </div>
          }>
-            <ProductionConsoleClientPage />
+            <ProductionConsoleClientPage analysisMap={analysisMap} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

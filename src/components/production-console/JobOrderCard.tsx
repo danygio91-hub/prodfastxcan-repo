@@ -1,17 +1,18 @@
 
+
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle } from 'lucide-react';
 import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +42,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '../ui/separator';
+import type { ProductionTimeData } from '@/app/admin/production-console/actions';
+
 
 interface ActivePhaseInfo {
   phaseId: string;
@@ -59,9 +62,21 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
+function formatMinutesAsHHMMSS(minutes: number): string {
+    if (minutes <= 0 || !isFinite(minutes)) {
+        return '00:00:00';
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = Math.floor(minutes % 60);
+    const seconds = Math.round((minutes * 60) % 60);
+    return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+
 export default function JobOrderCard({ 
     jobOrder,
     allOperators,
+    analysisData,
     onProblemClick, 
     onForceFinishClick,
     onRevertForceFinishClick,
@@ -81,6 +96,7 @@ export default function JobOrderCard({
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
+    analysisData?: ProductionTimeData | null;
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void;
     onRevertForceFinishClick: (jobId: string) => void;
@@ -101,7 +117,27 @@ export default function JobOrderCard({
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
+  const [remainingTime, setRemainingTime] = useState<string | null>(null);
+
+  const updateRemainingTime = React.useCallback(() => {
+    if (!analysisData || !analysisData.isTimeCalculationReliable) {
+      setRemainingTime(null);
+      return;
+    }
+    const completedPhasesTotalMinutes = jobOrder.phases
+      .filter(p => p.status === 'completed' && analysisData.phases[p.name])
+      .reduce((acc, p) => acc + (analysisData.phases[p.name].averageMinutesPerPiece * jobOrder.qta), 0);
+
+    const totalEstimatedMinutes = analysisData.averageMinutesPerPiece * jobOrder.qta;
+    const remainingMinutes = totalEstimatedMinutes - completedPhasesTotalMinutes;
+    
+    setRemainingTime(formatMinutesAsHHMMSS(remainingMinutes));
+  }, [analysisData, jobOrder]);
   
+  useEffect(() => {
+    updateRemainingTime();
+  }, [updateRemainingTime]);
+
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -406,6 +442,51 @@ export default function JobOrderCard({
               </div>
            </div>
            
+           <div className="p-3 rounded-lg border bg-background/50 space-y-2">
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                        <Timer className="h-4 w-4 text-primary"/>
+                        Ore Rimanenti Stimate
+                    </div>
+                    <TooltipProvider>
+                       <Tooltip>
+                           <TooltipTrigger asChild>
+                             <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={updateRemainingTime}
+                                disabled={!analysisData?.isTimeCalculationReliable}
+                            >
+                                <RefreshCcw className="h-4 w-4" />
+                            </Button>
+                           </TooltipTrigger>
+                           <TooltipContent>
+                               <p>Aggiorna stima</p>
+                           </TooltipContent>
+                       </Tooltip>
+                   </TooltipProvider>
+                </div>
+                {analysisData?.isTimeCalculationReliable ? (
+                     <p className="font-mono text-xl font-bold text-primary">{remainingTime || 'Calcolo...'}</p>
+                ) : (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <HelpCircle className="h-4 w-4" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Dati di produzione insufficienti per una stima affidabile.</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <span>N/D</span>
+                    </div>
+                )}
+           </div>
+
+           
            {isAnyPhaseActive && (
               <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                   <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
@@ -437,6 +518,12 @@ export default function JobOrderCard({
                       <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
                           {getPhaseIcon(phase.status)}
                           <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
+                          <Badge variant="outline" className="font-mono text-xs">
+                             {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                ? `${(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta).toFixed(0)} min`
+                                : 'N/D'
+                             }
+                          </Badge>
                           {phase.status === 'completed' && overallStatus !== 'Completata' && !isPartOfGroup && (
                              <AlertDialog>
                                 <AlertDialogTrigger asChild>

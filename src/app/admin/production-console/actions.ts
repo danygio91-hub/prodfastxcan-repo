@@ -9,6 +9,39 @@ import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import type { ConcatenationPolicy } from '@/app/admin/concatenation-settings/actions';
+import { getProductionTimeAnalysisReport, type ProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+
+
+export type ProductionTimeData = {
+    averageMinutesPerPiece: number;
+    isTimeCalculationReliable: boolean;
+    phases: Record<string, { averageMinutesPerPiece: number }>;
+};
+
+export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
+    const report = await getProductionTimeAnalysisReport();
+    const analysisMap = new Map<string, ProductionTimeData>();
+
+    for (const articleReport of report) {
+        // We only consider reliable data for estimations
+        if (articleReport.averageMinutesPerPiece > 0) {
+            const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
+            articleReport.averagePhaseTimes.forEach(phase => {
+                if (phase.averageMinutesPerPiece > 0) {
+                    phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece };
+                }
+            });
+
+            analysisMap.set(articleReport.articleCode, {
+                averageMinutesPerPiece: articleReport.averageMinutesPerPiece,
+                // The overall average is reliable only if there are reliable jobs
+                isTimeCalculationReliable: articleReport.jobs.some(j => j.isTimeCalculationReliable),
+                phases: phaseTimes,
+            });
+        }
+    }
+    return analysisMap;
+}
 
 /**
  * Helper function to propagate state changes from a group to its member job orders.

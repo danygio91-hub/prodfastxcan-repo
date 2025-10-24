@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -40,7 +41,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData } from '@/app/admin/production-console/actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -59,6 +60,11 @@ import { useRouter } from 'next/navigation';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
+interface ProductionConsoleViewProps {
+  analysisMap: Map<string, ProductionTimeData>;
+}
+
+
 function getPhaseIcon(status: JobPhase['status']) {
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
@@ -71,7 +77,7 @@ function getPhaseIcon(status: JobPhase['status']) {
 }
 
 
-function ProductionConsoleView() {
+function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
@@ -749,6 +755,7 @@ function ProductionConsoleView() {
                    onRevertPhaseClick={() => {}}
                    onResetJobOrderClick={() => {}}
                    getOverallStatus={getOverallStatus}
+                   analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -772,6 +779,7 @@ function ProductionConsoleView() {
                   overallStatus={getOverallStatus(job)}
                   onNavigateToAnalysis={handleNavigateToAnalysis}
                   onCopyArticleCode={handleCopy}
+                  analysisData={analysisMap.get(job.details)}
                 />
             ))}
           </div>
@@ -950,7 +958,7 @@ function ProductionConsoleView() {
   );
 }
 
-export default function ProductionConsoleClientPage() {
+export default function ProductionConsoleClientPage({ analysisMap }: { analysisMap: Map<string, ProductionTimeData> }) {
     return (
         <React.Suspense fallback={
             <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -958,7 +966,7 @@ export default function ProductionConsoleClientPage() {
                 <p className="mt-4 text-muted-foreground">Caricamento console...</p>
             </div>
         }>
-            <ProductionConsoleView />
+            <ProductionConsoleView analysisMap={analysisMap} />
         </React.Suspense>
     )
 }
