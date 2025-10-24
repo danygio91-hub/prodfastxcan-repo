@@ -740,7 +740,6 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   group={group}
                   jobsInGroup={jobsByGroupId.get(group.id) || []}
                   allOperators={allOperators}
-                  analysisData={analysisMap.get(group.details)}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
                   onForcePauseClick={handleForcePause}
@@ -755,6 +754,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                    onRevertPhaseClick={() => {}}
                    onResetJobOrderClick={() => {}}
                    getOverallStatus={getOverallStatus}
+                   analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -969,5 +969,3 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
-
-    
