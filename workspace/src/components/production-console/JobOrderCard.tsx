@@ -41,7 +41,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
@@ -102,7 +102,7 @@ function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
     return () => clearInterval(interval);
   }, [phase]);
 
-  return <span className="font-mono text-lg">{elapsedTime}</span>;
+  return <p className="font-mono text-lg">{elapsedTime}</p>;
 }
 
 
@@ -503,9 +503,9 @@ export default function JobOrderCard({
                    </TooltipProvider>
                 </div>
                 {analysisData?.isTimeCalculationReliable ? (
-                     <p className="font-mono text-xl font-bold text-primary">{remainingTime || 'Calcolo...'}</p>
+                     <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime || 'Calcolo...'}</p>
                 ) : (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger>
@@ -646,6 +646,7 @@ export default function JobOrderCard({
 }
 
     
+
 
 
 
