@@ -1,5 +1,4 @@
 
-
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,7 +40,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
@@ -571,19 +570,19 @@ export default function JobOrderCard({
                             )}
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-center">
-                            <div className="p-1 rounded-md bg-muted/50">
-                                <Label className="text-xs text-muted-foreground">Tempo Eff.</Label>
-                                <PhaseLiveTimer phase={phase} />
-                            </div>
-                            <div className="p-1 rounded-md bg-muted/50">
-                                <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
-                                <p className="font-mono text-lg">
-                                    {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                        ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
-                                        : 'N/D'
-                                    }
-                                </p>
-                            </div>
+                             <div className="p-1 rounded-md bg-muted/50">
+                                 <Label className="text-xs text-muted-foreground">Tempo eff.</Label>
+                                 <PhaseLiveTimer phase={phase} />
+                             </div>
+                             <div className="p-1 rounded-md bg-muted/50">
+                                 <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
+                                 <p className="font-mono text-lg">
+                                     {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                         ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
+                                         : 'N/D'
+                                     }
+                                 </p>
+                             </div>
                         </div>
                     </div>
                 ))
@@ -642,11 +641,3 @@ export default function JobOrderCard({
           </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-    
-
-
-
-
