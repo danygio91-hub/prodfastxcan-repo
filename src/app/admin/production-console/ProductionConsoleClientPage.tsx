@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -753,7 +752,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
                   getOverallStatus={getOverallStatus}
-                   analysisData={analysisMap.get(group.details)}
+                  analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -936,7 +935,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                         {problemJob?.problemNotes && (
                             <div>
                                 <p className="font-bold text-foreground">Note Operatore:</p>
-                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
+                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes}</p>
                             </div>
                         )}
                     </div>
@@ -968,3 +967,5 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
+
+    
