@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
