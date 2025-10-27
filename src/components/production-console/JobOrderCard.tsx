@@ -641,3 +641,5 @@ export default function JobOrderCard({
           </DialogContent>
       </Dialog>
     </>
+  );
+}

@@ -360,7 +360,47 @@ export default function WorkGroupCard({
           </div>
         </CardFooter>
       </Card>
-
+      
+      <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
+          <DialogContent>
+              <DialogHeader>
+                  <DialogTitle>Seleziona Operatori da Mettere in Pausa</DialogTitle>
+                  <DialogDescription>
+                      Scegli quali operatori attivi sul gruppo <span className="font-bold">{group.id}</span> vuoi mettere in pausa.
+                  </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-3">
+                   <div className="flex items-center space-x-2">
+                      <Checkbox
+                          id="select-all"
+                          checked={selectedOperatorsToPause.length === activePhasesWithOperators.flatMap(p => p.operators).length && activePhasesWithOperators.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                      />
+                      <Label htmlFor="select-all">Seleziona Tutti</Label>
+                  </div>
+                  {activePhasesWithOperators.flatMap(p => p.operators).map(op => (
+                      <div key={op.id} className="flex items-center space-x-2 p-2 rounded-md border">
+                           <Checkbox
+                              id={op.id}
+                              checked={selectedOperatorsToPause.includes(op.id)}
+                              onCheckedChange={() => toggleOperatorSelection(op.id)}
+                           />
+                           <Label htmlFor={op.id} className="flex-1">
+                              <span className="font-semibold">{op.name}</span>
+                           </Label>
+                      </div>
+                  ))}
+                  {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questo gruppo.</p>}
+              </div>
+              <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
+                  <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
+                      Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
+                  </Button>
+              </DialogFooter>
+          </DialogContent>
+      </Dialog>
+      
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
           <DialogContent className="max-w-7xl h-[90vh]">
               <DialogHeader>
@@ -393,3 +433,9 @@ export default function WorkGroupCard({
                           />
                       ))}
                   </div>
+              </div>
+          </DialogContent>
+      </Dialog>
+    </>
+  );
+}
