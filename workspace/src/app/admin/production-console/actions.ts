@@ -23,6 +23,7 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
     const analysisMap = new Map<string, ProductionTimeData>();
 
     for (const articleReport of report) {
+        // We consider all data for estimations, reliability is just a flag
         const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
         articleReport.averagePhaseTimes.forEach(phase => {
             if (phase.averageMinutesPerPiece > 0) {
@@ -757,4 +758,3 @@ export async function resolveMaterialMissing(
   }
 }
 
-    
