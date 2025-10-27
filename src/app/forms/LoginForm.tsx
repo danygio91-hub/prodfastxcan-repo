@@ -20,17 +20,6 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { QrCode, Lock, LogIn, User, Loader2, KeyRound, AlertTriangle, Clock, ScanLine, Download, PackagePlus, Camera, TestTube } from 'lucide-react';
 
-// Manual type declaration for BarcodeDetector API to ensure compilation
-interface BarcodeDetectorOptions {
-  formats?: string[];
-}
-interface DetectedBarcode {
-  rawValue: string;
-}
-declare class BarcodeDetector {
-  constructor(options?: BarcodeDetectorOptions);
-  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-}
 
 // Add type for the install prompt event
 interface BeforeInstallPromptEvent extends Event {
@@ -126,14 +115,22 @@ export default function LoginForm() {
     }, [step, stopCamera]);
     
     const triggerScan = async () => {
+        if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
+          toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione dei codici a barre.' });
+          return;
+        }
+
         if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
             toast({ variant: 'destructive', title: 'Fotocamera non Pronta', description: 'Attendere che il video sia attivo.' });
             return;
         }
 
-        if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
-            toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
-            return;
+        // Manual type declaration for BarcodeDetector API to ensure compilation
+        interface BarcodeDetectorOptions { formats?: string[]; }
+        interface DetectedBarcode { rawValue: string; }
+        declare class BarcodeDetector {
+          constructor(options?: BarcodeDetectorOptions);
+          detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
         }
 
         setIsScanning(true);
