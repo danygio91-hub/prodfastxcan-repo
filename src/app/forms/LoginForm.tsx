@@ -125,14 +125,6 @@ export default function LoginForm() {
             return;
         }
 
-        // Manual type declaration for BarcodeDetector API to ensure compilation
-        interface BarcodeDetectorOptions { formats?: string[]; }
-        interface DetectedBarcode { rawValue: string; }
-        declare class BarcodeDetector {
-          constructor(options?: BarcodeDetectorOptions);
-          detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-        }
-
         setIsScanning(true);
         toast({ title: 'Scansione...', description: 'Alla ricerca di un codice nel frame.' });
         
