@@ -4,12 +4,9 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, Unlink, View, Combine, Boxes, User, BarChart3, Copy } from 'lucide-react';
-import { format, parseISO, isPast } from 'date-fns';
-import Link from 'next/link';
-import { it } from 'date-fns/locale';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import {
@@ -19,7 +16,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,10 +29,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '../ui/label';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
-import { Separator } from '../ui/separator';
+import { Separator } from '@/components/ui/separator';
+import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 
 
 interface ActivePhaseInfo {
@@ -59,6 +57,7 @@ export default function WorkGroupCard({
     group,
     jobsInGroup,
     allOperators,
+    analysisData,
     onProblemClick,
     onForceFinishClick,
     onForcePauseClick,
@@ -67,8 +66,6 @@ export default function WorkGroupCard({
     onOpenPhaseManager,
     onOpenMaterialManager,
     onToggleGuainaClick,
-    onRevertPhaseClick,
-    onResetJobOrderClick,
     isSelected,
     onSelect,
     overallStatus,
@@ -77,6 +74,7 @@ export default function WorkGroupCard({
     group: WorkGroup;
     jobsInGroup: JobOrder[];
     allOperators: Operator[];
+    analysisData?: ProductionTimeData | null;
     onProblemClick: () => void;
     onForceFinishClick: (groupId: string) => void;
     onForcePauseClick: (groupId: string, operatorIds: string[]) => void;
@@ -85,8 +83,6 @@ export default function WorkGroupCard({
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
     onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
-    onRevertPhaseClick: (jobId: string, phaseId: string) => void; 
-    onResetJobOrderClick: (jobId: string) => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
@@ -377,6 +373,7 @@ export default function WorkGroupCard({
                               key={job.id}
                               jobOrder={job}
                               allOperators={allOperators}
+                              analysisData={analysisData}
                               onProblemClick={() => {}}
                               onForceFinishClick={() => {}}
                               onRevertForceFinishClick={() => {}}
@@ -402,5 +399,3 @@ export default function WorkGroupCard({
     </>
   );
 }
-
-    

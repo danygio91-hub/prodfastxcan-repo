@@ -752,10 +752,8 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
-                   onRevertPhaseClick={() => {}}
-                   onResetJobOrderClick={() => {}}
-                   getOverallStatus={getOverallStatus}
-                   analysisData={analysisMap.get(group.details)}
+                  getOverallStatus={getOverallStatus}
+                  analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -970,5 +968,3 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
-
-    
