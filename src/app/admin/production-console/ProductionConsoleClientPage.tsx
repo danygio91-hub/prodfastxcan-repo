@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -40,7 +41,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData, getOverallStatus } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData } from '@/app/admin/production-console/actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -56,6 +57,7 @@ import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
+import { getOverallStatus } from '@/lib/types';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -243,7 +245,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, getOverallStatus, isJobLive]);
+  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
   
   const filteredGroups = useMemo(() => {
     let groups = Array.from(workGroupsMap.values());
@@ -284,7 +286,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
 
         return groupMatches || anyJobMatches;
     });
-}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, getOverallStatus, isJobLive]);
+}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
   
   const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
 
@@ -310,7 +312,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
     const canReset = statuses.every(status => status === 'Completata');
 
     return { canForceFinish, canForceComplete, canReset };
-  }, [selectedItems, getOverallStatus, isJobLive]);
+  }, [selectedItems, isJobLive]);
 
 
   const handleSelectAll = () => {
@@ -706,8 +708,8 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
-                  getOverallStatus={getOverallStatus}
-                  analysisData={analysisMap.get(group.details)}
+                   getOverallStatus={getOverallStatus}
+                   analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
