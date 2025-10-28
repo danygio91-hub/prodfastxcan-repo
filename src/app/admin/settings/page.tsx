@@ -16,7 +16,6 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow },
     { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
     { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
-    { href: '/admin/concatenation-settings', label: 'Gestione Concatena', description: 'Imposta le regole per lo slegamento automatico dei gruppi.', icon: Combine },
     { href: '/admin/time-tracking-settings', label: 'Gestione Rilevazione Tempi', description: 'Imposta le regole per la validazione dei tempi di produzione.', icon: Timer },
     { href: '/admin/privacy-management', label: 'Gestione Privacy', description: 'Modifica l\'informativa sulla privacy mostrata agli operatori.', icon: LockKeyhole },
     { href: '#', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer, disabled: true },

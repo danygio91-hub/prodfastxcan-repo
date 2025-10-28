@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -8,7 +9,6 @@ import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsump
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
-import type { ConcatenationPolicy } from '../admin/concatenation-settings/actions';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -222,14 +222,6 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
     }
 }
 
-async function getConcatenationPolicy(): Promise<ConcatenationPolicy> {
-    const configDoc = await getDoc(doc(db, 'configuration', 'concatenationPolicy'));
-    if (configDoc.exists()) {
-        return configDoc.data() as ConcatenationPolicy;
-    }
-    return { ungroupAfterPreparation: false, ungroupAfterProduction: false, ungroupAfterQuality: false }; // Default value
-}
-
 
 export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
     const groupRef = doc(db, "workGroups", groupData.id);
@@ -285,32 +277,6 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         // --- COMMIT ---
         await batch.commit();
         
-        // --- POST-UPDATE LOGIC (DISSOLVING) ---
-        const policy = await getConcatenationPolicy();
-        const checkAndDissolve = async (phaseType: 'preparation' | 'production' | 'quality', policyFlag: keyof ConcatenationPolicy) => {
-            if (policy[policyFlag]) {
-                const typePhases = (groupData.phases || []).filter(p => p.type === phaseType);
-                if (typePhases.length === 0) return null;
-                
-                const allTypePhasesCompleted = typePhases.every(p => p.status === 'completed');
-                
-                if (allTypePhasesCompleted) {
-                    await dissolveWorkGroup(groupData.id);
-                    return `Tutte le fasi di ${phaseType} sono state completate, il gruppo è stato sciolto come da policy.`;
-                }
-            }
-            return null;
-        };
-
-        let dissolveMessage = await checkAndDissolve('preparation', 'ungroupAfterPreparation') ||
-                              await checkAndDissolve('production', 'ungroupAfterProduction') ||
-                              await checkAndDissolve('quality', 'ungroupAfterQuality');
-
-        if (dissolveMessage) {
-            revalidatePath('/scan-job'); 
-            return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato. ${dissolveMessage}` };
-        }
-
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/work-group-management');
@@ -712,7 +678,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         const phaseToStart = sortedPhases[currentPhaseIndex];
 
         // --- VALIDATION LOGIC ---
-        if (phaseToStart.status !== 'pending') throw new Error('Questa fase non è in attesa.');
+        if (phaseToStart.status !== 'pending' && phaseToStart.status !== 'paused') throw new Error('Questa fase non è in attesa o in pausa.');
         if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
 
         // If the phase is not independent, it must have its material ready.
