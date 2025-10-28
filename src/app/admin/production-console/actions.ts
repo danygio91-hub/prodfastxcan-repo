@@ -10,6 +10,7 @@ import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, Materi
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import type { ConcatenationPolicy } from '@/app/admin/concatenation-settings/actions';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport, type ProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+import type { OverallStatus } from '@/lib/types';
 
 
 export type ProductionTimeData = {
@@ -17,6 +18,51 @@ export type ProductionTimeData = {
     isTimeCalculationReliable: boolean;
     phases: Record<string, { averageMinutesPerPiece: number }>;
 };
+
+export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
+    const allPhases = item.phases || [];
+
+    // Highest priority: check for specific blocking states
+    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
+    if (item.isProblemReported) return 'Problema';
+
+    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+    if (allPhasesCompleted || item.status === 'completed') {
+      return 'Completata';
+    }
+
+    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
+    if (isAnyPhaseInProgress) return 'In Lavorazione';
+
+    // Logic based on progression
+    const preparationPhases = allPhases.filter(p => p.type === 'preparation');
+    const productionPhases = allPhases.filter(p => p.type === 'production');
+
+    const allPrepDone = preparationPhases
+      .filter(p => !p.postponed)
+      .every(p => p.status === 'completed' || p.status === 'skipped');
+
+    if (allPrepDone) {
+        const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
+        if (allProductionDone) {
+          return 'Pronto per Finitura';
+        }
+        return 'Pronto per Produzione';
+    }
+    
+    const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
+    if (isAnyPreparationStarted) {
+      return 'In Preparazione';
+    }
+    
+    // Fallback to 'Sospesa' if no specific state is met and it's not active
+    if (item.status === 'suspended' || item.status === 'paused') {
+        return 'Sospesa';
+    }
+
+    return 'Da Iniziare';
+}
+
 
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
     const report = await fetchProductionTimeAnalysisReport();
@@ -757,4 +803,3 @@ export async function resolveMaterialMissing(
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
   }
 }
-    

@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData, getOverallStatus } from '@/app/admin/production-console/actions';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -118,51 +118,6 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
       }
     }
   }, [jobOrders, workGroups, materialManagedItem]);
-
-
- const getOverallStatus = useCallback((item: JobOrder | WorkGroup): OverallStatus => {
-    const allPhases = item.phases || [];
-  
-    // Highest priority: check for specific blocking states
-    if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
-    if (item.isProblemReported) return 'Problema';
-  
-    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-    if (allPhasesCompleted || item.status === 'completed') {
-      return 'Completata';
-    }
-  
-    const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
-    if (isAnyPhaseInProgress) return 'In Lavorazione';
-    
-    // Logic based on progression
-    const preparationPhases = allPhases.filter(p => p.type === 'preparation');
-    const productionPhases = allPhases.filter(p => p.type === 'production');
-  
-    const allPrepDone = preparationPhases
-      .filter(p => !p.postponed)
-      .every(p => p.status === 'completed' || p.status === 'skipped');
-  
-    if (allPrepDone) {
-        const allProductionDone = productionPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-        if (allProductionDone) {
-          return 'Pronto per Finitura';
-        }
-        return 'Pronto per Produzione';
-    }
-  
-    const isAnyPreparationStarted = preparationPhases.some(p => p.status !== 'pending');
-    if (isAnyPreparationStarted) {
-      return 'In Preparazione';
-    }
-    
-    // Fallback to 'Sospesa' if no specific state is met and it's not active
-    if (item.status === 'suspended' || item.status === 'paused') {
-        return 'Sospesa';
-    }
-  
-    return 'Da Iniziare'; // Should normally not be seen in this console
-  }, []);
 
   const isJobLive = useCallback((jobOrder: JobOrder | WorkGroup): boolean => {
       return (jobOrder.phases || []).some(p => p.status === 'in-progress');
@@ -967,5 +922,3 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
-
-    
