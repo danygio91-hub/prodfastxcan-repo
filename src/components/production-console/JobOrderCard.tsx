@@ -174,10 +174,10 @@ export default function JobOrderCard({
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
-    
+
     (jobOrder.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
-            const phaseOperators: ActivePhaseInfo['operators'] = [];
+            const phaseOperators: { id: string; name: string }[] = [];
             (phase.workPeriods || []).forEach(wp => {
                 if (wp.end === null) {
                     const operator = allOperators.find(op => op.id === wp.operatorId);
@@ -187,7 +187,10 @@ export default function JobOrderCard({
                 }
             });
 
-            if (phaseOperators.length > 0) {
+            // Filter out duplicates before adding to the map
+            const uniqueOperators = Array.from(new Map(phaseOperators.map(op => [op.id, op])).values());
+
+            if (uniqueOperators.length > 0) {
                 if (!activePhasesMap.has(phase.id)) {
                     activePhasesMap.set(phase.id, {
                         phaseId: phase.id,
@@ -195,7 +198,7 @@ export default function JobOrderCard({
                         operators: [],
                     });
                 }
-                activePhasesMap.get(phase.id)!.operators.push(...phaseOperators);
+                activePhasesMap.get(phase.id)!.operators.push(...uniqueOperators);
             }
         }
     });
