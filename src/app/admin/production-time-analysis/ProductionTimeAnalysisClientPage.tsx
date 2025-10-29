@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -10,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy, ClipboardList } from 'lucide-react';
+import { Timer, Package, Download, ChevronRight, Search, BarChart, Copy, ClipboardList, PackagePlus, Workflow, TestTube } from 'lucide-react';
 import type { ProductionTimeAnalysisReport } from '../reports/actions';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -27,10 +28,19 @@ import {
 import { cn } from '@/lib/utils';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { Separator } from '@/components/ui/separator';
 
 interface ProductionTimeAnalysisClientPageProps {
   report: ProductionTimeAnalysisReport[];
 }
+
+const phaseTypeTitles: Record<string, { title: string, icon: React.ElementType }> = {
+    preparation: { title: 'Fasi di Preparazione', icon: PackagePlus },
+    production: { title: 'Fasi di Produzione', icon: Workflow },
+    quality: { title: 'Controllo Qualità', icon: TestTube },
+    packaging: { title: 'Packaging', icon: Package },
+};
+
 
 export default function ProductionTimeAnalysisClientPage({ report }: ProductionTimeAnalysisClientPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -146,7 +156,17 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
             <CardContent>
                 {report.length > 0 ? (
                 <Accordion type="single" collapsible className="w-full" value={openAccordion} onValueChange={setOpenAccordion}>
-                    {filteredReport.map((item) => (
+                    {filteredReport.map((item) => {
+                      const groupedPhases = item.averagePhaseTimes.reduce((acc, phase) => {
+                        const type = phase.type || 'production';
+                        if (!acc[type]) {
+                          acc[type] = [];
+                        }
+                        acc[type].push(phase);
+                        return acc;
+                      }, {} as Record<string, typeof item.averagePhaseTimes>);
+
+                      return (
                         <AccordionItem value={item.articleCode} key={item.articleCode}>
                           <AccordionTrigger>
                               <div className="flex justify-between items-center w-full pr-4">
@@ -193,30 +213,42 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                           </AccordionTrigger>
                             <AccordionContent>
                                 <div className="p-4 bg-muted/50 rounded-lg space-y-6">
-                                     <div>
-                                        <h4 className="font-semibold text-base mb-2 flex items-center gap-2"><BarChart className="h-5 w-5 text-primary" />Riepilogo Tempi Medi per Fase</h4>
-                                        <div className="overflow-x-auto border rounded-lg">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead>Fase di Lavorazione</TableHead>
-                                                        <TableHead className="text-right">Tempo Medio/Pezzo</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {item.averagePhaseTimes.length > 0 ? item.averagePhaseTimes.map(phase => (
-                                                        <TableRow key={phase.name}>
-                                                            <TableCell>{phase.name}</TableCell>
-                                                            <TableCell className="text-right font-mono">{phase.averageMinutesPerPiece.toFixed(4)} min</TableCell>
-                                                        </TableRow>
-                                                    )) : (
-                                                        <TableRow>
-                                                            <TableCell colSpan={2} className="text-center h-20 text-muted-foreground">Nessun dato aggregato disponibile per le fasi.</TableCell>
-                                                        </TableRow>
-                                                    )}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
+                                    <div className="space-y-4">
+                                      <h4 className="font-semibold text-base mb-2 flex items-center gap-2"><BarChart className="h-5 w-5 text-primary" />Riepilogo Tempi Medi per Fase</h4>
+                                      {Object.entries(groupedPhases).map(([type, phases]) => {
+                                          const phaseInfo = phaseTypeTitles[type] || { title: type, icon: BarChart };
+                                          const Icon = phaseInfo.icon;
+                                          return (
+                                              <div key={type}>
+                                                  <div className="flex items-center gap-2 mb-2">
+                                                      <Icon className="h-4 w-4 text-muted-foreground" />
+                                                      <h5 className="font-semibold text-muted-foreground">{phaseInfo.title}</h5>
+                                                  </div>
+                                                  <div className="overflow-x-auto border rounded-lg">
+                                                      <Table>
+                                                          <TableHeader>
+                                                              <TableRow>
+                                                                  <TableHead>Fase di Lavorazione</TableHead>
+                                                                  <TableHead className="text-right">Tempo Medio/Pezzo</TableHead>
+                                                              </TableRow>
+                                                          </TableHeader>
+                                                          <TableBody>
+                                                              {phases.map(phase => (
+                                                                  <TableRow key={phase.name}>
+                                                                      <TableCell>{phase.name}</TableCell>
+                                                                      <TableCell className="text-right font-mono">{phase.averageMinutesPerPiece.toFixed(4)} min</TableCell>
+                                                                  </TableRow>
+                                                              ))}
+                                                          </TableBody>
+                                                      </Table>
+                                                  </div>
+                                                  <Separator className="my-4" />
+                                              </div>
+                                          )
+                                      })}
+                                       {item.averagePhaseTimes.length === 0 && (
+                                         <p className="text-center text-sm text-muted-foreground py-4">Nessun dato aggregato disponibile per le fasi.</p>
+                                      )}
                                     </div>
 
                                     <div>
@@ -272,7 +304,8 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                 </div>
                             </AccordionContent>
                         </AccordionItem>
-                    ))}
+                      )
+                    })}
                      {filteredReport.length === 0 && (
                         <div className="text-center py-10 text-muted-foreground">
                             Nessun articolo trovato per "{searchTerm}".

@@ -4,7 +4,7 @@
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup, WorkPhaseTemplate } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getOverallStatus, type OverallStatus } from '@/lib/types';
@@ -507,6 +507,7 @@ export type ProductionTimeAnalysisReport = {
     averagePhaseTimes: Array<{
         name: string;
         averageMinutesPerPiece: number;
+        type: WorkPhaseTemplate['type'];
     }>;
     jobs: Array<{
         id: string;
@@ -606,8 +607,15 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const timeSettings: TimeTrackingSettings = settingsDoc.exists() ? settingsDoc.data() as TimeTrackingSettings : { minimumPhaseDurationSeconds: 10 };
     const MINIMUM_VALID_PHASE_DURATION_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
 
+    const templatesSnapshot = await getDocs(collection(db, "workPhaseTemplates"));
+    const phaseTypeMap = new Map<string, WorkPhaseTemplate['type']>();
+    templatesSnapshot.forEach(doc => {
+      const template = doc.data() as WorkPhaseTemplate;
+      phaseTypeMap.set(template.name, template.type);
+    });
+
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
-    const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number } } } = {};
+    const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number; type: WorkPhaseTemplate['type'] } } } = {};
 
     for (const job of jobsToAnalyze) {
         const articleCode = job.details;
@@ -633,15 +641,13 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
         const phaseDetailsForReport = phasesWithDetails
-          .filter(p => p.phase.tracksTime !== false) // Include all phases that track time
+          .filter(p => p.phase.tracksTime !== false)
           .map(p => {
             const phaseTimeMinutes = p.timeMs / (1000 * 60);
             
-            // Collect phase data for averaging ONLY IF the specific phase was completed normally
-            // This is the key change: it contributes to phase averages even if the job as a whole isn't reliable.
             if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MINIMUM_VALID_PHASE_DURATION_MS) {
                  if (!phaseDataByArticle[articleCode][p.phase.name]) {
-                    phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0 };
+                    phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0, type: phaseTypeMap.get(p.phase.name) || 'production' };
                 }
                 phaseDataByArticle[articleCode][p.phase.name].totalMinutes += phaseTimeMinutes;
                 phaseDataByArticle[articleCode][p.phase.name].totalQuantity += job.qta;
@@ -690,6 +696,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         report.averagePhaseTimes = Object.entries(phaseData).map(([phaseName, data]) => ({
             name: phaseName,
             averageMinutesPerPiece: data.totalQuantity > 0 ? data.totalMinutes / data.totalQuantity : 0,
+            type: data.type,
         })).sort((a, b) => a.name.localeCompare(b.name));
     }
 
