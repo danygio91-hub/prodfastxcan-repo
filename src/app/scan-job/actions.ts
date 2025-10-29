@@ -229,26 +229,18 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
     
     try {
         const batch = writeBatch(db);
+        const groupPhases = groupData.phases || [];
+        const allRequiredPhasesCompleted = groupPhases.length > 0 && 
+            groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
-        // --- PREPARE DATA ---
-        
-        // Recalculate material readiness for all phases
-        const updatedPhases = updatePhasesMaterialReadiness(groupData.phases || []);
-        groupData.phases = updatedPhases;
-        
-        const allRequiredPhasesCompleted = (groupData.phases || []).length > 0 &&
-            (groupData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
-
-        if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
+        if (allRequiredPhasesCompleted) {
             groupData.status = 'completed';
-            if (!groupData.overallEndTime) {
-                groupData.overallEndTime = new Date();
-            }
+            groupData.overallEndTime = new Date();
 
-            // --- AUTO-DISSOLVE LOGIC ON COMPLETION ---
             const finalStatePayload = {
                 status: 'completed',
                 overallEndTime: groupData.overallEndTime,
+                phases: groupData.phases, // Propagate final phase states
                 workGroupId: null, // Ungroup
             };
             
@@ -257,14 +249,10 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
                 batch.update(jobRef, finalStatePayload);
             });
             
-            // Delete the group document itself
             batch.delete(groupRef);
-            
         } else {
-             if (groupData.status !== 'suspended') {
-                const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-                groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
-            }
+            const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
             
             const dataToSave = JSON.parse(JSON.stringify(groupData));
             batch.set(groupRef, dataToSave, { merge: true });

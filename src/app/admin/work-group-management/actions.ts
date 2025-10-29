@@ -44,20 +44,23 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     
     const batch = writeBatch(db);
 
-    if (jobOrderIds.length > 0) {
+    // We only reset the jobs if the group is not already completed
+    if (groupData.status !== 'completed' && jobOrderIds.length > 0) {
         const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
         const jobsSnapshot = await getDocs(jobsQuery);
 
         jobsSnapshot.forEach(jobDoc => {
             const cleanPhases = (groupData.phases || []).map(p => {
                 const { forced, ...rest } = p;
-                return rest;
+                return { ...rest, status: 'pending' as const, workPeriods: [] };
             });
             
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
-                status: 'paused',
+                status: 'planned', // Reset to planned, not paused
                 phases: cleanPhases,
+                overallStartTime: null,
+                overallEndTime: null,
             });
         });
     }
@@ -71,16 +74,11 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
 
-    return { success: true, message: `Gruppo ${groupId} scollegato. Le commesse sono state slegate e messe in pausa.` };
+    return { success: true, message: `Gruppo ${groupId} sciolto. Le commesse sono state slegate e resettate allo stato 'pianificata'.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     console.error("Error dissolving work group:", error);
     return { success: false, message: errorMessage };
   }
 }
-
-
-
-
-
 
