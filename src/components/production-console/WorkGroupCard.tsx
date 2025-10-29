@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -154,7 +154,7 @@ export default function WorkGroupCard({
     }
   };
 
-  const completedPhasesCount = group.phases.filter(p => p.status === 'completed').length;
+  const completedPhasesCount = group.phases.filter(p => p.status === 'completed' || p.status === 'skipped').length;
   const progressPercentage = group.phases.length > 0 ? (completedPhasesCount / group.phases.length) * 100 : 0;
   
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
@@ -263,19 +263,6 @@ export default function WorkGroupCard({
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questo gruppo come 'Completato'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(group.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               )}
-                              <DropdownMenuSeparator />
-                              <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                          <Unlink className="mr-2 h-4 w-4" />
-                                          <span>Annulla Gruppo</span>
-                                      </DropdownMenuItem>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                      <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente.</AlertDialogDescription></AlertDialogHeader>
-                                      <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
-                                  </AlertDialogContent>
-                              </AlertDialog>
                           </DropdownMenuContent>
                       </DropdownMenu>
                 </div>
@@ -395,6 +382,12 @@ export default function WorkGroupCard({
                   ))}
                   {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questo gruppo.</p>}
               </div>
+              <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
+                  <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
+                      Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
+                  </Button>
+              </DialogFooter>
           </DialogContent>
       </Dialog>
       

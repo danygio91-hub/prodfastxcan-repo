@@ -198,7 +198,7 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
         jobData.phases = updatedPhases;
 
         const allRequiredPhasesCompleted = (jobData.phases || []).length > 0 &&
-            (jobData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed');
+            (jobData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
         if (allRequiredPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
@@ -237,51 +237,61 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         groupData.phases = updatedPhases;
         
         const allRequiredPhasesCompleted = (groupData.phases || []).length > 0 &&
-            (groupData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed');
+            (groupData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
         if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
                 groupData.overallEndTime = new Date();
             }
-        } else if (groupData.status !== 'suspended') {
-            const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
+
+            // --- AUTO-DISSOLVE LOGIC ON COMPLETION ---
+            const finalStatePayload = {
+                status: 'completed',
+                overallEndTime: groupData.overallEndTime,
+                workGroupId: null, // Ungroup
+            };
+            
+            (groupData.jobOrderIds || []).forEach(jobId => {
+                const jobRef = doc(db, 'jobOrders', jobId);
+                batch.update(jobRef, finalStatePayload);
+            });
+            
+            // Delete the group document itself
+            batch.delete(groupRef);
+            
+        } else {
+             if (groupData.status !== 'suspended') {
+                const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+                groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
+            }
+            
+            const dataToSave = JSON.parse(JSON.stringify(groupData));
+            batch.set(groupRef, dataToSave, { merge: true });
+
+            const updatePayload: { [key: string]: any } = {
+                phases: groupData.phases, 
+                status: dataToSave.status,
+                isProblemReported: groupData.isProblemReported || false,
+                problemType: groupData.problemType || deleteField(),
+                problemNotes: groupData.problemNotes || deleteField(),
+                problemReportedBy: groupData.problemReportedBy || deleteField(),
+                overallStartTime: groupData.overallStartTime || null,
+            };
+
+            (groupData.jobOrderIds || []).forEach(jobId => {
+                const jobRef = doc(db, 'jobOrders', jobId);
+                batch.update(jobRef, updatePayload);
+            });
         }
         
-        const dataToSave = JSON.parse(JSON.stringify(groupData));
-
-        // --- UPDATE GROUP DOCUMENT ---
-        batch.set(groupRef, dataToSave, { merge: true });
-
-        // --- PROPAGATE TO MEMBER JOBS ---
-        const updatePayload: { [key: string]: any } = {
-            phases: groupData.phases, 
-            status: dataToSave.status, // Use the just-calculated status
-            isProblemReported: groupData.isProblemReported || false,
-            problemType: groupData.problemType || deleteField(),
-            problemNotes: groupData.problemNotes || deleteField(),
-            problemReportedBy: groupData.problemReportedBy || deleteField(),
-            overallStartTime: groupData.overallStartTime || null,
-        };
-
-        if (groupData.overallEndTime) {
-            updatePayload.overallEndTime = groupData.overallEndTime;
-        }
-
-        (groupData.jobOrderIds || []).forEach(jobId => {
-            const jobRef = doc(db, 'jobOrders', jobId);
-            batch.update(jobRef, updatePayload);
-        });
-
-        // --- COMMIT ---
         await batch.commit();
         
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/work-group-management');
 
-        return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato.` };
+        return { success: true, message: allRequiredPhasesCompleted ? `Gruppo completato e sciolto con successo.` : `Gruppo di lavoro ${groupData.id} aggiornato.` };
 
     } catch (error) {
         console.error("Error updating work group:", error);
@@ -726,54 +736,84 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
   }
 }
 
-export async function postponeQualityPhase(jobId: string, phaseId: string): Promise<{ success: boolean; message: string }> {
+export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
     const isGroup = jobId.startsWith('group-');
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
     const itemRef = doc(db, collectionName, jobId);
     
     await runTransaction(db, async (transaction) => {
-        const docSnap = await transaction.get(itemRef);
-        if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
-        
-        const itemData = docSnap.data() as JobOrder | WorkGroup;
-        const phases = [...itemData.phases];
-        const phaseToMoveIndex = phases.findIndex(p => p.id === phaseId);
-        
-        if (phaseToMoveIndex === -1 || phases[phaseToMoveIndex].type !== 'quality') {
-          throw new Error("Fase di collaudo non trovata o non valida.");
-        }
-        if (phases[phaseToMoveIndex].status !== 'pending') {
-          throw new Error("Il collaudo può essere posticipato solo se è in attesa.");
+        const itemSnap = await transaction.get(itemRef);
+
+        if (!itemSnap.exists()) {
+          throw new Error('Commessa o Gruppo non trovato.');
         }
 
-        // --- Identify the next phase in the ORIGINAL order ---
-        const sortedOriginalPhases = [...itemData.phases].sort((a, b) => a.sequence - b.sequence);
-        const originalIndex = sortedOriginalPhases.findIndex(p => p.id === phaseId);
-        const nextPhaseInOriginalOrder = sortedOriginalPhases[originalIndex + 1];
+        const itemData = itemSnap.data() as JobOrder | WorkGroup;
+        const originalPhases = itemData.phases || [];
+        const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
 
-        // --- Re-sequencing Logic ---
-        const maxSequence = Math.max(...phases.map(p => p.sequence));
-        phases[phaseToMoveIndex].sequence = maxSequence + 1;
-        phases[phaseToMoveIndex].postponed = true;
+        if (phaseIndex === -1) {
+          throw new Error('Fase "Taglio Guaina" non trovata.');
+        }
+
+        const phaseToMove = originalPhases[phaseIndex];
+
+        if (!['pending', 'paused'].includes(phaseToMove.status)) {
+            throw new Error('È possibile spostare la fase solo se non è ancora stata avviata o è in pausa.');
+        }
         
-        const updatedPhasesWithReadiness = updatePhasesMaterialReadiness(phases);
-        
-        transaction.update(itemRef, { phases: updatedPhasesWithReadiness });
+        const updatedPhases = [...originalPhases];
+        const isCurrentlyPostponed = currentState === 'postponed';
+
+        if (!isCurrentlyPostponed) {
+          // Logic to move it after the last 'production' phase
+          const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
+          const productionPhases = phasesSorted.filter(p => p.type === 'production');
+          
+          let targetSequence;
+          if (productionPhases.length > 0) {
+            const lastProductionPhase = productionPhases[productionPhases.length - 1];
+            targetSequence = lastProductionPhase.sequence + 0.1; // Place it right after
+          } else {
+            const firstQualityPhase = phasesSorted.find(p => p.type === 'quality' || p.type === 'packaging');
+            targetSequence = firstQualityPhase ? firstQualityPhase.sequence - 0.1 : 99;
+          }
+          
+          updatedPhases[phaseIndex].sequence = targetSequence;
+          updatedPhases[phaseIndex].postponed = true;
+
+        } else { // 'postponed' -> revert to original
+          const templateRef = doc(db, 'workPhaseTemplates', phaseId);
+          const templateSnap = await transaction.get(templateRef);
+          if (!templateSnap.exists()) {
+              throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
+          }
+          const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
+          updatedPhases[phaseIndex].sequence = originalSequence;
+          delete updatedPhases[phaseIndex].postponed;
+        }
+
+        const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
+
+        transaction.update(itemRef, { phases: finalPhases });
 
         if (isGroup) {
-            ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
-                const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: updatedPhasesWithReadiness });
-            });
+            await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
         }
     });
+    
+    revalidatePath('/admin/production-console');
+    revalidatePath(`/scan-job?jobId=${jobId}`);
 
-    revalidatePath('/scan-job');
-    return { success: true, message: 'Fase di collaudo posticipata con successo.' };
+    return { 
+      success: true, 
+      message: `Posizione della fase "Taglio Guaina" aggiornata.` 
+    };
+
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
-    console.error("Error postponing quality phase:", error);
+    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
+    console.error("Error toggling phase position:", error);
     return { success: false, message: errorMessage };
   }
 }
