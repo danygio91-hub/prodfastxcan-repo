@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -399,7 +398,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
     });
   };
 
-  const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
+  const handleToggleGuaina = async (jobId: string, phaseId: string) => {
       if (!user) return;
       const result = await toggleGuainaPhasePosition(jobId, phaseId);
       toast({
@@ -704,6 +703,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
                   onDissolveGroupClick={handleDissolveGroup}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(group)}
+                  onToggleGuainaClick={handleToggleGuaina}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
@@ -923,7 +923,3 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
-
-    
-
-    
