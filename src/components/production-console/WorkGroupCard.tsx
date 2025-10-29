@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -82,7 +82,7 @@ export default function WorkGroupCard({
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
-    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
+    onToggleGuainaClick: (groupId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
