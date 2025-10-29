@@ -10,15 +10,15 @@ import DashboardItem from '@/components/dashboard/DashboardItem';
 export default function AdminCompanySettingsPage() {
 
   const navItems = [
-    { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users },
-    { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Aggiungi, modifica e importa le materie prime.', icon: Boxes },
-    { href: '/admin/department-management', label: 'Gestione Reparti', description: 'Aggiungi, modifica o rimuovi i reparti aziendali.', icon: ListTodo },
-    { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow },
-    { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge },
-    { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive },
-    { href: '/admin/time-tracking-settings', label: 'Gestione Rilevazione Tempi', description: 'Imposta le regole per la validazione dei tempi di produzione.', icon: Timer },
-    { href: '/admin/privacy-management', label: 'Gestione Privacy', description: 'Modifica l\'informativa sulla privacy mostrata agli operatori.', icon: LockKeyhole },
-    { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer },
+    { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users, disabled: false },
+    { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Aggiungi, modifica e importa le materie prime.', icon: Boxes, disabled: false },
+    { href: '/admin/department-management', label: 'Gestione Reparti', description: 'Aggiungi, modifica o rimuovi i reparti aziendali.', icon: ListTodo, disabled: false },
+    { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow, disabled: false },
+    { href: '/admin/work-cycle-management', label: 'Gestione Cicli di Lavorazione', description: 'Crea cicli di lavorazione standard per le commesse.', icon: GitMerge, disabled: false },
+    { href: '/admin/packaging-management', label: 'Gestione Imballi (Tare)', description: 'Definisci le tare da associare alle materie prime.', icon: Archive, disabled: false },
+    { href: '/admin/time-tracking-settings', label: 'Gestione Rilevazione Tempi', description: 'Imposta le regole per la validazione dei tempi di produzione.', icon: Timer, disabled: false },
+    { href: '/admin/privacy-management', label: 'Gestione Privacy', description: 'Modifica l\'informativa sulla privacy mostrata agli operatori.', icon: LockKeyhole, disabled: false },
+    { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer, disabled: false },
   ];
 
   return (

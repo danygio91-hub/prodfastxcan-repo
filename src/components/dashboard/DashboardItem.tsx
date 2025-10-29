@@ -16,17 +16,21 @@ type DashboardItemProps = {
   className?: string;
   href?: string;
   onClick?: React.MouseEventHandler<HTMLDivElement>;
+  disabled?: boolean;
 } & (React.HTMLAttributes<HTMLDivElement> | React.AnchorHTMLAttributes<HTMLAnchorElement>);
 
 
 const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, DashboardItemProps>(
-  ({ title, description, icon: Icon, className, href, ...props }, ref) => {
+  ({ title, description, icon: Icon, className, href, disabled, ...props }, ref) => {
 
-    const isInteractive = !!href || !!props.onClick;
+    const isInteractive = !disabled && (!!href || !!props.onClick);
 
     const cardClasses = cn(
-        "hover:shadow-lg hover:border-primary/50 transition-shadow,border-color duration-300 group flex flex-col h-full",
-        { 'cursor-pointer': isInteractive },
+        "hover:shadow-lg transition-shadow,border-color duration-300 group flex flex-col h-full",
+        { 
+          'cursor-pointer hover:border-primary/50': isInteractive,
+          'opacity-50 cursor-not-allowed': disabled,
+        },
         className
     );
 
@@ -49,7 +53,7 @@ const DashboardItem = React.forwardRef<HTMLDivElement | HTMLAnchorElement, Dashb
         </Card>
     );
 
-    if (href) {
+    if (href && !disabled) {
       return (
         <Link href={href} passHref legacyBehavior>
           <a ref={ref as React.Ref<HTMLAnchorElement>} {...(props as React.AnchorHTMLAttributes<HTMLAnchorElement>)}>
