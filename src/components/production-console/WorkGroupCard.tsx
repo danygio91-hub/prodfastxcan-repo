@@ -82,7 +82,7 @@ export default function WorkGroupCard({
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
-    onToggleGuainaClick: (jobId: string, phaseId: string) => void; 
+    onToggleGuainaClick: (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
@@ -238,7 +238,7 @@ export default function WorkGroupCard({
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guainaPhase.id)}>Conferma</AlertDialogAction>
+                                            <AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
