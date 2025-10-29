@@ -1157,7 +1157,7 @@ export default function ScanJobPage() {
       <AppShell>
         <div className="space-y-6 max-w-4xl mx-auto">
           
-           {step === 'processing' && !isAnyPhaseActiveForMe && !allPhasesCompleted && (
+           {step === 'processing' && !allPhasesCompleted && (
                 <div className="mb-4 space-y-2">
                      <Button 
                       className="w-full bg-orange-500 hover:bg-orange-600 text-white" 
