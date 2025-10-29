@@ -1,5 +1,4 @@
 
-
 import type { JobOrder, WorkGroup } from "./mock-data";
 
 export type OverallStatus = 'Da Iniziare' | 'In Preparazione' | 'Pronto per Produzione' | 'In Lavorazione' | 'Completata' | 'Problema' | 'Sospesa' | 'Pronto per Finitura' | 'Manca Materiale';
@@ -12,16 +11,16 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
     if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
     if (item.isProblemReported) return 'Problema';
 
-    // A job/group is ONLY completed if all non-postponed phases are actually 'completed'. 'skipped' is not enough.
-    const allRequiredPhasesCompleted = allPhases.length > 0 && allPhases
+    // A job/group is considered complete if all non-postponed phases are either 'completed' or 'skipped'.
+    const allRequiredPhasesDone = allPhases.length > 0 && allPhases
         .filter(p => !p.postponed)
-        .every(p => p.status === 'completed');
+        .every(p => p.status === 'completed' || p.status === 'skipped');
 
-    if (allRequiredPhasesCompleted) {
+    if (allRequiredPhasesDone) {
       return 'Completata';
     }
     
-    // Legacy check for items that might have been marked completed by the old logic
+    // Legacy check for items that might have been marked completed by old logic, now less likely to be hit
     if (item.status === 'completed') {
         return 'Completata';
     }
