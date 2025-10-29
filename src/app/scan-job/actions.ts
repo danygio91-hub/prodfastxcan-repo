@@ -197,9 +197,10 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
         const updatedPhases = updatePhasesMaterialReadiness(jobData.phases || []);
         jobData.phases = updatedPhases;
 
-        const allPhasesCompleted = (jobData.phases || []).length > 0 && (jobData.phases || []).every(p => p.status === 'completed' || p.status === 'skipped');
+        const allRequiredPhasesCompleted = (jobData.phases || []).length > 0 &&
+            (jobData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed');
 
-        if (allPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
+        if (allRequiredPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
             jobData.status = 'completed';
             if (!jobData.overallEndTime) {
                 jobData.overallEndTime = new Date();
@@ -235,18 +236,17 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const updatedPhases = updatePhasesMaterialReadiness(groupData.phases || []);
         groupData.phases = updatedPhases;
         
-        // Finalize status before saving
-        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-        if (groupData.status !== 'completed' && groupData.status !== 'suspended') {
-            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
-        }
+        const allRequiredPhasesCompleted = (groupData.phases || []).length > 0 &&
+            (groupData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed');
 
-        const allPhasesCompleted = (groupData.phases || []).length > 0 && (groupData.phases || []).every(p => p.status === 'completed' || p.status === 'skipped');
-        if (allPhasesCompleted && !groupData.isProblemReported) {
+        if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
             groupData.status = 'completed';
             if (!groupData.overallEndTime) {
                 groupData.overallEndTime = new Date();
             }
+        } else if (groupData.status !== 'suspended') {
+            const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));

@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +16,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,7 +82,7 @@ export default function WorkGroupCard({
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
-    onToggleGuainaClick: (groupId: string, phaseId: string, currentState: 'default' | 'postponed') => void;
+    onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
@@ -394,12 +395,6 @@ export default function WorkGroupCard({
                   ))}
                   {activePhasesWithOperators.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">Nessun operatore attivo su questo gruppo.</p>}
               </div>
-              <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button>
-                  <Button onClick={handleConfirmPause} disabled={selectedOperatorsToPause.length === 0}>
-                      Metti in Pausa Selezionati ({selectedOperatorsToPause.length})
-                  </Button>
-              </DialogFooter>
           </DialogContent>
       </Dialog>
       

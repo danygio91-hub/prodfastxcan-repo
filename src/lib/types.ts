@@ -12,10 +12,20 @@ export function getOverallStatus(item: JobOrder | WorkGroup): OverallStatus {
     if (allPhases.some(p => p.materialStatus === 'missing')) return 'Manca Materiale';
     if (item.isProblemReported) return 'Problema';
 
-    const allPhasesCompleted = allPhases.length > 0 && allPhases.every(p => p.status === 'completed' || p.status === 'skipped');
-    if (allPhasesCompleted || item.status === 'completed') {
+    // A job/group is ONLY completed if all non-postponed phases are actually 'completed'. 'skipped' is not enough.
+    const allRequiredPhasesCompleted = allPhases.length > 0 && allPhases
+        .filter(p => !p.postponed)
+        .every(p => p.status === 'completed');
+
+    if (allRequiredPhasesCompleted) {
       return 'Completata';
     }
+    
+    // Legacy check for items that might have been marked completed by the old logic
+    if (item.status === 'completed') {
+        return 'Completata';
+    }
+
 
     const isAnyPhaseInProgress = allPhases.some(p => p.status === 'in-progress');
     if (isAnyPhaseInProgress) return 'In Lavorazione';
