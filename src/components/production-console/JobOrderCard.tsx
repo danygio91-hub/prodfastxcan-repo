@@ -174,7 +174,7 @@ export default function JobOrderCard({
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
-
+    
     (jobOrder.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
             const phaseOperators: { id: string; name: string }[] = [];

@@ -81,7 +81,7 @@ export default function WorkGroupCard({
     onDissolveGroupClick: (groupId: string) => void;
     onOpenPhaseManager: (item: JobOrder | WorkGroup) => void;
     onOpenMaterialManager: (item: JobOrder | WorkGroup) => void;
-    onToggleGuainaClick: (groupId: string, phaseId: string, currentState: 'default' | 'postponed') => void; 
+    onToggleGuainaClick: (groupId: string, phaseId: string, currentState: 'default' | 'postponed') => void;
     isSelected: boolean;
     onSelect: (groupId: string) => void;
     overallStatus: OverallStatus;
