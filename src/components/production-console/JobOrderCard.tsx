@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -233,7 +234,7 @@ export default function JobOrderCard({
     }
   };
   
-  const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed').length;
+  const completedPhasesCount = jobOrder.phases.filter(p => p.status === 'completed' || p.status === 'skipped').length;
   const progressPercentage = jobOrder.phases.length > 0 ? (completedPhasesCount / jobOrder.phases.length) * 100 : 0;
   
   const deliveryDateString = jobOrder.dataConsegnaFinale;
@@ -278,14 +279,13 @@ export default function JobOrderCard({
          <CardHeader className="pb-3 space-y-2">
              <div className="flex justify-between items-center gap-4">
                  <div className="flex items-center gap-3">
-                    {!isPartOfGroup && (
-                      <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => onSelect(jobOrder.id)}
-                          aria-label={`Seleziona commessa ${jobOrder.id}`}
-                          className="h-4 w-4"
-                      />
-                    )}
+                    <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => onSelect(jobOrder.id)}
+                        aria-label={`Seleziona commessa ${jobOrder.id}`}
+                        className="h-4 w-4"
+                        disabled={isPartOfGroup}
+                    />
                     <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
                 </div>
                  <StatusBadge status={overallStatus} />
@@ -296,27 +296,24 @@ export default function JobOrderCard({
                     {jobOrder.cliente}
                 </CardDescription>
                 <div className="flex items-center gap-1">
-                    {!isPartOfGroup && (
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                        <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                        <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank"><Printer className="h-4 w-4" /></Link>
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent><p>Stampa Scheda</p></TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    )}
-                    {!isPartOfGroup && (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                    <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                    <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(jobOrder.id)}`} target="_blank"><Printer className="h-4 w-4" /></Link>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Stampa Scheda</p></TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                       <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -335,7 +332,7 @@ export default function JobOrderCard({
                               {canToggleGuaina && guainaPhase && (
                                   <AlertDialog>
                                       <AlertDialogTrigger asChild>
-                                          <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                          <DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={isPartOfGroup}>
                                           {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
                                           <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
                                           </DropdownMenuItem>
@@ -361,19 +358,19 @@ export default function JobOrderCard({
                               </DropdownMenuItem>
                                {canForceFinish && (
                                   <AlertDialog>
-                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" />Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
+                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={isPartOfGroup}><FastForward className="mr-2 h-4 w-4" />Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               )}
                                {isForcedToFinish && (
                                   <AlertDialog>
-                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700"><Undo2 className="mr-2 h-4 w-4" />Annulla Forzatura</DropdownMenuItem></AlertDialogTrigger>
+                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-amber-600 focus:text-amber-700" disabled={isPartOfGroup}><Undo2 className="mr-2 h-4 w-4" />Annulla Forzatura</DropdownMenuItem></AlertDialogTrigger>
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Annullare la Forzatura?</AlertDialogTitle><AlertDialogDescription>Le fasi completate forzatamente verranno resettate allo stato 'in attesa'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onRevertForceFinishClick(jobOrder.id)}>Sì, annulla</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               )}
                               {canForceComplete && (
                                   <AlertDialog>
-                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Commessa</DropdownMenuItem></AlertDialogTrigger>
+                                      <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()} disabled={isPartOfGroup}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Commessa</DropdownMenuItem></AlertDialogTrigger>
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questa commessa come 'Completata'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               )}
@@ -402,7 +399,7 @@ export default function JobOrderCard({
                               <DropdownMenuSeparator />
                               <AlertDialog>
                                   <AlertDialogTrigger asChild>
-                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive" disabled={isPartOfGroup}>
                                       <RefreshCcw className="mr-2 h-4 w-4" />
                                       <span>Annulla e Resetta</span>
                                   </DropdownMenuItem>
@@ -422,7 +419,6 @@ export default function JobOrderCard({
                               </AlertDialog>
                           </DropdownMenuContent>
                       </DropdownMenu>
-                    )}
                 </div>
             </div>
 

@@ -44,23 +44,32 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     
     const batch = writeBatch(db);
 
-    // We only reset the jobs if the group is not already completed
-    if (groupData.status !== 'completed' && jobOrderIds.length > 0) {
+    if (jobOrderIds.length > 0) {
         const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
         const jobsSnapshot = await getDocs(jobsQuery);
 
         jobsSnapshot.forEach(jobDoc => {
-            const cleanPhases = (groupData.phases || []).map(p => {
-                const { forced, ...rest } = p;
-                return { ...rest, status: 'pending' as const, workPeriods: [] };
-            });
+            const jobData = jobDoc.data() as JobOrder;
+            // Reset phases: set to pending and clear work periods.
+            const cleanPhases = (jobData.phases || []).map(p => ({
+                ...p,
+                status: 'pending' as const,
+                workPeriods: [],
+                materialConsumptions: [],
+                qualityResult: null,
+            }));
             
+            // Revert job to a "planned" state and remove group association
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
-                status: 'planned', // Reset to planned, not paused
+                status: 'planned',
                 phases: cleanPhases,
                 overallStartTime: null,
                 overallEndTime: null,
+                isProblemReported: false,
+                problemType: null,
+                problemNotes: null,
+                problemReportedBy: null,
             });
         });
     }
