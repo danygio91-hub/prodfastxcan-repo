@@ -40,7 +40,8 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData, getOverallStatus } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, type ProductionTimeData } from '@/app/admin/production-console/actions';
+import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -398,9 +399,9 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
     });
   };
 
-  const handleToggleGuaina = async (jobId: string, phaseId: string) => {
+  const handleToggleGuaina = async (jobId: string, phaseId: string, currentState: 'default' | 'postponed') => {
       if (!user) return;
-      const result = await toggleGuainaPhasePosition(jobId, phaseId);
+      const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
       toast({
         title: result.success ? "Operazione Riuscita" : "Errore",
         description: result.message,
@@ -923,3 +924,5 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
+
+    
