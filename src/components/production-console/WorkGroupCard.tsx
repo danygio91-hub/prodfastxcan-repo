@@ -155,6 +155,16 @@ export default function WorkGroupCard({
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
   const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
+  
+  const guainaPhase = group.phases.find(p => p.name === "Taglio Guaina");
+  const isWorkInProgress = group.phases.some(p => p.status === 'in-progress' || p.status === 'paused');
+  const canToggleGuaina = guainaPhase && (guainaPhase.status === 'pending' || guainaPhase.status === 'paused') && !isWorkInProgress;
+  
+  const firstProductionPhase = group.phases
+      .filter(p => p.type === 'production')
+      .sort((a,b) => a.sequence - b.sequence)[0];
+  const isGuainaPostponed = guainaPhase && firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
+
 
   return (
     <>
@@ -194,17 +204,6 @@ export default function WorkGroupCard({
                     {group.cliente}
                 </CardDescription>
                 <div className="flex items-center gap-1">
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive">
-                                <Unlink className="h-4 w-4" />
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente. Eventuali avanzamenti di fase registrati sul gruppo andranno persi.</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
                     <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -220,6 +219,28 @@ export default function WorkGroupCard({
                                   <Boxes className="mr-2 h-4 w-4" />
                                   <span>Gestisci Materiali</span>
                               </DropdownMenuItem>
+                             {canToggleGuaina && guainaPhase && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                                        {isGuainaPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />}
+                                        <span>{isGuainaPostponed ? 'Ripristina Guaina' : 'Posticipa Guaina'}</span>
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} L'esecuzione di questa azione su un gruppo ne causerà lo scioglimento immediato. Vuoi continuare?
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => onDissolveGroupClick(group.id)}>Conferma e Sciogli</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
                                <DropdownMenuSeparator />
                                <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
                                   <Users className="mr-2 h-4 w-4" />
@@ -237,6 +258,19 @@ export default function WorkGroupCard({
                                       <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questo gruppo come 'Completato'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(group.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               )}
+                              <DropdownMenuSeparator />
+                              <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
+                                          <Unlink className="mr-2 h-4 w-4" />
+                                          <span>Annulla Gruppo</span>
+                                      </DropdownMenuItem>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                      <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente.</AlertDialogDescription></AlertDialogHeader>
+                                      <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
+                                  </AlertDialogContent>
+                              </AlertDialog>
                           </DropdownMenuContent>
                       </DropdownMenu>
                 </div>
@@ -403,3 +437,5 @@ export default function WorkGroupCard({
     </>
   );
 }
+
+    
