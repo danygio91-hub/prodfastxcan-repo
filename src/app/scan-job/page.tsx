@@ -384,44 +384,47 @@ export default function ScanJobPage() {
   };
 
   const handleResumePhase = async (phaseId: string) => {
-    if (!activeJob || !operator) return;
-    
-    const isGroup = activeJob.id.startsWith('group-');
-    const availability = await isOperatorActiveOnAnyJob(operator.id, isGroup ? activeJob.id : undefined);
-    if (!availability.available) {
-       toast({
-          variant: 'destructive',
-          title: 'Azione bloccata',
-          description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l\'attività precedente.`,
-        });
-        setIsStatusBarHighlighted(true);
+      if (!activeJob || !operator) return;
+      
+      const isGroup = activeJob.id.startsWith('group-');
+      const availability = await isOperatorActiveOnAnyJob(operator.id, isGroup ? activeJob.id : undefined);
+      if (!availability.available) {
+        toast({
+            variant: 'destructive',
+            title: 'Azione bloccata',
+            description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l\'attività precedente.`,
+          });
+          setIsStatusBarHighlighted(true);
+          return;
+      }
+
+      const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
+      const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
+
+      if (jobToUpdate.isProblemReported) {
+        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." });
         return;
-    }
+      }
+      if (!phaseToResume || (phaseToResume.status !== 'paused' && phaseToResume.status !== 'in-progress')) {
+        toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa o in lavorazione per potervi partecipare." });
+        return;
+      }
+      
+      const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+      if (amIAlreadyWorking) {
+        toast({ variant: "destructive", title: "Già al lavoro", description: `Stai già lavorando a questa fase.`});
+        return;
+      }
 
-    const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
-    const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
-    if (jobToUpdate.isProblemReported) {
-      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." });
-      return;
-    }
-    if (!phaseToResume || (phaseToResume.status !== 'paused' && phaseToResume.status !== 'in-progress')) {
-      toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa o in lavorazione per potervi partecipare." });
-      return;
-    }
-    
-    const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
-    if (amIAlreadyWorking) {
-      toast({ variant: "destructive", title: "Già al lavoro", description: `Stai già lavorando a questa fase.`});
-      return;
-    }
-
-    phaseToResume.status = 'in-progress';
-    jobToUpdate.status = 'production';
-    phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-    
-    handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToResume.name}".` });
+      phaseToResume.status = 'in-progress';
+      jobToUpdate.status = 'production';
+      if (!phaseToResume.workPeriods) {
+        phaseToResume.workPeriods = [];
+      }
+      phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+      
+      handleUpdateAndPersistJob(jobToUpdate);
+      toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToResume.name}".` });
   };
 
   const handleCompletePhase = (phaseId: string) => {

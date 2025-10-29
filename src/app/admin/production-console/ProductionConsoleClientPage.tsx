@@ -127,7 +127,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
   
   const isOverdue = (item: JobOrder | WorkGroup) => {
     const deliveryDateString = item.dataConsegnaFinale;
-    if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) {
+    if (!deliveryDateString || !/^\d{4}-\d{2}$/.test(deliveryDateString)) {
         return false;
     }
     const deliveryDate = parseISO(deliveryDateString);
@@ -326,7 +326,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
     );
   };
   

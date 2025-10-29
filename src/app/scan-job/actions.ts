@@ -695,14 +695,25 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         // --- UNLOCK NEXT PHASE (Modified Logic) ---
         const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
         
+        const finalPhases = phasesWithReadiness.map(p => {
+          if (p.id === phaseId) {
+            return {
+              ...p,
+              status: 'in-progress',
+              workPeriods: [...(p.workPeriods || []), { start: new Date(), end: null, operatorId: operatorId }]
+            };
+          }
+          return p;
+        });
+
         // --- COMMIT ---
-        transaction.update(itemRef, { phases: phasesWithReadiness, status: 'production' });
+        transaction.update(itemRef, { phases: finalPhases, status: 'production' });
 
         if (isGroup) {
             const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: phasesWithReadiness, status: 'production' });
+                transaction.update(jobRef, { phases: finalPhases, status: 'production' });
             });
         }
     });
@@ -951,5 +962,3 @@ export async function getOperatorById(uid: string): Promise<Operator | null> {
     }
     return null;
 }
-
-    
