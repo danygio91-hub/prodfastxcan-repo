@@ -142,7 +142,7 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
 }
 
 
-export async function toggleGuainaPhasePosition(itemId: string, phaseId: string): Promise<{ success: boolean; message: string }> {
+export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
     const isGroup = itemId.startsWith('group-');
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
@@ -170,7 +170,7 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string)
         }
         
         const updatedPhases = [...originalPhases];
-        const isCurrentlyPostponed = phaseToMove.postponed === true;
+        const isCurrentlyPostponed = currentState === 'postponed';
 
         if (!isCurrentlyPostponed) {
           // Logic to move it after the last 'production' phase
@@ -749,3 +749,5 @@ export async function resolveMaterialMissing(
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
   }
 }
+
+    
