@@ -7,7 +7,6 @@ import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
-import type { ConcatenationPolicy } from '@/app/admin/concatenation-settings/actions';
 
 /**
  * Helper function to propagate state changes from a group to its member job orders.
@@ -114,33 +113,25 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
 }
 
 
-export async function toggleGuainaPhasePosition(jobId: string, phaseId: string): Promise<{ success: boolean; message: string }> {
+export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
-    const isGroup = jobId.startsWith('group-');
-    
-    if (isGroup) {
-      await dissolveWorkGroup(jobId);
-      return { 
-        success: true, 
-        message: 'Azione non compatibile con i gruppi. Il gruppo è stato annullato per permettere la modifica individuale delle commesse.' 
-      };
-    }
-
-    const jobRef = doc(db, 'jobOrders', jobId);
+    const isGroup = itemId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, itemId);
     
     await runTransaction(db, async (transaction) => {
-        const jobSnap = await transaction.get(jobRef);
+        const itemSnap = await transaction.get(itemRef);
 
-        if (!jobSnap.exists()) {
-          throw new Error('Commessa non trovata.');
+        if (!itemSnap.exists()) {
+          throw new Error('Commessa o Gruppo non trovato.');
         }
 
-        const job = jobSnap.data() as JobOrder;
-        const originalPhases = job.phases || [];
+        const itemData = itemSnap.data() as JobOrder | WorkGroup;
+        const originalPhases = itemData.phases || [];
         const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
 
         if (phaseIndex === -1) {
-          throw new Error('Fase "Taglio Guaina" non trovata in questa commessa.');
+          throw new Error('Fase "Taglio Guaina" non trovata.');
         }
 
         const phaseToMove = originalPhases[phaseIndex];
@@ -150,7 +141,7 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string):
         }
         
         const updatedPhases = [...originalPhases];
-        const isCurrentlyPostponed = phaseToMove.postponed === true;
+        const isCurrentlyPostponed = currentState === 'postponed';
 
         if (!isCurrentlyPostponed) {
           // Logic to move it after the last 'production' phase
@@ -162,7 +153,6 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string):
             const lastProductionPhase = productionPhases[productionPhases.length - 1];
             targetSequence = lastProductionPhase.sequence + 0.1; // Place it right after
           } else {
-            // Fallback if no production phases exist: move it towards the end but before quality/packaging
             const firstQualityPhase = phasesSorted.find(p => p.type === 'quality' || p.type === 'packaging');
             targetSequence = firstQualityPhase ? firstQualityPhase.sequence - 0.1 : 99;
           }
@@ -183,11 +173,15 @@ export async function toggleGuainaPhasePosition(jobId: string, phaseId: string):
 
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
 
-        transaction.update(jobRef, { phases: finalPhases });
+        transaction.update(itemRef, { phases: finalPhases });
+
+        if (isGroup) {
+            await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
+        }
     });
     
     revalidatePath('/admin/production-console');
-    revalidatePath(`/scan-job?jobId=${jobId}`);
+    revalidatePath(`/scan-job?jobId=${itemId}`);
 
     return { 
       success: true, 
