@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -27,11 +26,11 @@ const PwaInstaller = () => {
             e.preventDefault();
             setInstallPrompt(e as BeforeInstallPromptEvent);
         };
-        
-        if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            const wb = new (window as any).Workbox('/sw.js');
 
-            wb.addEventListener('waiting', (event: any) => {
+        const setupServiceWorker = () => {
+            if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production' && (window as any).Workbox) {
+                const wb = new (window as any).Workbox('/sw.js');
+
                 const promptUserToUpdate = () => {
                     toast({
                         title: "Aggiornamento Disponibile",
@@ -50,16 +49,20 @@ const PwaInstaller = () => {
                         ),
                     });
                 };
-                promptUserToUpdate();
-            });
-
-            wb.register();
-        }
+                
+                wb.addEventListener('waiting', promptUserToUpdate);
+                wb.register();
+            }
+        };
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        // Wait for the page to be fully loaded before setting up the service worker
+        window.addEventListener('load', setupServiceWorker);
+
 
         return () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+            window.removeEventListener('load', setupServiceWorker);
         };
     }, [toast]);
 
