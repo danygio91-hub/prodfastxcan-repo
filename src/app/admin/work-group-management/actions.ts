@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -7,6 +6,7 @@ import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getD
 import { db } from '@/lib/firebase';
 import type { WorkGroup, JobOrder, JobPhase } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
+import { getJobTimeData } from '../reports/actions';
 
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
