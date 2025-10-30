@@ -16,7 +16,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -236,12 +241,12 @@ export default function WorkGroupCard({
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Conferma Spostamento Fase</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} Vuoi continuare?
+                                            Stai per {isGuainaPostponed ? 'riportare la fase "Taglio Guaina" alla sua posizione originale.' : 'posticipare la fase "Taglio Guaina" a dopo la produzione.'} L'esecuzione di questa azione su un gruppo ne causerà lo scioglimento immediato. Vuoi continuare?
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction>
+                                            <AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guainaPhase.id, isGuainaPostponed ? 'postponed' : 'default')}>Conferma e Sciogli</AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
