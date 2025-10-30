@@ -1,11 +1,10 @@
 
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import type { JobOrder, WorkGroup, Operator } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 interface ActiveJobContextType {
