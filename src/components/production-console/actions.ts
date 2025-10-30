@@ -6,26 +6,37 @@ import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
-import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 
-/**
- * Helper function to propagate state changes from a group to its member job orders.
- * @param transaction Firestore transaction object.
- * @param groupData The WorkGroup data containing the state to propagate.
- */
-async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
-    if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    
-    const updatePayload: { [key: string]: any } = {
-        phases: groupData.phases,
-        status: groupData.status,
-    };
 
-    const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
-    jobRefs.forEach(jobRef => {
-        transaction.update(jobRef, updatePayload);
-    });
+export type ProductionTimeData = {
+    averageMinutesPerPiece: number;
+    isTimeCalculationReliable: boolean;
+    phases: Record<string, { averageMinutesPerPiece: number }>;
+};
+
+export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
+    const report = await fetchProductionTimeAnalysisReport();
+    const analysisMap = new Map<string, ProductionTimeData>();
+
+    for (const articleReport of report) {
+        // We consider all data for estimations, reliability is just a flag
+        const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
+        articleReport.averagePhaseTimes.forEach(phase => {
+            if (phase.averageMinutesPerPiece > 0) {
+                phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece };
+            }
+        });
+
+        analysisMap.set(articleReport.articleCode, {
+            averageMinutesPerPiece: articleReport.averageMinutesPerPiece,
+            isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)),
+            phases: phaseTimes,
+        });
+    }
+    return analysisMap;
 }
+
 
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
@@ -176,7 +187,12 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
         transaction.update(itemRef, { phases: finalPhases });
 
         if (isGroup) {
-            await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
+            const groupData = itemSnap.data() as WorkGroup;
+            const updatePayload = { phases: finalPhases };
+            (groupData.jobOrderIds || []).forEach(individualJobId => {
+                const jobRef = doc(db, 'jobOrders', individualJobId);
+                transaction.update(jobRef, updatePayload);
+            });
         }
     });
     
@@ -293,7 +309,11 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       transaction.update(itemRef, updatedItemData);
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, updatedItemData as WorkGroup);
+        const groupData = updatedItemData as WorkGroup;
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, { phases: updatedPhases, status: newStatus });
+        });
       }
     });
     
@@ -651,11 +671,16 @@ export async function reportMaterialMissing(
       });
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases } as WorkGroup);
+        const groupData = itemSnap.data() as WorkGroup;
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE', problemReportedBy: operator?.nome || 'Admin' });
+        });
       }
     });
 
     revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
     return { success: true, message: 'Mancanza materiale segnalata.' };
   } catch (e) {
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
@@ -709,7 +734,11 @@ export async function resolveMaterialMissing(
       transaction.update(itemRef, updatePayload);
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, { ...itemData, ...updatePayload } as WorkGroup);
+        const groupData = itemSnap.data() as WorkGroup;
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, updatePayload);
+        });
       }
     });
 

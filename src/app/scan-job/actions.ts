@@ -30,6 +30,25 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+/**
+ * Helper function to propagate state changes from a group to its member job orders.
+ * @param transaction Firestore transaction object.
+ * @param groupData The WorkGroup data containing the state to propagate.
+ */
+async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
+    if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
+    
+    const updatePayload: { [key: string]: any } = {
+        phases: groupData.phases,
+        status: groupData.status,
+    };
+
+    const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
+    jobRefs.forEach(jobRef => {
+        transaction.update(jobRef, updatePayload);
+    });
+}
+
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     const isWorkGroup = id.startsWith('group-');
@@ -786,7 +805,11 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
         transaction.update(itemRef, { phases: finalPhases });
 
         if (isGroup) {
-            await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
+             const groupData = itemSnap.data() as WorkGroup;
+            (groupData.jobOrderIds || []).forEach(individualJobId => {
+                const jobRef = doc(db, 'jobOrders', individualJobId);
+                transaction.update(jobRef, { phases: finalPhases });
+            });
         }
     });
     
@@ -989,4 +1012,5 @@ export async function getOperatorById(uid: string): Promise<Operator | null> {
     }
     return null;
 }
+
 
