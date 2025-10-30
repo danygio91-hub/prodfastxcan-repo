@@ -5,9 +5,8 @@ import { revalidatePath } from 'next/cache';
 import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
-
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -36,8 +35,6 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
     }
     return analysisMap;
 }
-
-
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -119,94 +116,6 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
     console.error("Error reverting force finish:", error);
-    return { success: false, message: errorMessage };
-  }
-}
-
-
-export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
-  try {
-    const isGroup = itemId.startsWith('group-');
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, itemId);
-    
-    await runTransaction(db, async (transaction) => {
-        const itemSnap = await transaction.get(itemRef);
-
-        if (!itemSnap.exists()) {
-          throw new Error('Commessa o Gruppo non trovato.');
-        }
-
-        const itemData = itemSnap.data() as JobOrder | WorkGroup;
-        const originalPhases = itemData.phases || [];
-        const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
-
-        if (phaseIndex === -1) {
-          throw new Error('Fase "Taglio Guaina" non trovata.');
-        }
-
-        const phaseToMove = originalPhases[phaseIndex];
-
-        if (!['pending', 'paused'].includes(phaseToMove.status)) {
-            throw new Error('È possibile spostare la fase solo se non è ancora stata avviata o è in pausa.');
-        }
-        
-        const updatedPhases = [...originalPhases];
-        const isCurrentlyPostponed = currentState === 'postponed';
-
-        if (!isCurrentlyPostponed) {
-          // Logic to move it after the last 'production' phase
-          const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
-          const productionPhases = phasesSorted.filter(p => p.type === 'production');
-          
-          let targetSequence;
-          if (productionPhases.length > 0) {
-            const lastProductionPhase = productionPhases[productionPhases.length - 1];
-            targetSequence = lastProductionPhase.sequence + 0.1; // Place it right after
-          } else {
-            const firstQualityPhase = phasesSorted.find(p => p.type === 'quality' || p.type === 'packaging');
-            targetSequence = firstQualityPhase ? firstQualityPhase.sequence - 0.1 : 99;
-          }
-          
-          updatedPhases[phaseIndex].sequence = targetSequence;
-          updatedPhases[phaseIndex].postponed = true;
-
-        } else { // 'postponed' -> revert to original
-          const templateRef = doc(db, 'workPhaseTemplates', phaseId);
-          const templateSnap = await transaction.get(templateRef);
-          if (!templateSnap.exists()) {
-              throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
-          }
-          const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
-          updatedPhases[phaseIndex].sequence = originalSequence;
-          delete updatedPhases[phaseIndex].postponed;
-        }
-
-        const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
-
-        transaction.update(itemRef, { phases: finalPhases });
-
-        if (isGroup) {
-            const groupData = itemSnap.data() as WorkGroup;
-            const updatePayload = { phases: finalPhases };
-            (groupData.jobOrderIds || []).forEach(individualJobId => {
-                const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, updatePayload);
-            });
-        }
-    });
-    
-    revalidatePath('/admin/production-console');
-    revalidatePath(`/scan-job?jobId=${itemId}`);
-
-    return { 
-      success: true, 
-      message: `Posizione della fase "Taglio Guaina" aggiornata.` 
-    };
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
-    console.error("Error toggling phase position:", error);
     return { success: false, message: errorMessage };
   }
 }
@@ -310,9 +219,10 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       
       if (isGroup) {
         const groupData = updatedItemData as WorkGroup;
+        const updatePayload = { phases: updatedPhases, status: newStatus };
         (groupData.jobOrderIds || []).forEach(individualJobId => {
             const jobRef = doc(db, 'jobOrders', individualJobId);
-            transaction.update(jobRef, { phases: updatedPhases, status: newStatus });
+            transaction.update(jobRef, updatePayload);
         });
       }
     });
@@ -749,4 +659,4 @@ export async function resolveMaterialMissing(
   }
 }
 
-    
+  

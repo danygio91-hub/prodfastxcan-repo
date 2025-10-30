@@ -516,7 +516,14 @@ export default function ScanJobPage() {
   
   const handlePostponeQuality = async (phaseId: string) => {
     if (!activeJob) return;
-    const result = await postponeQualityPhase(activeJob.id, phaseId);
+
+    const guainaPhase = activeJob.phases.find(p => p.id === phaseId);
+    if (!guainaPhase) return;
+
+    const firstProductionPhase = activeJob.phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence)[0];
+    const isGuainaPostponed = firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
+
+    const result = await postponeQualityPhase(activeJob.id, phaseId, isGuainaPostponed ? 'postponed' : 'default');
     toast({
         title: result.success ? "Operazione Eseguita" : "Errore",
         description: result.message,
@@ -1518,3 +1525,5 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
+
+  
