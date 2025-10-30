@@ -183,7 +183,7 @@ export default function JobOrderCard({
     
     (jobOrder.phases || []).forEach(phase => {
         if (phase.status === 'in-progress') {
-            const phaseOperators: { id: string; name: string }[] = [];
+            const phaseOperators: ActivePhaseInfo['operators'] = [];
             (phase.workPeriods || []).forEach(wp => {
                 if (wp.end === null) {
                     const operator = allOperators.find(op => op.id === wp.operatorId);
@@ -639,4 +639,3 @@ export default function JobOrderCard({
     </>
   );
 }
-
