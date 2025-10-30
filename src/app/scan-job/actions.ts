@@ -258,7 +258,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             const finalStatePayload = {
                 status: 'completed',
                 overallEndTime: groupData.overallEndTime,
-                phases: groupData.phases, // Propagate final phase states
+                phases: groupData.phases,
                 workGroupId: null, // Ungroup
             };
             
@@ -669,7 +669,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
   try {
     const isGroup = jobId.startsWith('group-');
     
-    // The check for operator availability is now context-aware.
     const availability = await isOperatorActiveOnAnyJob(operatorId, isGroup ? jobId : undefined);
     if (!availability.available) {
         return { success: false, message: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l'attività precedente.`, error: 'OPERATOR_BUSY' };
@@ -684,7 +683,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
         const itemData = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
         
-        // Create a mutable copy
         const itemToUpdate = JSON.parse(JSON.stringify(itemData));
         const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
         const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseId);
@@ -693,43 +691,31 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
 
         const phaseToStart = sortedPhases[currentPhaseIndex];
 
-        // --- VALIDATION LOGIC ---
         if (phaseToStart.status !== 'pending' && phaseToStart.status !== 'paused') throw new Error('Questa fase non è in attesa o in pausa.');
         if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
 
-        // If the phase is not independent, it must have its material ready.
         if (!phaseToStart.isIndependent && !phaseToStart.materialReady) {
             throw new Error('Il materiale per questa fase non è pronto.');
         }
 
-        // --- START PHASE LOGIC ---
         phaseToStart.status = 'in-progress';
-        itemToUpdate.status = 'production';
         phaseToStart.workstationScannedAndVerified = true;
         phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
 
-        // --- UNLOCK NEXT PHASE (Modified Logic) ---
-        const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
-        
-        const finalPhases = phasesWithReadiness.map(p => {
-          if (p.id === phaseId) {
-            return {
-              ...p,
-              status: 'in-progress',
-              workPeriods: [...(p.workPeriods || []), { start: new Date(), end: null, operatorId: operatorId }]
-            };
-          }
-          return p;
-        });
+        itemToUpdate.status = 'production';
+        if (!itemToUpdate.overallStartTime) {
+            itemToUpdate.overallStartTime = new Date();
+        }
 
-        // --- COMMIT ---
-        transaction.update(itemRef, { phases: finalPhases, status: 'production' });
+        const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
+
+        transaction.update(itemRef, { phases: phasesWithReadiness, status: 'production', overallStartTime: itemToUpdate.overallStartTime });
 
         if (isGroup) {
             const group = itemData as WorkGroup;
             (group.jobOrderIds || []).forEach(individualJobId => {
                 const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: finalPhases, status: 'production' });
+                transaction.update(jobRef, { phases: phasesWithReadiness, status: 'production', overallStartTime: itemToUpdate.overallStartTime });
             });
         }
     });
@@ -1014,3 +1000,6 @@ export async function getOperatorById(uid: string): Promise<Operator | null> {
 }
 
 
+
+
+    
