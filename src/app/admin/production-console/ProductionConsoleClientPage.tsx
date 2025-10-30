@@ -94,6 +94,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
   const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
   const [isDateFilterActive, setIsDateFilterActive] = useState(false);
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
@@ -217,22 +218,26 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
   const filteredStandaloneJobs = useMemo(() => {
     let filtered = standaloneJobs;
 
+    if (!showCompleted) {
+        filtered = filtered.filter(job => getOverallStatus(job) !== 'Completata');
+    } else if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
+         filtered = filtered.filter(job => 
+            getOverallStatus(job) === 'Completata' && job.overallEndTime && isSameDay(new Date(job.overallEndTime), completedDateFilter)
+        );
+    } else if (activeFilter === 'Completata') {
+        filtered = filtered.filter(job => getOverallStatus(job) === 'Completata');
+    }
+    
     if (showOnlyOverdue) {
         filtered = filtered.filter(isOverdue);
     }
     
-    if (activeFilter !== 'all') {
+    if (activeFilter !== 'all' && activeFilter !== 'Completata') {
       if (activeFilter === 'LIVE') {
         filtered = filtered.filter(job => isJobLive(job));
       } else {
         filtered = filtered.filter(job => getOverallStatus(job) === activeFilter);
       }
-    }
-    
-    if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
-      filtered = filtered.filter(job => 
-        job.overallEndTime && isSameDay(new Date(job.overallEndTime), completedDateFilter)
-      );
     }
     
     if (!searchTerm) return filtered;
@@ -245,27 +250,31 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
       (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
       job.details.toLowerCase().includes(lowercasedFilter)
     );
-  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
+  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, showCompleted]);
   
   const filteredGroups = useMemo(() => {
     let groups = Array.from(workGroupsMap.values());
 
+    if (!showCompleted) {
+        groups = groups.filter(group => getOverallStatus(group) !== 'Completata');
+    } else if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
+        groups = groups.filter(group => 
+            getOverallStatus(group) === 'Completata' && group.overallEndTime && isSameDay(new Date(group.overallEndTime), completedDateFilter)
+        );
+    } else if (activeFilter === 'Completata') {
+        groups = groups.filter(group => getOverallStatus(group) === 'Completata');
+    }
+    
     if (showOnlyOverdue) {
         groups = groups.filter(isOverdue);
     }
 
-    if (activeFilter !== 'all') {
+    if (activeFilter !== 'all' && activeFilter !== 'Completata') {
         if (activeFilter === 'LIVE') {
           groups = groups.filter(group => isJobLive(group));
         } else {
           groups = groups.filter(group => getOverallStatus(group) === activeFilter);
         }
-    }
-
-    if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
-      groups = groups.filter(group => 
-        group.overallEndTime && isSameDay(new Date(group.overallEndTime), completedDateFilter)
-      );
     }
 
     if (!searchTerm) return groups;
@@ -286,13 +295,13 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
 
         return groupMatches || anyJobMatches;
     });
-}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
+}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, showCompleted]);
   
   const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
 
   useEffect(() => {
     setSelectedIds([]);
-  }, [activeFilter, searchTerm]);
+  }, [activeFilter, searchTerm, showCompleted]);
 
   const selectedItems = useMemo(() => {
       const selectedJobs = standaloneJobs.filter(j => selectedIds.includes(j.id));
@@ -537,7 +546,6 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
     { label: 'Manca Materiale', value: 'Manca Materiale', icon: PackageX },
     { label: 'Pronto per Produzione', value: 'Pronto per Produzione', icon: PlayCircle },
     { label: 'Pronto per Finitura', value: 'Pronto per Finitura', icon: CheckSquare },
-    { label: 'Completata', value: 'Completata', icon: CheckCircle2 },
   ];
 
   return (
@@ -569,7 +577,7 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
               {filterOptions.map(filter => (
               <Button
                   key={filter.value}
-                  variant={activeFilter === filter.value ? 'default' : 'ghost'}
+                  variant={activeFilter === filter.value ? 'secondary' : 'ghost'}
                   onClick={() => setActiveFilter(filter.value)}
                   className="capitalize px-3 py-1 h-auto text-xs sm:text-sm"
               >
@@ -579,39 +587,42 @@ function ProductionConsoleView({ analysisMap }: ProductionConsoleViewProps) {
               ))}
           </div>
            <div className="border-t pt-2 flex items-center justify-center gap-4 flex-wrap">
-                  {activeFilter === 'Completata' ? (
+                  <div className="flex items-center space-x-2">
+                     <Switch id="overdue-filter-switch" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} />
+                     <Label htmlFor="overdue-filter-switch" className="text-destructive">Filtra Ritardi</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                      <Switch id="completed-filter-switch" checked={showCompleted} onCheckedChange={setShowCompleted} />
+                      <Label htmlFor="completed-filter-switch">Mostra Completate</Label>
+                  </div>
+
+                  {showCompleted && (
+                    <>
                       <div className="flex items-center space-x-2">
                           <Switch id="date-filter-switch" checked={isDateFilterActive} onCheckedChange={setIsDateFilterActive} />
                           <Label htmlFor="date-filter-switch">Filtra per data</Label>
                       </div>
-                  ) : (
-                       <div className="flex items-center space-x-2">
-                          <Switch id="overdue-filter-switch" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} />
-                          <Label htmlFor="overdue-filter-switch" className="text-destructive">Filtra Ritardi</Label>
-                      </div>
-                  )}
-
-                  {activeFilter === 'Completata' && (
-                  <Popover>
-                      <PopoverTrigger asChild>
-                          <Button
-                              variant={"outline"}
-                              className={cn("w-[240px] justify-start text-left font-normal", !completedDateFilter && "text-muted-foreground", !isDateFilterActive && "opacity-50 cursor-not-allowed")}
-                              disabled={!isDateFilterActive}
-                          >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : <span>Scegli una data</span>}
-                          </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="center">
-                          <Calendar
-                              mode="single"
-                              selected={completedDateFilter}
-                              onSelect={setCompletedDateFilter}
-                              initialFocus
-                          />
-                      </PopoverContent>
-                  </Popover>
+                      <Popover>
+                          <PopoverTrigger asChild>
+                              <Button
+                                  variant={"outline"}
+                                  className={cn("w-[240px] justify-start text-left font-normal", !completedDateFilter && "text-muted-foreground", !isDateFilterActive && "opacity-50 cursor-not-allowed")}
+                                  disabled={!isDateFilterActive}
+                              >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {completedDateFilter ? format(completedDateFilter, "PPP", { locale: it }) : <span>Scegli una data</span>}
+                              </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="center">
+                              <Calendar
+                                  mode="single"
+                                  selected={completedDateFilter}
+                                  onSelect={setCompletedDateFilter}
+                                  initialFocus
+                              />
+                          </PopoverContent>
+                      </Popover>
+                    </>
                   )}
            </div>
         </Card>
@@ -924,5 +935,3 @@ export default function ProductionConsoleClientPage({ analysisMap }: { analysisM
         </React.Suspense>
     )
 }
-
-    
