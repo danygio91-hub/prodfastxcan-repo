@@ -3,9 +3,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { Download } from 'lucide-react';
+import { Download, RefreshCw } from 'lucide-react';
 import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from './ui/toast';
 
 // Add type for the install prompt event
 interface BeforeInstallPromptEvent extends Event {
@@ -24,38 +25,35 @@ const PwaInstaller = () => {
     useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
             e.preventDefault();
-            setInstallPrompt(e as BeforeInstallPromptEvent);
+            setInstallPrompt(e as BeforeInstallallPromptEvent);
         };
         
         if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker.register('/sw.js')
-                .then(registration => {
-                    console.log('Service Worker registered with scope:', registration.scope);
-                    // This logic checks for a new service worker waiting to be activated.
-                    registration.addEventListener('updatefound', () => {
-                        const newWorker = registration.installing;
-                        if (newWorker) {
-                            newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    // A new service worker is installed and waiting.
-                                    // We can prompt the user to refresh or just force it.
-                                    // For this app, we force the update to ensure data consistency.
-                                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                                    console.log('New Service Worker installed, activating immediately.');
-                                }
-                            });
-                        }
+            const wb = new (window as any).Workbox('/sw.js');
+
+            wb.addEventListener('waiting', (event: any) => {
+                const promptUserToUpdate = () => {
+                    toast({
+                        title: "Aggiornamento Disponibile",
+                        description: "È disponibile una nuova versione dell'app.",
+                        duration: Infinity, // Keep the toast open until user acts
+                        action: (
+                            <ToastAction altText="Aggiorna" onClick={() => {
+                                wb.addEventListener('controlling', () => {
+                                    window.location.reload();
+                                });
+                                wb.messageSkipWaiting();
+                            }}>
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                Aggiorna
+                            </ToastAction>
+                        ),
                     });
-                })
-                .catch(error => console.error('Service Worker registration failed:', error));
-            
-            let refreshing = false;
-            navigator.serviceWorker.addEventListener('controllerchange', () => {
-                if (!refreshing) {
-                    window.location.reload();
-                    refreshing = true;
-                }
+                };
+                promptUserToUpdate();
             });
+
+            wb.register();
         }
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -63,7 +61,7 @@ const PwaInstaller = () => {
         return () => {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
         };
-    }, []);
+    }, [toast]);
 
     const handleInstallClick = async () => {
         if (!installPrompt) {
@@ -83,7 +81,7 @@ const PwaInstaller = () => {
     };
 
     if (!installPrompt) {
-        return null; // Do not render the button if installation is not possible
+        return null; // Do not render the install button if not applicable
     }
 
     return (
