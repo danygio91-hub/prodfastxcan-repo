@@ -25,7 +25,7 @@ const PwaInstaller = () => {
     useEffect(() => {
         const handleBeforeInstallPrompt = (e: Event) => {
             e.preventDefault();
-            setInstallPrompt(e as BeforeInstallallPromptEvent);
+            setInstallPrompt(e as BeforeInstallPromptEvent);
         };
         
         if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
