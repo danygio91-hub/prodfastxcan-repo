@@ -536,7 +536,7 @@ function getPhaseTimeMilliseconds(phase: JobPhase): number {
     }, 0);
 }
 
-async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> }> {
+export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> }> {
     let totalMs = 0;
     let isReliable = true;
     let phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> = [];
@@ -701,4 +701,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
 
