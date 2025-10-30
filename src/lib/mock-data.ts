@@ -1,6 +1,5 @@
 
 
-
 // --- Type Definitions ---
 
 export interface Department {
@@ -94,6 +93,9 @@ export interface Operator {
   privacyVersion?: number; // Timestamp of the signed policy
   nome_normalized?: string;
   email?: string;
+  // Fields to track active state across devices
+  activeJobId?: string | null;
+  activePhaseName?: string | null;
 }
 
 export interface WorkPhaseTemplate {

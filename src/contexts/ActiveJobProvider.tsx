@@ -3,12 +3,10 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import type { JobOrder, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, WorkGroup, Operator } from '@/lib/mock-data';
 import { db } from '@/lib/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/components/auth/AuthProvider';
-
-const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
 
 interface ActiveJobContextType {
   activeJob: JobOrder | null;
@@ -28,38 +26,46 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const { operator, loading: authLoading } = useAuth();
   const [isStatusBarHighlighted, setIsStatusBarHighlightedState] = useState(false);
 
-  // Effect to load the active job ID from local storage when the operator logs in
+  // This effect listens for changes on the operator's document in Firestore.
+  // When activeJobId on the operator doc changes, it updates the local state.
   useEffect(() => {
-    if (authLoading) return;
-    if (!operator) {
+    if (authLoading || !operator) {
+      setIsLoading(false);
       setActiveJobIdState(null);
       setActiveJobState(null);
-      setIsLoading(false);
       return;
     }
 
-    const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
-    const storedJobId = localStorage.getItem(storageKey);
-    setActiveJobIdState(storedJobId);
+    const operatorRef = doc(db, 'operators', operator.id);
+    const unsubscribe = onSnapshot(operatorRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const operatorData = docSnap.data() as Operator;
+        // The source of truth for the active job ID is now the operator document.
+        setActiveJobIdState(operatorData.activeJobId || null);
+      } else {
+        // If the operator doc is somehow deleted, clear the state.
+        setActiveJobIdState(null);
+      }
+    }, (error) => {
+      console.error("Error listening to operator document:", error);
+    });
+
+    return () => unsubscribe();
   }, [operator, authLoading]);
 
-  const setActiveJobId = useCallback((jobId: string | null) => {
-    if (!operator) return; 
-
-    setActiveJobIdState(jobId);
+  const setActiveJobId = useCallback(async (jobId: string | null) => {
+    if (!operator) return;
     try {
-      const storageKey = `${ACTIVE_JOB_ID_STORAGE_KEY_PREFIX}${operator.id}`;
-      if (jobId) {
-        localStorage.setItem(storageKey, jobId);
-      } else {
-        localStorage.removeItem(storageKey);
-      }
+        const operatorRef = doc(db, "operators", operator.id);
+        await updateDoc(operatorRef, { activeJobId: jobId || null });
+        // The listener above will handle the state update.
     } catch (error) {
-      console.error("Failed to save active job ID to localStorage", error);
+        console.error("Failed to update active job ID on operator profile", error);
     }
   }, [operator]);
 
-  // Effect to listen for real-time updates on the active job
+
+  // This effect listens for real-time updates on the active job
   useEffect(() => {
     if (!activeJobId) {
         setActiveJobState(null);
@@ -112,7 +118,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
 
             // If the job is no longer in a workable state, clear it.
             if (!['production', 'suspended', 'paused'].includes(jobToSet.status)) {
-                 setActiveJobId(null); // This will also clear the local storage
+                 setActiveJobId(null);
                  setActiveJobState(null);
             } else {
                  setActiveJobState(jobToSet);

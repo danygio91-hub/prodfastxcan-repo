@@ -8,10 +8,9 @@ import { auth, db } from '@/lib/firebase';
 import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
 import { logout as firebaseLogout } from '@/lib/auth';
 
-const ACTIVE_JOB_ID_STORAGE_KEY_PREFIX = 'prodtime_tracker_active_job_id_';
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
 
@@ -36,10 +35,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fullLogout = useCallback(async () => {
     const currentOperator = operatorRef.current;
-    if (currentOperator?.id && currentOperator?.role !== 'admin' && currentOperator?.role !== 'supervisor') {
+    if (currentOperator?.id) {
       try {
         const operatorDocRef = doc(db, "operators", currentOperator.id);
-        await updateDoc(operatorDocRef, { stato: 'inattivo' });
+        // On logout, clear active job status from Firestore profile
+        await updateDoc(operatorDocRef, { 
+          stato: currentOperator.role === 'admin' || currentOperator.role === 'supervisor' ? 'attivo' : 'inattivo',
+          activeJobId: deleteField(),
+          activePhaseName: deleteField(),
+        });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
       }
@@ -47,9 +51,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     await firebaseLogout();
     
-    // We intentionally DO NOT remove the active job ID on logout.
-    // This allows the user to be brought back to their last active job upon re-login.
-    // The active job ID is cleared only when the user explicitly clicks the "Abandon" button.
     if (currentOperator?.id) {
         localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
     }
