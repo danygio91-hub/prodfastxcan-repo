@@ -4,11 +4,11 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, Timer, RefreshCcw, HelpCircle, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +21,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -178,6 +178,7 @@ export default function WorkGroupCard({
 
   return (
     <>
+      <Collapsible asChild>
       <Card 
         className={cn(
             "relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", 
@@ -205,6 +206,12 @@ export default function WorkGroupCard({
                            </TooltipContent>
                        </Tooltip>
                    </TooltipProvider>
+                   <CollapsibleTrigger asChild>
+                          <div className="flex items-center gap-2 cursor-pointer">
+                              <CardTitle className="font-headline text-lg">{group.ordinePF}</CardTitle>
+                               <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:-rotate-180" />
+                          </div>
+                   </CollapsibleTrigger>
                 </div>
                  <StatusBadge status={overallStatus} />
             </div>
@@ -269,7 +276,7 @@ export default function WorkGroupCard({
                                   </AlertDialog>
                               )}
                               <DropdownMenuSeparator />
-                               <AlertDialog>
+                              <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                       <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
                                           <Unlink className="mr-2 h-4 w-4" />
@@ -277,7 +284,7 @@ export default function WorkGroupCard({
                                       </DropdownMenuItem>
                                   </AlertDialogTrigger>
                                   <AlertDialogContent>
-                                      <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e verranno resettate allo stato di 'pianificata'.</AlertDialogDescription></AlertDialogHeader>
+                                      <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente.</AlertDialogDescription></AlertDialogHeader>
                                       <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
                                   </AlertDialogContent>
                               </AlertDialog>
@@ -288,7 +295,7 @@ export default function WorkGroupCard({
 
             {(group.isProblemReported || hasMaterialMissing) && (
                 <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-                    <ShieldAlert className="mr-2 h-4 w-4" />
+                    <ShieldAlert className="mr-2 h-4 w-4" /> 
                      {group.isProblemReported ? "Problema segnalato!" : "Materiale mancante!"}
                 </p>
             )}
@@ -339,21 +346,7 @@ export default function WorkGroupCard({
                 </div>
             )}
           <Separator />
-
-          <div className="space-y-2">
-              <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
-              {group.phases && group.phases.length > 0 ? (
-                  group.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                      <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
-                          {getPhaseIcon(phase.status)}
-                          <span className={cn("flex-1", phase.status === 'skipped' && 'line-through')}>{phase.name}</span>
-                      </div>
-                  ))
-              ) : (
-                  <p className="text-sm text-muted-foreground">Nessuna fase definita per questo gruppo.</p>
-              )}
-          </div>
-           <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}>
+          <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}>
                 <View className="mr-2 h-4 w-4" />
                 Esplodi e Vedi Dettagli Commesse ({jobsInGroup.length})
             </Button>
@@ -368,7 +361,7 @@ export default function WorkGroupCard({
           </div>
         </CardFooter>
       </Card>
-      
+      </Collapsible>
       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
           <DialogContent>
               <DialogHeader>
