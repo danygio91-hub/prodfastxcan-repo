@@ -294,7 +294,7 @@ export default function JobOrderCard({
                             disabled={isPartOfGroup}
                         />
                         <CollapsibleTrigger asChild>
-                          <div className="flex items-center gap-2 cursor-pointer">
+                          <div className="flex items-center gap-2 cursor-pointer group">
                               <CardTitle className="font-headline text-lg">{jobOrder.ordinePF}</CardTitle>
                                <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:-rotate-180" />
                           </div>

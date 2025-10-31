@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -31,32 +32,40 @@ const PwaInstaller = () => {
             if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production' && (window as any).Workbox) {
                 const wb = new (window as any).Workbox('/sw.js');
 
-                const promptUserToUpdate = () => {
-                    toast({
-                        title: "Aggiornamento Disponibile",
-                        description: "È disponibile una nuova versione dell'app.",
-                        duration: Infinity, // Keep the toast open until user acts
-                        action: (
-                            <ToastAction altText="Aggiorna" onClick={() => {
-                                wb.addEventListener('controlling', () => {
-                                    window.location.reload();
-                                });
-                                wb.messageSkipWaiting();
-                            }}>
-                                <RefreshCw className="mr-2 h-4 w-4" />
-                                Aggiorna
-                            </ToastAction>
-                        ),
-                    });
-                };
+                // This listener will fire when a new service worker has finished installing
+                // and is waiting to take control.
+                wb.addEventListener('waiting', (event: any) => {
+                    const promptUserToUpdate = () => {
+                         toast({
+                            title: "Aggiornamento Disponibile",
+                            description: "È disponibile una nuova versione dell'app. Clicca per aggiornare.",
+                            duration: Infinity,
+                            action: (
+                                <ToastAction altText="Aggiorna" onClick={() => {
+                                    // This will send a message to the waiting service worker to activate itself
+                                    wb.messageSkipWaiting();
+                                }}>
+                                    <RefreshCw className="mr-2 h-4 w-4" />
+                                    Aggiorna
+                                </ToastAction>
+                            ),
+                        });
+                    };
+                    promptUserToUpdate();
+                });
                 
-                wb.addEventListener('waiting', promptUserToUpdate);
+                // This listener will fire when the new service worker has taken control
+                wb.addEventListener('controlling', () => {
+                    // At this point, the old service worker has been replaced. We can now
+                    // safely reload the page to ensure all content is from the new version.
+                    window.location.reload();
+                });
+
                 wb.register();
             }
         };
 
         window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        // Wait for the page to be fully loaded before setting up the service worker
         window.addEventListener('load', setupServiceWorker);
 
 
