@@ -525,13 +525,15 @@ export default function JobOrderCard({
                           </div>
                       )}
                 </div>
-                 <div className="w-full">
+                
+                <div className="w-full">
                     <div className="flex justify-between text-xs text-muted-foreground mb-1">
                         <span>Progresso</span>
                         <span>{Math.round(progressPercentage)}%</span>
                     </div>
                     <Progress value={progressPercentage} className="h-2" />
                 </div>
+                
                  {isAnyPhaseActive && (
                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                       <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
