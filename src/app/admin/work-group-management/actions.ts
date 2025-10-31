@@ -2,12 +2,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { WorkGroup, JobOrder, JobPhase } from '@/lib/mock-data';
-import { ensureAdmin } from '@/lib/server-auth';
-import { getJobTimeData } from '../reports/actions';
-
+import type { WorkGroup, JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
   const groupsCol = collection(db, 'workGroups');
@@ -50,26 +47,44 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
 
         jobsSnapshot.forEach(jobDoc => {
             const jobData = jobDoc.data() as JobOrder;
-            // Reset phases: set to pending and clear work periods.
-            const cleanPhases = (jobData.phases || []).map(p => ({
-                ...p,
-                status: 'pending' as const,
-                workPeriods: [],
-                materialConsumptions: [],
-                qualityResult: null,
-            }));
+            
+            // Proportional time calculation
+            const jobProportion = groupData.totalQuantity > 0 ? (jobData.qta / groupData.totalQuantity) : 0;
+            
+            const inheritedPhases = (groupData.phases || []).map(groupPhase => {
+                const inheritedWorkPeriods: WorkPeriod[] = (groupPhase.workPeriods || []).map(wp => {
+                    if (wp.end) {
+                        const start = new Date(wp.start).getTime();
+                        const end = new Date(wp.end).getTime();
+                        const duration = end - start;
+                        const proportionalDuration = duration * jobProportion;
+                        const newEnd = new Date(start + proportionalDuration);
+                        return { ...wp, end: newEnd };
+                    }
+                    return wp; // Keep active work periods as they are, they'll be managed individually later
+                });
+                
+                return {
+                    ...groupPhase,
+                    workPeriods: inheritedWorkPeriods,
+                };
+            });
             
             // Revert job to a "planned" state and remove group association
             batch.update(jobDoc.ref, { 
-                workGroupId: null,
-                status: 'planned',
-                phases: cleanPhases,
-                overallStartTime: null,
-                overallEndTime: null,
-                isProblemReported: false,
-                problemType: null,
-                problemNotes: null,
-                problemReportedBy: null,
+                workGroupId: null, // This is the most important part
+                phases: inheritedPhases,
+                // We keep the current status from the group, as it's been worked on.
+                // Resetting to 'planned' would lose all progress info.
+                status: groupData.status, 
+                overallStartTime: groupData.overallStartTime || null,
+                // Don't set end time, as the job is now standalone and might continue
+                overallEndTime: null, 
+                // Copy over problem state if any
+                isProblemReported: groupData.isProblemReported || false,
+                problemType: groupData.problemType || null,
+                problemNotes: groupData.problemNotes || null,
+                problemReportedBy: groupData.problemReportedBy || null,
             });
         });
     }
@@ -83,11 +98,10 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
 
-    return { success: true, message: `Gruppo ${groupId} sciolto. Le commesse sono state slegate e resettate allo stato 'pianificata'.` };
+    return { success: true, message: `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti.` };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     console.error("Error dissolving work group:", error);
     return { success: false, message: errorMessage };
   }
 }
-
