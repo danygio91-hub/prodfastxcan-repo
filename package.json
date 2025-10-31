@@ -36,6 +36,7 @@
     "date-fns": "^3.6.0",
     "firebase": "^10.8.1",
     "genkit": "^1.15.5",
+    "is-odd": "^3.0.1",
     "lucide-react": "^0.354.0",
     "next": "14.2.3",
     "next-themes": "^0.3.0",
