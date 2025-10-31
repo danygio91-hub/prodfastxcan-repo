@@ -308,7 +308,20 @@ export default function JobOrderCard({
                         {jobOrder.cliente}
                     </CardDescription>
                     <div className="flex items-center gap-1">
-                        <DropdownMenu>
+                        {!isPartOfGroup && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                            <Link href={`/admin/reports/${jobOrder.id}`}><CheckSquare className="h-4 w-4" /></Link>
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p>Vedi Dettagli Report</p></TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                        {!isPartOfGroup && (
+                          <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => e.stopPropagation()}>
                                       <MoreVertical className="h-4 w-4" />
@@ -413,6 +426,7 @@ export default function JobOrderCard({
                                   </AlertDialog>
                               </DropdownMenuContent>
                           </DropdownMenu>
+                        )}
                     </div>
                 </div>
 
@@ -441,7 +455,7 @@ export default function JobOrderCard({
                                 <span className="hover:underline">{jobOrder.details}</span>
                             </p>
                           </ContextMenuTrigger>
-                          <ContextMenuContent>
+                           <ContextMenuContent>
                               <ContextMenuItem onSelect={() => onNavigateToAnalysis(jobOrder.details)}>
                                   <BarChart3 className="mr-2 h-4 w-4"/>
                                   Analisi Tempi Articolo
