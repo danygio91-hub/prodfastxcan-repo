@@ -52,17 +52,25 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
             const jobProportion = groupData.totalQuantity > 0 ? (jobData.qta / groupData.totalQuantity) : 0;
             
             const inheritedPhases = (groupData.phases || []).map(groupPhase => {
-                const inheritedWorkPeriods: WorkPeriod[] = (groupPhase.workPeriods || []).map(wp => {
-                    if (wp.end) {
-                        const start = new Date(wp.start).getTime();
-                        const end = new Date(wp.end).getTime();
-                        const duration = end - start;
-                        const proportionalDuration = duration * jobProportion;
-                        const newEnd = new Date(start + proportionalDuration);
-                        return { ...wp, end: newEnd };
+                let totalGroupPhaseMillis = 0;
+                (groupPhase.workPeriods || []).forEach(wp => {
+                    if (wp.start && wp.end) {
+                        totalGroupPhaseMillis += new Date(wp.end).getTime() - new Date(wp.start).getTime();
                     }
-                    return wp; // Keep active work periods as they are, they'll be managed individually later
                 });
+
+                const proportionalMillis = totalGroupPhaseMillis * jobProportion;
+                
+                // Create a single, descriptive work period representing the inherited time
+                const inheritedWorkPeriods: WorkPeriod[] = [];
+                if (proportionalMillis > 0) {
+                    const now = new Date();
+                    inheritedWorkPeriods.push({
+                        start: now,
+                        end: new Date(now.getTime() + proportionalMillis),
+                        operatorId: 'group-dissolve', // Special ID to signify inherited time
+                    });
+                }
                 
                 return {
                     ...groupPhase,
@@ -70,17 +78,12 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
                 };
             });
             
-            // Revert job to a "planned" state and remove group association
             batch.update(jobDoc.ref, { 
-                workGroupId: null, // This is the most important part
+                workGroupId: null,
                 phases: inheritedPhases,
-                // We keep the current status from the group, as it's been worked on.
-                // Resetting to 'planned' would lose all progress info.
-                status: groupData.status, 
+                status: groupData.status === 'completed' ? 'completed' : 'paused', 
                 overallStartTime: groupData.overallStartTime || null,
-                // Don't set end time, as the job is now standalone and might continue
-                overallEndTime: null, 
-                // Copy over problem state if any
+                overallEndTime: groupData.overallEndTime || null, 
                 isProblemReported: groupData.isProblemReported || false,
                 problemType: groupData.problemType || null,
                 problemNotes: groupData.problemNotes || null,
