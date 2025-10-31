@@ -518,12 +518,7 @@ export default function JobOrderCard({
                     </div>
                     <Progress value={progressPercentage} className="h-2" />
                 </div>
-            </CardContent>
-          </div>
-          
-          <CollapsibleContent>
-            <CardContent className="flex-grow space-y-4 pt-4 px-6">
-              {isAnyPhaseActive && (
+                 {isAnyPhaseActive && (
                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                       <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
                           <Hourglass className="h-4 w-4 text-cyan-500"/>
@@ -544,9 +539,12 @@ export default function JobOrderCard({
                       ))}
                   </div>
               )}
-              
+            </CardContent>
+          </div>
+          
+          <CollapsibleContent>
+            <CardContent className="flex-grow space-y-4 pt-4 px-6">
               <Separator />
-
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
                 {jobOrder.phases && jobOrder.phases.length > 0 ? (

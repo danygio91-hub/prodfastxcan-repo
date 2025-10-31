@@ -203,7 +203,7 @@ export default function WorkGroupCard({
                                     <Combine className="h-5 w-5 text-teal-400" />
                                 </TooltipTrigger>
                                 <TooltipContent>
-                                    <p>Gruppo di Commesse</p>
+                                    <p>Gruppo: {group.id}</p>
                                 </TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
@@ -324,6 +324,27 @@ export default function WorkGroupCard({
                         {group.jobOrderPFs?.map(pf => <Badge key={pf} variant="secondary">{pf}</Badge>)}
                     </div>
                 </div>
+                 {isAnyPhaseInProgress && (
+                  <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
+                      <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
+                          <Hourglass className="h-4 w-4 text-cyan-500"/>
+                          Operatori Attivi
+                      </h4>
+                      {activePhasesWithOperators.map(info => (
+                          <div key={info.phaseId} className="pl-2">
+                            <p className="font-semibold text-primary">{info.phaseName}:</p>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                                {info.operators.map(op => (
+                                    <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
+                                        <User className="h-3 w-3" />
+                                        {op.name}
+                                    </Badge>
+                                ))}
+                            </div>
+                          </div>
+                      ))}
+                  </div>
+                )}
             </CardContent>
         </div>
         <CardFooter className="flex-col items-start gap-2 pt-4">
@@ -337,29 +358,8 @@ export default function WorkGroupCard({
         </CardFooter>
         <CollapsibleContent>
              <div className="space-y-2 p-4">
-                  {isAnyPhaseInProgress && (
-                      <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
-                          <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
-                              <Hourglass className="h-4 w-4 text-cyan-500"/>
-                              Operatori Attivi
-                          </h4>
-                          {activePhasesWithOperators.map(info => (
-                              <div key={info.phaseId} className="pl-2">
-                                <p className="font-semibold text-primary">{info.phaseName}:</p>
-                                <div className="flex flex-wrap gap-2 pt-1">
-                                    {info.operators.map(op => (
-                                        <Badge key={op.id} variant="outline" className="flex items-center gap-1.5 py-1 bg-background">
-                                            <User className="h-3 w-3" />
-                                            {op.name}
-                                        </Badge>
-                                    ))}
-                                </div>
-                              </div>
-                          ))}
-                      </div>
-                  )}
                 <Separator />
-                <h4 className="text-sm font-semibold text-foreground/80">Avanzamento Fasi</h4>
+                <h4 className="text-sm font-semibold text-foreground/80 pt-2">Avanzamento Fasi</h4>
                 {group.phases && group.phases.length > 0 ? (
                     group.phases.sort((a,b) => a.sequence - b.sequence).map(phase => (
                         <div key={phase.id} className="flex items-center gap-3 text-sm text-muted-foreground">
