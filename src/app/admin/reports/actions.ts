@@ -119,15 +119,10 @@ export async function getOperatorsReport(targetDateString?: string) {
     const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
     const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
-    
-    // Fetch only the jobs relevant to the widest time interval (this month)
-    const jobsSnapshot = await getDocs(
-      query(collection(db, "jobOrders"), 
-        where("odlCreationDate", ">=", Timestamp.fromDate(thisMonthInterval.start)),
-      )
-    );
-    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
+    const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
+    const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    
     const allWorkPeriods = jobs.flatMap(job => 
         (job.phases || []).flatMap(phase => 
             (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))
@@ -141,18 +136,14 @@ export async function getOperatorsReport(targetDateString?: string) {
             return operatorPeriods.reduce((acc, period) => {
                 if (!period.start) return acc;
                 const periodStart = new Date(period.start);
-                // If a period is still active, its end time is 'now'.
                 const periodEnd = period.end ? new Date(period.end) : new Date();
 
                 if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) {
                     return acc;
                 }
-
-                // Determine the overlapping interval
                 const overlapStart = Math.max(periodStart.getTime(), interval.start.getTime());
                 const overlapEnd = Math.min(periodEnd.getTime(), interval.end.getTime());
 
-                // If there's a valid overlap, add the duration to the accumulator
                 if (overlapStart < overlapEnd) {
                     return acc + (overlapEnd - overlapStart);
                 }
@@ -209,15 +200,8 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
         phases: { name: string, time: string, date: string }[]
     }[] = [];
 
-    const dateLabels = {
-        today: format(targetDate, 'dd MMMM yyyy', { locale: it }),
-        week: `Settimana ${getWeek(targetDate, { weekStartsOn: 1 })}`,
-        month: `MMMM yyyy`,
-    };
-
     const timeMetrics = await getOperatorsReport(date);
     const operatorMetrics = timeMetrics.find(op => op.id === operatorId);
-
 
     jobs.forEach(job => {
         const phasesWorkedOn: { name: string, time: string, date: string }[] = [];
@@ -263,7 +247,11 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
         timeToday: operatorMetrics?.timeToday || '00:00:00',
         timeWeek: operatorMetrics?.timeWeek || '00:00:00',
         timeMonth: operatorMetrics?.timeMonth || '00:00:00',
-        dateLabels,
+        dateLabels: {
+            today: format(targetDate, 'dd MMMM yyyy', { locale: it }),
+            week: `Settimana ${getWeek(targetDate, { weekStartsOn: 1 })}`,
+            month: format(targetDate, 'MMMM yyyy', { locale: it }),
+        },
         jobsWorkedOn,
     };
 }
@@ -701,5 +689,3 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-
-
