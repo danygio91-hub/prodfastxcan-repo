@@ -322,7 +322,12 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       transaction.update(itemRef, updatedItemData);
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, updatedItemData as WorkGroup);
+        const groupData = updatedItemData as WorkGroup;
+        const updatePayload = { phases: updatedPhases, status: newStatus };
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, updatePayload);
+        });
       }
     });
     
@@ -680,7 +685,11 @@ export async function reportMaterialMissing(
       });
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases } as WorkGroup);
+        const groupData = itemSnap.data() as WorkGroup;
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE', problemReportedBy: operator?.nome || 'Admin' });
+        });
       }
     });
 
@@ -739,7 +748,11 @@ export async function resolveMaterialMissing(
       transaction.update(itemRef, updatePayload);
       
       if (isGroup) {
-        await propagateGroupUpdatesToJobs(transaction, { ...itemData, ...updatePayload } as WorkGroup);
+        const groupData = itemSnap.data() as WorkGroup;
+        (groupData.jobOrderIds || []).forEach(individualJobId => {
+            const jobRef = doc(db, 'jobOrders', individualJobId);
+            transaction.update(jobRef, updatePayload);
+        });
       }
     });
 
@@ -749,5 +762,7 @@ export async function resolveMaterialMissing(
     return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
   }
 }
+
+  
 
     
