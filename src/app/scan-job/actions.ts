@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -251,15 +252,19 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         const allRequiredPhasesCompleted = groupPhases.length > 0 && 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
+        // This is the critical change. When a group is completed, we no longer dissolve it.
+        // We mark it and its constituent jobs as 'completed'.
         if (allRequiredPhasesCompleted) {
             groupData.status = 'completed';
             groupData.overallEndTime = new Date();
+            
+            const dataToSave = JSON.parse(JSON.stringify(groupData));
+            batch.set(groupRef, dataToSave, { merge: true });
 
             const finalStatePayload = {
                 status: 'completed',
                 overallEndTime: groupData.overallEndTime,
-                phases: groupData.phases,
-                workGroupId: null, // Ungroup
+                phases: groupData.phases, // Keep the proportional phases
             };
             
             (groupData.jobOrderIds || []).forEach(jobId => {
@@ -267,7 +272,6 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
                 batch.update(jobRef, finalStatePayload);
             });
             
-            batch.delete(groupRef);
         } else {
             const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
             groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
@@ -297,7 +301,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/work-group-management');
 
-        return { success: true, message: allRequiredPhasesCompleted ? `Gruppo completato e sciolto con successo.` : `Gruppo di lavoro ${groupData.id} aggiornato.` };
+        return { success: true, message: allRequiredPhasesCompleted ? `Gruppo ${groupData.id} completato.` : `Gruppo di lavoro ${groupData.id} aggiornato.` };
 
     } catch (error) {
         console.error("Error updating work group:", error);
