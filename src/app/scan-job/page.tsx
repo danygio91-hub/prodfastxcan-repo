@@ -775,9 +775,9 @@ export default function ScanJobPage() {
     }
     
     const handleMaterialMissing = (phaseId: string, notes: string) => {
-        if (!activeJob || !operator?.uid) return;
+        if (!activeJob || !operator?.id) return;
         startTransition(async () => {
-            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid, notes);
+            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid!, notes);
             toast({
                 title: result.success ? "Segnalazione Inviata" : "Errore",
                 description: result.message,
@@ -1533,5 +1533,3 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
-
-
