@@ -8,7 +8,7 @@ import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
-import { finalizeAndDissolveWorkGroup } from '../admin/work-group-management/actions';
+
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -243,7 +243,7 @@ export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; 
 }
 
 
-export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: boolean; message: string; }> {
+export async function updateWorkGroup(groupData: WorkGroup, operatorId: string): Promise<{ success: boolean; message: string; }> {
     const groupRef = doc(db, "workGroups", groupData.id);
     
     try {
@@ -252,18 +252,28 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
         if (allRequiredPhasesCompleted) {
-            await finalizeAndDissolveWorkGroup(groupData.id);
-            return { success: true, message: `Gruppo ${groupData.id} completato e sciolto.` };
+            groupData.status = 'completed';
+            if (!groupData.overallEndTime) {
+                groupData.overallEndTime = new Date();
+            }
+        } else {
+            const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         }
-        
-        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-        groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
         
         await runTransaction(db, async (transaction) => {
             transaction.set(groupRef, dataToSave, { merge: true });
             await propagateGroupUpdatesToJobs(transaction, groupData);
+             // Clear operator status if the group is now complete
+            if (groupData.status === 'completed') {
+                const operatorRef = doc(db, "operators", operatorId);
+                transaction.update(operatorRef, {
+                    activeJobId: null,
+                    activePhaseName: null,
+                });
+            }
         });
         
         revalidatePath('/scan-job');
@@ -985,3 +995,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
     
 
     
+
