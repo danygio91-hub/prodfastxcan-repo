@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React from 'react';
@@ -20,9 +21,10 @@ export default function ActiveJobStatusBar() {
   const { toast } = useToast();
 
   const handleUpdateJobOrGroup = async (updatedJobOrGroup: JobOrder | WorkGroup) => {
+    if (!operator) return;
     const isGroup = updatedJobOrGroup.id.startsWith('group-');
     const result = isGroup
-        ? await updateWorkGroup(updatedJobOrGroup as WorkGroup)
+        ? await updateWorkGroup(updatedJobOrGroup as WorkGroup, operator.id)
         : await updateJob(updatedJobOrGroup as JobOrder);
 
     if (!result.success) {
@@ -173,3 +175,5 @@ export default function ActiveJobStatusBar() {
     </div>
   );
 }
+
+    

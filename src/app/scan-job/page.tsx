@@ -151,14 +151,15 @@ export default function ScanJobPage() {
   }, [isJobLoading, activeJob, activeSessions, addJobToSession]);
 
   const handleUpdateAndPersistJob = useCallback(async (jobData: JobOrder | WorkGroup) => {
+    if (!operator) return;
     const isGroup = jobData.id.startsWith('group-');
     if (isGroup) {
-        await updateWorkGroup(jobData as WorkGroup);
+        await updateWorkGroup(jobData as WorkGroup, operator.id);
     } else {
         await updateJob(jobData as JobOrder);
     }
     // After persisting, we should have a listener that updates the activeJob state automatically.
-  }, []);
+  }, [operator]);
   
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -658,7 +659,7 @@ export default function ScanJobPage() {
   };
   
   const handleResolveProblem = async () => {
-    if (!activeJob || !operator) return;
+    if (!activeJob || !operator || !operator.uid) return;
     const result = await resolveJobProblem(activeJob.id, operator.uid);
     toast({
         title: result.success ? "Problema Risolto" : "Errore",
@@ -1527,3 +1528,5 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
+
+    
