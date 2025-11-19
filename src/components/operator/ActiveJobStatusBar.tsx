@@ -51,7 +51,7 @@ export default function ActiveJobStatusBar() {
        if (!isAnyoneElseWorking) {
           phaseToUpdate.status = 'paused';
        }
-      await updateOperatorStatus(operator.id, null, null);
+      await updateOperatorStatus(operator.id, activeJob.id, null);
       toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
     } else { // Operator is not active, so resume/join
       phaseToUpdate.status = 'in-progress';
@@ -122,7 +122,32 @@ export default function ActiveJobStatusBar() {
 
 
   if (!myRelevantPhase) {
-    return null; // Don't show the bar if the operator has no active or paused phases.
+    // If there is no active or paused phase for me, but I am still "on a job", show a generic bar.
+    if (operator.activeJobId === activeJob.id) {
+        return (
+             <div className="fixed bottom-0 left-0 right-0 z-50 p-2 sm:p-4 pointer-events-none">
+                 <Card className={cn(
+                    "p-3 shadow-2xl w-full max-w-lg mx-auto pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-5 duration-300 transition-all",
+                    isStatusBarHighlighted && "border-primary ring-4 ring-primary/50",
+                    "bg-secondary text-secondary-foreground"
+                 )}>
+                     <div className="flex items-center justify-between gap-4">
+                         <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold truncate">Commessa: {activeJob.ordinePF}</p>
+                            <p className="text-xs truncate">Nessuna fase attiva per te. Premi Dettagli per iniziare.</p>
+                         </div>
+                         <Button asChild variant="default" size="sm" className="h-9 bg-black/10 text-inherit hover:bg-black/20">
+                            <Link href="/scan-job">
+                                <Activity className="mr-2 h-4 w-4" />
+                                Dettagli
+                            </Link>
+                        </Button>
+                     </div>
+                 </Card>
+             </div>
+        )
+    }
+    return null;
   }
 
   const isMyWorkActive = myRelevantPhase.status === 'in-progress' && (myRelevantPhase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);

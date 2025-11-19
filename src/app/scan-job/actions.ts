@@ -215,10 +215,10 @@ export async function updateOperatorStatus(operatorId: string, activeJobId: stri
         activeJobId,
         activePhaseName,
     };
-    if (activeJobId === null) {
+    if (activeJobId === null && activePhaseName === null) {
         payload.stato = 'inattivo';
     } else {
-        payload.stato = 'attivo';
+        payload.stato = activeJobId ? 'attivo' : 'inattivo';
     }
     await updateDoc(operatorRef, payload);
     return { success: true };
