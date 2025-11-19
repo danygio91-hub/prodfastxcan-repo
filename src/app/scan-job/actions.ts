@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -207,6 +206,20 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     }
 
     return sortedPhases;
+}
+
+export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
+  const operatorRef = doc(db, 'operators', operatorId);
+  try {
+    await updateDoc(operatorRef, {
+      activeJobId: activeJobId,
+      activePhaseName: activePhaseName,
+    });
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update operator status:", error);
+    return { success: false, message: "Failed to update operator status." };
+  }
 }
 
 export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; message: string; }> {
@@ -660,6 +673,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
     const collectionName = isGroup ? 'workGroups' : 'jobOrders';
     const itemRef = doc(db, collectionName, jobId);
     
+    let startedPhaseName = '';
     await runTransaction(db, async (transaction) => {
         const docSnap = await transaction.get(itemRef);
         if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
@@ -673,6 +687,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         if (currentPhaseIndex === -1) throw new Error('Fase non trovata nella commessa.');
 
         const phaseToStart = sortedPhases[currentPhaseIndex];
+        startedPhaseName = phaseToStart.name;
 
         if (phaseToStart.status !== 'pending' && phaseToStart.status !== 'paused') throw new Error('Questa fase non è in attesa o in pausa.');
         if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
@@ -701,6 +716,10 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
                 transaction.update(jobRef, { phases: phasesWithReadiness, status: 'production', overallStartTime: itemToUpdate.overallStartTime });
             });
         }
+
+        // Update operator status
+        const operatorRef = doc(db, 'operators', operatorId);
+        transaction.update(operatorRef, { activeJobId: jobId, activePhaseName: startedPhaseName });
     });
 
     revalidatePath('/scan-job'); 
@@ -988,11 +1007,3 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
     }
     return null;
 }
-
-
-
-
-    
-
-    
-

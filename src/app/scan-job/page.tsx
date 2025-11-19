@@ -33,7 +33,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing } from './actions';
+import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus } from './actions';
 import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
@@ -380,6 +380,9 @@ export default function ScanJobPage() {
         phaseToPause.status = 'paused';
     }
 
+    // This is the critical part that was missing.
+    updateOperatorStatus(operator.id, null, null);
+
     handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
   };
@@ -424,6 +427,9 @@ export default function ScanJobPage() {
       }
       phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
       
+      // Update operator status on server
+      await updateOperatorStatus(operator.id, jobToUpdate.id, phaseToResume.name);
+
       handleUpdateAndPersistJob(jobToUpdate);
       toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToResume.name}".` });
   };
@@ -470,6 +476,9 @@ export default function ScanJobPage() {
       }
     }
     
+    // This is the critical part that was missing.
+    updateOperatorStatus(operator.id, null, null);
+
     if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
         setIsContinueOrCloseDialogOpen(true);
@@ -770,9 +779,9 @@ export default function ScanJobPage() {
     }
     
     const handleMaterialMissing = (phaseId: string, notes: string) => {
-        if (!activeJob || !operator) return;
+        if (!activeJob || !operator || !operator.uid) return;
         startTransition(async () => {
-            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid as string, notes);
+            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid, notes);
             toast({
                 title: result.success ? "Segnalazione Inviata" : "Errore",
                 description: result.message,
@@ -1528,5 +1537,3 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
-
-    

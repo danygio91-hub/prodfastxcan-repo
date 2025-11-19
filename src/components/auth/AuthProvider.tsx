@@ -9,7 +9,7 @@ import { storeOperator } from '@/lib/auth';
 import type { Operator } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
 import { collection, query, where, getDocs, doc, setDoc, updateDoc, onSnapshot, deleteField } from 'firebase/firestore';
-import { logout as firebaseLogout } from '@/lib/auth';
+import { logout as firebaseLogout, updateOperatorStatus } from '@/lib/auth';
 
 const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
 const LAST_LOGIN_TIMESTAMP_KEY = 'last_login_timestamp';
@@ -37,13 +37,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const currentOperator = operatorRef.current;
     if (currentOperator?.id) {
       try {
+        // Use the centralized status update function on logout
+        await updateOperatorStatus(currentOperator.id, null, null);
+        
         const operatorDocRef = doc(db, "operators", currentOperator.id);
-        // On logout, set status to inactive but DO NOT clear activeJobId
-        await updateDoc(operatorDocRef, { 
-          stato: 'inattivo',
-        });
+        await updateDoc(operatorDocRef, { stato: 'inattivo' });
+
       } catch (e) {
-        console.error("Could not set operator status to inactive on logout", e);
+        console.error("Could not update operator status on logout", e);
       }
     }
     

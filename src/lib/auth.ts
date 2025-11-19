@@ -1,6 +1,6 @@
 
 
-import { collection, getDocs, doc, setDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, query, where, updateDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import type { Operator } from './mock-data';
 import { signInWithEmailAndPassword, signOut, type User } from 'firebase/auth';
@@ -73,4 +73,18 @@ export function getOperator(): Operator | null {
       }
     }
     return null;
+}
+
+export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
+  const operatorRef = doc(db, 'operators', operatorId);
+  try {
+    await updateDoc(operatorRef, {
+      activeJobId: activeJobId,
+      activePhaseName: activePhaseName,
+    });
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update operator status:", error);
+    return { success: false, message: "Failed to update operator status." };
+  }
 }
