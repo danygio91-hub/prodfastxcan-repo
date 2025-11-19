@@ -52,6 +52,10 @@ export async function login(username: string, password_used: string): Promise<vo
  */
 export async function logout(): Promise<void> {
   try {
+    const operator = getOperator();
+    if(operator){
+       await updateOperatorStatus(operator.id, null, null);
+    }
     await auth.signOut();
   } catch (error) {
     console.error("Error signing out from Firebase:", error);
@@ -78,13 +82,20 @@ export function getOperator(): Operator | null {
 export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
   const operatorRef = doc(db, 'operators', operatorId);
   try {
-    await updateDoc(operatorRef, {
-      activeJobId: activeJobId,
-      activePhaseName: activePhaseName,
-    });
+    const payload: { activeJobId: string | null; activePhaseName: string | null; stato?: 'attivo' | 'inattivo' } = {
+        activeJobId,
+        activePhaseName,
+    };
+    if (activeJobId === null) {
+        payload.stato = 'inattivo';
+    } else {
+        payload.stato = 'attivo';
+    }
+    await updateDoc(operatorRef, payload);
     return { success: true };
   } catch (error) {
     console.error("Failed to update operator status:", error);
     return { success: false, message: "Failed to update operator status." };
   }
 }
+

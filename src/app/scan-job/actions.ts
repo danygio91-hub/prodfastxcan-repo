@@ -211,10 +211,16 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
   const operatorRef = doc(db, 'operators', operatorId);
   try {
-    await updateDoc(operatorRef, {
-      activeJobId: activeJobId,
-      activePhaseName: activePhaseName,
-    });
+    const payload: { activeJobId: string | null; activePhaseName: string | null; stato?: 'attivo' | 'inattivo' } = {
+        activeJobId,
+        activePhaseName,
+    };
+    if (activeJobId === null) {
+        payload.stato = 'inattivo';
+    } else {
+        payload.stato = 'attivo';
+    }
+    await updateDoc(operatorRef, payload);
     return { success: true };
   } catch (error) {
     console.error("Failed to update operator status:", error);
@@ -281,11 +287,7 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
             await propagateGroupUpdatesToJobs(transaction, groupData);
              // Clear operator status if the group is now complete
             if (groupData.status === 'completed') {
-                const operatorRef = doc(db, "operators", operatorId);
-                transaction.update(operatorRef, {
-                    activeJobId: null,
-                    activePhaseName: null,
-                });
+                await updateOperatorStatus(operatorId, null, null);
             }
         });
         
@@ -718,8 +720,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         }
 
         // Update operator status
-        const operatorRef = doc(db, 'operators', operatorId);
-        transaction.update(operatorRef, { activeJobId: jobId, activePhaseName: startedPhaseName });
+        await updateOperatorStatus(operatorId, jobId, startedPhaseName);
     });
 
     revalidatePath('/scan-job'); 
@@ -823,26 +824,51 @@ export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupI
 
     if (!operatorDocSnap.exists()) {
         console.warn(`Operator with ID ${operatorId} not found.`);
-        return { available: true }; // Assume available if operator doc doesn't exist
+        return { available: true };
     }
 
     const operatorData = operatorDocSnap.data() as Operator;
     const activeJobId = operatorData.activeJobId;
     
-    if (activeJobId) {
-        // If the operator is active on the current group, they are considered available for actions within that group.
-        if (currentGroupId && activeJobId === currentGroupId) {
-            return { available: true };
-        }
-        
+    if (!activeJobId) {
+        return { available: true }; // Operator is free
+    }
+
+    // If the operator thinks they are on the current group, they are available for actions within it.
+    if (currentGroupId && activeJobId === currentGroupId) {
+        return { available: true };
+    }
+
+    // --- Cross-Verification Logic ---
+    // The operator thinks they are busy. Let's verify if that's actually true.
+    const isGroup = activeJobId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, activeJobId);
+    const itemSnap = await getDoc(itemRef);
+
+    let isStillActive = false;
+    if (itemSnap.exists()) {
+        const itemData = itemSnap.data() as JobOrder | WorkGroup;
+        isStillActive = (itemData.phases || []).some(p => 
+            p.status === 'in-progress' &&
+            (p.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null)
+        );
+    }
+
+    if (isStillActive) {
+        // The state is consistent. The operator is genuinely busy.
         return {
             available: false,
             activeJobId: activeJobId,
             activePhaseName: operatorData.activePhaseName || 'Sconosciuta',
         };
+    } else {
+        // GHOST STATE DETECTED! The operator's profile is stale.
+        // Auto-correct the state and report the operator as available.
+        console.warn(`Ghost state detected for operator ${operatorId}. Auto-correcting.`);
+        await updateOperatorStatus(operatorId, null, null);
+        return { available: true };
     }
-    
-    return { available: true };
 }
 
 export async function createWorkGroup(jobIds: string[], operatorId: string): Promise<{ success: boolean; message: string; workGroupId?: string }> {
@@ -970,11 +996,7 @@ export async function reportMaterialMissing(
       
       // If the operator was active, clear their state
       if (operatorWasActive) {
-          const operatorRef = doc(db, "operators", uid);
-          transaction.update(operatorRef, {
-              activeJobId: null,
-              activePhaseName: null
-          });
+          await updateOperatorStatus(uid, null, null);
       }
 
       if (isGroup) {
@@ -1005,5 +1027,13 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
         const operatorDoc = querySnapshot.docs[0];
         return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
     }
+    // Fallback to check by ID if UID is not set
+    const docRef = doc(db, "operators", uid);
+    const docSnap = await getDoc(docRef);
+    if(docSnap.exists()){
+        return { ...docSnap.data(), id: docSnap.id } as Operator;
+    }
+
     return null;
 }
+

@@ -380,9 +380,7 @@ export default function ScanJobPage() {
         phaseToPause.status = 'paused';
     }
 
-    // This is the critical part that was missing.
     updateOperatorStatus(operator.id, null, null);
-
     handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
   };
@@ -427,7 +425,6 @@ export default function ScanJobPage() {
       }
       phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
       
-      // Update operator status on server
       await updateOperatorStatus(operator.id, jobToUpdate.id, phaseToResume.name);
 
       handleUpdateAndPersistJob(jobToUpdate);
@@ -476,7 +473,6 @@ export default function ScanJobPage() {
       }
     }
     
-    // This is the critical part that was missing.
     updateOperatorStatus(operator.id, null, null);
 
     if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
@@ -668,7 +664,7 @@ export default function ScanJobPage() {
   };
   
   const handleResolveProblem = async () => {
-    if (!activeJob || !operator || !operator.uid) return;
+    if (!activeJob || !operator?.uid) return;
     const result = await resolveJobProblem(activeJob.id, operator.uid);
     toast({
         title: result.success ? "Problema Risolto" : "Errore",
@@ -779,7 +775,7 @@ export default function ScanJobPage() {
     }
     
     const handleMaterialMissing = (phaseId: string, notes: string) => {
-        if (!activeJob || !operator || !operator.uid) return;
+        if (!activeJob || !operator?.uid) return;
         startTransition(async () => {
             const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid, notes);
             toast({
@@ -1537,3 +1533,4 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
+
