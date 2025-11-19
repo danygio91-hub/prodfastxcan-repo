@@ -8,7 +8,7 @@ import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
-import { dissolveWorkGroup } from '../admin/work-group-management/actions';
+import { finalizeAndDissolveWorkGroup } from '../admin/work-group-management/actions';
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -247,61 +247,30 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
     const groupRef = doc(db, "workGroups", groupData.id);
     
     try {
-        const batch = writeBatch(db);
         const groupPhases = groupData.phases || [];
         const allRequiredPhasesCompleted = groupPhases.length > 0 && 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
-        // This is the critical change. When a group is completed, we no longer dissolve it.
-        // We mark it and its constituent jobs as 'completed'.
         if (allRequiredPhasesCompleted) {
-            groupData.status = 'completed';
-            groupData.overallEndTime = new Date();
-            
-            const dataToSave = JSON.parse(JSON.stringify(groupData));
-            batch.set(groupRef, dataToSave, { merge: true });
-
-            const finalStatePayload = {
-                status: 'completed',
-                overallEndTime: groupData.overallEndTime,
-                phases: groupData.phases, // Keep the proportional phases
-            };
-            
-            (groupData.jobOrderIds || []).forEach(jobId => {
-                const jobRef = doc(db, 'jobOrders', jobId);
-                batch.update(jobRef, finalStatePayload);
-            });
-            
-        } else {
-            const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
-            groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
-            
-            const dataToSave = JSON.parse(JSON.stringify(groupData));
-            batch.set(groupRef, dataToSave, { merge: true });
-
-            const updatePayload: { [key: string]: any } = {
-                phases: groupData.phases, 
-                status: dataToSave.status,
-                isProblemReported: groupData.isProblemReported || false,
-                problemType: groupData.problemType || deleteField(),
-                problemNotes: groupData.problemNotes || deleteField(),
-                problemReportedBy: groupData.problemReportedBy || deleteField(),
-                overallStartTime: groupData.overallStartTime || null,
-            };
-
-            (groupData.jobOrderIds || []).forEach(jobId => {
-                const jobRef = doc(db, 'jobOrders', jobId);
-                batch.update(jobRef, updatePayload);
-            });
+            await finalizeAndDissolveWorkGroup(groupData.id);
+            return { success: true, message: `Gruppo ${groupData.id} completato e sciolto.` };
         }
         
-        await batch.commit();
+        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+        groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
+        
+        const dataToSave = JSON.parse(JSON.stringify(groupData));
+        
+        await runTransaction(db, async (transaction) => {
+            transaction.set(groupRef, dataToSave, { merge: true });
+            await propagateGroupUpdatesToJobs(transaction, groupData);
+        });
         
         revalidatePath('/scan-job');
         revalidatePath('/admin/production-console');
         revalidatePath('/admin/work-group-management');
 
-        return { success: true, message: allRequiredPhasesCompleted ? `Gruppo ${groupData.id} completato.` : `Gruppo di lavoro ${groupData.id} aggiornato.` };
+        return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato.` };
 
     } catch (error) {
         console.error("Error updating work group:", error);
@@ -310,7 +279,7 @@ export async function updateWorkGroup(groupData: WorkGroup): Promise<{ success: 
 }
 
 
-export async function resolveJobProblem(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string; }> {
+export async function resolveJobProblem(jobId: string, uid: string): Promise<{ success: boolean; message: string; }> {
   try {
     const operator = await ensureAdmin(uid); // Re-use ensureAdmin for role check
     if (operator.role !== 'admin' && operator.role !== 'supervisor') {
@@ -820,34 +789,28 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
 
 
 export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, where("status", "==", "production"));
-    const querySnapshot = await getDocs(q);
+    const operatorDocRef = doc(db, "operators", operatorId);
+    const operatorDocSnap = await getDoc(operatorDocRef);
 
-    if (querySnapshot.empty) {
-        return { available: true };
+    if (!operatorDocSnap.exists()) {
+        console.warn(`Operator with ID ${operatorId} not found.`);
+        return { available: true }; // Assume available if operator doc doesn't exist
     }
 
-    for (const docSnap of querySnapshot.docs) {
-        const job = docSnap.data() as JobOrder;
+    const operatorData = operatorDocSnap.data() as Operator;
+    const activeJobId = operatorData.activeJobId;
+    
+    if (activeJobId) {
+        // If the operator is active on the current group, they are considered available for actions within that group.
+        if (currentGroupId && activeJobId === currentGroupId) {
+            return { available: true };
+        }
         
-        // If we are checking in the context of a group, and this job belongs to that group, skip it.
-        if (currentGroupId && job.workGroupId === currentGroupId) {
-            continue;
-        }
-
-        for (const phase of (job.phases || [])) {
-            if (phase.status === 'in-progress') {
-                const isActive = (phase.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null);
-                if (isActive) {
-                    return {
-                        available: false,
-                        activeJobId: job.ordinePF,
-                        activePhaseName: phase.name,
-                    };
-                }
-            }
-        }
+        return {
+            available: false,
+            activeJobId: activeJobId,
+            activePhaseName: operatorData.activePhaseName || 'Sconosciuta',
+        };
     }
     
     return { available: true };
@@ -947,7 +910,7 @@ export async function reportMaterialMissing(
       phases[phaseIndex].materialStatus = 'missing';
       phases[phaseIndex].materialReady = false;
 
-      const operatorDocSnap = await getOperatorById(uid);
+      const operatorDocSnap = await getOperatorByUid(uid);
       const operatorName = operatorDocSnap ? operatorDocSnap.nome : 'Sconosciuto';
       
       const updatePayload: any = { 
@@ -958,20 +921,33 @@ export async function reportMaterialMissing(
         problemNotes: notes || '',
       };
 
-      if (phases[phaseIndex].status === 'in-progress') {
-        const myWorkPeriodIndex = phases[phaseIndex].workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
+      const phaseToUpdate = phases[phaseIndex];
+      let operatorWasActive = false;
+
+      if (phaseToUpdate.status === 'in-progress') {
+        const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
         if (myWorkPeriodIndex !== -1) {
-            phases[phaseIndex].workPeriods[myWorkPeriodIndex].end = new Date();
+            operatorWasActive = true;
+            phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
         }
-        const isAnyoneElseWorking = phases[phaseIndex].workPeriods.some(wp => wp.end === null);
+        const isAnyoneElseWorking = phaseToUpdate.workPeriods.some(wp => wp.end === null);
         if (!isAnyoneElseWorking) {
-            phases[phaseIndex].status = 'paused';
+            phaseToUpdate.status = 'paused';
         }
         updatePayload.status = isAnyPhaseInProgress(phases) ? 'production' : 'paused';
       }
 
       transaction.update(itemRef, updatePayload);
       
+      // If the operator was active, clear their state
+      if (operatorWasActive) {
+          const operatorRef = doc(db, "operators", uid);
+          transaction.update(operatorRef, {
+              activeJobId: null,
+              activePhaseName: null
+          });
+      }
+
       if (isGroup) {
         ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
             const jobRef = doc(db, 'jobOrders', individualJobId);
@@ -993,7 +969,7 @@ function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
 }
 
 
-export async function getOperatorById(uid: string): Promise<Operator | null> {
+export async function getOperatorByUid(uid: string): Promise<Operator | null> {
     const q = firestoreQuery(collection(db, "operators"), where("uid", "==", uid));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {

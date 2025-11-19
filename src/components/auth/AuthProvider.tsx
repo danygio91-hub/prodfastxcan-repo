@@ -38,11 +38,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (currentOperator?.id) {
       try {
         const operatorDocRef = doc(db, "operators", currentOperator.id);
-        // On logout, clear active job status from Firestore profile
+        // On logout, set status to inactive but DO NOT clear activeJobId
         await updateDoc(operatorDocRef, { 
-          stato: currentOperator.role === 'admin' || currentOperator.role === 'supervisor' ? 'attivo' : 'inattivo',
-          activeJobId: deleteField(),
-          activePhaseName: deleteField(),
+          stato: 'inattivo',
         });
       } catch (e) {
         console.error("Could not set operator status to inactive on logout", e);
