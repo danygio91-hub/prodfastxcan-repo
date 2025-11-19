@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React from 'react';
@@ -51,6 +50,7 @@ export default function ActiveJobStatusBar() {
        if (!isAnyoneElseWorking) {
           phaseToUpdate.status = 'paused';
        }
+       // Only clear the active phase, keep the job ID
       await updateOperatorStatus(operator.id, activeJob.id, null);
       toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
     } else { // Operator is not active, so resume/join

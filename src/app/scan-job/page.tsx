@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -357,7 +356,7 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
     const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
+  
     if (jobToUpdate.isProblemReported) {
       toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile mettere in pausa, problema segnalato." });
       return;
@@ -366,21 +365,22 @@ export default function ScanJobPage() {
       toast({ variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." });
       return;
     }
-    
+  
     const myWorkPeriodIndex = phaseToPause.workPeriods.findIndex((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) {
-        phaseToPause.workPeriods[myWorkPeriodIndex].end = new Date();
+      phaseToPause.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
       toast({ variant: "destructive", title: "Errore", description: "Non stai lavorando attivamente a questa fase." });
       return;
     }
-    
+  
     const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
     if (!isAnyoneElseWorking) {
-        phaseToPause.status = 'paused';
+      phaseToPause.status = 'paused';
     }
-
-    updateOperatorStatus(operator.id, null, null);
+  
+    // Only clear the active phase, keep the active job ID
+    updateOperatorStatus(operator.id, jobToUpdate.id, null);
     handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
   };
@@ -1533,4 +1533,5 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
+
 
