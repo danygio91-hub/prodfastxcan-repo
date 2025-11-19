@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { updateJob, updateWorkGroup } from '@/app/scan-job/actions';
+import { updateJob, updateWorkGroup, updateOperatorStatus } from '@/app/scan-job/actions';
 import { Play, Pause, Check, Activity } from 'lucide-react';
 import type { JobOrder, JobPhase, WorkGroup } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
@@ -36,7 +36,7 @@ export default function ActiveJobStatusBar() {
     }
   };
 
-  const handlePauseResume = (phaseId: string) => {
+  const handlePauseResume = async (phaseId: string) => {
     if (!activeJob || !operator) return;
     
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
@@ -51,17 +51,19 @@ export default function ActiveJobStatusBar() {
        if (!isAnyoneElseWorking) {
           phaseToUpdate.status = 'paused';
        }
+      await updateOperatorStatus(operator.id, null, null);
       toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
     } else { // Operator is not active, so resume/join
       phaseToUpdate.status = 'in-progress';
       phaseToUpdate.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+      await updateOperatorStatus(operator.id, jobToUpdate.id, phaseToUpdate.name);
       toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToUpdate.name}".` });
     }
     
     handleUpdateJobOrGroup(jobToUpdate);
   };
 
-  const handleCompletePhase = (phaseId: string) => {
+  const handleCompletePhase = async (phaseId: string) => {
     if (!activeJob || !operator) return;
 
     const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
@@ -71,6 +73,13 @@ export default function ActiveJobStatusBar() {
     const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) {
         phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Nessuna attività da completare",
+            description: "Non hai un periodo di lavoro attivo su questa fase da completare.",
+        });
+        return;
     }
     
     const isAnyoneElseWorking = phaseToUpdate.workPeriods.some((wp: any) => wp.end === null);
@@ -79,9 +88,10 @@ export default function ActiveJobStatusBar() {
         phaseToUpdate.status = 'completed';
     }
     
+    await updateOperatorStatus(operator.id, null, null);
     toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToUpdate.name}" è terminata.` });
     
-    const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed');
+    const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed' || p.status === 'skipped');
     if (allPhasesCompleted) {
         jobToUpdate.status = 'completed';
         jobToUpdate.overallEndTime = new Date();
@@ -175,5 +185,3 @@ export default function ActiveJobStatusBar() {
     </div>
   );
 }
-
-    

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
@@ -116,7 +117,8 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
 
 
             // If the job is no longer in a workable state, clear it.
-            if (!['production', 'suspended', 'paused'].includes(jobToSet.status)) {
+            // This now allows completed jobs to be shown until explicitly cleared.
+            if (!['production', 'suspended', 'paused', 'completed'].includes(jobToSet.status)) {
                  setActiveJobId(null);
                  setActiveJobState(null);
             } else {

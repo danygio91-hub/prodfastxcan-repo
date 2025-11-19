@@ -48,14 +48,14 @@ export async function login(username: string, password_used: string): Promise<vo
 
 
 /**
- * Signs the user out of Firebase.
+ * Signs the user out of Firebase. The operator's active state is intentionally NOT cleared here
+ * to allow them to resume their work upon re-login.
  */
 export async function logout(): Promise<void> {
   try {
-    const operator = getOperator();
-    if(operator){
-       await updateOperatorStatus(operator.id, null, null);
-    }
+    // We no longer clear the operator's activeJobId here.
+    // The state should persist across login sessions.
+    // If an operator needs to be freed, it should happen when they pause or complete a task.
     await auth.signOut();
   } catch (error) {
     console.error("Error signing out from Firebase:", error);
@@ -78,24 +78,3 @@ export function getOperator(): Operator | null {
     }
     return null;
 }
-
-export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
-  const operatorRef = doc(db, 'operators', operatorId);
-  try {
-    const payload: { activeJobId: string | null; activePhaseName: string | null; stato?: 'attivo' | 'inattivo' } = {
-        activeJobId,
-        activePhaseName,
-    };
-    if (activeJobId === null) {
-        payload.stato = 'inattivo';
-    } else {
-        payload.stato = 'attivo';
-    }
-    await updateDoc(operatorRef, payload);
-    return { success: true };
-  } catch (error) {
-    console.error("Failed to update operator status:", error);
-    return { success: false, message: "Failed to update operator status." };
-  }
-}
-

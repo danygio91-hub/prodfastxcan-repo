@@ -36,6 +36,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fullLogout = useCallback(async () => {
     const currentOperator = operatorRef.current;
     
+    // We intentionally DO NOT clear the activeJobId on logout.
+    // That state should persist so the user can resume.
+    // It is only cleared when they explicitly pause or complete a task.
+    
     await firebaseLogout();
     
     if (currentOperator?.id) {
@@ -146,11 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         const operatorProfile = await fetchOperatorProfile(firebaseUser);
         if (operatorProfile) {
-          if (operatorProfile.stato !== 'attivo' && operatorProfile.role !== 'admin' && operatorProfile.role !== 'supervisor') {
-            const operatorDocRef = doc(db, "operators", operatorProfile.id);
-            await updateDoc(operatorDocRef, { stato: 'attivo' });
-            operatorProfile.stato = 'attivo';
-          }
+          // No automatic status updates here. The status is managed by the work flow.
           setUser(firebaseUser);
           setOperator(operatorProfile);
           storeOperator(operatorProfile);
@@ -160,7 +160,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
            const targetPath = localStorage.getItem('login_redirect_path');
            localStorage.removeItem('login_redirect_path'); // Clean up
 
-          if (targetPath) {
+          // If the operator has an active job, always redirect to the scan-job page
+          if (operatorProfile.activeJobId) {
+              router.replace('/scan-job');
+          } else if (targetPath) {
               router.replace(targetPath);
           } else if (operatorProfile.role === 'admin') {
               router.replace('/admin/dashboard');
