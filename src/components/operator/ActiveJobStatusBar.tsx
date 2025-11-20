@@ -50,7 +50,7 @@ export default function ActiveJobStatusBar() {
        if (!isAnyoneElseWorking) {
           phaseToUpdate.status = 'paused';
        }
-       // Only clear the active phase, keep the job ID
+       // Keep the operator on the job, but clear the active phase
       await updateOperatorStatus(operator.id, activeJob.id, null);
       toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToUpdate.name}" è stata messa in pausa.` });
     } else { // Operator is not active, so resume/join
@@ -88,7 +88,7 @@ export default function ActiveJobStatusBar() {
         phaseToUpdate.status = 'completed';
     }
     
-    await updateOperatorStatus(operator.id, null, null);
+    await updateOperatorStatus(operator.id, activeJob.id, null);
     toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToUpdate.name}" è terminata.` });
     
     const allPhasesCompleted = jobToUpdate.phases.every((p: JobPhase) => p.status === 'completed' || p.status === 'skipped');

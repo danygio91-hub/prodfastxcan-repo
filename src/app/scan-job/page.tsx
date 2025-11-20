@@ -379,7 +379,6 @@ export default function ScanJobPage() {
       phaseToPause.status = 'paused';
     }
   
-    // Only clear the active phase, keep the active job ID
     updateOperatorStatus(operator.id, jobToUpdate.id, null);
     handleUpdateAndPersistJob(jobToUpdate);
     toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
@@ -473,7 +472,7 @@ export default function ScanJobPage() {
       }
     }
     
-    updateOperatorStatus(operator.id, null, null);
+    updateOperatorStatus(operator.id, activeJob.id, null);
 
     if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
         setJobToFinalize(jobToUpdate);
@@ -1094,8 +1093,8 @@ export default function ScanJobPage() {
 
   const renderContinueOrCloseDialog = () => {
     if (!jobToFinalize) return null;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc) => mc.materialId === s.materialId));
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
 
 
     return (
@@ -1533,3 +1532,4 @@ function PhaseCard({ phase, job, handlers }: {
 }
 
   
+
