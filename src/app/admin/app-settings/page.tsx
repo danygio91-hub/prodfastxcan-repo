@@ -5,7 +5,7 @@ import React, { useState, useRef } from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download, Upload, Undo } from 'lucide-react';
+import { Settings, Brush, Database, AlertTriangle, Loader2, Trash2, ShieldOff, Boxes, Factory, LogOut, History, Download, Upload } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { ThemeToggler } from '@/components/ThemeToggler';
 import { Label } from '@/components/ui/label';
@@ -26,7 +26,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { db } from '@/lib/firebase';
 import { initialOperators, initialDepartmentMap, initialWorkPhaseTemplates, initialWorkstations } from '@/lib/mock-data';
 import { collection, writeBatch, getDocs, doc } from 'firebase/firestore';
-import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions, backupAllData, restoreDataFromBackup, resetCompletedJobOrders } from './actions';
+import { resetAllJobOrders, resetAllRawMaterials, resetRawMaterialHistory, resetAllPrivacySignatures, resetAllWithdrawals, resetAllWorkInProgress, resetAllActiveSessions, backupAllData, restoreDataFromBackup } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 
@@ -58,7 +58,6 @@ export default function AdminAppSettingsPage() {
   const [isResettingWithdrawals, setIsResettingWithdrawals] = useState(false);
   const [isResettingWork, setIsResettingWork] = useState(false);
   const [isResettingSessions, setIsResettingSessions] = useState(false);
-  const [isResettingCompleted, setIsResettingCompleted] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
 
@@ -283,18 +282,6 @@ export default function AdminAppSettingsPage() {
     setIsResettingSessions(false);
   };
 
-  const handleResetCompleted = async () => {
-    if (!user) return;
-    setIsResettingCompleted(true);
-    const result = await resetCompletedJobOrders(user.uid);
-    toast({
-        title: result.success ? "Operazione Completata" : "Operazione Fallita",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
-    setIsResettingCompleted(false);
-  };
-
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -491,17 +478,6 @@ export default function AdminAppSettingsPage() {
                               </div>
                           </TabsContent>
                           <TabsContent value="reset-data" className="pt-6 space-y-4">
-                              {/* Reset Commesse Completate */}
-                              <div className="flex justify-between items-center p-4 border rounded-md">
-                                  <div>
-                                      <h4 className="font-semibold">Reset Commesse Completate</h4>
-                                      <p className="text-sm text-muted-foreground">Annulla TUTTE le commesse completate e ripristina lo stock.</p>
-                                  </div>
-                                  <AlertDialog>
-                                      <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingCompleted}>{isResettingCompleted ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Undo className="mr-2 h-4 w-4" />}Resetta Completate</Button></AlertDialogTrigger>
-                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Verranno resettate TUTTE le commesse completate, ripristinando lo stock e riportandole allo stato di "Pianificata".</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetCompleted} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
-                                  </AlertDialog>
-                              </div>
                               {/* Reset Prelievi da Magazzino */}
                               <div className="flex justify-between items-center p-4 border rounded-md">
                                   <div>
@@ -558,3 +534,5 @@ export default function AdminAppSettingsPage() {
     </AdminAuthGuard>
   );
 }
+
+  
