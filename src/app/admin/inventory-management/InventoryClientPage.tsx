@@ -1,0 +1,261 @@
+
+"use client";
+
+import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
+import { format, parseISO } from 'date-fns';
+import { it } from 'date-fns/locale';
+
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from '@/components/ui/badge';
+import { Warehouse, Download, Check, X, Pencil, Loader2 } from 'lucide-react';
+import { type InventoryRecord } from '@/lib/mock-data';
+import { approveInventoryRecord, rejectInventoryRecord } from './actions';
+import { useAuth } from '@/components/auth/AuthProvider';
+import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import InventoryRecordSheet from './InventoryRecordSheet';
+
+
+interface InventoryClientPageProps {
+  initialRecords: InventoryRecord[];
+}
+
+export default function InventoryClientPage({ initialRecords }: InventoryClientPageProps) {
+  const [records, setRecords] = useState(initialRecords);
+  const [selectedRecord, setSelectedRecord] = useState<InventoryRecord | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isPending, setIsPending] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const router = useRouter();
+
+  useEffect(() => {
+    setRecords(initialRecords);
+  }, [initialRecords]);
+
+  const groupedRecords = useMemo(() => {
+    return records.reduce((acc, record) => {
+      const date = format(parseISO(record.recordedAt as unknown as string), 'dd.MM.yyyy');
+      if (!acc[date]) {
+        acc[date] = [];
+      }
+      acc[date].push(record);
+      return acc;
+    }, {} as Record<string, InventoryRecord[]>);
+  }, [records]);
+
+  const sortedDates = useMemo(() => Object.keys(groupedRecords).sort((a, b) => {
+    const [dayA, monthA, yearA] = a.split('.').map(Number);
+    const [dayB, monthB, yearB] = b.split('.').map(Number);
+    return new Date(yearB, monthB - 1, dayB).getTime() - new Date(yearA, monthA - 1, dayA).getTime();
+  }), [groupedRecords]);
+  
+  const refreshData = () => {
+    router.refresh();
+  };
+
+  const handleApprove = async (recordId: string) => {
+    if (!user) return;
+    setIsPending(recordId);
+    const result = await approveInventoryRecord(recordId, user.uid);
+    toast({
+        title: result.success ? "Approvato!" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+  
+  const handleReject = async (recordId: string) => {
+    if (!user) return;
+    setIsPending(recordId);
+    const result = await rejectInventoryRecord(recordId, user.uid);
+    toast({
+        title: result.success ? "Rifiutato" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+     if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+
+  const handleOpenSheet = (record: InventoryRecord) => {
+    setSelectedRecord(record);
+    setIsSheetOpen(true);
+  };
+
+  const handleExport = (date: string, dailyRecords: InventoryRecord[]) => {
+    const dataToExport = dailyRecords.map(r => ({
+      'Codice': r.materialCode,
+      'Lotto': r.lotto,
+      'Peso Lordo (kg)': r.grossWeight.toFixed(3),
+      'Peso Tara (kg)': r.tareWeight.toFixed(3),
+      'Peso Netto (kg)': r.netWeight.toFixed(3),
+      'Operatore': r.operatorName,
+      'Data Registrazione': format(parseISO(r.recordedAt as unknown as string), 'dd/MM/yyyy HH:mm'),
+      'Stato': r.status,
+    }));
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Inventario ${date}`);
+    XLSX.writeFile(wb, `inventario_${date.replace(/\./g, '-')}.xlsx`);
+  };
+
+  return (
+    <>
+      <div className="space-y-8">
+        <header className="space-y-2">
+            <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+                <Warehouse className="h-8 w-8 text-primary" />
+                Gestione Inventari
+            </h1>
+            <p className="text-muted-foreground">
+                Visualizza, approva o rifiuta le registrazioni di inventario effettuate dagli operatori.
+            </p>
+        </header>
+        
+        <Card>
+            <CardHeader>
+                <CardTitle>Registrazioni da Processare</CardTitle>
+                <CardDescription>
+                    Elenco delle registrazioni di inventario raggruppate per data.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {sortedDates.length > 0 ? (
+                <Accordion type="multiple" className="w-full">
+                  {sortedDates.map(date => {
+                    const dailyRecords = groupedRecords[date];
+                    const pendingRecords = dailyRecords.filter(r => r.status === 'pending');
+                    return (
+                      <AccordionItem value={date} key={date}>
+                        <AccordionTrigger>
+                          <div className="flex justify-between items-center w-full pr-4">
+                            <span className="font-semibold text-lg">Inventario del {date}</span>
+                            <Badge variant={pendingRecords.length > 0 ? "destructive" : "default"}>
+                              {pendingRecords.length} in attesa
+                            </Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="p-4 bg-muted/50 rounded-lg">
+                            <div className="flex justify-end mb-4">
+                              <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecords)}>
+                                <Download className="mr-2 h-4 w-4" />
+                                Scarica Inventario del Giorno
+                              </Button>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Materiale</TableHead>
+                                    <TableHead>Lotto</TableHead>
+                                    <TableHead>Peso Netto</TableHead>
+                                    <TableHead>Operatore</TableHead>
+                                    <TableHead>Stato</TableHead>
+                                    <TableHead className="text-right">Azioni</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {dailyRecords.map(record => (
+                                    <TableRow key={record.id}>
+                                      <TableCell className="font-medium">{record.materialCode}</TableCell>
+                                      <TableCell>{record.lotto}</TableCell>
+                                      <TableCell>{record.netWeight.toFixed(3)} kg</TableCell>
+                                      <TableCell>{record.operatorName}</TableCell>
+                                      <TableCell>
+                                        <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
+                                          {record.status === 'pending' ? 'In Attesa' : record.status === 'approved' ? 'Approvato' : 'Rifiutato'}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="text-right space-x-2">
+                                        {isPending === record.id ? (
+                                          <Loader2 className="h-5 w-5 animate-spin ml-auto" />
+                                        ) : (
+                                          <>
+                                            <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)}>
+                                              <Pencil className="h-4 w-4"/>
+                                            </Button>
+                                            {record.status === 'pending' && (
+                                              <>
+                                                <AlertDialog>
+                                                  <AlertDialogTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                                                      <X className="h-5 w-5"/>
+                                                    </Button>
+                                                  </AlertDialogTrigger>
+                                                  <AlertDialogContent>
+                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>La registrazione verrà marcata come "rifiutata" e non potrà essere modificata.</AlertDialogDescription></AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                      <AlertDialogAction onClick={() => handleReject(record.id)} className="bg-destructive hover:bg-destructive/90">Sì, rifiuta</AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                                </AlertDialog>
+
+                                                <AlertDialog>
+                                                  <AlertDialogTrigger asChild>
+                                                     <Button variant="ghost" size="icon" className="text-green-500 hover:text-green-500">
+                                                      <Check className="h-5 w-5"/>
+                                                    </Button>
+                                                  </AlertDialogTrigger>
+                                                  <AlertDialogContent>
+                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Lo stock della materia prima verrà aggiornato con il peso netto di questa registrazione. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                      <AlertDialogAction onClick={() => handleApprove(record.id)} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                                </AlertDialog>
+                                              </>
+                                            )}
+                                          </>
+                                        )}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg">
+                    <p className="text-lg font-semibold text-muted-foreground">Nessuna registrazione di inventario trovata.</p>
+                </div>
+              )}
+            </CardContent>
+        </Card>
+      </div>
+
+      {selectedRecord && (
+         <InventoryRecordSheet 
+            isOpen={isSheetOpen} 
+            onOpenChange={setIsSheetOpen} 
+            record={selectedRecord}
+            onUpdateSuccess={refreshData}
+          />
+      )}
+    </>
+  );
+}
