@@ -177,6 +177,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                       <TableHeader>
                                         <TableRow>
                                           <TableHead>Lotto</TableHead>
+                                          <TableHead>Peso Lordo</TableHead>
+                                          <TableHead>Tara Applicata</TableHead>
                                           <TableHead>Peso Netto</TableHead>
                                           <TableHead>Operatore</TableHead>
                                           <TableHead>Stato</TableHead>
@@ -187,7 +189,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                         {recordsForMaterial.map(record => (
                                           <TableRow key={record.id}>
                                             <TableCell>{record.lotto}</TableCell>
-                                            <TableCell className="font-mono">{record.netWeight.toFixed(3)} kg</TableCell>
+                                            <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
+                                            <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
+                                            <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
                                             <TableCell>{record.operatorName}</TableCell>
                                             <TableCell>
                                               <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
