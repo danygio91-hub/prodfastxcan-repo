@@ -1,7 +1,7 @@
 
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -329,4 +329,59 @@ export async function updateInventoryRecord(recordId: string, newGrossWeight: nu
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento." };
     }
+}
+
+
+export async function deleteInventoryRecords(recordIds: string[]): Promise<{ success: boolean, message: string }> {
+  if (!recordIds || recordIds.length === 0) {
+    return { success: false, message: 'Nessuna registrazione selezionata.' };
+  }
+
+  await ensureAdmin(undefined); // Check for admin rights without UID from form
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      for (const recordId of recordIds) {
+        const recordRef = doc(db, 'inventoryRecords', recordId);
+        const recordSnap = await transaction.get(recordRef);
+
+        if (!recordSnap.exists()) {
+          console.warn(`Record ${recordId} not found, skipping.`);
+          continue;
+        }
+
+        const record = recordSnap.data() as InventoryRecord;
+
+        // If the record was approved, revert the stock changes
+        if (record.status === 'approved') {
+          const materialRef = doc(db, 'rawMaterials', record.materialId);
+          const materialSnap = await transaction.get(materialRef);
+          if (materialSnap.exists()) {
+            const material = materialSnap.data() as RawMaterial;
+            const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
+            
+            if (batchToRemove) {
+              const newStockUnits = (material.currentStockUnits || 0) - record.netWeight;
+              const newWeightKg = (material.currentWeightKg || 0) - record.netWeight;
+
+              transaction.update(materialRef, {
+                batches: arrayRemove(batchToRemove),
+                currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
+                currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
+              });
+            }
+          }
+        }
+
+        // Delete the inventory record itself
+        transaction.delete(recordRef);
+      }
+    });
+
+    revalidatePath('/admin/inventory-management');
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: `${recordIds.length} registrazioni eliminate con successo.` };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione." };
+  }
 }

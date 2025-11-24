@@ -16,14 +16,15 @@ import {
 } from "@/components/ui/accordion"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2 } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2 } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
-import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus } from './actions';
+import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import InventoryRecordSheet from './InventoryRecordSheet';
+import { Checkbox } from '@/components/ui/checkbox';
 
 
 interface InventoryClientPageProps {
@@ -35,12 +36,14 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   const [selectedRecord, setSelectedRecord] = useState<InventoryRecord | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isPending, setIsPending] = useState<string | null>(null);
+  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
   useEffect(() => {
     setRecords(initialRecords);
+    setSelectedRecords([]);
   }, [initialRecords]);
 
   const groupedRecords = useMemo(() => {
@@ -135,6 +138,38 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     XLSX.writeFile(wb, `inventario_${date.replace(/\./g, '-')}.xlsx`);
   };
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedRecords(records.map(r => r.id));
+    } else {
+      setSelectedRecords([]);
+    }
+  };
+
+  const handleSelectRecord = (recordId: string) => {
+    setSelectedRecords(prev => 
+      prev.includes(recordId) 
+        ? prev.filter(id => id !== recordId) 
+        : [...prev, recordId]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedRecords.length === 0) return;
+    setIsPending('delete-selected');
+    const result = await deleteInventoryRecords(selectedRecords);
+    toast({
+      title: result.success ? "Eliminazione Completata" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+
+
   return (
     <>
       <div className="space-y-8">
@@ -150,17 +185,44 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
         
         <Card>
             <CardHeader>
-                <CardTitle>Registrazioni da Processare</CardTitle>
-                <CardDescription>
-                    Elenco delle registrazioni di inventario raggruppate per data.
-                </CardDescription>
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <CardTitle>Registrazioni da Processare</CardTitle>
+                    <CardDescription>
+                        Elenco delle registrazioni di inventario raggruppate per data.
+                    </CardDescription>
+                  </div>
+                  {selectedRecords.length > 0 && (
+                     <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" disabled={isPending === 'delete-selected'}>
+                          {isPending === 'delete-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                          Elimina Selezionate ({selectedRecords.length})
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Stai per eliminare {selectedRecords.length} registrazioni. Se sono state approvate, lo stock verrà stornato. Questa operazione è irreversibile.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annulla</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+              </div>
             </CardHeader>
             <CardContent>
               {sortedDates.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
                   {sortedDates.map(date => {
                     const dailyRecordsByMaterial = groupedRecords[date];
-                    const pendingRecordsCount = Object.values(dailyRecordsByMaterial).flat().filter(r => r.status === 'pending').length;
+                    const allDailyRecords = Object.values(dailyRecordsByMaterial).flat();
+                    const pendingRecordsCount = allDailyRecords.filter(r => r.status === 'pending').length;
                     
                     return (
                       <AccordionItem value={date} key={date}>
@@ -191,6 +253,19 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                     <Table>
                                       <TableHeader>
                                         <TableRow>
+                                           <TableHead padding="checkbox">
+                                            <Checkbox
+                                              checked={recordsForMaterial.every(r => selectedRecords.includes(r.id))}
+                                              onCheckedChange={(checked) => {
+                                                const recordIds = recordsForMaterial.map(r => r.id);
+                                                if (checked) {
+                                                  setSelectedRecords(prev => [...new Set([...prev, ...recordIds])]);
+                                                } else {
+                                                  setSelectedRecords(prev => prev.filter(id => !recordIds.includes(id)));
+                                                }
+                                              }}
+                                            />
+                                          </TableHead>
                                           <TableHead>Lotto</TableHead>
                                           <TableHead>Peso Lordo</TableHead>
                                           <TableHead>Tara Applicata</TableHead>
@@ -202,7 +277,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                       </TableHeader>
                                       <TableBody>
                                         {recordsForMaterial.map(record => (
-                                          <TableRow key={record.id}>
+                                          <TableRow key={record.id} data-state={selectedRecords.includes(record.id) ? 'selected' : ''}>
+                                             <TableCell padding="checkbox">
+                                              <Checkbox
+                                                checked={selectedRecords.includes(record.id)}
+                                                onCheckedChange={() => handleSelectRecord(record.id)}
+                                              />
+                                            </TableCell>
                                             <TableCell>{record.lotto}</TableCell>
                                             <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                             <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
