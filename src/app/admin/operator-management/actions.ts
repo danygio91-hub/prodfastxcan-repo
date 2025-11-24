@@ -20,6 +20,7 @@ const operatorFormSchema = z.object({
   role: z.enum(['admin', 'supervisor', 'operator'], {
     errorMap: () => ({ message: 'Selezionare un ruolo valido.' }),
   }),
+  canAccessInventory: z.boolean().optional(),
 }).refine(data => {
     // If the role is 'operator', 'reparto' must be an array with at least one item.
     if (data.role === 'operator') {
@@ -75,6 +76,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
       role,
       nome_normalized,
       email: email.trim().toLowerCase(), // Use the provided email
+      canAccessInventory: validatedFields.data.canAccessInventory || false,
   };
 
   if (id) {

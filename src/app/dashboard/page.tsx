@@ -4,7 +4,7 @@
 import React from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck } from 'lucide-react';
+import { Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import { useAuth } from '@/components/auth/AuthProvider';
 
@@ -54,6 +54,14 @@ export default function DashboardPage() {
                   href="/material-check"
                 />
               </>
+            )}
+             {operator?.canAccessInventory && (
+                <DashboardItem
+                  title="Inventario"
+                  description="Gestisci l'inventario delle materie prime."
+                  icon={Warehouse}
+                  href="/inventory"
+                />
             )}
             <DashboardItem
               title="Dati Operatore"

@@ -93,6 +93,7 @@ export interface Operator {
   privacyVersion?: number; // Timestamp of the signed policy
   nome_normalized?: string;
   email?: string;
+  canAccessInventory?: boolean; // New privilege for inventory access
   // Fields to track active state across devices
   activeJobId?: string | null;
   activePhaseName?: string | null;

@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2 } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from 'next/navigation';
 
@@ -37,6 +37,7 @@ const operatorFormSchema = z.object({
   }),
   reparto: z.array(z.string()).max(3, "Puoi selezionare al massimo 3 reparti.").optional(),
   role: z.enum(['admin', 'supervisor', 'operator']),
+  canAccessInventory: z.boolean().optional(),
 }).refine(data => {
     if (data.role === 'operator') {
         return data.reparto && data.reparto.length > 0;
@@ -84,6 +85,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       email: "",
       reparto: [],
       role: 'operator',
+      canAccessInventory: false,
     },
   });
 
@@ -113,9 +115,10 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         email: operator.email || '',
         reparto: operator.reparto || [],
         role: operator.role,
+        canAccessInventory: operator.canAccessInventory || false,
       });
     } else {
-      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator' });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false });
     }
     setIsDialogOpen(true);
   };
@@ -161,6 +164,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         'Ruolo': op.role,
         'Stato': op.stato,
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
+        'Accesso Inventario': op.canAccessInventory ? 'Sì' : 'No',
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -208,6 +212,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     <TableHead>Ruolo</TableHead>
                     <TableHead>Stato</TableHead>
                     <TableHead>Privacy</TableHead>
+                    <TableHead>Inventario</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -249,6 +254,24 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                             </Tooltip>
                           </TooltipProvider>
                         </TableCell>
+                        <TableCell>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="flex items-center justify-center">
+                                  {op.canAccessInventory ? (
+                                    <Warehouse className="h-5 w-5 text-green-500" />
+                                  ) : (
+                                    <Warehouse className="h-5 w-5 text-muted-foreground opacity-50" />
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{op.canAccessInventory ? 'Accesso Inventario Abilitato' : 'Accesso Inventario Disabilitato'}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </TableCell>
                         <TableCell className="text-right space-x-2">
                           <Button variant="outline" size="icon" onClick={() => handleOpenDialog(op)}>
                             <Edit className="h-4 w-4" />
@@ -280,7 +303,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                      <TableCell colSpan={8} className="text-center h-24">Nessun operatore trovato.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -372,6 +395,29 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     )}
                   />
                 )}
+                 <FormField
+                  control={form.control}
+                  name="canAccessInventory"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base flex items-center gap-2">
+                           <Warehouse className="h-5 w-5" />
+                           Accesso a Inventario
+                        </FormLabel>
+                        <FormDescription>
+                          Consenti a questo operatore di accedere alla sezione Inventario.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
                 <DialogFooter className="pt-4">
                   <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
                   <Button type="submit">{editingOperator ? "Salva Modifiche" : "Aggiungi Operatore"}</Button>
