@@ -1,7 +1,7 @@
 
 "use server";
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -21,20 +21,35 @@ const inventoryBatchSchema = z.object({
   lotto: z.string().optional(),
   grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
   packagingId: z.string().optional(),
-  operatorId: z.string(),
-  operatorName: z.string(),
+  // operatorId and operatorName are passed but not part of this specific form validation
 });
 
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
-  const validatedFields = inventoryBatchSchema.safeParse(rawData);
+  
+  // We manually add operator data here as it's not part of the form fields filled by the user directly.
+  const dataToValidate = {
+      materialId: rawData.materialId,
+      lotto: rawData.lotto,
+      grossWeight: rawData.grossWeight,
+      packagingId: rawData.packagingId,
+  };
+
+  const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId, operatorId, operatorName } = validatedFields.data;
+  const { materialId, lotto, grossWeight, packagingId } = validatedFields.data;
+  const operatorId = rawData.operatorId as string;
+  const operatorName = rawData.operatorName as string;
+
+  if (!operatorId || !operatorName) {
+      return { success: false, message: 'Dati operatore mancanti.' };
+  }
+
   const materialRef = doc(db, "rawMaterials", materialId);
   const inventoryRef = collection(db, "inventoryRecords");
   
@@ -82,3 +97,4 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+
