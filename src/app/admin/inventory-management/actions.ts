@@ -332,12 +332,12 @@ export async function updateInventoryRecord(recordId: string, newGrossWeight: nu
 }
 
 
-export async function deleteInventoryRecords(recordIds: string[]): Promise<{ success: boolean, message: string }> {
+export async function deleteInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean, message: string }> {
   if (!recordIds || recordIds.length === 0) {
     return { success: false, message: 'Nessuna registrazione selezionata.' };
   }
 
-  await ensureAdmin(undefined); // Check for admin rights without UID from form
+  await ensureAdmin(uid);
 
   try {
     await runTransaction(db, async (transaction) => {

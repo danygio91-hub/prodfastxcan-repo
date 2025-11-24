@@ -155,9 +155,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   };
 
   const handleDeleteSelected = async () => {
-    if (selectedRecords.length === 0) return;
+    if (selectedRecords.length === 0 || !user) return;
     setIsPending('delete-selected');
-    const result = await deleteInventoryRecords(selectedRecords);
+    const result = await deleteInventoryRecords(selectedRecords, user.uid);
     toast({
       title: result.success ? "Eliminazione Completata" : "Errore",
       description: result.message,
