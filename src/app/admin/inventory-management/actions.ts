@@ -39,29 +39,34 @@ const inventoryBatchSchema = z.object({
   lotto: z.string().optional(),
   grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
   packagingId: z.string().optional(),
-  operatorId: z.string(),
-  operatorName: z.string(),
 });
 
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
+  
+  // We manually add operator data here as it's not part of the form fields filled by the user directly.
   const dataToValidate = {
       materialId: rawData.materialId,
       lotto: rawData.lotto,
       grossWeight: rawData.grossWeight,
       packagingId: rawData.packagingId,
-      operatorId: rawData.operatorId,
-      operatorName: rawData.operatorName,
   };
-  
+
   const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId, operatorId, operatorName } = validatedFields.data;
+  const { materialId, lotto, grossWeight, packagingId } = validatedFields.data;
+  const operatorId = rawData.operatorId as string;
+  const operatorName = rawData.operatorName as string;
+
+  if (!operatorId || !operatorName) {
+      return { success: false, message: 'Dati operatore mancanti.' };
+  }
+
   const materialRef = doc(db, "rawMaterials", materialId);
   const inventoryRef = collection(db, "inventoryRecords");
   
@@ -151,10 +156,15 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const batchToUpdateIndex = record.lotto && record.lotto !== 'INV' 
                 ? existingBatches.findIndex(b => b.lotto === record.lotto) 
                 : -1;
+            
+            const recordDate = record.recordedAt && typeof (record.recordedAt as any).toDate === 'function' 
+                ? (record.recordedAt as any).toDate()
+                : new Date(record.recordedAt);
+
 
             const newBatchData: RawMaterialBatch = {
                 id: `batch-inv-${record.id}`,
-                date: new Date(record.recordedAt as any).toISOString(),
+                date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
                 netQuantity: record.netWeight,
                 grossWeight: record.grossWeight,
