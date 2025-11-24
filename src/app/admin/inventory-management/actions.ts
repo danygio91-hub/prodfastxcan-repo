@@ -1,9 +1,9 @@
 
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord, Operator } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -337,7 +337,16 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
     return { success: false, message: 'Nessuna registrazione selezionata.' };
   }
 
-  await ensureAdmin(uid);
+  // Permission Check
+  const operatorDoc = await getDoc(doc(db, "operators", uid));
+  if (!operatorDoc.exists()) {
+    return { success: false, message: "Operatore non trovato." };
+  }
+  const operator = operatorDoc.data() as Operator;
+  const hasPermission = operator.role === 'admin' || operator.role === 'supervisor' || operator.canAccessInventory === true;
+  if (!hasPermission) {
+    return { success: false, message: "Non hai i permessi per eseguire questa operazione." };
+  }
 
   try {
     await runTransaction(db, async (transaction) => {
