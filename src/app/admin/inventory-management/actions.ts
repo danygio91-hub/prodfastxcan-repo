@@ -46,7 +46,16 @@ const inventoryBatchSchema = z.object({
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
-  const validatedFields = inventoryBatchSchema.safeParse(rawData);
+  const dataToValidate = {
+      materialId: rawData.materialId,
+      lotto: rawData.lotto,
+      grossWeight: rawData.grossWeight,
+      packagingId: rawData.packagingId,
+      operatorId: rawData.operatorId,
+      operatorName: rawData.operatorName,
+  };
+  
+  const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Dati non validi.' };
@@ -135,8 +144,15 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             }
             
             const material = materialSnap.data() as RawMaterial;
-            
-            const newBatch: RawMaterialBatch = {
+            const existingBatches = material.batches || [];
+            let updatedBatches = [...existingBatches];
+            let stockChange = record.netWeight; // Default change is adding the new amount
+
+            const batchToUpdateIndex = record.lotto && record.lotto !== 'INV' 
+                ? existingBatches.findIndex(b => b.lotto === record.lotto) 
+                : -1;
+
+            const newBatchData: RawMaterialBatch = {
                 id: `batch-inv-${record.id}`,
                 date: new Date(record.recordedAt as any).toISOString(),
                 ddt: `INVENTARIO`,
@@ -147,9 +163,19 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 lotto: record.lotto,
             };
 
-            const updatedBatches = [...(material.batches || []), newBatch];
-            const newStockUnits = (material.currentStockUnits || 0) + record.netWeight;
-            const newWeightKg = (material.currentWeightKg || 0) + record.netWeight;
+            if (batchToUpdateIndex > -1) {
+                // UPDATE/REPLACE logic
+                const oldBatch = updatedBatches[batchToUpdateIndex];
+                stockChange = record.netWeight - (oldBatch.netQuantity || 0); // Calculate the difference
+                newBatchData.id = oldBatch.id; // Preserve the original batch ID
+                updatedBatches[batchToUpdateIndex] = newBatchData;
+            } else {
+                // ADD logic
+                updatedBatches.push(newBatchData);
+            }
+
+            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
+            const newWeightKg = (material.currentWeightKg || 0) + stockChange;
 
             // Update material stock
             transaction.update(materialRef, { 
