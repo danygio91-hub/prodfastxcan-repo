@@ -131,6 +131,7 @@ export default function InventoryPage() {
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          await videoRef.current.play();
         }
         setHasCameraPermission(true);
       } catch (error) {
@@ -176,12 +177,21 @@ export default function InventoryPage() {
   };
 
   const onSubmit = async (values: InventoryFormValues) => {
+    if (!operator) {
+      toast({ variant: "destructive", title: "Errore", description: "Dati operatore non trovati." });
+      return;
+    }
+
     setStep('saving');
     
     const formData = new FormData();
+    // Append all form values
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined) formData.append(key, String(value));
     });
+    // Ensure operator data is there
+    formData.set('operatorId', operator.id);
+    formData.set('operatorName', operator.nome);
     
     const result = await registerInventoryBatch(formData);
 
