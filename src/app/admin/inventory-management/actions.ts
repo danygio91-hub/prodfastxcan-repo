@@ -1,7 +1,7 @@
 
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -164,6 +164,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
 
             const newBatchData: RawMaterialBatch = {
                 id: `batch-inv-${record.id}`,
+                inventoryRecordId: recordId, // Crucial link to the original record
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
                 netQuantity: record.netWeight,
@@ -230,6 +231,63 @@ export async function rejectInventoryRecord(recordId: string, uid: string): Prom
         return { success: true, message: `Registrazione rifiutata.` };
     } catch (error) {
          return { success: false, message: error instanceof Error ? error.message : "Errore durante il rifiuto della registrazione." };
+    }
+}
+
+export async function revertInventoryRecordStatus(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin(uid);
+    const recordRef = doc(db, 'inventoryRecords', recordId);
+
+    try {
+        await runTransaction(db, async (transaction) => {
+            const recordSnap = await transaction.get(recordRef);
+            if (!recordSnap.exists()) {
+                throw new Error("Registrazione inventario non trovata.");
+            }
+            const record = recordSnap.data() as InventoryRecord;
+            if (record.status === 'pending') {
+                throw new Error("La registrazione è già in attesa.");
+            }
+            
+            // Only revert stock if it was approved
+            if (record.status === 'approved') {
+                const materialRef = doc(db, 'rawMaterials', record.materialId);
+                const materialSnap = await transaction.get(materialRef);
+                if (!materialSnap.exists()) {
+                    throw new Error("Materia prima associata non trovata. Impossibile stornare lo stock.");
+                }
+                const material = materialSnap.data() as RawMaterial;
+
+                // Find and remove the specific batch created by this inventory record
+                const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
+                
+                if (batchToRemove) {
+                    const newStockUnits = (material.currentStockUnits || 0) - record.netWeight;
+                    const newWeightKg = (material.currentWeightKg || 0) - record.netWeight;
+
+                    transaction.update(materialRef, {
+                        batches: arrayRemove(batchToRemove),
+                        currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
+                        currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
+                    });
+                } else {
+                    console.warn(`Could not find inventory batch to remove for record ${recordId}. Stock may be inaccurate.`);
+                }
+            }
+            
+            // Reset the record's status
+            transaction.update(recordRef, {
+                status: 'pending',
+                approvedBy: null,
+                approvedAt: null,
+            });
+        });
+
+        revalidatePath('/admin/inventory-management');
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: "Operazione annullata. La registrazione è di nuovo in attesa." };
+    } catch (error) {
+         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'annullamento." };
     }
 }
 

@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/accordion"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2 } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
-import { approveInventoryRecord, rejectInventoryRecord } from './actions';
+import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -93,6 +93,21 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
         variant: result.success ? "default" : "destructive",
     });
      if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+
+  const handleRevertStatus = async (recordId: string) => {
+    if (!user) return;
+    setIsPending(recordId);
+    const result = await revertInventoryRecordStatus(recordId, user.uid);
+    toast({
+        title: result.success ? "Annullato" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
       refreshData();
     }
     setIsPending(null);
@@ -206,7 +221,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                   <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)}>
                                                     <Pencil className="h-4 w-4"/>
                                                   </Button>
-                                                  {record.status === 'pending' && (
+                                                  {record.status === 'pending' ? (
                                                     <>
                                                       <AlertDialog>
                                                         <AlertDialogTrigger asChild>
@@ -238,6 +253,24 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                         </AlertDialogContent>
                                                       </AlertDialog>
                                                     </>
+                                                  ) : (
+                                                    <AlertDialog>
+                                                      <AlertDialogTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="text-amber-500 hover:text-amber-500">
+                                                          <Undo2 className="h-4 w-4"/>
+                                                        </Button>
+                                                      </AlertDialogTrigger>
+                                                      <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                          <AlertDialogTitle>Annullare l'operazione?</AlertDialogTitle>
+                                                          <AlertDialogDescription>Questa azione riporterà la registrazione allo stato "In Attesa". Se approvata, lo stock verrà stornato.</AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                          <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                                                          <AlertDialogAction onClick={() => handleRevertStatus(record.id)}>Sì, annulla</AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                      </AlertDialogContent>
+                                                    </AlertDialog>
                                                   )}
                                                 </>
                                               )}

@@ -131,6 +131,7 @@ export interface Packaging {
 
 export interface RawMaterialBatch {
   id: string; // unique id for the batch
+  inventoryRecordId?: string; // ID of the original inventory record
   date: string; // ISO string date
   ddt: string; // Documento di Trasporto
   netQuantity: number; // Net quantity from DDT or manual input
