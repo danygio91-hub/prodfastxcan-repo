@@ -197,7 +197,7 @@ export async function rejectInventoryRecord(recordId: string, uid: string): Prom
     }
 }
 
-export async function updateInventoryRecord(recordId: string, newGrossWeight: number, uid: string): Promise<{ success: boolean; message: string; }> {
+export async function updateInventoryRecord(recordId: string, newGrossWeight: number, newPackagingId: string | undefined, uid: string): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
     const recordRef = doc(db, 'inventoryRecords', recordId);
 
@@ -207,8 +207,16 @@ export async function updateInventoryRecord(recordId: string, newGrossWeight: nu
             throw new Error("È possibile modificare solo registrazioni in attesa.");
         }
         
-        const record = recordSnap.data() as InventoryRecord;
-        const newNetWeight = newGrossWeight - record.tareWeight;
+        let newTareWeight = 0;
+        if (newPackagingId && newPackagingId !== 'none') {
+            const packagingRef = doc(db, 'packaging', newPackagingId);
+            const packagingSnap = await getDoc(packagingRef);
+            if (packagingSnap.exists()) {
+                newTareWeight = packagingSnap.data().weightKg || 0;
+            }
+        }
+        
+        const newNetWeight = newGrossWeight - newTareWeight;
 
         if (newNetWeight < 0) {
             throw new Error("Il peso netto risultante è negativo.");
@@ -216,7 +224,9 @@ export async function updateInventoryRecord(recordId: string, newGrossWeight: nu
 
         await updateDoc(recordRef, {
             grossWeight: newGrossWeight,
+            tareWeight: newTareWeight,
             netWeight: newNetWeight,
+            packagingId: newPackagingId || null,
         });
         
         revalidatePath('/admin/inventory-management');
