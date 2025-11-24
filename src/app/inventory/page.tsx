@@ -24,6 +24,8 @@ import type { RawMaterial, Packaging } from '@/lib/mock-data';
 import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+
 
 // Schema for the inventory form
 const inventoryFormSchema = z.object({
@@ -40,11 +42,12 @@ export default function InventoryPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<'scan' | 'form' | 'saving'>('scan');
+  const [step, setStep] = useState<'scan_material' | 'form' | 'saving'>('scan_material');
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -88,7 +91,7 @@ export default function InventoryPage() {
       const result = await getRawMaterialByCode(code.trim());
       if ('error' in result) {
           toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-          setStep('scan'); // Go back to scan
+          setStep('scan_material'); // Go back to scan
       } else {
           setScannedMaterial(result);
           form.reset({
@@ -101,9 +104,17 @@ export default function InventoryPage() {
       }
   }, [stopCamera, toast, form]);
 
+  const handleLottoScanned = useCallback((code: string) => {
+    form.setValue('lotto', code.trim());
+    setIsLottoScanOpen(false);
+    toast({ title: "Lotto Scansionato", description: `Lotto "${code.trim()}" inserito.` });
+  }, [form, toast]);
+
+
   // Camera management effect
   useEffect(() => {
-    if (step !== 'scan') {
+    const shouldStartCamera = step === 'scan_material' || isLottoScanOpen;
+    if (!shouldStartCamera) {
         stopCamera();
         return;
     }
@@ -129,10 +140,10 @@ export default function InventoryPage() {
 
     requestCamera();
     return () => stopCamera();
-  }, [step, stopCamera, toast]);
+  }, [step, isLottoScanOpen, stopCamera, toast]);
 
 
-  const triggerScan = async () => {
+  const triggerScan = async (onScan: (code: string) => void) => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
         toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
         return;
@@ -147,7 +158,7 @@ export default function InventoryPage() {
         const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
         const barcodes = await barcodeDetector.detect(videoRef.current);
         if (barcodes.length > 0) {
-            handleMaterialScanned(barcodes[0].rawValue);
+            onScan(barcodes[0].rawValue);
         } else {
             toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
         }
@@ -184,7 +195,7 @@ export default function InventoryPage() {
   const resetFlow = () => {
     setScannedMaterial(null);
     form.reset();
-    setStep('scan');
+    setStep('scan_material');
   };
 
   if (authLoading || !operator) {
@@ -206,7 +217,7 @@ export default function InventoryPage() {
           </header>
 
           <Card>
-             {step === 'scan' && (
+             {step === 'scan_material' && (
                 <>
                  <CardHeader>
                     <CardTitle>1. Scansione Materia Prima</CardTitle>
@@ -240,7 +251,7 @@ export default function InventoryPage() {
                     </div>
                 </CardContent>
                 <CardFooter>
-                    <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
+                    <Button onClick={() => triggerScan(handleMaterialScanned)} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
                         {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                         <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Materiale'}</span>
                     </Button>
@@ -258,8 +269,33 @@ export default function InventoryPage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                             <FormField control={form.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>Numero Lotto (Opzionale)</FormLabel> <FormControl><Input placeholder="Scansiona o digita il lotto" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                             
+                            <FormField
+                              control={form.control}
+                              name="lotto"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Numero Lotto (Opzionale)</FormLabel>
+                                  <div className="flex items-center gap-2">
+                                    <FormControl>
+                                      <Input
+                                        placeholder="Scansiona o digita il lotto"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => setIsLottoScanOpen(true)}
+                                    >
+                                      <QrCode className="h-5 w-5" />
+                                    </Button>
+                                  </div>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="grossWeight" render={({ field }) => (
                                     <FormItem>
@@ -310,9 +346,37 @@ export default function InventoryPage() {
 
           </Card>
         </div>
+
+        <Dialog open={isLottoScanOpen} onOpenChange={setIsLottoScanOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Scansiona Codice Lotto</DialogTitle>
+              <DialogDescription>
+                Inquadra il codice a barre del lotto.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden my-4">
+              <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+              <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                <div className="w-5/6 h-2/5 relative">
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                  <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => triggerScan(handleLottoScanned)} disabled={isCapturing || !hasCameraPermission} className="w-full">
+                {isCapturing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4" />}
+                {isCapturing ? 'Scansionando...' : 'Scansiona Lotto'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
       </AppShell>
     </AuthGuard>
   );
 }
-
-    
