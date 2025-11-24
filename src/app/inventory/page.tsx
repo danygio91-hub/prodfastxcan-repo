@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -22,6 +23,7 @@ import { getPackagingItems, registerInventoryBatch } from './actions';
 import type { RawMaterial, Packaging } from '@/lib/mock-data';
 import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // Schema for the inventory form
 const inventoryFormSchema = z.object({
@@ -42,7 +44,7 @@ export default function InventoryPage() {
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(true);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -105,26 +107,30 @@ export default function InventoryPage() {
         stopCamera();
         return;
     }
-    
-    const startCamera = async () => {
-        setHasCameraPermission(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-            }
-        } catch (err) {
-            setHasCameraPermission(false);
-            toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile." });
-            stopCamera(); 
+
+    const requestCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
         }
+        setHasCameraPermission(true);
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+        setHasCameraPermission(false);
+        toast({
+          variant: 'destructive',
+          title: 'Errore Fotocamera',
+          description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
+        });
+      }
     };
 
-    startCamera();
-    return () => { stopCamera(); };
+    requestCamera();
+    return () => stopCamera();
   }, [step, stopCamera, toast]);
+
 
   const triggerScan = async () => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -208,13 +214,19 @@ export default function InventoryPage() {
                 </CardHeader>
                 <CardContent>
                     <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
-                        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                        {!hasCameraPermission ? (
-                            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
-                                <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-                                <p className="text-destructive-foreground font-semibold">Accesso fotocamera negato</p>
+                       <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                        {hasCameraPermission === false && (
+                             <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                               <Alert variant="destructive">
+                                  <AlertTriangle className="h-4 w-4" />
+                                  <AlertTitle>Accesso Fotocamera Negato</AlertTitle>
+                                  <AlertDescription>
+                                    Controlla i permessi del browser per continuare.
+                                  </AlertDescription>
+                                </Alert>
                             </div>
-                        ) : (
+                        )}
+                        {hasCameraPermission && (
                              <div className="absolute inset-0 grid place-items-center pointer-events-none">
                                 <div className="w-5/6 h-2/5 relative">
                                     <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
@@ -302,3 +314,5 @@ export default function InventoryPage() {
     </AuthGuard>
   );
 }
+
+    
