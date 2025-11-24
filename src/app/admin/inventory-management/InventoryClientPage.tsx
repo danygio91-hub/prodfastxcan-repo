@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/accordion"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2 } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
 import { approveInventoryRecord, rejectInventoryRecord } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -47,11 +47,15 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     return records.reduce((acc, record) => {
       const date = format(parseISO(record.recordedAt as unknown as string), 'dd.MM.yyyy');
       if (!acc[date]) {
-        acc[date] = [];
+        acc[date] = {};
       }
-      acc[date].push(record);
+      const materialCode = record.materialCode;
+       if (!acc[date][materialCode]) {
+        acc[date][materialCode] = [];
+      }
+      acc[date][materialCode].push(record);
       return acc;
-    }, {} as Record<string, InventoryRecord[]>);
+    }, {} as Record<string, Record<string, InventoryRecord[]>>);
   }, [records]);
 
   const sortedDates = useMemo(() => Object.keys(groupedRecords).sort((a, b) => {
@@ -99,8 +103,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setIsSheetOpen(true);
   };
 
-  const handleExport = (date: string, dailyRecords: InventoryRecord[]) => {
-    const dataToExport = dailyRecords.map(r => ({
+  const handleExport = (date: string, dailyRecords: Record<string, InventoryRecord[]>) => {
+    const dataToExport = Object.values(dailyRecords).flat().map(r => ({
       'Codice': r.materialCode,
       'Lotto': r.lotto,
       'Peso Lordo (kg)': r.grossWeight.toFixed(3),
@@ -140,98 +144,107 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
               {sortedDates.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
                   {sortedDates.map(date => {
-                    const dailyRecords = groupedRecords[date];
-                    const pendingRecords = dailyRecords.filter(r => r.status === 'pending');
+                    const dailyRecordsByMaterial = groupedRecords[date];
+                    const pendingRecordsCount = Object.values(dailyRecordsByMaterial).flat().filter(r => r.status === 'pending').length;
+                    
                     return (
                       <AccordionItem value={date} key={date}>
                         <AccordionTrigger>
                           <div className="flex justify-between items-center w-full pr-4">
                             <span className="font-semibold text-lg">Inventario del {date}</span>
-                            <Badge variant={pendingRecords.length > 0 ? "destructive" : "default"}>
-                              {pendingRecords.length} in attesa
+                            <Badge variant={pendingRecordsCount > 0 ? "destructive" : "default"}>
+                              {pendingRecordsCount} in attesa
                             </Badge>
                           </div>
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="p-4 bg-muted/50 rounded-lg">
                             <div className="flex justify-end mb-4">
-                              <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecords)}>
+                              <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecordsByMaterial)}>
                                 <Download className="mr-2 h-4 w-4" />
                                 Scarica Inventario del Giorno
                               </Button>
                             </div>
-                            <div className="overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Materiale</TableHead>
-                                    <TableHead>Lotto</TableHead>
-                                    <TableHead>Peso Netto</TableHead>
-                                    <TableHead>Operatore</TableHead>
-                                    <TableHead>Stato</TableHead>
-                                    <TableHead className="text-right">Azioni</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {dailyRecords.map(record => (
-                                    <TableRow key={record.id}>
-                                      <TableCell className="font-medium">{record.materialCode}</TableCell>
-                                      <TableCell>{record.lotto}</TableCell>
-                                      <TableCell>{record.netWeight.toFixed(3)} kg</TableCell>
-                                      <TableCell>{record.operatorName}</TableCell>
-                                      <TableCell>
-                                        <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
-                                          {record.status === 'pending' ? 'In Attesa' : record.status === 'approved' ? 'Approvato' : 'Rifiutato'}
-                                        </Badge>
-                                      </TableCell>
-                                      <TableCell className="text-right space-x-2">
-                                        {isPending === record.id ? (
-                                          <Loader2 className="h-5 w-5 animate-spin ml-auto" />
-                                        ) : (
-                                          <>
-                                            <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)}>
-                                              <Pencil className="h-4 w-4"/>
-                                            </Button>
-                                            {record.status === 'pending' && (
-                                              <>
-                                                <AlertDialog>
-                                                  <AlertDialogTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                                                      <X className="h-5 w-5"/>
-                                                    </Button>
-                                                  </AlertDialogTrigger>
-                                                  <AlertDialogContent>
-                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>La registrazione verrà marcata come "rifiutata" e non potrà essere modificata.</AlertDialogDescription></AlertDialogHeader>
-                                                    <AlertDialogFooter>
-                                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                                      <AlertDialogAction onClick={() => handleReject(record.id)} className="bg-destructive hover:bg-destructive/90">Sì, rifiuta</AlertDialogAction>
-                                                    </AlertDialogFooter>
-                                                  </AlertDialogContent>
-                                                </AlertDialog>
+                            <div className="space-y-6">
+                              {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => (
+                                <div key={materialCode} className="border-l-4 border-primary/50 pl-4">
+                                  <div className="font-semibold text-md mb-2 flex items-center gap-2">
+                                     <Package className="h-5 w-5 text-muted-foreground"/>
+                                     {materialCode}
+                                  </div>
+                                  <div className="overflow-x-auto border rounded-lg">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Lotto</TableHead>
+                                          <TableHead>Peso Netto</TableHead>
+                                          <TableHead>Operatore</TableHead>
+                                          <TableHead>Stato</TableHead>
+                                          <TableHead className="text-right">Azioni</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {recordsForMaterial.map(record => (
+                                          <TableRow key={record.id}>
+                                            <TableCell>{record.lotto}</TableCell>
+                                            <TableCell className="font-mono">{record.netWeight.toFixed(3)} kg</TableCell>
+                                            <TableCell>{record.operatorName}</TableCell>
+                                            <TableCell>
+                                              <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
+                                                {record.status === 'pending' ? 'In Attesa' : record.status === 'approved' ? 'Approvato' : 'Rifiutato'}
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right space-x-2">
+                                              {isPending === record.id ? (
+                                                <Loader2 className="h-5 w-5 animate-spin ml-auto" />
+                                              ) : (
+                                                <>
+                                                  <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)}>
+                                                    <Pencil className="h-4 w-4"/>
+                                                  </Button>
+                                                  {record.status === 'pending' && (
+                                                    <>
+                                                      <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                                                            <X className="h-5 w-5"/>
+                                                          </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                          <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>La registrazione verrà marcata come "rifiutata" e non potrà essere modificata.</AlertDialogDescription></AlertDialogHeader>
+                                                          <AlertDialogFooter>
+                                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleReject(record.id)} className="bg-destructive hover:bg-destructive/90">Sì, rifiuta</AlertDialogAction>
+                                                          </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                      </AlertDialog>
 
-                                                <AlertDialog>
-                                                  <AlertDialogTrigger asChild>
-                                                     <Button variant="ghost" size="icon" className="text-green-500 hover:text-green-500">
-                                                      <Check className="h-5 w-5"/>
-                                                    </Button>
-                                                  </AlertDialogTrigger>
-                                                  <AlertDialogContent>
-                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Lo stock della materia prima verrà aggiornato con il peso netto di questa registrazione. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
-                                                    <AlertDialogFooter>
-                                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                                      <AlertDialogAction onClick={() => handleApprove(record.id)} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction>
-                                                    </AlertDialogFooter>
-                                                  </AlertDialogContent>
-                                                </AlertDialog>
-                                              </>
-                                            )}
-                                          </>
-                                        )}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
+                                                      <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                          <Button variant="ghost" size="icon" className="text-green-500 hover:text-green-500">
+                                                            <Check className="h-5 w-5"/>
+                                                          </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                          <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Lo stock della materia prima verrà aggiornato con il peso netto di questa registrazione. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
+                                                          <AlertDialogFooter>
+                                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleApprove(record.id)} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction>
+                                                          </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                      </AlertDialog>
+                                                    </>
+                                                  )}
+                                                </>
+                                              )}
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         </AccordionContent>
