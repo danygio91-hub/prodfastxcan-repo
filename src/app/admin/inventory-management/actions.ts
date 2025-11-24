@@ -337,16 +337,13 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
     return { success: false, message: 'Nessuna registrazione selezionata.' };
   }
 
-  // Permission Check
-  const operatorDoc = await getDoc(doc(db, "operators", uid));
-  if (!operatorDoc.exists()) {
-    return { success: false, message: "Operatore non trovato." };
+  // Use the standard admin check
+  try {
+    await ensureAdmin(uid);
+  } catch (error) {
+    return { success: false, message: "Permesso negato. Azione riservata ad amministratori o supervisori." };
   }
-  const operator = operatorDoc.data() as Operator;
-  const hasPermission = operator.role === 'admin' || operator.role === 'supervisor' || operator.canAccessInventory === true;
-  if (!hasPermission) {
-    return { success: false, message: "Non hai i permessi per eseguire questa operazione." };
-  }
+
 
   try {
     await runTransaction(db, async (transaction) => {
@@ -394,3 +391,5 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
     return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione." };
   }
 }
+
+    
