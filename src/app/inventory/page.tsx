@@ -1,22 +1,65 @@
-
 "use client";
 
-import React, { useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { useRouter } from 'next/navigation';
+import { format } from 'date-fns';
+
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { useRouter } from 'next/navigation';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Warehouse, Construction } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { getRawMaterialByCode } from '@/app/material-loading/actions';
+import { getPackagingItems, registerInventoryBatch } from './actions';
+import type { RawMaterial, Packaging } from '@/lib/mock-data';
+import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+// Schema for the inventory form
+const inventoryFormSchema = z.object({
+  materialId: z.string().min(1),
+  lotto: z.string().optional(),
+  grossWeight: z.coerce.number().positive("Il peso lordo deve essere un numero positivo."),
+  packagingId: z.string().optional(),
+});
+type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
+
 
 export default function InventoryPage() {
-  const { operator, loading } = useAuth();
+  const { operator, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
+  const [step, setStep] = useState<'scan' | 'form' | 'saving'>('scan');
+  const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
+  const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [hasCameraPermission, setHasCameraPermission] = useState(true);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const form = useForm<InventoryFormValues>({
+    resolver: zodResolver(inventoryFormSchema),
+  });
+  
+  const selectedPackagingId = form.watch('packagingId');
+  const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
+  const grossWeight = form.watch('grossWeight') || 0;
+  const netWeight = grossWeight > 0 ? grossWeight - selectedTara : 0;
+
+
+  // Permission check
   useEffect(() => {
-    if (!loading && operator && !operator.canAccessInventory) {
+    if (!authLoading && operator && !operator.canAccessInventory) {
       toast({
         variant: "destructive",
         title: "Accesso Negato",
@@ -24,33 +67,235 @@ export default function InventoryPage() {
       });
       router.replace('/dashboard');
     }
-  }, [operator, loading, router, toast]);
+  }, [operator, authLoading, router, toast]);
+
+  // Fetch packaging items
+  useEffect(() => {
+    getPackagingItems().then(setPackagingItems);
+  }, []);
+  
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+    }
+  }, []);
+
+  const handleMaterialScanned = useCallback(async (code: string) => {
+      stopCamera();
+      const result = await getRawMaterialByCode(code.trim());
+      if ('error' in result) {
+          toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+          setStep('scan'); // Go back to scan
+      } else {
+          setScannedMaterial(result);
+          form.reset({
+            materialId: result.id,
+            lotto: '',
+            grossWeight: 0,
+            packagingId: 'none',
+          });
+          setStep('form');
+      }
+  }, [stopCamera, toast, form]);
+
+  // Camera management effect
+  useEffect(() => {
+    if (step !== 'scan') {
+        stopCamera();
+        return;
+    }
+    
+    const startCamera = async () => {
+        setHasCameraPermission(true);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                await videoRef.current.play();
+            }
+        } catch (err) {
+            setHasCameraPermission(false);
+            toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile." });
+            stopCamera(); 
+        }
+    };
+
+    startCamera();
+    return () => { stopCamera(); };
+  }, [step, stopCamera, toast]);
+
+  const triggerScan = async () => {
+    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+        toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
+        return;
+    }
+    if (!('BarcodeDetector' in window)) {
+        toast({ variant: 'destructive', title: 'Funzionalità non supportata.' });
+        return;
+    }
+
+    setIsCapturing(true);
+    try {
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+        const barcodes = await barcodeDetector.detect(videoRef.current);
+        if (barcodes.length > 0) {
+            handleMaterialScanned(barcodes[0].rawValue);
+        } else {
+            toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
+        }
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
+    } finally {
+        setIsCapturing(false);
+    }
+  };
+
+  const onSubmit = async (values: InventoryFormValues) => {
+    setStep('saving');
+    
+    const formData = new FormData();
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined) formData.append(key, String(value));
+    });
+    
+    const result = await registerInventoryBatch(formData);
+
+    toast({
+        title: result.success ? "Inventario Registrato" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+
+    if (result.success) {
+      resetFlow();
+    } else {
+      setStep('form'); // Go back to form on error
+    }
+  };
+  
+  const resetFlow = () => {
+    setScannedMaterial(null);
+    form.reset();
+    setStep('scan');
+  };
+
+  if (authLoading || !operator) {
+    return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
+  }
 
   return (
     <AuthGuard>
       <AppShell>
-        <div className="space-y-8 max-w-4xl mx-auto">
+        <div className="space-y-8 max-w-2xl mx-auto">
           <header className="space-y-2">
             <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
               <Warehouse className="h-8 w-8 text-primary" />
-              Inventario
+              Registrazione Inventario
             </h1>
             <p className="text-muted-foreground">
-              Sezione per la gestione e la verifica dell'inventario delle materie prime.
+              Scansiona un materiale e registra il peso per aggiornare l'inventario.
             </p>
           </header>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Pagina in Costruzione</CardTitle>
-              <CardDescription>
-                Questa sezione è in fase di sviluppo. Torna presto per nuove funzionalità!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center text-center py-16">
-                <Construction className="h-24 w-24 text-muted-foreground/50 mb-4" />
-                <p className="text-muted-foreground">La funzionalità di gestione dell'inventario sarà disponibile a breve.</p>
-            </CardContent>
+             {step === 'scan' && (
+                <>
+                 <CardHeader>
+                    <CardTitle>1. Scansione Materia Prima</CardTitle>
+                    <CardDescription>Inquadra il codice a barre o QR code del materiale da inventariare.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
+                        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                        {!hasCameraPermission ? (
+                            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                                <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                                <p className="text-destructive-foreground font-semibold">Accesso fotocamera negato</p>
+                            </div>
+                        ) : (
+                             <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                                <div className="w-5/6 h-2/5 relative">
+                                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </CardContent>
+                <CardFooter>
+                    <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
+                        {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
+                        <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Materiale'}</span>
+                    </Button>
+                </CardFooter>
+                </>
+            )}
+
+            {step === 'form' && scannedMaterial && (
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                        <CardHeader>
+                            <CardTitle>2. Inserimento Dati</CardTitle>
+                            <CardDescription>
+                                Inserisci i dati per il materiale: <span className="font-bold text-primary">{scannedMaterial.code}</span>
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                             <FormField control={form.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>Numero Lotto (Opzionale)</FormLabel> <FormControl><Input placeholder="Scansiona o digita il lotto" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                             
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <FormField control={form.control} name="grossWeight" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Lordo (KG)</FormLabel>
+                                        <FormControl><Input type="number" step="any" placeholder="0.00" {...field} value={field.value ?? ''} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="packagingId" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" />Tara (Imballo)</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                            <FormControl><SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger></FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
+                                                {packagingItems.map(item => (
+                                                    <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                            </div>
+
+                            <div className="p-4 rounded-lg border bg-muted">
+                                <Label className="text-muted-foreground">Peso Netto Calcolato (KG)</Label>
+                                <p className="text-2xl font-bold text-primary">{netWeight >= 0 ? netWeight.toFixed(3) : '---'}</p>
+                            </div>
+
+                        </CardContent>
+                        <CardFooter className="justify-between">
+                            <Button type="button" variant="outline" onClick={resetFlow}><ArrowLeft className="mr-2 h-4 w-4" />Annulla</Button>
+                            <Button type="submit" disabled={netWeight < 0}>
+                                <Send className="mr-2 h-4 w-4" /> Salva Registrazione
+                            </Button>
+                        </CardFooter>
+                    </form>
+                </Form>
+            )}
+
+            {step === 'saving' && (
+                <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+                    <Loader2 className="h-16 w-16 animate-spin text-primary" />
+                    <p className="text-muted-foreground">Salvataggio in corso...</p>
+                </CardContent>
+            )}
+
           </Card>
         </div>
       </AppShell>
