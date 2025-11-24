@@ -6,7 +6,7 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { href: '/admin/article-management', label: 'Anagrafica Articoli', description: 'Crea e gestisci la distinta base degli articoli.', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', description: 'Visualizza e gestisci i gruppi di commesse concatenate.', icon: Combine },
+  { href: '/admin/inventory-management', label: 'Inventari', description: 'Visualizza e approva le registrazioni di inventario.', icon: Warehouse },
   { href: '/admin/reports', label: 'Report Produzione', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },
   { href: '/admin/production-time-analysis', label: 'Analisi Tempi Articolo', description: 'Analizza i tempi medi di produzione per articolo.', icon: Timer },
   { href: '/admin/non-conformity-reports', label: 'Report Non Conformità', description: 'Gestisci le segnalazioni di non conformità.', icon: ShieldAlert },

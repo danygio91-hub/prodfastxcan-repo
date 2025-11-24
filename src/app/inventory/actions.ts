@@ -1,9 +1,9 @@
 
 "use server";
 
-import { collection, doc, runTransaction, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, Packaging } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { format } from 'date-fns';
@@ -21,6 +21,8 @@ const inventoryBatchSchema = z.object({
   lotto: z.string().optional(),
   grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
   packagingId: z.string().optional(),
+  operatorId: z.string(),
+  operatorName: z.string(),
 });
 
 
@@ -32,73 +34,49 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId } = validatedFields.data;
+  const { materialId, lotto, grossWeight, packagingId, operatorId, operatorName } = validatedFields.data;
   const materialRef = doc(db, "rawMaterials", materialId);
+  const inventoryRef = collection(db, "inventoryRecords");
   
   try {
-      await runTransaction(db, async (transaction) => {
-          const docSnap = await transaction.get(materialRef);
-          if (!docSnap.exists()) {
-            throw new Error('Materia prima non trovata.');
-          }
+      const materialSnap = await getDoc(materialRef);
+      if (!materialSnap.exists()) {
+        throw new Error('Materia prima non trovata.');
+      }
+      const material = materialSnap.data() as RawMaterial;
 
-          const material = docSnap.data() as RawMaterial;
-          const existingBatches = material.batches || [];
-          
-          let tareWeight = 0;
-          if (packagingId && packagingId !== 'none') {
-            const packagingRef = doc(db, 'packaging', packagingId);
-            const packagingSnap = await transaction.get(packagingRef);
-            if (packagingSnap.exists()) {
-              tareWeight = packagingSnap.data().weightKg || 0;
-            }
-          }
+      let tareWeight = 0;
+      if (packagingId && packagingId !== 'none') {
+        const packagingRef = doc(db, 'packaging', packagingId);
+        const packagingSnap = await getDoc(packagingRef);
+        if (packagingSnap.exists()) {
+          tareWeight = packagingSnap.data().weightKg || 0;
+        }
+      }
 
-          const netWeight = grossWeight - tareWeight;
-          if (netWeight < 0) {
-              throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
-          }
-          
-          const newBatch: RawMaterialBatch = {
-            id: `batch-inv-${Date.now()}`,
-            date: new Date().toISOString(),
-            ddt: `INVENTARIO-${format(new Date(), 'yyyy-MM-dd')}`,
-            netQuantity: netWeight, // For KG materials, net quantity is the net weight
-            grossWeight: grossWeight,
-            tareWeight: tareWeight,
-            packagingId: packagingId,
-            lotto: lotto || 'INV',
-          };
-          
-          let newStockUnits: number;
-          let newWeightKg: number;
-          
-          if (material.unitOfMeasure === 'kg') {
-              newStockUnits = (material.currentStockUnits || 0) + netWeight;
-              newWeightKg = newStockUnits;
-          } else {
-              // We are adding weight, so we need to convert it to the material's native unit
-              if (material.conversionFactor && material.conversionFactor > 0) {
-                 const unitsToAdd = Math.round(netWeight / material.conversionFactor);
-                 newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
-                 newWeightKg = (material.currentWeightKg || 0) + netWeight;
-              } else {
-                  // Cannot convert, only update weight if it's already being tracked
-                  newStockUnits = material.currentStockUnits;
-                  newWeightKg = (material.currentWeightKg || 0) + netWeight;
-              }
-          }
-          
-          transaction.update(materialRef, { 
-              batches: [...existingBatches, newBatch],
-              currentStockUnits: newStockUnits,
-              currentWeightKg: newWeightKg,
-          });
-      });
+      const netWeight = grossWeight - tareWeight;
+      if (netWeight < 0) {
+          throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
+      }
       
-      revalidatePath('/admin/raw-material-management');
-      revalidatePath('/inventory');
-      return { success: true, message: 'Inventario registrato. Lo stock è stato aggiornato.' };
+      const newInventoryRecord: Omit<InventoryRecord, 'id'> = {
+          materialId,
+          materialCode: material.code,
+          lotto: lotto || 'INV',
+          grossWeight,
+          tareWeight,
+          netWeight,
+          packagingId,
+          operatorId,
+          operatorName,
+          recordedAt: Timestamp.now(),
+          status: 'pending',
+      };
+      
+      await addDoc(inventoryRef, newInventoryRecord);
+      
+      revalidatePath('/admin/inventory-management');
+      return { success: true, message: 'Inventario registrato. In attesa di approvazione.' };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };

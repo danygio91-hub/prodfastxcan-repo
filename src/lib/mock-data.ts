@@ -269,6 +269,23 @@ export interface WorkGroup {
     forcedCompletion?: boolean; // New flag for forced closures
 }
 
+export interface InventoryRecord {
+    id: string;
+    materialId: string;
+    materialCode: string;
+    lotto: string;
+    grossWeight: number;
+    tareWeight: number;
+    netWeight: number;
+    packagingId?: string;
+    operatorId: string;
+    operatorName: string;
+    recordedAt: Date | any; // Can be a Timestamp
+    status: 'pending' | 'approved' | 'rejected';
+    approvedBy?: string;
+    approvedAt?: Date | any;
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];

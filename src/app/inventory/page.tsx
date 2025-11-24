@@ -33,6 +33,8 @@ const inventoryFormSchema = z.object({
   lotto: z.string().optional(),
   grossWeight: z.coerce.number().positive("Il peso lordo deve essere un numero positivo."),
   packagingId: z.string().optional(),
+  operatorId: z.string(),
+  operatorName: z.string(),
 });
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
 
@@ -94,15 +96,19 @@ export default function InventoryPage() {
           setStep('scan_material'); // Go back to scan
       } else {
           setScannedMaterial(result);
-          form.reset({
-            materialId: result.id,
-            lotto: '',
-            grossWeight: 0,
-            packagingId: 'none',
-          });
+           if (operator) {
+              form.reset({
+                materialId: result.id,
+                lotto: '',
+                grossWeight: 0,
+                packagingId: 'none',
+                operatorId: operator.id,
+                operatorName: operator.nome,
+              });
+            }
           setStep('form');
       }
-  }, [stopCamera, toast, form]);
+  }, [stopCamera, toast, form, operator]);
 
   const handleLottoScanned = useCallback((code: string) => {
     form.setValue('lotto', code.trim());
