@@ -708,15 +708,13 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, oper
         }
 
         const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
+        const updatedGroupData = { ...itemToUpdate, phases: phasesWithReadiness, status: 'production' };
 
-        transaction.update(itemRef, { phases: phasesWithReadiness, status: 'production', overallStartTime: itemToUpdate.overallStartTime });
+
+        transaction.update(itemRef, updatedGroupData);
 
         if (isGroup) {
-            const group = itemData as WorkGroup;
-            (group.jobOrderIds || []).forEach(individualJobId => {
-                const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: phasesWithReadiness, status: 'production', overallStartTime: itemToUpdate.overallStartTime });
-            });
+            await propagateGroupUpdatesToJobs(transaction, updatedGroupData as WorkGroup);
         }
 
         // Update operator status
@@ -795,10 +793,8 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
 
         if (isGroup) {
              const groupData = itemSnap.data() as WorkGroup;
-            (groupData.jobOrderIds || []).forEach(individualJobId => {
-                const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, { phases: finalPhases });
-            });
+             const updatedGroupData = { ...groupData, phases: finalPhases };
+             await propagateGroupUpdatesToJobs(transaction, updatedGroupData);
         }
     });
     
@@ -1000,10 +996,8 @@ export async function reportMaterialMissing(
       }
 
       if (isGroup) {
-        ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
-            const jobRef = doc(db, 'jobOrders', individualJobId);
-            transaction.update(jobRef, updatePayload);
-        });
+        const groupData = { ...itemData, ...updatePayload } as WorkGroup;
+        await propagateGroupUpdatesToJobs(transaction, groupData);
       }
     });
 
@@ -1037,3 +1031,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
     return null;
 }
 
+    
