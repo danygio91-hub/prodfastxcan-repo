@@ -217,88 +217,68 @@ function ProductionConsoleView() {
   }, [jobOrders, workGroupsMap]);
 
 
-  const filteredStandaloneJobs = useMemo(() => {
-    let filtered = standaloneJobs;
+  const applyFilters = (items: (JobOrder | WorkGroup)[]) => {
+      let filtered = items;
 
-    if (!showCompleted) {
-        filtered = filtered.filter(job => getOverallStatus(job) !== 'Completata');
-    } else if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
-         filtered = filtered.filter(job => 
-            getOverallStatus(job) === 'Completata' && job.overallEndTime && isSameDay(new Date(job.overallEndTime), completedDateFilter)
-        );
-    } else if (activeFilter === 'Completata') {
-        filtered = filtered.filter(job => getOverallStatus(job) === 'Completata');
-    }
-    
-    if (showOnlyOverdue) {
-        filtered = filtered.filter(isOverdue);
-    }
-    
-    if (activeFilter !== 'all' && activeFilter !== 'Completata') {
-      if (activeFilter === 'LIVE') {
-        filtered = filtered.filter(job => isJobLive(job));
+      // Main filter logic
+      if (showCompleted) {
+          filtered = filtered.filter(item => getOverallStatus(item) === 'Completata');
+          if (isDateFilterActive && completedDateFilter) {
+              filtered = filtered.filter(item => 
+                  item.overallEndTime && isSameDay(new Date(item.overallEndTime), completedDateFilter)
+              );
+          }
       } else {
-        filtered = filtered.filter(job => getOverallStatus(job) === activeFilter);
+          filtered = filtered.filter(item => getOverallStatus(item) !== 'Completata');
+          if (activeFilter !== 'all') {
+              if (activeFilter === 'LIVE') {
+                  filtered = filtered.filter(isJobLive);
+              } else {
+                  filtered = filtered.filter(item => getOverallStatus(item) === activeFilter);
+              }
+          }
       }
-    }
-    
-    if (!searchTerm) return filtered;
 
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return filtered.filter(job =>
-      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
-      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
-      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.details.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [standaloneJobs, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, showCompleted]);
-  
-  const filteredGroups = useMemo(() => {
-    let groups = Array.from(workGroupsMap.values());
+      // Secondary filters
+      if (showOnlyOverdue) {
+          filtered = filtered.filter(isOverdue);
+      }
 
-    if (!showCompleted) {
-        groups = groups.filter(group => getOverallStatus(group) !== 'Completata');
-    } else if (activeFilter === 'Completata' && isDateFilterActive && completedDateFilter) {
-        groups = groups.filter(group => 
-            getOverallStatus(group) === 'Completata' && group.overallEndTime && isSameDay(new Date(group.overallEndTime), completedDateFilter)
-        );
-    } else if (activeFilter === 'Completata') {
-        groups = groups.filter(group => getOverallStatus(group) === 'Completata');
-    }
-    
-    if (showOnlyOverdue) {
-        groups = groups.filter(isOverdue);
-    }
+      if (searchTerm) {
+          const lowercasedFilter = searchTerm.toLowerCase();
+          filtered = filtered.filter(item => {
+              const isGroup = 'jobOrderIds' in item;
+              if (isGroup) {
+                  const group = item as WorkGroup;
+                  const groupMatches = group.id.toLowerCase().includes(lowercasedFilter) || 
+                                       group.details.toLowerCase().includes(lowercasedFilter) ||
+                                       group.cliente.toLowerCase().includes(lowercasedFilter);
+                  
+                  const jobsInGroup = jobsByGroupId.get(group.id) || [];
+                  const anyJobMatches = jobsInGroup.some(job =>
+                    job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+                    job.details.toLowerCase().includes(lowercasedFilter) ||
+                    (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+                    (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter)
+                  );
+                  return groupMatches || anyJobMatches;
+              } else {
+                  const job = item as JobOrder;
+                  return (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
+                         job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
+                         (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
+                         (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
+                         job.details.toLowerCase().includes(lowercasedFilter);
+              }
+          });
+      }
+      
+      return filtered;
+  };
 
-    if (activeFilter !== 'all' && activeFilter !== 'Completata') {
-        if (activeFilter === 'LIVE') {
-          groups = groups.filter(group => isJobLive(group));
-        } else {
-          groups = groups.filter(group => getOverallStatus(group) === activeFilter);
-        }
-    }
+  const filteredStandaloneJobs = useMemo(() => applyFilters(standaloneJobs), [standaloneJobs, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
+  const filteredGroups = useMemo(() => applyFilters(Array.from(workGroupsMap.values())), [workGroupsMap, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
 
-    if (!searchTerm) return groups;
-
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return groups.filter(group => {
-        const groupMatches = group.id.toLowerCase().includes(lowercasedFilter) || 
-                             group.details.toLowerCase().includes(lowercasedFilter) ||
-                             group.cliente.toLowerCase().includes(lowercasedFilter);
-        
-        const jobsInGroup = jobsByGroupId.get(group.id) || [];
-        const anyJobMatches = jobsInGroup.some(job =>
-          job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
-          job.details.toLowerCase().includes(lowercasedFilter) ||
-          (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
-          (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter)
-        );
-
-        return groupMatches || anyJobMatches;
-    });
-}, [workGroupsMap, jobsByGroupId, activeFilter, searchTerm, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, showCompleted]);
-  
   const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
 
   useEffect(() => {
@@ -549,6 +529,13 @@ function ProductionConsoleView() {
     { label: 'Pronto per Produzione', value: 'Pronto per Produzione', icon: PlayCircle },
     { label: 'Pronto per Finitura', value: 'Pronto per Finitura', icon: CheckSquare },
   ];
+  
+  const handleFilterClick = (value: FilterStatus) => {
+      if (showCompleted) {
+        setShowCompleted(false);
+      }
+      setActiveFilter(value);
+  }
 
   return (
     <>
@@ -579,8 +566,8 @@ function ProductionConsoleView() {
               {filterOptions.map(filter => (
               <Button
                   key={filter.value}
-                  variant={activeFilter === filter.value ? 'secondary' : 'ghost'}
-                  onClick={() => setActiveFilter(filter.value)}
+                  variant={activeFilter === filter.value && !showCompleted ? 'secondary' : 'ghost'}
+                  onClick={() => handleFilterClick(filter.value)}
                   className="capitalize px-3 py-1 h-auto text-xs sm:text-sm"
               >
                   <filter.icon className={cn("mr-2 h-4 w-4", filter.value === 'LIVE' && "text-red-400 animate-pulse")} />
