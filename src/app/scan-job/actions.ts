@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -7,6 +8,7 @@ import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
 import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
+import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
 
 // Helper function to convert Firestore Timestamps to Dates in nested objects
@@ -271,10 +273,8 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
         if (allRequiredPhasesCompleted) {
-            groupData.status = 'completed';
-            if (!groupData.overallEndTime) {
-                groupData.overallEndTime = new Date();
-            }
+            // Instead of just setting status to 'completed', we now dissolve the group.
+            return await dissolveWorkGroup(groupData.id);
         } else {
             const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
             groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';

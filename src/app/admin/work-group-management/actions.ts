@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -80,9 +81,9 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
             batch.update(jobDoc.ref, { 
                 workGroupId: null,
                 phases: inheritedPhases,
-                status: groupData.status === 'completed' ? 'completed' : 'paused', 
+                status: 'completed', 
                 overallStartTime: groupData.overallStartTime || null,
-                overallEndTime: groupData.overallEndTime || null, 
+                overallEndTime: groupData.overallEndTime || new Date(), 
                 isProblemReported: groupData.isProblemReported || false,
                 problemType: groupData.problemType || null,
                 problemNotes: groupData.problemNotes || null,
