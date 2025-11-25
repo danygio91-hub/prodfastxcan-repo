@@ -217,7 +217,7 @@ function ProductionConsoleView() {
   }, [jobOrders, workGroupsMap]);
 
 
-  const applyFilters = (items: (JobOrder | WorkGroup)[]) => {
+  const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let filtered = items;
 
       // Main filter logic
@@ -924,3 +924,5 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
+
+    
