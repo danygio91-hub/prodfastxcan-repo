@@ -40,7 +40,7 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
-  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', '']).optional().nullable(),
+  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', 'none']).optional().nullable(),
   secondaryConversionFactor: z.coerce.number().optional().nullable(),
 });
 
@@ -106,7 +106,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     },
     unitOfMeasure: data.unitOfMeasure,
     conversionFactor: data.conversionFactor || null,
-    secondaryUnitOfMeasure: data.secondaryUnitOfMeasure === '' ? null : data.secondaryUnitOfMeasure,
+    secondaryUnitOfMeasure: data.secondaryUnitOfMeasure === 'none' ? null : data.secondaryUnitOfMeasure,
     secondaryConversionFactor: data.secondaryConversionFactor || null,
   };
 
@@ -508,3 +508,5 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
+
+    

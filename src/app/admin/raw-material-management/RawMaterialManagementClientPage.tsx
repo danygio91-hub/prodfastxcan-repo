@@ -53,7 +53,7 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
-  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', '']).optional().nullable(),
+  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', 'none']).optional().nullable(),
   secondaryConversionFactor: z.coerce.number().optional().nullable(),
 });
 
@@ -656,17 +656,17 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 </div>
                 
                  <div className="grid grid-cols-2 gap-4">
-                     <FormField control={form.control} name="secondaryUnitOfMeasure" render={({ field }) => ( 
+                      <FormField control={form.control} name="secondaryUnitOfMeasure" render={({ field }) => ( 
                         <FormItem>
                           <FormLabel>Unità di Misura Secondaria</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value || ''}>
+                            <Select onValueChange={(value) => field.onChange(value === 'none' ? null : value)} value={field.value ?? 'none'}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Opzionale" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="">Nessuna</SelectItem>
+                              <SelectItem value="none">Nessuna</SelectItem>
                               <SelectItem value="n">Numero (n)</SelectItem>
                               <SelectItem value="mt">Metri (mt)</SelectItem>
                               <SelectItem value="kg">Chilogrammi (kg)</SelectItem>
@@ -898,3 +898,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
 
+
+
+    
