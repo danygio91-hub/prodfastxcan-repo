@@ -103,6 +103,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
+          inputUnit: 'kg', // Defaulting to 'kg' as this flow doesn't have the switch
+          inputQuantity: grossWeight, // The entered value is the quantity
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -400,6 +402,8 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
     return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione." };
   }
 }
+
+    
 
     
 
