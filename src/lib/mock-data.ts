@@ -141,7 +141,7 @@ export interface RawMaterialBatch {
   lotto?: string | null;
 }
 
-export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA';
+export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA' | 'BARRA';
 
 export interface RawMaterial {
   id: string; //firestore doc id

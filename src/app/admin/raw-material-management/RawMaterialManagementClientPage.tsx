@@ -45,7 +45,7 @@ type Movement = {
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, 'Il codice deve avere almeno 3 caratteri.'),
-  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA']),
+  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA']),
   description: z.string().min(5, 'La descrizione è obbligatoria.'),
   sezione: z.string().optional(),
   filo_el: z.string().optional(),
@@ -619,6 +619,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           <SelectItem value="TUBI">TUBI</SelectItem>
                           <SelectItem value="PF3V0">PF3V0</SelectItem>
                           <SelectItem value="GUAINA">GUAINA</SelectItem>
+                          <SelectItem value="BARRA">BARRA</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -865,4 +866,5 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 

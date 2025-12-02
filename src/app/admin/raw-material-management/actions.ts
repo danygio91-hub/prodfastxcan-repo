@@ -32,7 +32,7 @@ function convertTimestampsToDates(obj: any): any {
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, 'Il codice deve avere almeno 3 caratteri.'),
-  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA'], { errorMap: () => ({ message: 'Selezionare un tipo valido.' }) }),
+  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'], { errorMap: () => ({ message: 'Selezionare un tipo valido.' }) }),
   description: z.string().min(5, 'La descrizione è obbligatoria.'),
   sezione: z.string().optional(),
   filo_el: z.string().optional(),
@@ -374,7 +374,7 @@ export async function deleteSelectedRawMaterials(ids: string[]): Promise<{ succe
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const importSchema = z.object({
       code: z.coerce.string().min(1, "Il campo 'code' è obbligatorio.").optional(),
-      type: z.enum(['BOB', 'TUB', 'TUBI', 'PF3V0', 'GUAINA']).optional(),
+      type: z.enum(['BOB', 'TUB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA']).optional(),
       description: z.coerce.string().optional(),
       sezione: z.coerce.string().optional(),
       filo_el: z.coerce.string().optional(),
@@ -434,6 +434,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             type = 'PF3V0';
         } else if (rawType === 'GUAINA') {
             type = 'GUAINA';
+        } else if (rawType === 'BARRA') {
+            type = 'BARRA';
         } else {
             type = 'BOB';
         }
