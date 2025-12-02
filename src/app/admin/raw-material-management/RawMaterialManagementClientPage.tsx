@@ -358,9 +358,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             'larghezza': 'larghezza',
             'tipologia': 'tipologia',
             'stock': 'stock',
-            'peso (kg)': 'stock', // Use 'stock' as the target for Peso (Kg) as well
-            'unita misura': 'unitOfMeasure',
-            'fattore conversione': 'conversionFactor',
+            'peso (kg)': 'stock',
+            'unita misura primaria': 'unitOfMeasure',
+            'fattore conversione primario': 'conversionFactor',
+            'unita misura secondaria': 'secondaryUnitOfMeasure',
+            'fattore conversione secondario': 'secondaryConversionFactor',
         };
         
         const mappedJson = filteredData.map((row: any) => {
@@ -369,7 +371,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, ' ');
                 const targetKey = headerMapping[normalizedKey];
                 if (targetKey && row[key] !== null && row[key] !== undefined && row[key] !== '') {
-                  // Prioritize 'stock' if both 'stock' and 'peso (kg)' map to it and are present.
                   if (targetKey === 'stock') {
                     if (normalizedKey === 'stock' || !normalizedRow['stock']) {
                        normalizedRow[targetKey] = row[key];
@@ -408,8 +409,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Tipo': m.type,
         'Descrizione': m.description,
         'Stock': m.currentStockUnits,
-        'Unita Misura': m.unitOfMeasure,
-        'Fattore Conversione': m.conversionFactor,
+        'Unita Misura Primaria': m.unitOfMeasure,
+        'Fattore Conversione Primario': m.conversionFactor,
+        'Unita Misura Secondaria': m.secondaryUnitOfMeasure,
+        'Fattore Conversione Secondario': m.secondaryConversionFactor,
         'Sezione': m.details.sezione,
         'Filo El.': m.details.filo_el,
         'Larghezza': m.details.larghezza,
