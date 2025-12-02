@@ -269,27 +269,26 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
     
     try {
         const groupPhases = groupData.phases || [];
+
+        // Check if all non-postponed phases are completed or skipped
         const allRequiredPhasesCompleted = groupPhases.length > 0 && 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
+        // If all phases are done, dissolve the group, which also handles completion logic for child jobs
         if (allRequiredPhasesCompleted) {
-            // Instead of just setting status to 'completed', we now dissolve the group.
             return await dissolveWorkGroup(groupData.id);
         }
         
-        const isAnyPhaseInProgress = (groupData.phases || []).some(p => p.status === 'in-progress');
+        // If not complete, determine if it's 'in-progress' or 'paused'
+        const isAnyPhaseInProgress = groupPhases.some(p => p.status === 'in-progress');
         groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         
         const dataToSave = JSON.parse(JSON.stringify(groupData));
         
         await runTransaction(db, async (transaction) => {
             transaction.set(groupRef, dataToSave, { merge: true });
-            // Always propagate updates to ensure consistency.
+            // Always propagate updates to ensure consistency
             await propagateGroupUpdatesToJobs(transaction, groupData);
-             // Clear operator status if the group is now complete (this path is less likely with dissolve logic)
-            if (groupData.status === 'completed') {
-                await updateOperatorStatus(operatorId, null, null);
-            }
         });
         
         revalidatePath('/scan-job');
