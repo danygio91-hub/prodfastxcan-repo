@@ -108,7 +108,6 @@ export default function InventoryPage() {
               form.reset({
                 materialId: result.id,
                 lotto: '',
-                grossWeight: 0,
                 packagingId: 'none',
                 operatorId: operator.id,
                 operatorName: operator.nome,
@@ -308,7 +307,7 @@ export default function InventoryPage() {
                                 <FormField control={form.control} name="grossWeight" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>{inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità Lorda (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Peso Lordo (KG)'}</FormLabel>
-                                        <FormControl><Input type="number" step="any" placeholder="0.00" {...field} value={field.value ?? ''} /></FormControl>
+                                        <FormControl><Input type="number" step="any" placeholder="Es. 15.5" {...field} /></FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )} />
@@ -389,5 +388,3 @@ export default function InventoryPage() {
     </AuthGuard>
   );
 }
-
-    
