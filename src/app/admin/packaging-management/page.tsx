@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
-import { type Packaging, type PackagingAssociation } from '@/lib/mock-data';
+import { type Packaging, type PackagingAssociation, RawMaterialTypeValues } from '@/lib/mock-data';
 import { getPackagingItems, savePackagingItem, deletePackagingItem } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ import { Archive, PlusCircle, Edit, Trash2, Loader2, Weight, Link2 } from 'lucid
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
-const packagingAssociationTypes: PackagingAssociation[] = ['BOB', 'TUBI', 'GUAINA', 'PF3V0', 'PRODOTTO'];
+const packagingAssociationTypes: PackagingAssociation[] = [...RawMaterialTypeValues, 'PRODOTTO'];
 
 const packagingSchema = z.object({
   id: z.string().optional(),

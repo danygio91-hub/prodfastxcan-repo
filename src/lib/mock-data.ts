@@ -119,6 +119,8 @@ export interface Workstation {
   departmentCode: string;
 }
 
+export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA' | 'BARRA';
+export const RawMaterialTypeValues: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'];
 export type PackagingAssociation = RawMaterialType | 'PRODOTTO';
 
 export interface Packaging {
@@ -141,7 +143,7 @@ export interface RawMaterialBatch {
   lotto?: string | null;
 }
 
-export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA' | 'BARRA';
+
 
 export interface RawMaterial {
   id: string; //firestore doc id
