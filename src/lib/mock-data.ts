@@ -157,6 +157,8 @@ export interface RawMaterial {
   };
   unitOfMeasure: 'n' | 'mt' | 'kg';
   conversionFactor?: number | null; // e.g. kg per unit (n or mt)
+  secondaryUnitOfMeasure?: 'n' | 'mt' | 'kg' | null;
+  secondaryConversionFactor?: number | null;
   currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
   currentWeightKg: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
@@ -285,6 +287,8 @@ export interface InventoryRecord {
     status: 'pending' | 'approved' | 'rejected';
     approvedBy?: string;
     approvedAt?: Date | any;
+    inputUnit: 'n' | 'mt' | 'kg';
+    inputQuantity: number;
 }
 
 

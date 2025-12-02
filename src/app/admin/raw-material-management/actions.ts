@@ -40,6 +40,8 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
+  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', '']).optional().nullable(),
+  secondaryConversionFactor: z.coerce.number().optional().nullable(),
 });
 
 const batchFormSchema = z.object({
@@ -90,7 +92,6 @@ export async function saveRawMaterial(formData: FormData): Promise<{
 
   const data = validatedFields.data;
   const trimmedCode = data.code.trim();
-  const conversionFactor = data.unitOfMeasure === 'kg' ? null : data.conversionFactor || null;
 
   let materialData: Omit<RawMaterial, 'id' | 'batches' | 'stock' | 'currentStockUnits' | 'currentWeightKg'> & { code_normalized: string } = {
     code: trimmedCode,
@@ -104,7 +105,9 @@ export async function saveRawMaterial(formData: FormData): Promise<{
       tipologia: data.tipologia || '',
     },
     unitOfMeasure: data.unitOfMeasure,
-    conversionFactor: conversionFactor,
+    conversionFactor: data.conversionFactor || null,
+    secondaryUnitOfMeasure: data.secondaryUnitOfMeasure === '' ? null : data.secondaryUnitOfMeasure,
+    secondaryConversionFactor: data.secondaryConversionFactor || null,
   };
 
   if (data.id) {
