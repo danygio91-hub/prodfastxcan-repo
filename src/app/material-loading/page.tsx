@@ -45,13 +45,15 @@ const ncReportFormSchema = z.object({
 });
 type NcReportFormValues = z.infer<typeof ncReportFormSchema>;
 
+type Step = 'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success';
+
 
 export default function MaterialLoadingPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success'>('scan_material');
+    const [step, setStep] = useState<Step>('scan_material');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
@@ -91,7 +93,6 @@ export default function MaterialLoadingPage() {
     const ncForm = useForm<NcReportFormValues>();
     
     const handleMaterialScanned = useCallback(async (code: string) => {
-        setStep('initial'); // Stop the camera
         const result = await getRawMaterialByCode(code.trim());
         if ('error' in result) {
             toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
@@ -106,7 +107,6 @@ export default function MaterialLoadingPage() {
     }, [toast, form]);
 
     const handleLottoScanned = (code: string) => {
-        setStep('initial'); // Stop the camera
         setScannedLotto(code.trim());
         form.setValue('lotto', code.trim());
         setStep('validate');
@@ -259,7 +259,7 @@ export default function MaterialLoadingPage() {
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
                                 {['Materiale', 'Lotto', 'Convalida', 'Quantità'].map((title, index) => {
-                                    const stepNames = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity'];
+                                    const stepNames: Step[] = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity', 'saving', 'success'];
                                     const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
@@ -438,5 +438,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-
-    
