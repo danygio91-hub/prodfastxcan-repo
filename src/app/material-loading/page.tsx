@@ -19,6 +19,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity, getPackagingItems } from './actions';
@@ -56,6 +57,7 @@ export default function MaterialLoadingPage() {
     const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
     const [isCapturing, setIsCapturing] = useState(false);
     const [showNCReport, setShowNCReport] = useState(false);
+    const [inputUnit, setInputUnit] = useState<'primary' | 'secondary'>('primary');
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || step === 'scan_lotto', videoRef);
@@ -65,7 +67,7 @@ export default function MaterialLoadingPage() {
             const allowedAccessReparti = ['MAG', 'Collaudo'];
             const hasAccess = operator.role === 'supervisor' || 
                               (Array.isArray(operator.reparto) 
-                                ? operator.reparto.some(r => allowedAccessReparti.includes(r))
+                                ? operator.reparto.some(r => allowedAccessReparti.includes(r)) 
                                 : allowedAccessReparti.includes(operator.reparto));
             
             if (!hasAccess) {
@@ -96,7 +98,9 @@ export default function MaterialLoadingPage() {
         } else {
             setScannedMaterial(result);
             form.setValue('materialId', result.id);
+            // Default to primary unit, but the form will allow switching
             form.setValue('unit', result.unitOfMeasure);
+            setInputUnit('primary');
             setStep('scan_lotto');
         }
     }, [toast, form]);
@@ -144,6 +148,11 @@ export default function MaterialLoadingPage() {
         Object.entries(values).forEach(([key, value]) => {
           if (value !== undefined) formData.append(key, String(value));
         });
+
+        // Set the unit based on the switch state
+        const finalUnit = inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure : scannedMaterial?.secondaryUnitOfMeasure;
+        formData.set('unit', finalUnit || 'n');
+
 
         const result = await addBatchToRawMaterial(formData);
         toast({
@@ -351,9 +360,21 @@ export default function MaterialLoadingPage() {
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
+                                                {scannedMaterial?.secondaryUnitOfMeasure && (
+                                                  <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                                                    <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                                                    <Switch
+                                                      id="unit-switch"
+                                                      checked={inputUnit === 'secondary'}
+                                                      onCheckedChange={(checked) => setInputUnit(checked ? 'secondary' : 'primary')}
+                                                    />
+                                                    <Label htmlFor="unit-switch">{scannedMaterial.secondaryUnitOfMeasure.toUpperCase()}</Label>
+                                                  </div>
+                                                )}
+
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Quantità in Entrata ({form.watch('unit')?.toUpperCase()})</FormLabel>
+                                                        <FormLabel>Quantità in Entrata ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : scannedMaterial?.secondaryUnitOfMeasure?.toUpperCase()})</FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
                                                     </FormItem>
@@ -417,3 +438,5 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
+
+    

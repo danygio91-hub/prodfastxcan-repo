@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/material-loading/actions';
@@ -35,6 +36,7 @@ const inventoryFormSchema = z.object({
   packagingId: z.string().optional(),
   operatorId: z.string(),
   operatorName: z.string(),
+  unit: z.enum(['n', 'mt', 'kg']),
 });
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
 
@@ -49,6 +51,7 @@ export default function InventoryPage() {
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
+  const [inputUnit, setInputUnit] = useState<'primary' | 'secondary'>('primary');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || isLottoScanOpen, videoRef);
@@ -60,7 +63,20 @@ export default function InventoryPage() {
   const selectedPackagingId = form.watch('packagingId');
   const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
   const grossWeight = form.watch('grossWeight') || 0;
-  const netWeight = grossWeight > 0 ? grossWeight - selectedTara : 0;
+  
+  let netWeight = 0;
+  if (scannedMaterial) {
+    if (inputUnit === 'primary') {
+      // Assuming grossWeight is entered in the primary unit if it's not kg
+      if (scannedMaterial.unitOfMeasure !== 'kg' && scannedMaterial.conversionFactor) {
+        netWeight = (grossWeight * scannedMaterial.conversionFactor) - selectedTara;
+      } else {
+        netWeight = grossWeight - selectedTara;
+      }
+    } else { // secondary unit is always kg
+      netWeight = grossWeight - selectedTara;
+    }
+  }
 
 
   // Permission check
@@ -81,7 +97,7 @@ export default function InventoryPage() {
   }, []);
   
   const handleMaterialScanned = useCallback(async (code: string) => {
-      setStep('initial'); // Stop the camera
+      setIsLottoScanOpen(false);
       const result = await getRawMaterialByCode(code.trim());
       if ('error' in result) {
           toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
@@ -96,8 +112,10 @@ export default function InventoryPage() {
                 packagingId: 'none',
                 operatorId: operator.id,
                 operatorName: operator.nome,
+                unit: result.unitOfMeasure,
               });
             }
+          setInputUnit('primary');
           setStep('form');
       }
   }, [toast, form, operator]);
@@ -135,10 +153,13 @@ export default function InventoryPage() {
   };
 
   const onSubmit = async (values: InventoryFormValues) => {
-    if (!operator) {
-      toast({ variant: "destructive", title: "Errore", description: "Dati operatore non trovati." });
+    if (!operator || !scannedMaterial) {
+      toast({ variant: "destructive", title: "Errore", description: "Dati operatore o materiale mancanti." });
       return;
     }
+    
+    // Determine the unit based on the switch
+    const unitToSend = inputUnit === 'primary' ? scannedMaterial.unitOfMeasure : (scannedMaterial.secondaryUnitOfMeasure || 'kg');
 
     setStep('saving');
     
@@ -147,9 +168,10 @@ export default function InventoryPage() {
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined) formData.append(key, String(value));
     });
-    // Ensure operator data is there
+    // Ensure operator data and correct unit is there
     formData.set('operatorId', operator.id);
     formData.set('operatorName', operator.nome);
+    formData.set('unit', unitToSend);
     
     const result = await registerInventoryBatch(formData);
 
@@ -269,11 +291,23 @@ export default function InventoryPage() {
                                 </FormItem>
                               )}
                             />
+                            
+                             {scannedMaterial?.secondaryUnitOfMeasure && (
+                                <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                                    <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                                    <Switch
+                                    id="unit-switch"
+                                    checked={inputUnit === 'secondary'}
+                                    onCheckedChange={(checked) => setInputUnit(checked ? 'secondary' : 'primary')}
+                                    />
+                                    <Label htmlFor="unit-switch">{scannedMaterial.secondaryUnitOfMeasure.toUpperCase()}</Label>
+                                </div>
+                            )}
 
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="grossWeight" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>Peso Lordo (KG)</FormLabel>
+                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>{inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità Lorda (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Peso Lordo (KG)'}</FormLabel>
                                         <FormControl><Input type="number" step="any" placeholder="0.00" {...field} value={field.value ?? ''} /></FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -286,7 +320,7 @@ export default function InventoryPage() {
                                             <SelectContent>
                                                 <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
                                                 {packagingItems.map(item => (
-                                                    <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg} kg)</SelectItem>
+                                                    <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
@@ -303,8 +337,9 @@ export default function InventoryPage() {
                         </CardContent>
                         <CardFooter className="justify-between">
                             <Button type="button" variant="outline" onClick={resetFlow}><ArrowLeft className="mr-2 h-4 w-4" />Annulla</Button>
-                            <Button type="submit" disabled={netWeight < 0}>
-                                <Send className="mr-2 h-4 w-4" /> Salva Registrazione
+                            <Button type="submit" disabled={netWeight < 0 || form.formState.isSubmitting}>
+                                {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                                Salva Registrazione
                             </Button>
                         </CardFooter>
                     </form>
@@ -354,3 +389,5 @@ export default function InventoryPage() {
     </AuthGuard>
   );
 }
+
+    

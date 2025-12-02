@@ -21,6 +21,7 @@ const inventoryBatchSchema = z.object({
   lotto: z.string().optional(),
   grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
   packagingId: z.string().optional(),
+  unit: z.enum(['n', 'mt', 'kg']),
   // operatorId and operatorName are passed but not part of this specific form validation
 });
 
@@ -34,6 +35,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       lotto: rawData.lotto,
       grossWeight: rawData.grossWeight,
       packagingId: rawData.packagingId,
+      unit: rawData.unit,
   };
 
   const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
@@ -42,7 +44,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId } = validatedFields.data;
+  const { materialId, lotto, grossWeight, packagingId, unit } = validatedFields.data;
   const operatorId = rawData.operatorId as string;
   const operatorName = rawData.operatorName as string;
 
@@ -69,7 +71,21 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      const netWeight = grossWeight - tareWeight;
+      let netWeight = 0;
+      let inputQuantity = grossWeight; // What the user entered
+
+      if (unit === 'kg') {
+          netWeight = grossWeight - tareWeight;
+      } else { // 'n' or 'mt'
+          if (material.conversionFactor && material.conversionFactor > 0) {
+              netWeight = (grossWeight * material.conversionFactor) - tareWeight;
+          } else {
+               // If there's no conversion factor, assume weight can't be calculated from units.
+               // This case should be handled carefully. For now, we'll assume net weight can't be determined.
+               throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
+          }
+      }
+
       if (netWeight < 0) {
           throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
       }
@@ -86,6 +102,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
+          inputUnit: unit,
+          inputQuantity: inputQuantity,
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -98,3 +116,4 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
   }
 }
 
+    
