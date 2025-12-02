@@ -25,7 +25,7 @@ import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, A
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-
+import { useCameraStream } from '@/hooks/use-camera-stream';
 
 // Schema for the inventory form
 const inventoryFormSchema = z.object({
@@ -48,11 +48,10 @@ export default function InventoryPage() {
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || isLottoScanOpen, videoRef);
 
   const form = useForm<InventoryFormValues>({
     resolver: zodResolver(inventoryFormSchema),
@@ -81,15 +80,8 @@ export default function InventoryPage() {
     getPackagingItems().then(setPackagingItems);
   }, []);
   
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }
-  }, []);
-
   const handleMaterialScanned = useCallback(async (code: string) => {
-      stopCamera();
+      setStep('initial'); // Stop the camera
       const result = await getRawMaterialByCode(code.trim());
       if ('error' in result) {
           toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
@@ -108,47 +100,13 @@ export default function InventoryPage() {
             }
           setStep('form');
       }
-  }, [stopCamera, toast, form, operator]);
+  }, [toast, form, operator]);
 
   const handleLottoScanned = useCallback((code: string) => {
     form.setValue('lotto', code.trim());
     setIsLottoScanOpen(false);
     toast({ title: "Lotto Scansionato", description: `Lotto "${code.trim()}" inserito.` });
   }, [form, toast]);
-
-
-  // Camera management effect
-  useEffect(() => {
-    const shouldStartCamera = step === 'scan_material' || isLottoScanOpen;
-    if (!shouldStartCamera) {
-        stopCamera();
-        return;
-    }
-
-    const requestCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        setHasCameraPermission(true);
-      } catch (error) {
-        console.error('Error accessing camera:', error);
-        setHasCameraPermission(false);
-        toast({
-          variant: 'destructive',
-          title: 'Errore Fotocamera',
-          description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
-        });
-      }
-    };
-
-    requestCamera();
-    return () => stopCamera();
-  }, [step, isLottoScanOpen, stopCamera, toast]);
-
 
   const triggerScan = async (onScan: (code: string) => void) => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {

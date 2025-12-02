@@ -9,6 +9,7 @@ import * as z from 'zod';
 
 import { login } from '@/lib/auth';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useCameraStream } from '@/hooks/use-camera-stream';
 
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -42,9 +43,9 @@ type LoginStep = 'initial' | 'camera' | 'logging_in' | 'manual_login';
 export default function LoginForm() {
     const [step, setStep] = useState<LoginStep>('initial');
     const [isScanning, setIsScanning] = useState(false);
-    const [hasCameraPermission, setHasCameraPermission] = useState(true);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const streamRef = useRef<MediaStream | null>(null);
+    const { hasPermission: hasCameraPermission } = useCameraStream(step === 'camera', videoRef);
+
     const { toast } = useToast();
     const { user, operator, loading: authLoading } = useAuth();
 
@@ -79,41 +80,6 @@ export default function LoginForm() {
       setStep('camera');
     };
     
-    const stopCamera = useCallback(() => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-    }, []);
-
-    useEffect(() => {
-        const startCamera = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                streamRef.current = stream;
-                setHasCameraPermission(true);
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    await videoRef.current.play().catch(e => console.error("Video play failed:", e));
-                }
-            } catch (err) {
-                console.error("Camera access error:", err);
-                setHasCameraPermission(false);
-                stopCamera();
-            }
-        };
-
-        if (step === 'camera') {
-          startCamera();
-        } else {
-          stopCamera();
-        }
-        
-        return () => {
-            stopCamera();
-        };
-    }, [step, stopCamera]);
-    
     const triggerScan = async () => {
         if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
           toast({ variant: 'destructive', title: 'Funzionalità non Supportata', description: 'Il tuo browser non supporta la scansione dei codici a barre.' });
@@ -133,7 +99,7 @@ export default function LoginForm() {
             const barcodes = await barcodeDetector.detect(videoRef.current);
 
             if (barcodes.length > 0) {
-                stopCamera();
+                setStep('initial'); // Stop the camera
                 const [username, password] = barcodes[0].rawValue.split('@');
                 if (username && password) {
                      performLogin(username, password);
@@ -223,7 +189,7 @@ export default function LoginForm() {
                                     <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
                                 </div>
                              </div>
-                             {!hasCameraPermission && (
+                             {hasCameraPermission === false && (
                                 <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                                     <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                                     <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>

@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -25,14 +24,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, addBatchToRawMaterial, reportNonConformity, getPackagingItems } from './actions';
 import type { RawMaterial, Packaging } from '@/lib/mock-data';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube } from 'lucide-react';
-
-
-interface BarcodeDetectorOptions { formats?: string[]; }
-interface DetectedBarcode { rawValue: string; }
-declare class BarcodeDetector {
-  constructor(options?: BarcodeDetectorOptions);
-  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-}
+import { useCameraStream } from '@/hooks/use-camera-stream';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1),
@@ -66,8 +58,7 @@ export default function MaterialLoadingPage() {
     const [showNCReport, setShowNCReport] = useState(false);
     
     const videoRef = useRef<HTMLVideoElement>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const [hasCameraPermission, setHasCameraPermission] = useState(true);
+    const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || step === 'scan_lotto', videoRef);
     
     useEffect(() => {
         if (!authLoading && operator) {
@@ -96,16 +87,9 @@ export default function MaterialLoadingPage() {
     });
     
     const ncForm = useForm<NcReportFormValues>();
-
-    const stopCamera = useCallback(() => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-    }, []);
     
     const handleMaterialScanned = useCallback(async (code: string) => {
-        stopCamera();
+        setStep('initial'); // Stop the camera
         const result = await getRawMaterialByCode(code.trim());
         if ('error' in result) {
             toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
@@ -115,51 +99,14 @@ export default function MaterialLoadingPage() {
             form.setValue('unit', result.unitOfMeasure);
             setStep('scan_lotto');
         }
-    }, [stopCamera, toast, form]);
+    }, [toast, form]);
 
     const handleLottoScanned = (code: string) => {
-        stopCamera();
+        setStep('initial'); // Stop the camera
         setScannedLotto(code.trim());
         form.setValue('lotto', code.trim());
         setStep('validate');
     };
-
-     useEffect(() => {
-      const shouldRunCamera = step === 'scan_material' || step === 'scan_lotto';
-      if (!shouldRunCamera) {
-          stopCamera();
-          return;
-      }
-    
-      const getCameraPermission = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          setHasCameraPermission(true);
-          streamRef.current = stream;
-
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            await videoRef.current.play();
-          }
-        } catch (error) {
-          console.error('Error accessing camera:', error);
-          setHasCameraPermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Errore Fotocamera',
-            description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
-          });
-          stopCamera();
-        }
-      };
-
-      getCameraPermission();
-      
-      return () => {
-        stopCamera();
-      };
-    }, [step, stopCamera, toast]);
-
 
     const triggerScan = useCallback(async () => {
         if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -260,14 +207,13 @@ export default function MaterialLoadingPage() {
             {scannedMaterial && <p className="text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial.code}</span></p>}
             <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                {!hasCameraPermission && (
+                {hasCameraPermission === false ? (
                      <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                         <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
                         <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
                     </div>
-                )}
-                 {hasCameraPermission && (
+                ) : (
                     <div className="absolute inset-0 grid place-items-center pointer-events-none">
                         <div className="w-5/6 h-2/5 relative">
                             <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
