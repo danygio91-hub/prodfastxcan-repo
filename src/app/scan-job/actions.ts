@@ -198,7 +198,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
         }
         
         if (!previousSequentialPhase) {
-             // This is the first sequential phase after preparations, so it's ready.
+             // This is the FIRST sequential phase after preparations, so it's ready.
             currentPhase.materialReady = true;
         } else {
             // It's ready if the previous one has been started or is done.
@@ -270,16 +270,14 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
     try {
         const groupPhases = groupData.phases || [];
 
-        // Check if all non-postponed phases are completed or skipped
         const allRequiredPhasesCompleted = groupPhases.length > 0 && 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
-        // If all phases are done, dissolve the group, which also handles completion logic for child jobs
         if (allRequiredPhasesCompleted) {
+            // Group work is finished. Dissolve it, which will update child jobs and delete the group.
             return await dissolveWorkGroup(groupData.id);
         }
         
-        // If not complete, determine if it's 'in-progress' or 'paused'
         const isAnyPhaseInProgress = groupPhases.some(p => p.status === 'in-progress');
         groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
         
@@ -1032,3 +1030,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
