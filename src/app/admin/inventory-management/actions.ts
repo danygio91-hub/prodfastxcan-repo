@@ -316,7 +316,7 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
     }
 }
 
-export async function updateInventoryRecord(recordId: string, newGrossWeight: number, newPackagingId: string | undefined, uid: string): Promise<{ success: boolean; message: string; }> {
+export async function updateInventoryRecord(recordId: string, inputQuantity: number, inputUnit: 'n' | 'mt' | 'kg', grossWeight: number, packagingId: string | undefined, uid: string): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
     const recordRef = doc(db, 'inventoryRecords', recordId);
 
@@ -326,26 +326,28 @@ export async function updateInventoryRecord(recordId: string, newGrossWeight: nu
             throw new Error("È possibile modificare solo registrazioni in attesa.");
         }
         
-        let newTareWeight = 0;
-        if (newPackagingId && newPackagingId !== 'none') {
-            const packagingRef = doc(db, 'packaging', newPackagingId);
+        let tareWeight = 0;
+        if (packagingId && packagingId !== 'none') {
+            const packagingRef = doc(db, 'packaging', packagingId);
             const packagingSnap = await getDoc(packagingRef);
             if (packagingSnap.exists()) {
-                newTareWeight = packagingSnap.data().weightKg || 0;
+                tareWeight = packagingSnap.data().weightKg || 0;
             }
         }
         
-        const newNetWeight = newGrossWeight - newTareWeight;
+        const netWeight = grossWeight - tareWeight;
 
-        if (newNetWeight < 0) {
+        if (netWeight < 0) {
             throw new Error("Il peso netto risultante è negativo.");
         }
 
         await updateDoc(recordRef, {
-            grossWeight: newGrossWeight,
-            tareWeight: newTareWeight,
-            netWeight: newNetWeight,
-            packagingId: newPackagingId || null,
+            grossWeight: grossWeight,
+            tareWeight: tareWeight,
+            netWeight: netWeight,
+            packagingId: packagingId || null,
+            inputQuantity: inputQuantity,
+            inputUnit: inputUnit,
         });
         
         revalidatePath('/admin/inventory-management');
@@ -426,8 +428,17 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
   }
 }
 
+export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
+    const materialRef = doc(db, 'rawMaterials', materialId);
+    const docSnap = await getDoc(materialRef);
+    if (docSnap.exists()) {
+        return docSnap.data() as RawMaterial;
+    }
+    return null;
+}
     
 
     
 
     
+

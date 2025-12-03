@@ -126,8 +126,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     const dataToExport = Object.values(dailyRecords).flat().map(r => ({
       'Codice': r.materialCode,
       'Lotto': r.lotto,
-      'Quantità Inserita': r.inputQuantity,
-      'Unità Inserita': r.inputUnit.toUpperCase(),
+      'Quantità (N)': r.inputUnit === 'n' ? r.inputQuantity : 0,
+      'Quantità (MT)': r.inputUnit === 'mt' ? r.inputQuantity : 0,
+      'Peso Inserito (KG)': r.inputUnit === 'kg' ? r.inputQuantity : 0,
       'Peso Lordo (kg)': r.grossWeight.toFixed(3),
       'Peso Tara (kg)': r.tareWeight.toFixed(3),
       'Peso Netto (kg)': r.netWeight.toFixed(3),
@@ -274,7 +275,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                             />
                                           </TableHead>
                                           <TableHead>Lotto</TableHead>
-                                          <TableHead>Qtà Inserita</TableHead>
+                                          <TableHead>Qtà (N)</TableHead>
+                                          <TableHead>Qtà (MT)</TableHead>
+                                          <TableHead>Peso Inserito (KG)</TableHead>
                                           <TableHead>Peso Lordo</TableHead>
                                           <TableHead>Tara</TableHead>
                                           <TableHead>Peso Netto</TableHead>
@@ -293,7 +296,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                               />
                                             </TableCell>
                                             <TableCell>{record.lotto}</TableCell>
-                                            <TableCell className="font-mono font-semibold">{record.inputQuantity} {record.inputUnit.toUpperCase()}</TableCell>
+                                            <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity : '0'}</TableCell>
+                                            <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity : '0'}</TableCell>
+                                            <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity : '0.00'}</TableCell>
                                             <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                             <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                             <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>

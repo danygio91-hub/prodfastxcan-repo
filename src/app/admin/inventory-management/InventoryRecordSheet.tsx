@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -17,14 +17,16 @@ import { Label } from '@/components/ui/label';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { type InventoryRecord, type Packaging } from '@/lib/mock-data';
-import { updateInventoryRecord, getPackagingItems } from './actions';
+import { type InventoryRecord, type Packaging, type RawMaterial } from '@/lib/mock-data';
+import { updateInventoryRecord, getPackagingItems, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Save, Weight, Archive } from 'lucide-react';
+import { Loader2, Save, Weight, Archive, Package } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface InventoryRecordSheetProps {
   isOpen: boolean;
@@ -34,8 +36,10 @@ interface InventoryRecordSheetProps {
 }
 
 const formSchema = z.object({
-  grossWeight: z.coerce.number().positive("Il peso deve essere positivo."),
+  inputQuantity: z.coerce.number().positive("La quantità deve essere positiva."),
+  grossWeight: z.coerce.number().optional(), // Now optional
   packagingId: z.string().optional(),
+  inputUnit: z.enum(['n', 'mt', 'kg']),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -45,9 +49,11 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
+  const [material, setMaterial] = useState<RawMaterial | null>(null);
   
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
+    defaultValues: { packagingId: 'none' },
   });
 
   useEffect(() => {
@@ -56,23 +62,60 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
 
   useEffect(() => {
     if (record) {
+      getMaterialById(record.materialId).then(setMaterial);
       form.reset({ 
+        inputQuantity: record.inputQuantity,
+        inputUnit: record.inputUnit,
         grossWeight: record.grossWeight,
-        packagingId: record.packagingId || 'none'
+        packagingId: record.packagingId || 'none',
       });
     }
   }, [record, form]);
   
-  const watchedGrossWeight = form.watch('grossWeight');
-  const watchedPackagingId = form.watch('packagingId');
-  const selectedTare = packagingItems.find(p => p.id === watchedPackagingId)?.weightKg || 0;
-  const calculatedNetWeight = record ? watchedGrossWeight - selectedTare : 0;
+  const watchedValues = form.watch();
+  
+  const calculatedNetWeight = useMemo(() => {
+      if (!material) return 0;
+      
+      const tareWeight = packagingItems.find(p => p.id === watchedValues.packagingId)?.weightKg || 0;
+      let netWeight = 0;
+
+      if (watchedValues.inputUnit === 'kg') {
+          netWeight = (watchedValues.inputQuantity || 0) - tareWeight;
+      } else {
+          const conversionFactor = material.unitOfMeasure === watchedValues.inputUnit 
+              ? material.conversionFactor
+              : material.secondaryConversionFactor;
+          
+          if (conversionFactor && conversionFactor > 0) {
+              netWeight = (watchedValues.inputQuantity || 0) * conversionFactor;
+          }
+      }
+      return netWeight;
+  }, [material, watchedValues, packagingItems]);
+
 
   const onSubmit = async (values: FormValues) => {
-    if (!record || !user) return;
+    if (!record || !user || !material) return;
     setIsPending(true);
+    
+    const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
+    let grossWeight;
+    
+    if (values.inputUnit === 'kg') {
+      grossWeight = values.inputQuantity;
+    } else {
+      grossWeight = calculatedNetWeight + tareWeight;
+    }
 
-    const result = await updateInventoryRecord(record.id, values.grossWeight, values.packagingId, user.uid);
+    const result = await updateInventoryRecord(
+        record.id, 
+        values.inputQuantity,
+        values.inputUnit,
+        grossWeight,
+        values.packagingId, 
+        user.uid
+    );
     toast({
         title: result.success ? "Aggiornato" : "Errore",
         description: result.message,
@@ -88,43 +131,57 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   
   if (!record) return null;
 
+  const isKgPrimary = material?.unitOfMeasure === 'kg';
+  const hasSecondaryUnit = material?.secondaryUnitOfMeasure && material.secondaryUnitOfMeasure !== 'none';
+
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Modifica Registrazione Inventario</SheetTitle>
           <SheetDescription>
-            Correggi il peso lordo o la tara applicata. Il peso netto verrà ricalcolato.
+            Correggi quantità o tara. Il peso netto verrà ricalcolato.
           </SheetDescription>
         </SheetHeader>
+        {!material ? <Skeleton className="h-96 w-full mt-6" /> : (
         <form onSubmit={form.handleSubmit(onSubmit)}>
           <div className="grid gap-6 py-6">
             <div className="space-y-1">
               <Label>Materiale</Label>
               <p className="p-2 bg-muted rounded-md font-mono text-sm">{record.materialCode}</p>
             </div>
-            <div className="space-y-1">
-              <Label>Lotto</Label>
-              <p className="p-2 bg-muted rounded-md font-mono text-sm">{record.lotto}</p>
-            </div>
-            <div className="space-y-1">
-              <Label>Operatore</Label>
-              <p className="p-2 bg-muted rounded-md text-sm">{record.operatorName}</p>
-            </div>
-             <div className="space-y-1">
-              <Label>Data Registrazione</Label>
-              <p className="p-2 bg-muted rounded-md text-sm">{format(parseISO(record.recordedAt as unknown as string), "dd MMMM yyyy 'alle' HH:mm", { locale: it })}</p>
-            </div>
+            
+             <FormField
+                control={form.control}
+                name="inputUnit"
+                render={({ field }) => (
+                  <FormItem>
+                     {hasSecondaryUnit && !isKgPrimary && (
+                        <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                            <Label htmlFor="unit-switch">{material.unitOfMeasure.toUpperCase()}</Label>
+                            <Switch
+                                id="unit-switch"
+                                checked={field.value === material.secondaryUnitOfMeasure}
+                                onCheckedChange={(checked) => {
+                                    field.onChange(checked ? material.secondaryUnitOfMeasure : material.unitOfMeasure)
+                                }}
+                            />
+                            <Label htmlFor="unit-switch">{material.secondaryUnitOfMeasure?.toUpperCase()}</Label>
+                        </div>
+                    )}
+                  </FormItem>
+                )}
+              />
 
-            <div className="space-y-2">
-                <Label htmlFor="grossWeight" className="flex items-center gap-2"><Weight className="h-4 w-4"/> Peso Lordo (kg)</Label>
-                <Input 
-                    id="grossWeight" 
+             <div className="space-y-2">
+                <Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/> Quantità Inserita ({watchedValues.inputUnit?.toUpperCase()})</Label>
+                 <Input 
+                    id="inputQuantity" 
                     type="number"
-                    step="0.001"
-                    {...form.register('grossWeight')}
+                    step="any"
+                    {...form.register('inputQuantity')}
                 />
-                {form.formState.errors.grossWeight && <p className="text-sm text-destructive">{form.formState.errors.grossWeight.message}</p>}
+                {form.formState.errors.inputQuantity && <p className="text-sm text-destructive">{form.formState.errors.inputQuantity.message}</p>}
             </div>
 
              <div className="space-y-2">
@@ -160,6 +217,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
             </Button>
           </SheetFooter>
         </form>
+        )}
       </SheetContent>
     </Sheet>
   );
