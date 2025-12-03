@@ -3,7 +3,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where, Timestamp, runTransaction } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where, Timestamp, runTransaction, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { WorkGroup, JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 
@@ -41,6 +41,7 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         
         const groupData = groupSnap.data() as WorkGroup;
         const jobOrderIds = groupData.jobOrderIds || [];
+        const isGroupCompleted = groupData.status === 'completed';
         
         if (jobOrderIds.length > 0) {
             const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
@@ -49,46 +50,20 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
             jobsSnapshot.forEach(jobDoc => {
                 const jobData = jobDoc.data() as JobOrder;
                 
-                // Proportional time calculation
-                const jobProportion = groupData.totalQuantity > 0 ? (jobData.qta / groupData.totalQuantity) : 0;
-                
-                const inheritedPhases = (groupData.phases || []).map(groupPhase => {
-                    let totalGroupPhaseMillis = 0;
-                    (groupPhase.workPeriods || []).forEach(wp => {
-                        if (wp.start && wp.end) {
-                            totalGroupPhaseMillis += new Date(wp.end).getTime() - new Date(wp.start).getTime();
-                        }
-                    });
+                const finalStatus = isGroupCompleted ? 'completed' : jobData.status;
 
-                    const proportionalMillis = totalGroupPhaseMillis * jobProportion;
-                    
-                    const inheritedWorkPeriods: WorkPeriod[] = [];
-                    if (proportionalMillis > 0) {
-                        const now = new Date();
-                        inheritedWorkPeriods.push({
-                            start: now,
-                            end: new Date(now.getTime() + proportionalMillis),
-                            operatorId: 'group-dissolve',
-                        });
-                    }
-                    
-                    return {
-                        ...groupPhase,
-                        status: 'completed', // Mark phase as completed for the child job
-                        workPeriods: inheritedWorkPeriods,
-                    };
-                });
-                
+                // Propagate the group's current phase state to the individual jobs.
+                // This ensures that if the group is paused mid-way, the jobs reflect that.
                 transaction.update(jobDoc.ref, { 
-                    workGroupId: null,
-                    phases: inheritedPhases,
-                    status: 'completed', 
-                    overallStartTime: groupData.overallStartTime || null,
-                    overallEndTime: groupData.overallEndTime || new Date(), 
+                    workGroupId: deleteField(),
+                    phases: groupData.phases, // Inherit the exact phase progress
+                    status: finalStatus,
+                    overallStartTime: groupData.overallStartTime || jobData.overallStartTime || null,
+                    overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
                     isProblemReported: groupData.isProblemReported || false,
-                    problemType: groupData.problemType || null,
-                    problemNotes: groupData.problemNotes || null,
-                    problemReportedBy: groupData.problemReportedBy || null,
+                    problemType: groupData.problemType || deleteField(),
+                    problemNotes: groupData.problemNotes || deleteField(),
+                    problemReportedBy: groupData.problemReportedBy || deleteField(),
                 });
             });
         }
@@ -101,7 +76,11 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
 
-    return { success: true, message: `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti e completate.` };
+    const message = isGroupCompleted
+        ? `Gruppo ${groupId} completato e sciolto. Le commesse sono state finalizzate.`
+        : `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti e mantengono l'avanzamento attuale.`;
+
+    return { success: true, message: message };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     console.error("Error dissolving work group:", error);

@@ -273,8 +273,12 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
         const allRequiredPhasesCompleted = groupPhases.length > 0 && 
             groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
 
-        if (allRequiredPhasesCompleted) {
-            // Group work is finished. Dissolve it, which will update child jobs and delete the group.
+        // Automatic dissolution on completion
+        if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
+            groupData.status = 'completed';
+            if (!groupData.overallEndTime) {
+                groupData.overallEndTime = new Date();
+            }
             return await dissolveWorkGroup(groupData.id);
         }
         
