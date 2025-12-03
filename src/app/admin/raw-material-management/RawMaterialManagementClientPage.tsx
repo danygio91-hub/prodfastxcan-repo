@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials } from './actions';
@@ -76,6 +76,10 @@ interface RawMaterialManagementClientPageProps {
 }
 
 export default function RawMaterialManagementClientPage({ initialMaterials }: RawMaterialManagementClientPageProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const codeFromUrl = searchParams.get('code');
+
   const [materials, setMaterials] = useState<RawMaterial[]>(initialMaterials);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
@@ -90,12 +94,12 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [editingBatch, setEditingBatch] = useState<RawMaterialBatch | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const router = useRouter();
+  
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
@@ -109,6 +113,12 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
   
+  useEffect(() => {
+    if (codeFromUrl) {
+      setSearchTerm(codeFromUrl);
+    }
+  }, [codeFromUrl]);
+
   const filteredMaterials = useMemo(() => {
     if (!searchTerm) {
       return materials;
