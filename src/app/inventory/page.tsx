@@ -61,21 +61,30 @@ export default function InventoryPage() {
   });
   
   const selectedPackagingId = form.watch('packagingId');
-  const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
   const enteredQuantity = form.watch('inputQuantity') || 0;
   
-  let netWeight = 0;
-  if (scannedMaterial) {
+  const calculatedNetWeight = useMemo(() => {
+    if (!scannedMaterial || !enteredQuantity) return 0;
+    
+    const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
+
     if (inputUnit === 'primary') {
-      if (scannedMaterial.unitOfMeasure !== 'kg' && scannedMaterial.conversionFactor) {
-        netWeight = (enteredQuantity * scannedMaterial.conversionFactor) - selectedTara;
-      } else {
-        netWeight = enteredQuantity - selectedTara;
+      if (scannedMaterial.unitOfMeasure === 'kg') {
+        return enteredQuantity - selectedTara;
       }
-    } else { // secondary unit is always kg
-      netWeight = enteredQuantity - selectedTara;
+      if (scannedMaterial.conversionFactor) {
+        return (enteredQuantity * scannedMaterial.conversionFactor);
+      }
+    } else { // secondary unit
+      if (scannedMaterial.secondaryUnitOfMeasure === 'kg') {
+        return enteredQuantity - selectedTara;
+      }
+       if (scannedMaterial.secondaryConversionFactor) {
+         return (enteredQuantity * scannedMaterial.secondaryConversionFactor);
+       }
     }
-  }
+    return 0; // Return 0 if no valid calculation can be made
+  }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
 
   // Permission check
@@ -164,6 +173,9 @@ export default function InventoryPage() {
       if (value !== undefined) formData.append(key, String(value));
     });
     
+    // Add the calculated net weight to the form data
+    formData.append('netWeight', String(calculatedNetWeight));
+
     const result = await registerInventoryBatch(formData);
 
     toast({
@@ -302,8 +314,10 @@ export default function InventoryPage() {
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="inputQuantity" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>{inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Peso Lordo (KG)'}</FormLabel>
-                                        <FormControl><Input type="number" step="any" placeholder="Es. 15.5" {...field} /></FormControl>
+                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>
+                                          {inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Quantità Lorda (KG)'}
+                                        </FormLabel>
+                                        <FormControl><Input type="number" step="any" placeholder="Es. 15.5" {...field} value={field.value ?? ''} /></FormControl>
                                         <FormMessage />
                                     </FormItem>
                                 )} />
@@ -326,13 +340,13 @@ export default function InventoryPage() {
 
                             <div className="p-4 rounded-lg border bg-muted">
                                 <Label className="text-muted-foreground">Peso Netto Calcolato (KG)</Label>
-                                <p className="text-2xl font-bold text-primary">{netWeight >= 0 ? netWeight.toFixed(3) : '---'}</p>
+                                <p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? calculatedNetWeight.toFixed(3) : '---'}</p>
                             </div>
 
                         </CardContent>
                         <CardFooter className="justify-between">
                             <Button type="button" variant="outline" onClick={resetFlow}><ArrowLeft className="mr-2 h-4 w-4" />Annulla</Button>
-                            <Button type="submit" disabled={netWeight < 0 || form.formState.isSubmitting}>
+                            <Button type="submit" disabled={calculatedNetWeight < 0 || form.formState.isSubmitting}>
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
                                 Salva Registrazione
                             </Button>

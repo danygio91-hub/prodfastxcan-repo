@@ -22,28 +22,20 @@ const inventoryBatchSchema = z.object({
   inputQuantity: z.coerce.number().positive("La quantità inserita è obbligatoria."),
   packagingId: z.string().optional(),
   inputUnit: z.enum(['n', 'mt', 'kg']),
-  // operatorId and operatorName are passed but not part of this specific form validation
+  netWeight: z.coerce.number().min(0, "Peso netto non valido."),
 });
 
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
   
-  const dataToValidate = {
-      materialId: rawData.materialId,
-      lotto: rawData.lotto,
-      inputQuantity: rawData.inputQuantity,
-      packagingId: rawData.packagingId,
-      inputUnit: rawData.inputUnit,
-  };
-
-  const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
+  const validatedFields = inventoryBatchSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, inputQuantity, packagingId, inputUnit } = validatedFields.data;
+  const { materialId, lotto, inputQuantity, packagingId, inputUnit, netWeight } = validatedFields.data;
   const operatorId = rawData.operatorId as string;
   const operatorName = rawData.operatorName as string;
 
@@ -69,27 +61,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           tareWeight = packagingSnap.data().weightKg || 0;
         }
       }
-
-      let netWeight = 0;
-      let grossWeight = 0;
-
-      if (inputUnit === 'kg') {
-          grossWeight = inputQuantity;
-          netWeight = grossWeight - tareWeight;
-      } else { // 'n' or 'mt'
-          if (material.conversionFactor && material.conversionFactor > 0) {
-              // The input quantity is in units, which represent the net material.
-              // So, gross weight is the net material weight + tare.
-              netWeight = inputQuantity * material.conversionFactor;
-              grossWeight = netWeight + tareWeight;
-          } else {
-               throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
-          }
-      }
-
-      if (netWeight < 0) {
-          throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
-      }
+      
+      const grossWeight = netWeight + tareWeight;
       
       const newInventoryRecord: Omit<InventoryRecord, 'id'> = {
           materialId,
