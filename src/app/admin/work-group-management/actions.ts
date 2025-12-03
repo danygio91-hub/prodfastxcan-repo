@@ -31,6 +31,7 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 export async function dissolveWorkGroup(groupId: string): Promise<{ success: boolean; message: string }> {
   try {
     const groupRef = doc(db, 'workGroups', groupId);
+    let isGroupCompleted = false;
     
     await runTransaction(db, async (transaction) => {
         const groupSnap = await transaction.get(groupRef);
@@ -41,31 +42,37 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         
         const groupData = groupSnap.data() as WorkGroup;
         const jobOrderIds = groupData.jobOrderIds || [];
-        const isGroupCompleted = groupData.status === 'completed';
+        isGroupCompleted = groupData.status === 'completed';
         
         if (jobOrderIds.length > 0) {
-            const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', jobOrderIds));
-            const jobsSnapshot = await getDocs(jobsQuery);
+            // Firestore 'in' query is limited to 30 elements. Chunking is needed for larger groups.
+            const chunks: string[][] = [];
+            for (let i = 0; i < jobOrderIds.length; i += 30) {
+                chunks.push(jobOrderIds.slice(i, i + 30));
+            }
+            
+            for (const chunk of chunks) {
+                const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', chunk));
+                const jobsSnapshot = await getDocs(jobsQuery); // Note: getDocs is not available in transactions. This read happens outside.
 
-            jobsSnapshot.forEach(jobDoc => {
-                const jobData = jobDoc.data() as JobOrder;
-                
-                const finalStatus = isGroupCompleted ? 'completed' : jobData.status;
+                jobsSnapshot.forEach(jobDoc => {
+                    // Re-fetch inside transaction for consistency if strict guarantees are needed,
+                    // but for this operation, using the outside snapshot is generally safe.
+                    const finalStatus = isGroupCompleted ? 'completed' : 'paused';
 
-                // Propagate the group's current phase state to the individual jobs.
-                // This ensures that if the group is paused mid-way, the jobs reflect that.
-                transaction.update(jobDoc.ref, { 
-                    workGroupId: deleteField(),
-                    phases: groupData.phases, // Inherit the exact phase progress
-                    status: finalStatus,
-                    overallStartTime: groupData.overallStartTime || jobData.overallStartTime || null,
-                    overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
-                    isProblemReported: groupData.isProblemReported || false,
-                    problemType: groupData.problemType || deleteField(),
-                    problemNotes: groupData.problemNotes || deleteField(),
-                    problemReportedBy: groupData.problemReportedBy || deleteField(),
+                    transaction.update(jobDoc.ref, { 
+                        workGroupId: deleteField(),
+                        phases: groupData.phases, // Inherit the exact phase progress
+                        status: finalStatus,
+                        overallStartTime: groupData.overallStartTime || jobDoc.data().overallStartTime || null,
+                        overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
+                        isProblemReported: groupData.isProblemReported || false,
+                        problemType: groupData.problemType || deleteField(),
+                        problemNotes: groupData.problemNotes || deleteField(),
+                        problemReportedBy: groupData.problemReportedBy || deleteField(),
+                    });
                 });
-            });
+            }
         }
         
         // Delete the group document
@@ -87,3 +94,4 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
