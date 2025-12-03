@@ -22,7 +22,7 @@ import { type InventoryRecord, type Packaging, type RawMaterial } from '@/lib/mo
 import { updateInventoryRecord, getPackagingItems, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Save, Weight, Archive, Package } from 'lucide-react';
+import { Loader2, Save, Weight, Archive, Package, TestTube } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -133,7 +133,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   if (!record) return null;
 
   const isKgPrimary = material?.unitOfMeasure === 'kg';
-  const hasSecondaryUnit = material?.secondaryUnitOfMeasure && material.secondaryUnitOfMeasure !== 'none';
+  const hasSecondaryUnit = material?.secondaryUnitOfMeasure && material.secondaryUnitOfMeasure;
 
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
@@ -153,7 +153,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
                 <p className="p-2 bg-muted rounded-md font-mono text-sm">{record.materialCode}</p>
                 </div>
                 
-                <FormField
+                 <FormField
                     control={form.control}
                     name="inputUnit"
                     render={({ field }) => (
