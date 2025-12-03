@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
+import Link from 'next/link';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/accordion"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2 } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
 import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -125,6 +126,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     const dataToExport = Object.values(dailyRecords).flat().map(r => ({
       'Codice': r.materialCode,
       'Lotto': r.lotto,
+      'Quantità Inserita': r.inputQuantity,
+      'Unità Inserita': r.inputUnit.toUpperCase(),
       'Peso Lordo (kg)': r.grossWeight.toFixed(3),
       'Peso Tara (kg)': r.tareWeight.toFixed(3),
       'Peso Netto (kg)': r.netWeight.toFixed(3),
@@ -245,10 +248,14 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                             <div className="space-y-6">
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => (
                                 <div key={materialCode} className="border-l-4 border-primary/50 pl-4">
-                                  <div className="font-semibold text-md mb-2 flex items-center gap-2">
+                                  <Link
+                                    href={`/admin/raw-material-management?code=${encodeURIComponent(materialCode)}`}
+                                    className="font-semibold text-md mb-2 flex items-center gap-2 hover:text-primary hover:underline"
+                                  >
                                      <Package className="h-5 w-5 text-muted-foreground"/>
                                      {materialCode}
-                                  </div>
+                                     <LinkIcon className="h-4 w-4 text-muted-foreground" />
+                                  </Link>
                                   <div className="overflow-x-auto border rounded-lg">
                                     <Table>
                                       <TableHeader>
@@ -267,8 +274,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                             />
                                           </TableHead>
                                           <TableHead>Lotto</TableHead>
+                                          <TableHead>Qtà Inserita</TableHead>
                                           <TableHead>Peso Lordo</TableHead>
-                                          <TableHead>Tara Applicata</TableHead>
+                                          <TableHead>Tara</TableHead>
                                           <TableHead>Peso Netto</TableHead>
                                           <TableHead>Operatore</TableHead>
                                           <TableHead>Stato</TableHead>
@@ -285,6 +293,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                               />
                                             </TableCell>
                                             <TableCell>{record.lotto}</TableCell>
+                                            <TableCell className="font-mono font-semibold">{record.inputQuantity} {record.inputUnit.toUpperCase()}</TableCell>
                                             <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                             <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                             <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>

@@ -49,17 +49,26 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
   const dataToValidate = {
       materialId: rawData.materialId,
       lotto: rawData.lotto,
-      grossWeight: rawData.grossWeight,
+      inputQuantity: rawData.inputQuantity,
       packagingId: rawData.packagingId,
+      inputUnit: rawData.inputUnit,
   };
 
-  const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
+  const inventorySchema = z.object({
+      materialId: z.string().min(1),
+      lotto: z.string().optional(),
+      inputQuantity: z.coerce.number().positive(),
+      packagingId: z.string().optional(),
+      inputUnit: z.enum(['n', 'mt', 'kg']),
+  });
+  
+  const validatedFields = inventorySchema.safeParse(dataToValidate);
 
   if (!validatedFields.success) {
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId } = validatedFields.data;
+  const { materialId, lotto, inputQuantity, packagingId, inputUnit } = validatedFields.data;
   const operatorId = rawData.operatorId as string;
   const operatorName = rawData.operatorName as string;
 
@@ -86,7 +95,21 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      const netWeight = grossWeight - tareWeight;
+      let netWeight = 0;
+      let grossWeight = 0;
+
+      if (inputUnit === 'kg') {
+          grossWeight = inputQuantity;
+          netWeight = grossWeight - tareWeight;
+      } else { // 'n' or 'mt'
+          if (material.conversionFactor && material.conversionFactor > 0) {
+              netWeight = inputQuantity * material.conversionFactor;
+              grossWeight = netWeight + tareWeight;
+          } else {
+               throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
+          }
+      }
+
       if (netWeight < 0) {
           throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
       }
@@ -103,8 +126,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: 'kg', // Defaulting to 'kg' as this flow doesn't have the switch
-          inputQuantity: grossWeight, // The entered value is the quantity
+          inputUnit: inputUnit,
+          inputQuantity: inputQuantity,
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
