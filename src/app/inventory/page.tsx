@@ -32,11 +32,11 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 const inventoryFormSchema = z.object({
   materialId: z.string().min(1),
   lotto: z.string().optional(),
-  grossWeight: z.coerce.number().positive("Il peso lordo deve essere un numero positivo."),
+  inputQuantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   packagingId: z.string().optional(),
   operatorId: z.string(),
   operatorName: z.string(),
-  unit: z.enum(['n', 'mt', 'kg']),
+  inputUnit: z.enum(['n', 'mt', 'kg']),
 });
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
 
@@ -62,19 +62,18 @@ export default function InventoryPage() {
   
   const selectedPackagingId = form.watch('packagingId');
   const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
-  const grossWeight = form.watch('grossWeight') || 0;
+  const enteredQuantity = form.watch('inputQuantity') || 0;
   
   let netWeight = 0;
   if (scannedMaterial) {
     if (inputUnit === 'primary') {
-      // Assuming grossWeight is entered in the primary unit if it's not kg
       if (scannedMaterial.unitOfMeasure !== 'kg' && scannedMaterial.conversionFactor) {
-        netWeight = (grossWeight * scannedMaterial.conversionFactor) - selectedTara;
+        netWeight = (enteredQuantity * scannedMaterial.conversionFactor) - selectedTara;
       } else {
-        netWeight = grossWeight - selectedTara;
+        netWeight = enteredQuantity - selectedTara;
       }
     } else { // secondary unit is always kg
-      netWeight = grossWeight - selectedTara;
+      netWeight = enteredQuantity - selectedTara;
     }
   }
 
@@ -111,7 +110,8 @@ export default function InventoryPage() {
                 packagingId: 'none',
                 operatorId: operator.id,
                 operatorName: operator.nome,
-                unit: result.unitOfMeasure,
+                inputUnit: result.unitOfMeasure,
+                inputQuantity: undefined,
               });
             }
           setInputUnit('primary');
@@ -157,20 +157,12 @@ export default function InventoryPage() {
       return;
     }
     
-    // Determine the unit based on the switch
-    const unitToSend = inputUnit === 'primary' ? scannedMaterial.unitOfMeasure : (scannedMaterial.secondaryUnitOfMeasure || 'kg');
-
     setStep('saving');
     
     const formData = new FormData();
-    // Append all form values
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined) formData.append(key, String(value));
     });
-    // Ensure operator data and correct unit is there
-    formData.set('operatorId', operator.id);
-    formData.set('operatorName', operator.nome);
-    formData.set('unit', unitToSend);
     
     const result = await registerInventoryBatch(formData);
 
@@ -297,16 +289,20 @@ export default function InventoryPage() {
                                     <Switch
                                     id="unit-switch"
                                     checked={inputUnit === 'secondary'}
-                                    onCheckedChange={(checked) => setInputUnit(checked ? 'secondary' : 'primary')}
+                                    onCheckedChange={(checked) => {
+                                        const newUnit = checked ? 'secondary' : 'primary';
+                                        setInputUnit(newUnit);
+                                        form.setValue('inputUnit', newUnit === 'primary' ? scannedMaterial.unitOfMeasure : scannedMaterial.secondaryUnitOfMeasure || 'kg');
+                                    }}
                                     />
                                     <Label htmlFor="unit-switch">{scannedMaterial.secondaryUnitOfMeasure.toUpperCase()}</Label>
                                 </div>
                             )}
 
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <FormField control={form.control} name="grossWeight" render={({ field }) => (
+                                <FormField control={form.control} name="inputQuantity" render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>{inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità Lorda (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Peso Lordo (KG)'}</FormLabel>
+                                        <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>{inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Peso Lordo (KG)'}</FormLabel>
                                         <FormControl><Input type="number" step="any" placeholder="Es. 15.5" {...field} /></FormControl>
                                         <FormMessage />
                                     </FormItem>

@@ -1,5 +1,5 @@
 
-"use server";
+'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -19,9 +19,9 @@ export async function getPackagingItems(): Promise<Packaging[]> {
 const inventoryBatchSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   lotto: z.string().optional(),
-  grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
+  inputQuantity: z.coerce.number().positive("La quantità inserita è obbligatoria."),
   packagingId: z.string().optional(),
-  unit: z.enum(['n', 'mt', 'kg']),
+  inputUnit: z.enum(['n', 'mt', 'kg']),
   // operatorId and operatorName are passed but not part of this specific form validation
 });
 
@@ -29,13 +29,12 @@ const inventoryBatchSchema = z.object({
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
   
-  // We manually add operator data here as it's not part of the form fields filled by the user directly.
   const dataToValidate = {
       materialId: rawData.materialId,
       lotto: rawData.lotto,
-      grossWeight: rawData.grossWeight,
+      inputQuantity: rawData.inputQuantity,
       packagingId: rawData.packagingId,
-      unit: rawData.unit,
+      inputUnit: rawData.inputUnit,
   };
 
   const validatedFields = inventoryBatchSchema.safeParse(dataToValidate);
@@ -44,7 +43,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
     return { success: false, message: 'Dati non validi.' };
   }
   
-  const { materialId, lotto, grossWeight, packagingId, unit } = validatedFields.data;
+  const { materialId, lotto, inputQuantity, packagingId, inputUnit } = validatedFields.data;
   const operatorId = rawData.operatorId as string;
   const operatorName = rawData.operatorName as string;
 
@@ -72,16 +71,18 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       }
 
       let netWeight = 0;
-      let inputQuantity = grossWeight; // What the user entered
+      let grossWeight = 0;
 
-      if (unit === 'kg') {
+      if (inputUnit === 'kg') {
+          grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
       } else { // 'n' or 'mt'
           if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = (grossWeight * material.conversionFactor) - tareWeight;
+              // The input quantity is in units, which represent the net material.
+              // So, gross weight is the net material weight + tare.
+              netWeight = inputQuantity * material.conversionFactor;
+              grossWeight = netWeight + tareWeight;
           } else {
-               // If there's no conversion factor, assume weight can't be calculated from units.
-               // This case should be handled carefully. For now, we'll assume net weight can't be determined.
                throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
           }
       }
@@ -102,7 +103,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: unit,
+          inputUnit: inputUnit,
           inputQuantity: inputQuantity,
       };
       
@@ -115,5 +116,3 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
-    
