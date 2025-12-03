@@ -21,7 +21,6 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
@@ -59,7 +58,8 @@ function WorkGroupManagementContent() {
             }
             return { id: doc.id, ...data } as WorkGroup;
         });
-        setGroups(JSON.parse(JSON.stringify(fetchedGroups)));
+        // Filter out completed groups directly
+        setGroups(JSON.parse(JSON.stringify(fetchedGroups.filter(g => g.status !== 'completed'))));
         setIsLoading(false);
     }, (error) => {
         console.error("Error fetching realtime groups:", error);
@@ -82,9 +82,6 @@ function WorkGroupManagementContent() {
         )
       : groups;
   }, [groups, searchTerm]);
-
-  const activeGroups = useMemo(() => filteredGroups.filter(g => g.status !== 'completed'), [filteredGroups]);
-  const completedGroups = useMemo(() => filteredGroups.filter(g => g.status === 'completed'), [filteredGroups]);
 
   const handleDissolve = async (groupId: string) => {
     setIsPending(true);
@@ -167,7 +164,7 @@ function WorkGroupManagementContent() {
             ) : (
               <TableRow>
                 <TableCell colSpan={5} className="text-center h-24">
-                  {searchTerm ? "Nessun gruppo trovato per la ricerca." : "Nessun gruppo in questa categoria."}
+                  {searchTerm ? "Nessun gruppo trovato per la ricerca." : "Nessun gruppo attivo al momento."}
                 </TableCell>
               </TableRow>
             )}
@@ -193,7 +190,7 @@ function WorkGroupManagementContent() {
           <Card>
             <CardHeader>
                <div className="flex justify-between items-center flex-wrap gap-4">
-                  <CardTitle>Elenco Gruppi</CardTitle>
+                  <CardTitle>Elenco Gruppi in Corso ({filteredGroups.length})</CardTitle>
                   <div className="relative w-full sm:w-auto">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -206,18 +203,7 @@ function WorkGroupManagementContent() {
               </div>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="active">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="active">In Corso ({activeGroups.length})</TabsTrigger>
-                  <TabsTrigger value="completed">Completati ({completedGroups.length})</TabsTrigger>
-                </TabsList>
-                <TabsContent value="active" className="pt-4">
-                  {renderGroupTable(activeGroups)}
-                </TabsContent>
-                <TabsContent value="completed" className="pt-4">
-                  {renderGroupTable(completedGroups)}
-                </TabsContent>
-              </Tabs>
+              {renderGroupTable(filteredGroups)}
             </CardContent>
           </Card>
         </div>
@@ -233,5 +219,3 @@ export default function WorkGroupManagementPage() {
         </Suspense>
     )
 }
-
-    
