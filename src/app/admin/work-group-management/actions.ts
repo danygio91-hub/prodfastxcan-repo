@@ -31,7 +31,6 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 export async function dissolveWorkGroup(groupId: string): Promise<{ success: boolean; message: string }> {
   try {
     const groupRef = doc(db, 'workGroups', groupId);
-    let isGroupCompleted = false;
     
     await runTransaction(db, async (transaction) => {
         const groupSnap = await transaction.get(groupRef);
@@ -42,27 +41,24 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         
         const groupData = groupSnap.data() as WorkGroup;
         const jobOrderIds = groupData.jobOrderIds || [];
-        isGroupCompleted = groupData.status === 'completed';
+        
+        // Determine the final state to be propagated BEFORE deleting the group.
+        const isGroupCompleted = groupData.status === 'completed';
         
         if (jobOrderIds.length > 0) {
-            // Firestore 'in' query is limited to 30 elements. Chunking is needed for larger groups.
-            const chunks: string[][] = [];
-            for (let i = 0; i < jobOrderIds.length; i += 30) {
-                chunks.push(jobOrderIds.slice(i, i + 30));
-            }
-            
-            for (const chunk of chunks) {
-                const jobsQuery = query(collection(db, 'jobOrders'), where('id', 'in', chunk));
-                const jobsSnapshot = await getDocs(jobsQuery); // Note: getDocs is not available in transactions. This read happens outside.
+            // First, update all child jobs.
+            const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
+            const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
 
-                jobsSnapshot.forEach(jobDoc => {
-                    // Re-fetch inside transaction for consistency if strict guarantees are needed,
-                    // but for this operation, using the outside snapshot is generally safe.
+            for (const jobDoc of jobDocs) {
+                 if (jobDoc.exists()) {
+                    // If the group was completed, all jobs become completed.
+                    // If it was manually dissolved, they inherit the group's current progress and become paused.
                     const finalStatus = isGroupCompleted ? 'completed' : 'paused';
-
+                    
                     transaction.update(jobDoc.ref, { 
                         workGroupId: deleteField(),
-                        phases: groupData.phases, // Inherit the exact phase progress
+                        phases: groupData.phases, // Inherit the exact phase progress from the group
                         status: finalStatus,
                         overallStartTime: groupData.overallStartTime || jobDoc.data().overallStartTime || null,
                         overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
@@ -71,19 +67,23 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
                         problemNotes: groupData.problemNotes || deleteField(),
                         problemReportedBy: groupData.problemReportedBy || deleteField(),
                     });
-                });
+                }
             }
         }
         
-        // Delete the group document
+        // After ensuring all jobs are updated, delete the group document.
         transaction.delete(groupRef);
     });
 
     revalidatePath('/admin/work-group-management');
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
+    
+    // The message is now determined based on the initial state of the group before dissolution.
+    const groupData = (await getDoc(groupRef)).data() as WorkGroup | undefined; // Re-fetch might not work as it's deleted, but the logic inside transaction is what matters.
+    const wasCompleted = groupData ? groupData.status === 'completed' : (await getDoc(groupRef)).data()?.status === 'completed';
 
-    const message = isGroupCompleted
+    const message = wasCompleted
         ? `Gruppo ${groupId} completato e sciolto. Le commesse sono state finalizzate.`
         : `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti e mantengono l'avanzamento attuale.`;
 
@@ -94,4 +94,6 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     return { success: false, message: errorMessage };
   }
 }
+
+
 
