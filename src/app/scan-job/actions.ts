@@ -897,11 +897,12 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
         const allDeliveryDates = jobs.map(j => j.dataConsegnaFinale).filter(Boolean).map(d => new Date(d));
         const earliestDeliveryDate = allDeliveryDates.length > 0 ? new Date(Math.min(...allDeliveryDates.map(d => d.getTime()))) : null;
 
+        const jobOrderPFs = [...new Set(jobs.map(j => j.ordinePF))];
 
         const newWorkGroup: WorkGroup = {
             id: workGroupId,
             jobOrderIds: jobs.map(j => j.id),
-            jobOrderPFs: jobs.map(j => j.ordinePF),
+            jobOrderPFs: jobOrderPFs,
             status: 'production',
             createdAt: new Date(),
             createdBy: operatorId,
@@ -915,7 +916,7 @@ export async function createWorkGroup(jobIds: string[], operatorId: string): Pro
             numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
             numeroODL: allOdlEst.join(', ') || 'N/D',
             dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
-            ordinePF: jobs.map(j => j.ordinePF).join(', '),
+            ordinePF: jobOrderPFs.join(', '),
         };
 
         const batch = writeBatch(db);
@@ -1031,5 +1032,6 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 
 
