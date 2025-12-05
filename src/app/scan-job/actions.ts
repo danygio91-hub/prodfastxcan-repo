@@ -275,11 +275,8 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
 
         // Automatic dissolution on completion
         if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
-            groupData.status = 'completed';
-            if (!groupData.overallEndTime) {
-                groupData.overallEndTime = new Date();
-            }
-            return await dissolveWorkGroup(groupData.id);
+            // By passing `forceComplete: true`, we ensure dissolveWorkGroup knows this is a natural completion.
+            return await dissolveWorkGroup(groupData.id, true);
         }
         
         const isAnyPhaseInProgress = groupPhases.some(p => p.status === 'in-progress');
@@ -1034,4 +1031,5 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 

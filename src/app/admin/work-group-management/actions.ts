@@ -28,7 +28,7 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 }
 
 
-export async function dissolveWorkGroup(groupId: string): Promise<{ success: boolean; message: string }> {
+export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
   try {
     const groupRef = doc(db, 'workGroups', groupId);
     
@@ -42,32 +42,27 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
         const groupData = groupSnap.data() as WorkGroup;
         const jobOrderIds = groupData.jobOrderIds || [];
         
-        // Determine the final state to be propagated BEFORE deleting the group.
-        const isGroupCompleted = groupData.status === 'completed';
+        // Determine the final state to be propagated based on the new `forceComplete` flag.
+        const isGroupCompleted = forceComplete;
         
         if (jobOrderIds.length > 0) {
-            // First, update all child jobs.
             const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
-            const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
-
-            for (const jobDoc of jobDocs) {
-                 if (jobDoc.exists()) {
-                    // If the group was completed, all jobs become completed.
-                    // If it was manually dissolved, they inherit the group's current progress and become paused.
-                    const finalStatus = isGroupCompleted ? 'completed' : 'paused';
+            
+            for (const jobRef of jobRefs) {
+                 // We don't need to read the job docs here, just update them based on the group's state.
+                 const finalStatus = isGroupCompleted ? 'completed' : 'paused';
                     
-                    transaction.update(jobDoc.ref, { 
-                        workGroupId: deleteField(),
-                        phases: groupData.phases, // Inherit the exact phase progress from the group
-                        status: finalStatus,
-                        overallStartTime: groupData.overallStartTime || jobDoc.data().overallStartTime || null,
-                        overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
-                        isProblemReported: groupData.isProblemReported || false,
-                        problemType: groupData.problemType || deleteField(),
-                        problemNotes: groupData.problemNotes || deleteField(),
-                        problemReportedBy: groupData.problemReportedBy || deleteField(),
-                    });
-                }
+                 transaction.update(jobRef, { 
+                    workGroupId: deleteField(),
+                    phases: groupData.phases, // Inherit the exact phase progress from the group
+                    status: finalStatus,
+                    overallStartTime: groupData.overallStartTime || null,
+                    overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
+                    isProblemReported: groupData.isProblemReported || false,
+                    problemType: groupData.problemType || deleteField(),
+                    problemNotes: groupData.problemNotes || deleteField(),
+                    problemReportedBy: groupData.problemReportedBy || deleteField(),
+                });
             }
         }
         
@@ -79,11 +74,7 @@ export async function dissolveWorkGroup(groupId: string): Promise<{ success: boo
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
     
-    // The message is now determined based on the initial state of the group before dissolution.
-    const groupData = (await getDoc(groupRef)).data() as WorkGroup | undefined; // Re-fetch might not work as it's deleted, but the logic inside transaction is what matters.
-    const wasCompleted = groupData ? groupData.status === 'completed' : (await getDoc(groupRef)).data()?.status === 'completed';
-
-    const message = wasCompleted
+    const message = forceComplete
         ? `Gruppo ${groupId} completato e sciolto. Le commesse sono state finalizzate.`
         : `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti e mantengono l'avanzamento attuale.`;
 
