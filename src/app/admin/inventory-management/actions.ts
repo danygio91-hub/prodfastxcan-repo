@@ -102,8 +102,12 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
       } else { // 'n' or 'mt'
-          if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = inputQuantity * material.conversionFactor;
+          const conversionFactor = inputUnit === material.unitOfMeasure
+            ? material.conversionFactor
+            : material.secondaryConversionFactor;
+
+          if (conversionFactor && conversionFactor > 0) {
+              netWeight = inputQuantity * conversionFactor;
               grossWeight = netWeight + tareWeight;
           } else {
                throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
@@ -176,47 +180,59 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const material = materialSnap.data() as RawMaterial;
             const existingBatches = material.batches || [];
             let updatedBatches = [...existingBatches];
-            let stockChange = record.netWeight; // Default change is adding the new amount
-
-            const batchToUpdateIndex = record.lotto && record.lotto !== 'INV' 
-                ? existingBatches.findIndex(b => b.lotto === record.lotto) 
-                : -1;
             
             const recordDate = record.recordedAt && typeof (record.recordedAt as any).toDate === 'function' 
                 ? (record.recordedAt as any).toDate()
                 : new Date(record.recordedAt);
-
 
             const newBatchData: RawMaterialBatch = {
                 id: `batch-inv-${record.id}`,
                 inventoryRecordId: recordId, // Crucial link to the original record
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: record.netWeight,
+                netQuantity: record.inputUnit === 'kg' ? record.netWeight : record.inputQuantity,
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
                 lotto: record.lotto,
             };
+            
+            const batchToUpdateIndex = record.lotto && record.lotto !== 'INV' 
+                ? existingBatches.findIndex(b => b.lotto === record.lotto) 
+                : -1;
 
             if (batchToUpdateIndex > -1) {
-                // UPDATE/REPLACE logic
-                const oldBatch = updatedBatches[batchToUpdateIndex];
-                stockChange = record.netWeight - (oldBatch.netQuantity || 0); // Calculate the difference
-                newBatchData.id = oldBatch.id; // Preserve the original batch ID
+                newBatchData.id = existingBatches[batchToUpdateIndex].id; // Preserve original batch ID
                 updatedBatches[batchToUpdateIndex] = newBatchData;
             } else {
-                // ADD logic
                 updatedBatches.push(newBatchData);
             }
+            
+            const unitsToAdd = record.inputUnit === 'kg' ? 0 : record.inputQuantity;
+            let weightToAdd = record.netWeight;
 
-            const newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            const newWeightKg = (material.currentWeightKg || 0) + stockChange;
+            // Handle replacement logic
+            if (batchToUpdateIndex > -1) {
+                const oldBatch = existingBatches[batchToUpdateIndex];
+                const oldUnits = oldBatch.netQuantity || 0;
+                let oldWeight = 0;
+                
+                if (material.unitOfMeasure === 'kg') {
+                    oldWeight = oldUnits;
+                } else if (material.conversionFactor) {
+                    oldWeight = oldUnits * material.conversionFactor;
+                }
+                
+                weightToAdd -= oldWeight;
+            }
+            
+            const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
+            const newWeightKg = (material.currentWeightKg || 0) + weightToAdd;
 
             // Update material stock
             transaction.update(materialRef, { 
                 batches: updatedBatches,
-                currentStockUnits: material.unitOfMeasure === 'kg' ? newWeightKg : newStockUnits,
+                currentStockUnits: newStockUnits,
                 currentWeightKg: newWeightKg,
             });
             
@@ -287,8 +303,11 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    const newStockUnits = (material.currentStockUnits || 0) - record.netWeight;
-                    const newWeightKg = (material.currentWeightKg || 0) - record.netWeight;
+                    const unitsToRevert = record.inputUnit === 'kg' ? 0 : record.inputQuantity;
+                    const weightToRevert = record.netWeight;
+
+                    const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
+                    const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
 
                     transaction.update(materialRef, {
                         batches: arrayRemove(batchToRemove),
@@ -325,7 +344,12 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
         if (!recordSnap.exists() || recordSnap.data().status !== 'pending') {
             throw new Error("È possibile modificare solo registrazioni in attesa.");
         }
-        
+        const record = recordSnap.data() as InventoryRecord;
+        const material = await getMaterialById(record.materialId);
+        if (!material) {
+             throw new Error("Materia prima associata non trovata.");
+        }
+
         let tareWeight = 0;
         if (packagingId && packagingId !== 'none') {
             const packagingRef = doc(db, 'packaging', packagingId);
@@ -335,7 +359,22 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
             }
         }
         
-        const netWeight = grossWeight - tareWeight;
+        let netWeight = 0;
+        
+        if (inputUnit === 'kg') {
+            netWeight = inputQuantity - tareWeight;
+            grossWeight = inputQuantity;
+        } else {
+             const conversionFactor = inputUnit === material.unitOfMeasure
+                ? material.conversionFactor
+                : material.secondaryConversionFactor;
+            
+            if (conversionFactor && conversionFactor > 0) {
+                 netWeight = inputQuantity * conversionFactor;
+            }
+            grossWeight = netWeight + tareWeight;
+        }
+
 
         if (netWeight < 0) {
             throw new Error("Il peso netto risultante è negativo.");
@@ -404,8 +443,11 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-            const newStockUnits = (materialData.currentStockUnits || 0) - recordData.netWeight;
-            const newWeightKg = (materialData.currentWeightKg || 0) - recordData.netWeight;
+            const unitsToRevert = recordData.inputUnit === 'kg' ? 0 : recordData.inputQuantity;
+            const weightToRevert = recordData.netWeight;
+
+            const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
+            const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
 
             transaction.update(materialRef, {
               batches: arrayRemove(batchToRemove),
@@ -441,4 +483,3 @@ export async function getMaterialById(materialId: string): Promise<RawMaterial |
     
 
     
-
