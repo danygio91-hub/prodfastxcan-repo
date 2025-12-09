@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -62,12 +61,23 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
     const data = doc.data() as RawMaterial;
-    // The `stock` property is for display purposes on the client.
-    // It is calculated from `currentStockUnits` which is the source of truth from Firestore.
+    
+    // Determine the correct value for the "Stock Unità" column.
+    let displayUnits = 0;
+    if (data.unitOfMeasure === 'kg') {
+      // For KG items, 'Stock Unità' might represent something different or just be the weight.
+      // For now, let's keep it consistent with weight, but formatted.
+      displayUnits = parseFloat((data.currentStockUnits || 0).toFixed(2));
+    } else {
+      // For 'n' or 'mt', it should be an integer.
+      displayUnits = Math.floor(data.currentStockUnits || 0);
+    }
+    
     return {
       ...data,
       id: doc.id,
-      stock: data.currentStockUnits || 0,
+      stock: displayUnits, // Deprecated, but keep for compatibility if needed elsewhere
+      currentStockUnits: displayUnits, // This is what the table uses
     };
   });
   return list;
@@ -512,5 +522,3 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
-
-    
