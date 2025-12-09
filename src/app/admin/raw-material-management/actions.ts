@@ -62,22 +62,15 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const list = snapshot.docs.map(doc => {
     const data = doc.data() as RawMaterial;
     
-    // Determine the correct value for the "Stock Unità" column.
-    let displayUnits = 0;
-    if (data.unitOfMeasure === 'kg') {
-      // For KG items, 'Stock Unità' might represent something different or just be the weight.
-      // For now, let's keep it consistent with weight, but formatted.
-      displayUnits = parseFloat((data.currentStockUnits || 0).toFixed(2));
-    } else {
-      // For 'n' or 'mt', it should be an integer.
-      displayUnits = Math.floor(data.currentStockUnits || 0);
-    }
+    // The `currentStockUnits` field from Firestore now holds the definitive value.
+    // No more client-side calculations or rounding for display.
+    const displayUnits = data.currentStockUnits || 0;
     
     return {
       ...data,
       id: doc.id,
-      stock: displayUnits, // Deprecated, but keep for compatibility if needed elsewhere
-      currentStockUnits: displayUnits, // This is what the table uses
+      // Ensure the value used by the table is the direct, correct value from the database.
+      currentStockUnits: displayUnits, 
     };
   });
   return list;
