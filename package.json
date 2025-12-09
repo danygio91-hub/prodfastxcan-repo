@@ -38,11 +38,11 @@
     "genkit": "^1.15.5",
     "is-odd": "^3.0.1",
     "lucide-react": "^0.354.0",
-    "next": "14.2.3",
+    "next": "14.2.4",
     "next-themes": "^0.3.0",
-    "react": "^18.2.0",
+    "react": "^18.3.1",
     "react-day-picker": "^8.10.0",
-    "react-dom": "^18.2.0",
+    "react-dom": "^18.3.1",
     "react-hook-form": "^7.51.0",
     "react-qr-code": "^2.0.12",
     "recharts": "^2.12.2",
@@ -53,10 +53,10 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/node": "^20",
+    "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.2.0",
+    "@types/react-dom": "^18.3.0",
     "eslint": "^8",
-    "eslint-config-next": "14.2.3"
+    "eslint-config-next": "14.2.4"
   }
 }
