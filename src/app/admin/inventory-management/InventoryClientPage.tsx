@@ -313,7 +313,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 <Loader2 className="h-5 w-5 animate-spin ml-auto" />
                                               ) : (
                                                 <>
-                                                  <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)}>
+                                                  <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)} disabled={record.status !== 'pending'}>
                                                     <Pencil className="h-4 w-4"/>
                                                   </Button>
                                                   {record.status === 'pending' ? (
