@@ -146,7 +146,7 @@ export default function InventoryPage() {
 
     setIsCapturing(true);
     try {
-        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
         const barcodes = await barcodeDetector.detect(videoRef.current);
         if (barcodes.length > 0) {
             onScan(barcodes[0].rawValue);
