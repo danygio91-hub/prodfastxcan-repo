@@ -190,7 +190,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId, // Crucial link to the original record
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: record.inputUnit === 'kg' ? record.netWeight : record.inputQuantity,
+                netQuantity: record.inputQuantity,
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -208,16 +208,17 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 updatedBatches.push(newBatchData);
             }
             
-            const unitsToAdd = record.inputUnit === 'kg' ? 0 : record.inputQuantity;
+            const unitsToAdd = record.inputQuantity;
             let weightToAdd = record.netWeight;
 
             // Handle replacement logic
             if (batchToUpdateIndex > -1) {
                 const oldBatch = existingBatches[batchToUpdateIndex];
                 const oldUnits = oldBatch.netQuantity || 0;
-                let oldWeight = 0;
                 
-                if (material.unitOfMeasure === 'kg') {
+                let oldWeight = 0;
+                // Important: calculate old weight based on the material's properties at that time, though we use current here as an approximation.
+                 if (material.unitOfMeasure === 'kg') {
                     oldWeight = oldUnits;
                 } else if (material.conversionFactor) {
                     oldWeight = oldUnits * material.conversionFactor;
@@ -303,7 +304,7 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    const unitsToRevert = record.inputUnit === 'kg' ? 0 : record.inputQuantity;
+                    const unitsToRevert = record.inputQuantity;
                     const weightToRevert = record.netWeight;
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
@@ -443,7 +444,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-            const unitsToRevert = recordData.inputUnit === 'kg' ? 0 : recordData.inputQuantity;
+            const unitsToRevert = recordData.inputQuantity;
             const weightToRevert = recordData.netWeight;
 
             const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;

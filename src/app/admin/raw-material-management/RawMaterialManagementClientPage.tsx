@@ -201,7 +201,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             type: 'Carico' as const,
             date: b.date,
             description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-            quantity: b.netQuantity || 0,
+            quantity: material.unitOfMeasure === 'kg' ? b.grossWeight : (b.netQuantity || 0),
             unit: material.unitOfMeasure.toUpperCase(),
             id: b.id
         })),
@@ -832,7 +832,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {(mov.quantity || 0).toFixed(2)} {mov.unit}
+                                  {mov.quantity.toFixed(2)} {mov.unit}
                                 </TableCell>
                             </TableRow>
                             ))
