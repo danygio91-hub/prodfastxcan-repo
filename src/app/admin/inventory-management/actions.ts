@@ -178,8 +178,6 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             }
             
             const material = materialSnap.data() as RawMaterial;
-            const existingBatches = material.batches || [];
-            let updatedBatches = [...existingBatches];
             
             const recordDate = record.recordedAt && typeof (record.recordedAt as any).toDate === 'function' 
                 ? (record.recordedAt as any).toDate()
@@ -187,7 +185,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
 
             const newBatchData: RawMaterialBatch = {
                 id: `batch-inv-${record.id}`,
-                inventoryRecordId: recordId, // Crucial link to the original record
+                inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
                 netQuantity: record.inputQuantity,
@@ -197,36 +195,28 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 lotto: record.lotto,
             };
             
-            const batchToUpdateIndex = record.lotto && record.lotto !== 'INV' 
-                ? existingBatches.findIndex(b => b.lotto === record.lotto) 
-                : -1;
-
-            if (batchToUpdateIndex > -1) {
-                newBatchData.id = existingBatches[batchToUpdateIndex].id; // Preserve original batch ID
-                updatedBatches[batchToUpdateIndex] = newBatchData;
-            } else {
-                updatedBatches.push(newBatchData);
-            }
+            const existingBatches = material.batches || [];
+            const updatedBatches = [...existingBatches, newBatchData];
             
-            const unitsToAdd = record.inputQuantity;
+            let unitsToAdd: number;
             let weightToAdd = record.netWeight;
 
-            // Handle replacement logic
-            if (batchToUpdateIndex > -1) {
-                const oldBatch = existingBatches[batchToUpdateIndex];
-                const oldUnits = oldBatch.netQuantity || 0;
-                
-                let oldWeight = 0;
-                // Important: calculate old weight based on the material's properties at that time, though we use current here as an approximation.
-                 if (material.unitOfMeasure === 'kg') {
-                    oldWeight = oldUnits;
-                } else if (material.conversionFactor) {
-                    oldWeight = oldUnits * material.conversionFactor;
+            // If the primary unit is NOT kg and we have a conversion factor,
+            // we calculate the units based on the net weight.
+            // This is crucial when the operator inputs KG directly for an 'n' or 'mt' item.
+            if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                if (record.inputUnit === 'kg') {
+                    // Operator entered weight directly, we calculate the pieces
+                    unitsToAdd = Math.round(record.netWeight / material.conversionFactor);
+                } else {
+                    // Operator entered pieces/meters, we use that directly
+                    unitsToAdd = record.inputQuantity;
                 }
-                
-                weightToAdd -= oldWeight;
+            } else {
+                // For KG materials or materials without conversion factor, units and weight are treated as the same value initially.
+                unitsToAdd = record.inputQuantity;
             }
-            
+
             const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
             const newWeightKg = (material.currentWeightKg || 0) + weightToAdd;
 
@@ -304,8 +294,18 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    const unitsToRevert = record.inputQuantity;
-                    const weightToRevert = record.netWeight;
+                    let unitsToRevert: number;
+                    let weightToRevert = record.netWeight;
+
+                    if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                        if (record.inputUnit === 'kg') {
+                            unitsToRevert = Math.round(record.netWeight / material.conversionFactor);
+                        } else {
+                            unitsToRevert = record.inputQuantity;
+                        }
+                    } else {
+                        unitsToRevert = record.inputQuantity;
+                    }
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
                     const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
@@ -444,9 +444,19 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-            const unitsToRevert = recordData.inputQuantity;
-            const weightToRevert = recordData.netWeight;
+                let unitsToRevert: number;
+                let weightToRevert = recordData.netWeight;
 
+                if (materialData.unitOfMeasure !== 'kg' && materialData.conversionFactor && materialData.conversionFactor > 0) {
+                    if (recordData.inputUnit === 'kg') {
+                        unitsToRevert = Math.round(recordData.netWeight / materialData.conversionFactor);
+                    } else {
+                        unitsToRevert = recordData.inputQuantity;
+                    }
+                } else {
+                    unitsToRevert = recordData.inputQuantity;
+                }
+            
             const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
             const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
 
