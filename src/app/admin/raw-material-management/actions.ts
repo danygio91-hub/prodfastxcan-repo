@@ -61,9 +61,12 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
     const data = doc.data() as RawMaterial;
+    // Ensure correct units are displayed, not weight for 'n' or 'mt'
+    const displayUnits = data.unitOfMeasure === 'kg' ? data.currentWeightKg : data.currentStockUnits;
     return {
       ...data,
       id: doc.id,
+      currentStockUnits: displayUnits,
     };
   });
   return list;
@@ -477,7 +480,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             },
             unitOfMeasure: unitOfMeasure,
             conversionFactor: conversionFactor,
-            secondaryUnitOfMeasure: validData.secondaryUnitOfMeasure === 'none' ? null : validData.secondaryUnitOfMeasure,
+            secondaryUnitOfMeasure: validData.secondaryUnitOfMeasure === 'none' ? null : (validData.secondaryUnitOfMeasure ?? null),
             secondaryConversionFactor: validData.secondaryConversionFactor || null,
             batches: initialBatch ? [initialBatch] : [],
             currentStockUnits: stockUnits,
@@ -508,5 +511,3 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
-
-    
