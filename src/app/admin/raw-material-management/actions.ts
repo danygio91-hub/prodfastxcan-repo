@@ -61,12 +61,12 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
     const data = doc.data() as RawMaterial;
-    // Ensure correct units are displayed, not weight for 'n' or 'mt'
-    const displayUnits = data.unitOfMeasure === 'kg' ? data.currentWeightKg : data.currentStockUnits;
     return {
       ...data,
       id: doc.id,
-      currentStockUnits: displayUnits,
+      // Ensure we always return the direct values from the database
+      currentStockUnits: data.currentStockUnits ?? 0,
+      currentWeightKg: data.currentWeightKg ?? 0,
     };
   });
   return list;
