@@ -61,16 +61,9 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
   const snapshot = await getDocs(materialsCol);
   const list = snapshot.docs.map(doc => {
     const data = doc.data() as RawMaterial;
-    
-    // The `currentStockUnits` field from Firestore now holds the definitive value.
-    // No more client-side calculations or rounding for display.
-    const displayUnits = data.currentStockUnits || 0;
-    
     return {
       ...data,
       id: doc.id,
-      // Ensure the value used by the table is the direct, correct value from the database.
-      currentStockUnits: displayUnits, 
     };
   });
   return list;
@@ -451,7 +444,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        let stockUnits = validData.stock ?? 0;
+        const stockUnits = validData.stock ?? 0;
         const conversionFactor = unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null);
         
         let stockKg = 0;
@@ -460,16 +453,16 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         } else if (conversionFactor && conversionFactor > 0) {
             stockKg = stockUnits * conversionFactor;
         }
-
-        const initialBatch: RawMaterialBatch = {
-            id: `batch-import-${Date.now()}`,
+        
+        const initialBatch: RawMaterialBatch | null = stockUnits > 0 ? {
+            id: `batch-import-${Date.now()}-${addedCount}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
             netQuantity: stockUnits,
-            grossWeight: stockUnits, // Assuming imported stock is net, gross is same as net with 0 tare
+            grossWeight: stockKg,
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
-        };
+        } : null;
 
         const newMaterial: Omit<RawMaterial, 'id'|'stock'> = {
             code: trimmedCode,
@@ -486,7 +479,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             conversionFactor: conversionFactor,
             secondaryUnitOfMeasure: validData.secondaryUnitOfMeasure === 'none' ? null : validData.secondaryUnitOfMeasure,
             secondaryConversionFactor: validData.secondaryConversionFactor || null,
-            batches: stockUnits > 0 ? [initialBatch] : [],
+            batches: initialBatch ? [initialBatch] : [],
             currentStockUnits: stockUnits,
             currentWeightKg: stockKg,
         };
@@ -515,3 +508,5 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
+
+    
