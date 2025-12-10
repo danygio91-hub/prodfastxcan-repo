@@ -189,7 +189,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   };
 
 
-  const handleOpenHistoryDialog = async (material: RawMaterial) => {
+ const handleOpenHistoryDialog = async (material: RawMaterial) => {
     setSelectedMaterial(material);
     setIsHistoryDialogOpen(true);
 
@@ -197,27 +197,27 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     const batches = material.batches || [];
     
     const combinedMovements: Movement[] = [
-        ...batches.map(b => ({
-            type: 'Carico' as const,
-            date: b.date,
-            description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-            quantity: material.unitOfMeasure === 'kg' ? b.grossWeight : (b.netQuantity || 0),
-            unit: material.unitOfMeasure.toUpperCase(),
-            id: b.id
-        })),
-        ...withdrawals.map(w => ({
-            type: 'Scarico' as const,
-            date: w.withdrawalDate.toISOString(),
-            description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
-            quantity: -((w.consumedWeight) || 0),
-            unit: 'KG',
-            id: w.id
-        }))
+      ...batches.map((b): Movement => ({
+        type: 'Carico' as const,
+        date: b.date,
+        description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+        quantity: b.netQuantity || 0,
+        unit: material.unitOfMeasure.toUpperCase(),
+        id: b.id,
+      })),
+      ...withdrawals.map((w): Movement => ({
+        type: 'Scarico' as const,
+        date: w.withdrawalDate.toISOString(),
+        description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+        quantity: -(material.unitOfMeasure !== 'kg' ? (w.consumedUnits || 0) : (w.consumedWeight || 0)),
+        unit: material.unitOfMeasure !== 'kg' ? material.unitOfMeasure.toUpperCase() : 'KG',
+        id: w.id,
+      })),
     ];
 
     combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setMaterialMovements(combinedMovements);
-};
+  };
   
   const handleOpenDetailViewDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
@@ -832,7 +832,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {mov.quantity.toFixed(2)} {mov.unit}
+                                  {mov.quantity.toFixed(mov.unit === 'KG' ? 2 : 0)} {mov.unit}
                                 </TableCell>
                             </TableRow>
                             ))
@@ -914,3 +914,4 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
