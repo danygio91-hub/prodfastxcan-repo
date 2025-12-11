@@ -76,23 +76,30 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   const watchedValues = form.watch();
   
   const calculatedNetWeight = useMemo(() => {
-      if (!material) return 0;
-      
-      const tareWeight = packagingItems.find(p => p.id === watchedValues.packagingId)?.weightKg || 0;
-      let netWeight = 0;
+    if (!material) return 0;
 
-      if (watchedValues.inputUnit === 'kg') {
-          netWeight = (watchedValues.inputQuantity || 0) - tareWeight;
-      } else {
-          const conversionFactor = material.unitOfMeasure === watchedValues.inputUnit 
-              ? material.conversionFactor
-              : material.secondaryConversionFactor;
-          
-          if (conversionFactor && conversionFactor > 0) {
-              netWeight = (watchedValues.inputQuantity || 0) * conversionFactor;
-          }
-      }
-      return netWeight;
+    const tareWeight = packagingItems.find(p => p.id === watchedValues.packagingId)?.weightKg || 0;
+    const quantity = watchedValues.inputQuantity || 0;
+    const unit = watchedValues.inputUnit;
+
+    if (unit === 'kg') {
+        // If the user is inputting weight, it's the gross weight. Net weight is gross - tare.
+        return quantity - tareWeight;
+    } else {
+        // If the user is inputting pieces/meters, quantity is the net material.
+        // We calculate the net weight using the conversion factor.
+        const conversionFactor = unit === material.unitOfMeasure
+            ? material.conversionFactor
+            : material.secondaryConversionFactor;
+        
+        if (conversionFactor && conversionFactor > 0) {
+            return quantity * conversionFactor;
+        }
+    }
+    
+    // Fallback if no valid calculation can be made
+    return 0;
+
   }, [material, watchedValues, packagingItems]);
 
 
