@@ -69,21 +69,31 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
           
-          if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-            finalInputQuantity = netWeight / material.conversionFactor;
-          } else {
-            finalInputQuantity = netWeight; // For kg materials, the "unit" quantity is the net weight
+          if (netWeight < 0) {
+            throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
           }
+
+          // If the material's primary UoM is NOT kg, we must calculate the number of pieces.
+          if (material.unitOfMeasure !== 'kg') {
+              if (!material.conversionFactor || material.conversionFactor <= 0) {
+                  throw new Error(`Fattore di conversione mancante o non valido per il materiale ${material.code}. Impossibile calcolare le unità dal peso.`);
+              }
+              finalInputQuantity = netWeight / material.conversionFactor;
+          } else {
+              // If the material's primary UoM IS kg, then the "quantity in units" is the net weight.
+              finalInputQuantity = netWeight;
+          }
+
       } else { // 'n' or 'mt'
-          finalInputQuantity = inputQuantity;
-          const conversionFactor = material.conversionFactor;
-            
-          if (conversionFactor && conversionFactor > 0) {
-              netWeight = finalInputQuantity * conversionFactor;
-              grossWeight = netWeight + tareWeight;
+          finalInputQuantity = inputQuantity; // The user entered the number of pieces/meters
+          
+          if (material.conversionFactor && material.conversionFactor > 0) {
+              netWeight = finalInputQuantity * material.conversionFactor;
           } else {
-               throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
+               // If no conversion factor, we can't determine weight. Set it to the quantity itself assuming 1:1, but this is a fallback.
+               netWeight = finalInputQuantity;
           }
+          grossWeight = netWeight + tareWeight;
       }
 
 
@@ -103,8 +113,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: inputUnit,
-          inputQuantity: finalInputQuantity, 
+          inputUnit: inputUnit, // The unit the user *entered*
+          inputQuantity: finalInputQuantity, // The quantity in the material's primary UoM
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -116,4 +126,3 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-

@@ -195,7 +195,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: record.inputQuantity, // For a batch, net quantity refers to pieces/meters
+                netQuantity: record.inputQuantity,
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -205,14 +205,14 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
             
-            let unitsToAdd = 0;
+            let unitsToAdd: number;
             const weightToAdd = record.netWeight;
 
             if (material.unitOfMeasure === 'kg') {
-                unitsToAdd = weightToAdd;
+                unitsToAdd = record.netWeight;
             } else {
                  if (material.conversionFactor && material.conversionFactor > 0) {
-                     unitsToAdd = weightToAdd / material.conversionFactor;
+                     unitsToAdd = record.inputQuantity;
                  } else {
                      throw new Error(`Fattore di conversione mancante per il materiale ${material.code}. Impossibile calcolare le unità.`);
                  }
@@ -300,10 +300,8 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
 
                     if (material.unitOfMeasure === 'kg') {
                         unitsToRevert = weightToRevert;
-                    } else if (material.conversionFactor && material.conversionFactor > 0) {
-                        unitsToRevert = weightToRevert / material.conversionFactor;
                     } else {
-                        // Fallback, but should have failed on approval if no factor
+                        // The 'inputQuantity' on the record is already the correct number of units.
                         unitsToRevert = record.inputQuantity;
                     }
 
@@ -367,31 +365,31 @@ export async function updateInventoryRecord(
             }
         }
         
-        let netWeight = 0;
-        let finalInputQuantity = 0; // The quantity in pieces (n)
-        let finalGrossWeight = 0;
-
+        let netWeight: number;
+        let finalInputQuantity: number;
+        let finalGrossWeight: number;
+        
         if (inputUnit === 'kg') {
-            finalGrossWeight = inputQuantity; // User entered the gross weight
+            finalGrossWeight = inputQuantity; // The user provided the gross weight
             netWeight = finalGrossWeight - tareWeight;
+            if (netWeight < 0) throw new Error("Il peso netto risultante è negativo.");
             
-            if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-              finalInputQuantity = netWeight / material.conversionFactor;
+            if(material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                finalInputQuantity = netWeight / material.conversionFactor;
             } else {
-              finalInputQuantity = netWeight; // For kg materials, units = net weight
+                finalInputQuantity = netWeight;
             }
-
         } else { // 'n' or 'mt'
-            finalInputQuantity = inputQuantity; // User entered the number of pieces
+            finalInputQuantity = inputQuantity; // The user provided the number of pieces
+            
             if (material.conversionFactor && material.conversionFactor > 0) {
                 netWeight = finalInputQuantity * material.conversionFactor;
+            } else {
+                netWeight = finalInputQuantity; // Fallback if no conversion factor
             }
             finalGrossWeight = netWeight + tareWeight;
         }
 
-        if (netWeight < 0) {
-            throw new Error("Il peso netto risultante è negativo.");
-        }
 
         await updateDoc(recordRef, {
             grossWeight: finalGrossWeight,
@@ -462,12 +460,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
                 if (materialData.unitOfMeasure === 'kg') {
                     unitsToRevert = weightToRevert;
                 } else {
-                    if (materialData.conversionFactor && materialData.conversionFactor > 0) {
-                        unitsToRevert = weightToRevert / materialData.conversionFactor;
-                    } else {
-                        // This case is unlikely if the approval logic is correct, but as a fallback:
-                        unitsToRevert = recordData.inputQuantity;
-                    }
+                    unitsToRevert = recordData.inputQuantity;
                 }
             
                 const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
@@ -496,7 +489,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
 
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
     const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(materialRef);
+    const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
         return docSnap.data() as RawMaterial;
     }
@@ -507,5 +500,6 @@ export async function getMaterialById(materialId: string): Promise<RawMaterial |
     
 
     
+
 
 
