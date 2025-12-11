@@ -202,7 +202,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: record.inputQuantity,
+                netQuantity: record.netWeight,
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -212,7 +212,6 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
             
-            // Correctly add the units and the net weight.
             const unitsToAdd = record.inputQuantity;
             const weightToAdd = record.netWeight;
 
@@ -352,8 +351,7 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
         let netWeight = 0;
         
         if (inputUnit === 'kg') {
-            netWeight = inputQuantity - tareWeight;
-            grossWeight = inputQuantity;
+            netWeight = grossWeight - tareWeight;
         } else {
              const conversionFactor = inputUnit === material.unitOfMeasure
                 ? material.conversionFactor

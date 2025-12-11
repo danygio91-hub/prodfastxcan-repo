@@ -108,17 +108,26 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     setIsPending(true);
     
     const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
-    let grossWeight;
-    
+    let netWeight: number;
+    let grossWeight: number;
+    let finalInputQuantity: number = values.inputQuantity;
+
     if (values.inputUnit === 'kg') {
       grossWeight = values.inputQuantity;
-    } else {
-      grossWeight = calculatedNetWeight + tareWeight;
+      netWeight = grossWeight - tareWeight;
+      const conversionFactor = material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor;
+      if (conversionFactor && conversionFactor > 0) {
+        finalInputQuantity = netWeight / conversionFactor;
+      }
+    } else { // 'n' or 'mt'
+      const conversionFactor = values.inputUnit === material.unitOfMeasure ? material.conversionFactor : material.secondaryConversionFactor;
+      netWeight = (conversionFactor && conversionFactor > 0) ? values.inputQuantity * conversionFactor : 0;
+      grossWeight = netWeight + tareWeight;
     }
 
     const result = await updateInventoryRecord(
         record.id, 
-        values.inputQuantity,
+        finalInputQuantity,
         values.inputUnit,
         grossWeight,
         values.packagingId, 
