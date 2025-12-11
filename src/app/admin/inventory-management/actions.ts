@@ -8,6 +8,30 @@ import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 
+// Helper function to recalculate stock totals from an array of batches.
+function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): { currentStockUnits: number; currentWeightKg: number } {
+  let newTotalStockUnits = 0;
+  let newTotalWeightKg = 0;
+
+  for (const batch of batches) {
+    const batchNetQuantity = batch.netQuantity || 0;
+    if (material.unitOfMeasure === 'kg') {
+      newTotalStockUnits += batchNetQuantity;
+      newTotalWeightKg += batchNetQuantity;
+    } else { // 'n' or 'mt'
+      newTotalStockUnits += batchNetQuantity;
+      if (material.conversionFactor && material.conversionFactor > 0) {
+        newTotalWeightKg += batchNetQuantity * material.conversionFactor;
+      }
+    }
+  }
+
+  return {
+    currentStockUnits: newTotalStockUnits,
+    currentWeightKg: newTotalWeightKg,
+  };
+}
+
 
 // Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {
@@ -201,10 +225,9 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 : new Date(record.recordedAt);
 
             let unitsToAdd: number;
-            const weightToAdd = record.netWeight;
 
             if (material.unitOfMeasure === 'kg') {
-                unitsToAdd = weightToAdd;
+                unitsToAdd = record.netWeight;
             } else {
                  if (material.conversionFactor && material.conversionFactor > 0) {
                      unitsToAdd = record.netWeight / material.conversionFactor;
@@ -227,15 +250,12 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
-            
-            const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
-            const newWeightKg = (material.currentWeightKg || 0) + weightToAdd;
+            const newStock = recalculateStock(material, updatedBatches);
 
             // Update material stock
             transaction.update(materialRef, { 
                 batches: updatedBatches,
-                currentStockUnits: newStockUnits,
-                currentWeightKg: newWeightKg,
+                ...newStock
             });
             
             // Update record status
@@ -302,34 +322,18 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const material = materialSnap.data() as RawMaterial;
 
                 // Find and remove the specific batch created by this inventory record
-                const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
+                const updatedBatches = (material.batches || []).filter(b => b.inventoryRecordId !== recordId);
                 
-                if (batchToRemove) {
-                    let unitsToRevert: number;
-                    const weightToRevert = record.netWeight;
-
-                    if (material.unitOfMeasure === 'kg') {
-                        unitsToRevert = weightToRevert;
-                    } else {
-                         if (material.conversionFactor && material.conversionFactor > 0) {
-                            unitsToRevert = record.netWeight / material.conversionFactor;
-                        } else {
-                            // Fallback, should not happen if data is consistent
-                            unitsToRevert = record.inputQuantity; 
-                        }
-                    }
-
-                    const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
-                    const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
-
-                    transaction.update(materialRef, {
-                        batches: arrayRemove(batchToRemove),
-                        currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
-                        currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
-                    });
-                } else {
+                if (updatedBatches.length === (material.batches || []).length) {
                     console.warn(`Could not find inventory batch to remove for record ${recordId}. Stock may be inaccurate.`);
                 }
+                
+                const newStock = recalculateStock(material, updatedBatches);
+
+                transaction.update(materialRef, {
+                    batches: updatedBatches,
+                    ...newStock
+                });
             }
             
             // Reset the record's status
