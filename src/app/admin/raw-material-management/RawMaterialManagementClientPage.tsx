@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -193,13 +194,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            const quantity = b.netQuantity;
+            let quantity = b.netQuantity;
+            let unit = material.unitOfMeasure.toUpperCase();
+            // For inventory loads, we always show the net weight, as that's the core truth.
+            if (b.inventoryRecordId) {
+                // netQuantity in inventory batches IS the net weight.
+                quantity = b.grossWeight - b.tareWeight;
+                unit = 'KG';
+            }
             return {
                 type: 'Carico' as const,
                 date: b.date,
                 description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
                 quantity: quantity,
-                unit: material.unitOfMeasure.toUpperCase(),
+                unit: unit,
                 id: b.id,
             };
         }),
@@ -867,3 +875,4 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
