@@ -69,23 +69,11 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
-          // Calculate the number of pieces ('n' or 'mt') from the net weight
-          const conversionFactor = material.unitOfMeasure === 'kg' 
-              ? 1 
-              : (material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor);
-
-          if (conversionFactor && conversionFactor > 0) {
-              finalInputQuantity = Math.round(netWeight / conversionFactor);
-          } else if (material.unitOfMeasure === 'kg') {
-              finalInputQuantity = netWeight;
-          } else {
-              throw new Error("Fattore di conversione mancante per calcolare le unità dal peso.");
-          }
+          // For KG items, the "units" are the net weight itself
+          finalInputQuantity = netWeight;
       } else { // 'n' or 'mt' was entered
           finalInputQuantity = inputQuantity;
-          const conversionFactor = inputUnit === material.unitOfMeasure
-            ? material.conversionFactor
-            : material.secondaryConversionFactor;
+          const conversionFactor = material.conversionFactor;
             
           if (conversionFactor && conversionFactor > 0) {
               netWeight = finalInputQuantity * conversionFactor;
@@ -112,7 +100,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           recordedAt: Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit, // The unit the user actually entered ('kg', 'n', 'mt')
-          inputQuantity: finalInputQuantity, // Always store the piece count ('n' or 'mt')
+          inputQuantity: finalInputQuantity, // The calculated piece count if KG was entered, or the entered value itself if N/MT
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -124,3 +112,4 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+

@@ -102,22 +102,11 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
-          const conversionFactor = material.unitOfMeasure === 'kg' 
-              ? 1 
-              : (material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor);
-
-          if (conversionFactor && conversionFactor > 0) {
-              finalInputQuantity = Math.round(netWeight / conversionFactor);
-          } else if (material.unitOfMeasure === 'kg') {
-              finalInputQuantity = netWeight;
-          } else {
-              throw new Error("Fattore di conversione mancante per calcolare le unità dal peso.");
-          }
+          // For KG items, the "units" are the net weight itself
+          finalInputQuantity = netWeight;
       } else { // 'n' or 'mt'
           finalInputQuantity = inputQuantity;
-          const conversionFactor = inputUnit === material.unitOfMeasure
-            ? material.conversionFactor
-            : material.secondaryConversionFactor;
+          const conversionFactor = material.conversionFactor;
             
           if (conversionFactor && conversionFactor > 0) {
               netWeight = finalInputQuantity * conversionFactor;
@@ -212,8 +201,12 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
             
-            const unitsToAdd = record.inputQuantity;
+            let unitsToAdd = record.inputQuantity;
             const weightToAdd = record.netWeight;
+
+            if(material.unitOfMeasure === 'kg') {
+                unitsToAdd = weightToAdd;
+            }
 
             const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
             const newWeightKg = (material.currentWeightKg || 0) + weightToAdd;
@@ -292,8 +285,12 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    const unitsToRevert = record.inputQuantity;
+                    let unitsToRevert = record.inputQuantity;
                     const weightToRevert = record.netWeight;
+
+                    if(material.unitOfMeasure === 'kg'){
+                        unitsToRevert = weightToRevert;
+                    }
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
                     const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
@@ -324,7 +321,14 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
     }
 }
 
-export async function updateInventoryRecord(recordId: string, inputQuantity: number, inputUnit: 'n' | 'mt' | 'kg', grossWeight: number, packagingId: string | undefined, uid: string): Promise<{ success: boolean; message: string; }> {
+export async function updateInventoryRecord(
+    recordId: string, 
+    inputQuantity: number, 
+    inputUnit: 'n' | 'mt' | 'kg', 
+    grossWeight: number, 
+    packagingId: string | undefined, 
+    uid: string
+): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
     const recordRef = doc(db, 'inventoryRecords', recordId);
 
@@ -333,8 +337,8 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
         if (!recordSnap.exists() || recordSnap.data().status !== 'pending') {
             throw new Error("È possibile modificare solo registrazioni in attesa.");
         }
-        const record = recordSnap.data() as InventoryRecord;
-        const material = await getMaterialById(record.materialId);
+        
+        const material = await getMaterialById(recordSnap.data().materialId);
         if (!material) {
              throw new Error("Materia prima associata non trovata.");
         }
@@ -349,20 +353,27 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
         }
         
         let netWeight = 0;
-        
+        let finalInputQuantity = inputQuantity;
+
         if (inputUnit === 'kg') {
-            netWeight = grossWeight - tareWeight;
-        } else {
-             const conversionFactor = inputUnit === material.unitOfMeasure
-                ? material.conversionFactor
-                : material.secondaryConversionFactor;
-            
-            if (conversionFactor && conversionFactor > 0) {
-                 netWeight = inputQuantity * conversionFactor;
+            netWeight = inputQuantity - tareWeight; // Here, inputQuantity is the gross weight
+            grossWeight = inputQuantity;
+            if (material.unitOfMeasure === 'n' || material.unitOfMeasure === 'mt') {
+                if (material.conversionFactor && material.conversionFactor > 0) {
+                    finalInputQuantity = netWeight / material.conversionFactor;
+                } else {
+                    finalInputQuantity = 0; // Or handle error
+                }
+            } else {
+                 finalInputQuantity = netWeight;
+            }
+        } else { // 'n' or 'mt'
+            if (material.conversionFactor && material.conversionFactor > 0) {
+                netWeight = inputQuantity * material.conversionFactor;
             }
             grossWeight = netWeight + tareWeight;
+            finalInputQuantity = inputQuantity;
         }
-
 
         if (netWeight < 0) {
             throw new Error("Il peso netto risultante è negativo.");
@@ -373,7 +384,7 @@ export async function updateInventoryRecord(recordId: string, inputQuantity: num
             tareWeight: tareWeight,
             netWeight: netWeight,
             packagingId: packagingId || null,
-            inputQuantity: inputQuantity,
+            inputQuantity: finalInputQuantity,
             inputUnit: inputUnit,
         });
         
@@ -431,17 +442,21 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-                const unitsToRevert = recordData.inputQuantity;
+                let unitsToRevert = recordData.inputQuantity;
                 const weightToRevert = recordData.netWeight;
-            
-            const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
-            const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
 
-            transaction.update(materialRef, {
-              batches: arrayRemove(batchToRemove),
-              currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
-              currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
-            });
+                if (materialData.unitOfMeasure === 'kg') {
+                    unitsToRevert = weightToRevert;
+                }
+            
+                const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
+                const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
+
+                transaction.update(materialRef, {
+                  batches: arrayRemove(batchToRemove),
+                  currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
+                  currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
+                });
           }
         }
         // Finally, delete the inventory record itself.

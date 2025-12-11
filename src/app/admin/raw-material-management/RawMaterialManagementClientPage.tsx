@@ -152,10 +152,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         code: material.code,
         type: material.type,
         description: material.description,
-        sezione: material.details.sezione,
-        filo_el: material.details.filo_el,
-        larghezza: material.details.larghezza,
-        tipologia: material.details.tipologia,
+        sezione: material.details?.sezione,
+        filo_el: material.details?.filo_el,
+        larghezza: material.details?.larghezza,
+        tipologia: material.details?.tipologia,
         unitOfMeasure: material.unitOfMeasure || 'n',
         conversionFactor: material.conversionFactor || null,
       });
@@ -193,25 +193,25 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     const batches = material.batches || [];
     
     const combinedMovements: Movement[] = [
-      ...batches.map((b): Movement => {
-        const isKg = material.unitOfMeasure === 'kg';
-        return {
+      ...batches.map((b): Movement => ({
           type: 'Carico' as const,
           date: b.date,
           description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-          quantity: b.netQuantity || 0, // Always use the net quantity
-          unit: isKg ? 'KG' : material.unitOfMeasure.toUpperCase(), // Use the correct unit
+          quantity: b.netQuantity,
+          unit: material.unitOfMeasure.toUpperCase(),
           id: b.id,
+      })),
+      ...withdrawals.map((w): Movement => {
+        const quantity = material.unitOfMeasure === 'kg' ? w.consumedWeight : w.consumedUnits;
+        return {
+            type: 'Scarico' as const,
+            date: w.withdrawalDate.toISOString(),
+            description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+            quantity: -(quantity || 0),
+            unit: material.unitOfMeasure.toUpperCase(),
+            id: w.id,
         };
       }),
-      ...withdrawals.map((w): Movement => ({
-        type: 'Scarico' as const,
-        date: w.withdrawalDate.toISOString(),
-        description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
-        quantity: -(material.unitOfMeasure !== 'kg' ? (w.consumedUnits || 0) : (w.consumedWeight || 0)),
-        unit: material.unitOfMeasure !== 'kg' ? material.unitOfMeasure.toUpperCase() : 'KG',
-        id: w.id,
-      })),
     ];
 
     combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -551,7 +551,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.currentStockUnits}</TableCell>
+                            <TableCell>{material.unitOfMeasure === 'kg' ? material.currentWeightKg.toFixed(2) : material.currentStockUnits}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
@@ -659,7 +659,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         </FormItem>
                       )} />
                     {watchedUnitOfMeasure !== 'kg' && (
-                        <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore di Conversione</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore di Conversione (kg)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
                     )}
                 </div>
                 
@@ -886,6 +886,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 
 
 
