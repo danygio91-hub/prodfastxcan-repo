@@ -182,13 +182,17 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             lotto: lotto || null,
           };
 
-          let newStockUnits = (material.currentStockUnits || 0) + netQuantity;
+          let newStockUnits = material.currentStockUnits || 0;
           let newWeightKg = material.currentWeightKg || 0;
           
           if (material.unitOfMeasure === 'kg') {
-              newWeightKg = newStockUnits; // For KG items, units and weight are the same
-          } else if (material.conversionFactor && material.conversionFactor > 0) {
-              newWeightKg += netQuantity * material.conversionFactor;
+              newStockUnits += netQuantity;
+              newWeightKg += netQuantity;
+          } else {
+              newStockUnits += netQuantity;
+              if (material.conversionFactor && material.conversionFactor > 0) {
+                  newWeightKg += netQuantity * material.conversionFactor;
+              }
           }
           
           transaction.update(materialRef, { 
@@ -502,4 +506,3 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
-

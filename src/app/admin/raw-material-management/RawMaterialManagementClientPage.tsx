@@ -194,7 +194,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            const quantity = material.unitOfMeasure === 'kg' ? b.netQuantity : b.netQuantity;
+            const quantity = b.netQuantity;
             return {
                 type: 'Carico' as const,
                 date: b.date,
@@ -807,7 +807,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {mov.quantity.toFixed(mov.unit === 'KG' ? 2 : 0)} {mov.unit}
+                                  {mov.quantity.toFixed(2)} {mov.unit}
                                 </TableCell>
                             </TableRow>
                             ))
@@ -889,6 +889,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 
 
 
