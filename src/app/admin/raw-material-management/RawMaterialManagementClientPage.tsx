@@ -197,14 +197,17 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     const batches = material.batches || [];
     
     const combinedMovements: Movement[] = [
-      ...batches.map((b): Movement => ({
-        type: 'Carico' as const,
-        date: b.date,
-        description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-        quantity: b.netQuantity || 0,
-        unit: material.unitOfMeasure === 'kg' ? 'KG' : material.unitOfMeasure.toUpperCase(),
-        id: b.id,
-      })),
+      ...batches.map((b): Movement => {
+        const isKg = material.unitOfMeasure === 'kg';
+        return {
+          type: 'Carico' as const,
+          date: b.date,
+          description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+          quantity: b.netQuantity || 0, // Always use the net quantity
+          unit: isKg ? 'KG' : material.unitOfMeasure.toUpperCase(), // Use the correct unit
+          id: b.id,
+        };
+      }),
       ...withdrawals.map((w): Movement => ({
         type: 'Scarico' as const,
         date: w.withdrawalDate.toISOString(),
@@ -914,5 +917,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 
 
