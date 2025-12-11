@@ -59,7 +59,7 @@ export default function MaterialLoadingPage() {
     const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
     const [isCapturing, setIsCapturing] = useState(false);
     const [showNCReport, setShowNCReport] = useState(false);
-    const [inputUnit, setInputUnit] = useState<'primary' | 'secondary'>('primary');
+    const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
     
     const videoRef = useRef<HTMLVideoElement>(null);
     const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || step === 'scan_lotto', videoRef);
@@ -99,7 +99,6 @@ export default function MaterialLoadingPage() {
         } else {
             setScannedMaterial(result);
             form.setValue('materialId', result.id);
-            // Default to primary unit, but the form will allow switching
             form.setValue('unit', result.unitOfMeasure);
             setInputUnit('primary');
             setStep('scan_lotto');
@@ -149,8 +148,7 @@ export default function MaterialLoadingPage() {
           if (value !== undefined) formData.append(key, String(value));
         });
 
-        // Set the unit based on the switch state
-        const finalUnit = inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure : scannedMaterial?.secondaryUnitOfMeasure;
+        const finalUnit = inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure : 'kg';
         formData.set('unit', finalUnit || 'n');
 
 
@@ -353,28 +351,28 @@ export default function MaterialLoadingPage() {
                                         )}
                                     </div>
                                 )}
-                                {step === 'enter_quantity' && (
+                                {step === 'enter_quantity' && scannedMaterial && (
                                     <div>
                                         <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci Quantità</h3>
                                          <Form {...form}>
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
-                                                {scannedMaterial?.secondaryUnitOfMeasure && (
+                                                {scannedMaterial.unitOfMeasure !== 'kg' && (
                                                   <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
                                                     <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
                                                     <Switch
                                                       id="unit-switch"
-                                                      checked={inputUnit === 'secondary'}
-                                                      onCheckedChange={(checked) => setInputUnit(checked ? 'secondary' : 'primary')}
+                                                      checked={inputUnit === 'kg'}
+                                                      onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
                                                     />
-                                                    <Label htmlFor="unit-switch">{scannedMaterial.secondaryUnitOfMeasure.toUpperCase()}</Label>
+                                                    <Label htmlFor="unit-switch">KG</Label>
                                                   </div>
                                                 )}
 
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Quantità in Entrata ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : scannedMaterial?.secondaryUnitOfMeasure?.toUpperCase()})</FormLabel>
+                                                        <FormLabel>Quantità in Entrata ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
                                                     </FormItem>
@@ -438,3 +436,5 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
+
+    
