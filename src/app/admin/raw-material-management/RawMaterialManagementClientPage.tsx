@@ -202,7 +202,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         date: b.date,
         description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
         quantity: b.netQuantity || 0,
-        unit: material.unitOfMeasure.toUpperCase(),
+        unit: material.unitOfMeasure === 'kg' ? 'KG' : material.unitOfMeasure.toUpperCase(),
         id: b.id,
       })),
       ...withdrawals.map((w): Movement => ({
@@ -576,7 +576,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                         <Edit className="mr-2 h-4 w-4" />
                                         <span>Modifica Dettagli</span>
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material)}>
+                                    <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material, null)}>
                                         <PackagePlus className="mr-2 h-4 w-4" />
                                         <span>Aggiungi Lotto</span>
                                     </DropdownMenuItem>
@@ -914,4 +914,5 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 

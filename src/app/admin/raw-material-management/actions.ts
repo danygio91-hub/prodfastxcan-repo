@@ -462,7 +462,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
             netQuantity: stockUnits,
-            grossWeight: stockKg,
+            grossWeight: stockKg, // Assume gross = net for initial import if no other info
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
         } : null;

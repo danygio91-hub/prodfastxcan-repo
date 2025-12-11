@@ -61,20 +61,25 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      let netWeight = 0;
-      let grossWeight = 0;
-      let finalInputQuantity = inputQuantity;
+      let finalInputQuantity: number;
+      let netWeight: number;
+      let grossWeight: number;
 
       // Bidirectional calculation
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
           // Calculate the number of pieces ('n' or 'mt') from the net weight
-          const conversionFactor = material.unitOfMeasure === 'kg' ? 1 : material.conversionFactor;
+          const conversionFactor = material.unitOfMeasure === 'kg' 
+              ? 1 
+              : (material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor);
+
           if (conversionFactor && conversionFactor > 0) {
               finalInputQuantity = Math.round(netWeight / conversionFactor);
+          } else if (material.unitOfMeasure === 'kg') {
+              finalInputQuantity = netWeight;
           } else {
-              finalInputQuantity = 0; // Or handle as an error if conversion is mandatory
+              throw new Error("Fattore di conversione mancante per calcolare le unità dal peso.");
           }
       } else { // 'n' or 'mt' was entered
           finalInputQuantity = inputQuantity;
@@ -106,8 +111,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: inputUnit,
-          inputQuantity: finalInputQuantity, // Always store the calculated or entered pieces/meters
+          inputUnit: inputUnit, // The unit the user actually entered ('kg', 'n', 'mt')
+          inputQuantity: finalInputQuantity, // Always store the piece count ('n' or 'mt')
       };
       
       await addDoc(inventoryRef, newInventoryRecord);

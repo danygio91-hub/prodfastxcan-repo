@@ -95,24 +95,38 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      let netWeight = 0;
-      let grossWeight = 0;
+      let finalInputQuantity: number;
+      let netWeight: number;
+      let grossWeight: number;
 
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
+          const conversionFactor = material.unitOfMeasure === 'kg' 
+              ? 1 
+              : (material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor);
+
+          if (conversionFactor && conversionFactor > 0) {
+              finalInputQuantity = Math.round(netWeight / conversionFactor);
+          } else if (material.unitOfMeasure === 'kg') {
+              finalInputQuantity = netWeight;
+          } else {
+              throw new Error("Fattore di conversione mancante per calcolare le unità dal peso.");
+          }
       } else { // 'n' or 'mt'
+          finalInputQuantity = inputQuantity;
           const conversionFactor = inputUnit === material.unitOfMeasure
             ? material.conversionFactor
             : material.secondaryConversionFactor;
-
+            
           if (conversionFactor && conversionFactor > 0) {
-              netWeight = inputQuantity * conversionFactor;
+              netWeight = finalInputQuantity * conversionFactor;
               grossWeight = netWeight + tareWeight;
           } else {
                throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
           }
       }
+
 
       if (netWeight < 0) {
           throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
@@ -131,7 +145,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           recordedAt: Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit,
-          inputQuantity: inputQuantity,
+          inputQuantity: finalInputQuantity,
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -198,24 +212,9 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
             
-            let unitsToAdd: number;
-            let weightToAdd = record.netWeight;
-
-            // If the primary unit is NOT kg and we have a conversion factor,
-            // we calculate the units based on the net weight.
-            // This is crucial when the operator inputs KG directly for an 'n' or 'mt' item.
-            if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                if (record.inputUnit === 'kg') {
-                    // Operator entered weight directly, we calculate the pieces
-                    unitsToAdd = Math.round(record.netWeight / material.conversionFactor);
-                } else {
-                    // Operator entered pieces/meters, we use that directly
-                    unitsToAdd = record.inputQuantity;
-                }
-            } else {
-                // For KG materials or materials without conversion factor, units and weight are treated as the same value initially.
-                unitsToAdd = record.inputQuantity;
-            }
+            // Correctly add the units and the net weight.
+            const unitsToAdd = record.inputQuantity;
+            const weightToAdd = record.netWeight;
 
             const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
             const newWeightKg = (material.currentWeightKg || 0) + weightToAdd;
@@ -294,18 +293,8 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    let unitsToRevert: number;
-                    let weightToRevert = record.netWeight;
-
-                    if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                        if (record.inputUnit === 'kg') {
-                            unitsToRevert = Math.round(record.netWeight / material.conversionFactor);
-                        } else {
-                            unitsToRevert = record.inputQuantity;
-                        }
-                    } else {
-                        unitsToRevert = record.inputQuantity;
-                    }
+                    const unitsToRevert = record.inputQuantity;
+                    const weightToRevert = record.netWeight;
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
                     const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
@@ -444,18 +433,8 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-                let unitsToRevert: number;
-                let weightToRevert = recordData.netWeight;
-
-                if (materialData.unitOfMeasure !== 'kg' && materialData.conversionFactor && materialData.conversionFactor > 0) {
-                    if (recordData.inputUnit === 'kg') {
-                        unitsToRevert = Math.round(recordData.netWeight / materialData.conversionFactor);
-                    } else {
-                        unitsToRevert = recordData.inputQuantity;
-                    }
-                } else {
-                    unitsToRevert = recordData.inputQuantity;
-                }
+                const unitsToRevert = recordData.inputQuantity;
+                const weightToRevert = recordData.netWeight;
             
             const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
             const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
