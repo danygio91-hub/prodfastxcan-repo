@@ -39,8 +39,6 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
-  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', 'none']).optional().nullable(),
-  secondaryConversionFactor: z.coerce.number().optional().nullable(),
 });
 
 const batchFormSchema = z.object({
@@ -104,8 +102,6 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     },
     unitOfMeasure: data.unitOfMeasure,
     conversionFactor: data.conversionFactor || null,
-    secondaryUnitOfMeasure: data.secondaryUnitOfMeasure === 'none' ? null : data.secondaryUnitOfMeasure,
-    secondaryConversionFactor: data.secondaryConversionFactor || null,
   };
 
   if (data.id) {
@@ -383,8 +379,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       tipologia: z.coerce.string().optional(),
       unitOfMeasure: z.enum(['n', 'mt', 'kg', 'm']).optional(),
       conversionFactor: z.coerce.number().optional().nullable(),
-      secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', 'none']).optional().nullable(),
-      secondaryConversionFactor: z.coerce.number().optional().nullable(),
       stock: z.coerce.number().min(0).optional(),
     });
 
@@ -479,8 +473,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             },
             unitOfMeasure: unitOfMeasure,
             conversionFactor: conversionFactor,
-            secondaryUnitOfMeasure: validData.secondaryUnitOfMeasure === 'none' ? null : (validData.secondaryUnitOfMeasure ?? null),
-            secondaryConversionFactor: validData.secondaryConversionFactor || null,
             batches: initialBatch ? [initialBatch] : [],
             currentStockUnits: stockUnits,
             currentWeightKg: stockKg,

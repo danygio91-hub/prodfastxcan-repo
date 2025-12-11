@@ -53,8 +53,6 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
-  secondaryUnitOfMeasure: z.enum(['n', 'mt', 'kg', 'none']).optional().nullable(),
-  secondaryConversionFactor: z.coerce.number().optional().nullable(),
 });
 
 type RawMaterialFormValues = z.infer<typeof rawMaterialFormSchema>;
@@ -103,7 +101,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null, secondaryUnitOfMeasure: null, secondaryConversionFactor: null },
+    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null },
   });
 
   const batchForm = useForm<BatchFormValues>({
@@ -160,11 +158,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         tipologia: material.details.tipologia,
         unitOfMeasure: material.unitOfMeasure || 'n',
         conversionFactor: material.conversionFactor || null,
-        secondaryUnitOfMeasure: material.secondaryUnitOfMeasure || null,
-        secondaryConversionFactor: material.secondaryConversionFactor || null,
       });
     } else {
-      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null, secondaryUnitOfMeasure: null, secondaryConversionFactor: null });
+      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null });
     }
     setIsEditDialogOpen(true);
   };
@@ -370,12 +366,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             'filo_el': 'filo_el',
             'larghezza': 'larghezza',
             'tipologia': 'tipologia',
+            'unita misura': 'unitOfMeasure',
+            'fattore conversione': 'conversionFactor',
             'stock': 'stock',
             'peso (kg)': 'stock',
-            'unita misura primaria': 'unitOfMeasure',
-            'fattore conversione primario': 'conversionFactor',
-            'unita misura secondaria': 'secondaryUnitOfMeasure',
-            'fattore conversione secondario': 'secondaryConversionFactor',
         };
         
         const mappedJson = filteredData.map((row: any) => {
@@ -422,10 +416,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Tipo': m.type,
         'Descrizione': m.description,
         'Stock': m.currentStockUnits,
-        'Unita Misura Primaria': m.unitOfMeasure,
-        'Fattore Conversione Primario': m.conversionFactor,
-        'Unita Misura Secondaria': m.secondaryUnitOfMeasure,
-        'Fattore Conversione Secondario': m.secondaryConversionFactor,
+        'Unita Misura': m.unitOfMeasure,
+        'Fattore Conversione': m.conversionFactor,
         'Sezione': m.details.sezione,
         'Filo El.': m.details.filo_el,
         'Larghezza': m.details.larghezza,
@@ -650,7 +642,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                  <div className="grid grid-cols-2 gap-4">
                      <FormField control={form.control} name="unitOfMeasure" render={({ field }) => ( 
                         <FormItem>
-                          <FormLabel>Unità di Misura Primaria</FormLabel>
+                          <FormLabel>Unità di Misura</FormLabel>
                             <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger>
@@ -667,33 +659,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         </FormItem>
                       )} />
                     {watchedUnitOfMeasure !== 'kg' && (
-                        <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore Conv. Primario</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                        <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore di Conversione</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
                     )}
                 </div>
                 
-                 <div className="grid grid-cols-2 gap-4">
-                      <FormField control={form.control} name="secondaryUnitOfMeasure" render={({ field }) => ( 
-                        <FormItem>
-                          <FormLabel>Unità di Misura Secondaria</FormLabel>
-                            <Select onValueChange={(value) => field.onChange(value === 'none' ? null : value)} value={field.value ?? 'none'}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Opzionale" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="none">Nessuna</SelectItem>
-                              <SelectItem value="n">Numero (n)</SelectItem>
-                              <SelectItem value="mt">Metri (mt)</SelectItem>
-                              <SelectItem value="kg">Chilogrammi (kg)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                    <FormField control={form.control} name="secondaryConversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore Conv. Secondario</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.1" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
-                </div>
-
                 <h4 className="text-sm font-medium pt-2">Dettagli (opzionale)</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="sezione" render={({ field }) => ( <FormItem> <FormLabel>Sezione</FormLabel> <FormControl><Input {...field} /></FormControl> <FormMessage /> </FormItem> )} />
@@ -917,6 +886,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 
 
 
