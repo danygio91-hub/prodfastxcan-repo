@@ -64,7 +64,6 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
     return {
       ...data,
       id: doc.id,
-      // Ensure we always return the direct values from the database
       currentStockUnits: data.currentStockUnits ?? 0,
       currentWeightKg: data.currentWeightKg ?? 0,
     };
