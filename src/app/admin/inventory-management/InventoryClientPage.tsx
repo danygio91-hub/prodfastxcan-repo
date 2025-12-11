@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/accordion"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
 import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import InventoryRecordSheet from './InventoryRecordSheet';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 
 
 interface InventoryClientPageProps {
@@ -38,6 +39,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isPending, setIsPending] = useState<string | null>(null);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -48,7 +50,15 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   }, [initialRecords]);
 
   const groupedRecords = useMemo(() => {
-    return records.reduce((acc, record) => {
+    const filteredRecords = searchTerm
+      ? records.filter(record => 
+          record.materialCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          record.lotto.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (record.operatorName || '').toLowerCase().includes(searchTerm.toLowerCase())
+        )
+      : records;
+      
+    return filteredRecords.reduce((acc, record) => {
       const date = format(parseISO(record.recordedAt as unknown as string), 'dd.MM.yyyy');
       if (!acc[date]) {
         acc[date] = {};
@@ -60,7 +70,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
       acc[date][materialCode].push(record);
       return acc;
     }, {} as Record<string, Record<string, InventoryRecord[]>>);
-  }, [records]);
+  }, [records, searchTerm]);
 
   const sortedDates = useMemo(() => Object.keys(groupedRecords).sort((a, b) => {
     const [dayA, monthA, yearA] = a.split('.').map(Number);
@@ -189,35 +199,46 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
         
         <Card>
             <CardHeader>
-              <div className="flex justify-between items-center flex-wrap gap-2">
+              <div className="flex justify-between items-center flex-wrap gap-4">
                   <div>
                     <CardTitle>Registrazioni da Processare</CardTitle>
                     <CardDescription>
                         Elenco delle registrazioni di inventario raggruppate per data.
                     </CardDescription>
                   </div>
-                  {selectedRecords.length > 0 && (
-                     <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" disabled={isPending === 'delete-selected'}>
-                          {isPending === 'delete-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                          Elimina Selezionate ({selectedRecords.length})
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Stai per eliminare {selectedRecords.length} registrazioni. Se sono state approvate, lo stock verrà stornato. Questa operazione è irreversibile.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                          <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
+                   <div className="flex items-center gap-2 flex-wrap">
+                      {selectedRecords.length > 0 && (
+                         <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" disabled={isPending === 'delete-selected'}>
+                              {isPending === 'delete-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                              Elimina Selezionate ({selectedRecords.length})
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Stai per eliminare {selectedRecords.length} registrazioni. Se sono state approvate, lo stock verrà stornato. Questa operazione è irreversibile.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Annulla</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                      <div className="relative w-full sm:w-64">
+                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                              placeholder="Cerca per lotto, codice, operatore..."
+                              className="pl-9"
+                              value={searchTerm}
+                              onChange={(e) => setSearchTerm(e.target.value)}
+                          />
+                      </div>
+                   </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -386,7 +407,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                 </Accordion>
               ) : (
                 <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed rounded-lg">
-                    <p className="text-lg font-semibold text-muted-foreground">Nessuna registrazione di inventario trovata.</p>
+                    <p className="text-lg font-semibold text-muted-foreground">
+                       {records.length === 0 ? "Nessuna registrazione di inventario trovata." : "Nessuna registrazione trovata per la tua ricerca."}
+                    </p>
                 </div>
               )}
             </CardContent>
