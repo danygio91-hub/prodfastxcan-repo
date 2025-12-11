@@ -72,7 +72,6 @@ export async function getRawMaterials(): Promise<RawMaterial[]> {
 export async function saveRawMaterial(formData: FormData): Promise<{
     success: boolean;
     message: string;
-    savedMaterial?: RawMaterial;
     errors?: any;
 }> {
   const rawData = Object.fromEntries(formData.entries());
@@ -108,12 +107,9 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     // Update existing material
     const materialRef = doc(db, "rawMaterials", data.id);
     await setDoc(materialRef, materialData, { merge: true });
-    
-    const updatedDoc = await getDoc(materialRef);
-    const savedMaterial = { id: updatedDoc.id, ...updatedDoc.data() } as RawMaterial;
 
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiornata con successo.', savedMaterial };
+    return { success: true, message: 'Materia prima aggiornata con successo.' };
   } else {
     // Add new material - check for unique normalized code first
     const normalizedCode = trimmedCode.toLowerCase();
@@ -135,7 +131,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     }
     await setDoc(newDocRef, fullMaterialData);
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Materia prima aggiunta con successo. Aggiungi un lotto per aggiornare lo stock.', savedMaterial: fullMaterialData };
+    return { success: true, message: 'Materia prima aggiunta con successo. Aggiungi un lotto per aggiornare lo stock.' };
   }
 }
 
@@ -235,11 +231,13 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 
             const material = docSnap.data() as RawMaterial;
             const existingBatches = material.batches || [];
-            const oldBatch = existingBatches.find(b => b.id === batchId);
+            const oldBatchIndex = existingBatches.findIndex(b => b.id === batchId);
 
-            if (!oldBatch) {
+            if (oldBatchIndex === -1) {
                 throw new Error('Lotto da modificare non trovato.');
             }
+            
+            const oldBatch = existingBatches[oldBatchIndex];
 
             let tareWeight = 0;
             if (material.unitOfMeasure === 'kg' && newBatchData.packagingId && newBatchData.packagingId !== 'none') {
@@ -262,25 +260,29 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 grossWeight: grossWeight,
                 packagingId: newBatchData.packagingId,
             };
-
-            const stockChange = updatedBatch.netQuantity - oldBatch.netQuantity;
-            let newStockUnits = (material.currentStockUnits || 0) + stockChange;
             
-            let newWeightKg;
-            if (material.unitOfMeasure === 'kg') {
-                newWeightKg = newStockUnits;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                 newWeightKg = (material.currentWeightKg || 0) + (stockChange * material.conversionFactor);
-            } else {
-                newWeightKg = material.currentWeightKg;
+            const updatedBatches = [...existingBatches];
+            updatedBatches[oldBatchIndex] = updatedBatch;
+
+            let newTotalStockUnits = 0;
+            let newTotalWeightKg = 0;
+
+            for (const batch of updatedBatches) {
+                if (material.unitOfMeasure === 'kg') {
+                    newTotalStockUnits += batch.netQuantity;
+                    newTotalWeightKg += batch.netQuantity;
+                } else {
+                    newTotalStockUnits += batch.netQuantity;
+                    if (material.conversionFactor && material.conversionFactor > 0) {
+                        newTotalWeightKg += batch.netQuantity * material.conversionFactor;
+                    }
+                }
             }
 
-            const updatedBatches = existingBatches.map(b => b.id === batchId ? updatedBatch : b);
-            
             transaction.update(materialRef, {
                 batches: updatedBatches,
-                currentStockUnits: newStockUnits,
-                currentWeightKg: newWeightKg
+                currentStockUnits: newTotalStockUnits,
+                currentWeightKg: newTotalWeightKg
             });
         });
 
@@ -304,31 +306,32 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             
             const material = docSnap.data() as RawMaterial;
             const existingBatches = material.batches || [];
+            
             const batchToDelete = existingBatches.find(b => b.id === batchId);
+            if (!batchToDelete) throw new Error("Lotto da eliminare non trovato.");
 
-            if (!batchToDelete) {
-                throw new Error("Lotto da eliminare non trovato.");
+            const updatedBatches = existingBatches.filter(b => b.id !== batchId);
+
+            let newTotalStockUnits = 0;
+            let newTotalWeightKg = 0;
+
+            // Recalculate total stock from the remaining batches
+            for (const batch of updatedBatches) {
+                if (material.unitOfMeasure === 'kg') {
+                    newTotalStockUnits += batch.netQuantity;
+                    newTotalWeightKg += batch.netQuantity;
+                } else { // 'n' or 'mt'
+                    newTotalStockUnits += batch.netQuantity;
+                    if (material.conversionFactor && material.conversionFactor > 0) {
+                        newTotalWeightKg += batch.netQuantity * material.conversionFactor;
+                    }
+                }
             }
-
-            const stockChange = -batchToDelete.netQuantity;
-            let newStockUnits = (material.currentStockUnits || 0) + stockChange;
-            let newWeightKg;
-
-            if (material.unitOfMeasure === 'kg') {
-                newWeightKg = newStockUnits;
-            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                newWeightKg = (material.currentWeightKg || 0) + (stockChange * material.conversionFactor);
-            } else {
-                newWeightKg = (material.currentWeightKg || 0); // No weight change if no factor
-            }
-
-            if (newWeightKg < 0) newWeightKg = 0;
-            if (newStockUnits < 0) newStockUnits = 0;
 
             transaction.update(materialRef, { 
-                batches: arrayRemove(batchToDelete),
-                currentStockUnits: newStockUnits,
-                currentWeightKg: newWeightKg
+                batches: updatedBatches,
+                currentStockUnits: newTotalStockUnits,
+                currentWeightKg: newTotalWeightKg
             });
         });
 

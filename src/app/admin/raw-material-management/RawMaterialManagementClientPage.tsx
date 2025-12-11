@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -225,21 +224,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     setSelectedMaterial(material);
     setIsDetailViewOpen(true);
   };
-  
-  const handleLocalUpdate = useCallback((updatedMaterial: RawMaterial) => {
-    setMaterials(prev => {
-        const index = prev.findIndex(m => m.id === updatedMaterial.id);
-        if (index > -1) {
-            const newMaterials = [...prev];
-            newMaterials[index] = updatedMaterial;
-            return newMaterials;
-        }
-        return [...prev, updatedMaterial];
-    });
-    if (selectedMaterial?.id === updatedMaterial.id) {
-        setSelectedMaterial(updatedMaterial);
-    }
-  }, [selectedMaterial]);
 
 
   // --- Form Submissions ---
@@ -883,16 +867,3 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
-
-
-
-
-
-    
-
-
-
-
-
-
-
