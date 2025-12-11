@@ -51,8 +51,7 @@ export default function InventoryPage() {
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isLottoScanOpen, setIsLottoScanOpen] = useState(false);
-  const [inputUnit, setInputUnit] = useState<'primary' | 'secondary'>('primary');
-
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || isLottoScanOpen, videoRef);
 
@@ -62,27 +61,21 @@ export default function InventoryPage() {
   
   const selectedPackagingId = form.watch('packagingId');
   const enteredQuantity = form.watch('inputQuantity') || 0;
+  const inputUnit = form.watch('inputUnit');
   
   const calculatedNetWeight = useMemo(() => {
     if (!scannedMaterial || !enteredQuantity) return 0;
     
     const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
 
-    if (inputUnit === 'primary') {
-      if (scannedMaterial.unitOfMeasure === 'kg') {
+    if (inputUnit === 'kg') {
         return enteredQuantity - selectedTara;
-      }
-      if (scannedMaterial.conversionFactor) {
-        return (enteredQuantity * scannedMaterial.conversionFactor);
-      }
-    } else { // secondary unit
-      if (scannedMaterial.secondaryUnitOfMeasure === 'kg') {
-        return enteredQuantity - selectedTara;
-      }
-       if (scannedMaterial.secondaryConversionFactor) {
-         return (enteredQuantity * scannedMaterial.secondaryConversionFactor);
-       }
+    } 
+
+    if (scannedMaterial.conversionFactor) {
+      return (enteredQuantity * scannedMaterial.conversionFactor);
     }
+    
     return 0; // Return 0 if no valid calculation can be made
   }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
@@ -123,7 +116,6 @@ export default function InventoryPage() {
                 inputQuantity: undefined,
               });
             }
-          setInputUnit('primary');
           setStep('form');
       }
   }, [toast, form, operator]);
@@ -295,27 +287,31 @@ export default function InventoryPage() {
                               )}
                             />
                             
-                             {scannedMaterial?.secondaryUnitOfMeasure && (
-                                <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                                    <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
-                                    <Switch
-                                    id="unit-switch"
-                                    checked={inputUnit === 'secondary'}
-                                    onCheckedChange={(checked) => {
-                                        const newUnit = checked ? 'secondary' : 'primary';
-                                        setInputUnit(newUnit);
-                                        form.setValue('inputUnit', newUnit === 'primary' ? scannedMaterial.unitOfMeasure : scannedMaterial.secondaryUnitOfMeasure || 'kg');
-                                    }}
-                                    />
-                                    <Label htmlFor="unit-switch">{scannedMaterial.secondaryUnitOfMeasure.toUpperCase()}</Label>
-                                </div>
-                            )}
+                             <FormField
+                                control={form.control}
+                                name="inputUnit"
+                                render={({ field }) => (
+                                <FormItem>
+                                     <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                                        <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                                        <Switch
+                                        id="unit-switch"
+                                        checked={field.value === 'kg'}
+                                        onCheckedChange={(checked) => {
+                                            field.onChange(checked ? 'kg' : scannedMaterial.unitOfMeasure)
+                                        }}
+                                        />
+                                        <Label htmlFor="unit-switch">KG</Label>
+                                    </div>
+                                </FormItem>
+                                )}
+                            />
 
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField control={form.control} name="inputQuantity" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="flex items-center"><Weight className="mr-2 h-4 w-4"/>
-                                          {inputUnit === 'primary' && scannedMaterial.unitOfMeasure !== 'kg' ? `Quantità (${scannedMaterial.unitOfMeasure.toUpperCase()})` : 'Quantità Lorda (KG)'}
+                                          {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Inserita (${scannedMaterial.unitOfMeasure.toUpperCase()})`}
                                         </FormLabel>
                                         <FormControl><Input type="number" step="any" placeholder="Es. 15.5" {...field} value={field.value ?? ''} /></FormControl>
                                         <FormMessage />
@@ -324,7 +320,7 @@ export default function InventoryPage() {
                                 <FormField control={form.control} name="packagingId" render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" />Tara (Imballo)</FormLabel>
-                                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl><SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger></FormControl>
                                             <SelectContent>
                                                 <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>

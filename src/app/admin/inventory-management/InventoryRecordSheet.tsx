@@ -88,9 +88,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     } else {
         // If the user is inputting pieces/meters, quantity is the net material.
         // We calculate the net weight using the conversion factor.
-        const conversionFactor = unit === material.unitOfMeasure
-            ? material.conversionFactor
-            : material.secondaryConversionFactor;
+        const conversionFactor = material.conversionFactor;
         
         if (conversionFactor && conversionFactor > 0) {
             return quantity * conversionFactor;
@@ -107,22 +105,39 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
-    const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
-    let netWeight: number;
     let grossWeight: number;
-    let finalInputQuantity: number = values.inputQuantity;
-
+    let netWeight: number;
+    let finalInputQuantity = values.inputQuantity;
+    const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
+    
     if (values.inputUnit === 'kg') {
-      grossWeight = values.inputQuantity;
-      netWeight = grossWeight - tareWeight;
-      const conversionFactor = material.unitOfMeasure === 'n' ? material.conversionFactor : material.secondaryConversionFactor;
-      if (conversionFactor && conversionFactor > 0) {
-        finalInputQuantity = netWeight / conversionFactor;
-      }
+        grossWeight = values.inputQuantity;
+        netWeight = grossWeight - tareWeight;
+        
+        if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+            finalInputQuantity = netWeight / material.conversionFactor;
+        } else {
+            finalInputQuantity = netWeight;
+        }
+
     } else { // 'n' or 'mt'
-      const conversionFactor = values.inputUnit === material.unitOfMeasure ? material.conversionFactor : material.secondaryConversionFactor;
-      netWeight = (conversionFactor && conversionFactor > 0) ? values.inputQuantity * conversionFactor : 0;
-      grossWeight = netWeight + tareWeight;
+        finalInputQuantity = values.inputQuantity;
+        
+        netWeight = (material.conversionFactor && material.conversionFactor > 0) 
+            ? finalInputQuantity * material.conversionFactor 
+            : 0;
+
+        grossWeight = netWeight + tareWeight;
+    }
+
+    if (netWeight < 0) {
+      toast({
+        variant: "destructive",
+        title: "Errore",
+        description: "Il peso netto calcolato è negativo. Controllare i dati inseriti.",
+      });
+      setIsPending(false);
+      return;
     }
 
     const result = await updateInventoryRecord(
@@ -148,9 +163,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   
   if (!record) return null;
 
-  const isKgPrimary = material?.unitOfMeasure === 'kg';
-  const hasSecondaryUnit = material?.secondaryUnitOfMeasure && material.secondaryUnitOfMeasure;
-
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
       <SheetContent>
@@ -174,25 +186,25 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
                     name="inputUnit"
                     render={({ field }) => (
                     <FormItem>
-                        {hasSecondaryUnit && !isKgPrimary && (
-                            <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                                <Label htmlFor="unit-switch">{material.unitOfMeasure.toUpperCase()}</Label>
-                                <Switch
-                                    id="unit-switch"
-                                    checked={field.value === material.secondaryUnitOfMeasure}
-                                    onCheckedChange={(checked) => {
-                                        field.onChange(checked ? material.secondaryUnitOfMeasure : material.unitOfMeasure)
-                                    }}
-                                />
-                                <Label htmlFor="unit-switch">{material.secondaryUnitOfMeasure?.toUpperCase()}</Label>
-                            </div>
-                        )}
+                         <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                            <Label htmlFor="unit-switch">{material.unitOfMeasure.toUpperCase()}</Label>
+                            <Switch
+                                id="unit-switch"
+                                checked={field.value === 'kg'}
+                                onCheckedChange={(checked) => {
+                                    field.onChange(checked ? 'kg' : material.unitOfMeasure)
+                                }}
+                            />
+                            <Label htmlFor="unit-switch">KG</Label>
+                        </div>
                     </FormItem>
                     )}
                 />
 
                 <div className="space-y-2">
-                    <Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/> Quantità Inserita ({watchedValues.inputUnit?.toUpperCase()})</Label>
+                    <Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/>
+                       {form.watch('inputUnit') === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Inserita (${material.unitOfMeasure.toUpperCase()})`}
+                    </Label>
                     <Input 
                         id="inputQuantity" 
                         type="number"
