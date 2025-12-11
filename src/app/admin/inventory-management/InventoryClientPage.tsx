@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -22,9 +23,9 @@ import {
 } from "@/components/ui/collapsible"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown, ShieldCheck, ShieldX } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
-import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords } from './actions';
+import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords, approveMultipleInventoryRecords, rejectMultipleInventoryRecords } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -195,6 +196,36 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setIsPending(null);
   };
 
+  const handleApproveSelected = async () => {
+    if (selectedRecords.length === 0 || !user) return;
+    setIsPending('approve-selected');
+    const result = await approveMultipleInventoryRecords(selectedRecords, user.uid);
+     toast({
+      title: result.success ? "Operazione Completata" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+
+  const handleRejectSelected = async () => {
+     if (selectedRecords.length === 0 || !user) return;
+    setIsPending('reject-selected');
+    const result = await rejectMultipleInventoryRecords(selectedRecords, user.uid);
+     toast({
+      title: result.success ? "Operazione Completata" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setIsPending(null);
+  };
+
 
   return (
     <>
@@ -220,26 +251,44 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                   </div>
                    <div className="flex items-center gap-2 flex-wrap">
                       {selectedRecords.length > 0 && (
-                         <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="destructive" disabled={isPending === 'delete-selected'}>
-                              {isPending === 'delete-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
-                              Elimina Selezionate ({selectedRecords.length})
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Stai per eliminare {selectedRecords.length} registrazioni. Se sono state approvate, lo stock verrà stornato. Questa operazione è irreversibile.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        <div className="flex items-center gap-2">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm" disabled={isPending === 'delete-selected'}>
+                                {isPending === 'delete-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}
+                                Elimina ({selectedRecords.length})
+                              </Button>
+                            </AlertDialogTrigger>
+                             <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler eliminare?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare {selectedRecords.length} registrazioni. Se sono state approvate, lo stock verrà stornato. Questa operazione è irreversibile.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Sì, elimina</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                           <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                               <Button size="sm" variant="outline" className="border-amber-500 text-amber-500 hover:bg-amber-500/10 hover:text-amber-600" disabled={isPending === 'reject-selected'}>
+                                {isPending === 'reject-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldX className="mr-2 h-4 w-4" />}
+                                Rifiuta ({selectedRecords.length})
+                              </Button>
+                            </AlertDialogTrigger>
+                             <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>Stai per rifiutare {selectedRecords.length} registrazioni. Verranno marcate come "rifiutate".</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleRejectSelected}>Sì, rifiuta</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                           <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" disabled={isPending === 'approve-selected'}>
+                                {isPending === 'approve-selected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                                Approva ({selectedRecords.length})
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Stai per approvare {selectedRecords.length} registrazioni. Lo stock dei materiali verrà aggiornato. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleApproveSelected} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       )}
                       <div className="relative w-full sm:w-64">
                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -451,4 +500,3 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     </>
   );
 }
-

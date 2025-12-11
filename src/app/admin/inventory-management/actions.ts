@@ -1,7 +1,8 @@
 
+
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord, Operator } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -14,16 +15,8 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
   let newTotalWeightKg = 0;
 
   for (const batch of batches) {
-    const batchNetQuantity = batch.netQuantity || 0;
-    if (material.unitOfMeasure === 'kg') {
-      newTotalStockUnits += batchNetQuantity;
-      newTotalWeightKg += batchNetQuantity;
-    } else { // 'n' or 'mt'
-      newTotalStockUnits += batchNetQuantity;
-      if (material.conversionFactor && material.conversionFactor > 0) {
-        newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-      }
-    }
+    newTotalStockUnits += batch.netQuantity;
+    newTotalWeightKg += batch.grossWeight - batch.tareWeight;
   }
 
   return {
@@ -131,24 +124,21 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
             throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
           }
 
-          // If the material's primary UoM is NOT kg, we must calculate the number of pieces.
           if (material.unitOfMeasure !== 'kg') {
               if (!material.conversionFactor || material.conversionFactor <= 0) {
                   throw new Error(`Fattore di conversione mancante o non valido per il materiale ${material.code}. Impossibile calcolare le unità dal peso.`);
               }
               finalInputQuantity = netWeight / material.conversionFactor;
           } else {
-              // If the material's primary UoM IS kg, then the "quantity in units" is the net weight.
               finalInputQuantity = netWeight;
           }
 
       } else { // 'n' or 'mt'
-          finalInputQuantity = inputQuantity; // The user entered the number of pieces/meters
+          finalInputQuantity = inputQuantity;
           
           if (material.conversionFactor && material.conversionFactor > 0) {
               netWeight = finalInputQuantity * material.conversionFactor;
           } else {
-               // If no conversion factor, we can't determine weight. Set it to the quantity itself assuming 1:1, but this is a fallback.
                netWeight = finalInputQuantity;
           }
           grossWeight = netWeight + tareWeight;
@@ -171,8 +161,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: inputUnit, // The unit the user *entered*
-          inputQuantity: finalInputQuantity, // The quantity in the material's primary UoM
+          inputUnit: inputUnit,
+          inputQuantity: finalInputQuantity,
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -195,7 +185,6 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
   }
   
   const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryRecord));
-  // Convert Firestore Timestamps to serializable format (ISO string)
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
 
@@ -250,7 +239,11 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
-            const newStock = recalculateStock(material, updatedBatches);
+            
+            const newStock = {
+              currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd,
+              currentWeightKg: (material.currentWeightKg || 0) + record.netWeight,
+            };
 
             // Update material stock
             transaction.update(materialRef, { 
@@ -286,7 +279,7 @@ export async function rejectInventoryRecord(recordId: string, uid: string): Prom
         
         await updateDoc(recordRef, { 
             status: 'rejected',
-            approvedBy: uid, // Use the same field to know who rejected it
+            approvedBy: uid,
             approvedAt: Timestamp.now(),
         });
         
@@ -312,7 +305,6 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 throw new Error("La registrazione è già in attesa.");
             }
             
-            // Only revert stock if it was approved
             if (record.status === 'approved') {
                 const materialRef = doc(db, 'rawMaterials', record.materialId);
                 const materialSnap = await transaction.get(materialRef);
@@ -321,22 +313,29 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 }
                 const material = materialSnap.data() as RawMaterial;
 
-                // Find and remove the specific batch created by this inventory record
-                const updatedBatches = (material.batches || []).filter(b => b.inventoryRecordId !== recordId);
+                const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
-                if (updatedBatches.length === (material.batches || []).length) {
-                    console.warn(`Could not find inventory batch to remove for record ${recordId}. Stock may be inaccurate.`);
+                if (batchToRemove) {
+                  let unitsToRevert: number;
+                  const weightToRevert = record.netWeight;
+  
+                  if (material.unitOfMeasure === 'kg') {
+                      unitsToRevert = weightToRevert;
+                  } else {
+                      unitsToRevert = record.inputQuantity;
+                  }
+              
+                  const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
+                  const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
+  
+                  transaction.update(materialRef, {
+                    batches: arrayRemove(batchToRemove),
+                    currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
+                    currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
+                  });
                 }
-                
-                const newStock = recalculateStock(material, updatedBatches);
-
-                transaction.update(materialRef, {
-                    batches: updatedBatches,
-                    ...newStock
-                });
             }
             
-            // Reset the record's status
             transaction.update(recordRef, {
                 status: 'pending',
                 approvedBy: deleteField(),
@@ -388,7 +387,7 @@ export async function updateInventoryRecord(
         let finalGrossWeight: number;
         
         if (inputUnit === 'kg') {
-            finalGrossWeight = inputQuantity; // The user provided the gross weight
+            finalGrossWeight = inputQuantity;
             netWeight = finalGrossWeight - tareWeight;
             if (netWeight < 0) throw new Error("Il peso netto risultante è negativo.");
             
@@ -398,12 +397,12 @@ export async function updateInventoryRecord(
                 finalInputQuantity = netWeight;
             }
         } else { // 'n' or 'mt'
-            finalInputQuantity = inputQuantity; // The user provided the number of pieces
+            finalInputQuantity = inputQuantity;
             
             if (material.conversionFactor && material.conversionFactor > 0) {
                 netWeight = finalInputQuantity * material.conversionFactor;
             } else {
-                netWeight = finalInputQuantity; // Fallback if no conversion factor
+                netWeight = finalInputQuantity;
             }
             finalGrossWeight = netWeight + tareWeight;
         }
@@ -442,7 +441,6 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
     await runTransaction(db, async (transaction) => {
       const recordsToDelete: { recordRef: any, recordData: InventoryRecord, materialRef?: any, materialData?: RawMaterial }[] = [];
 
-      // Step 1: Read all necessary documents first.
       for (const recordId of recordIds) {
         const recordRef = doc(db, 'inventoryRecords', recordId);
         const recordSnap = await transaction.get(recordRef);
@@ -466,7 +464,6 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
         recordsToDelete.push({ recordRef, recordData, materialRef, materialData });
       }
 
-      // Step 2: Perform all write operations.
       for (const { recordRef, recordData, materialRef, materialData } of recordsToDelete) {
         if (recordData.status === 'approved' && materialRef && materialData) {
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
@@ -491,7 +488,6 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
                 });
           }
         }
-        // Finally, delete the inventory record itself.
         transaction.delete(recordRef);
       }
     });
@@ -512,6 +508,54 @@ export async function getMaterialById(materialId: string): Promise<RawMaterial |
         return docSnap.data() as RawMaterial;
     }
     return null;
+}
+
+export async function approveMultipleInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const recordId of recordIds) {
+        const result = await approveInventoryRecord(recordId, uid);
+        if (result.success) {
+            successCount++;
+        } else {
+            errorCount++;
+            console.error(`Failed to approve record ${recordId}: ${result.message}`);
+        }
+    }
+
+    if (errorCount > 0) {
+        return { success: false, message: `${successCount} registrazioni approvate. ${errorCount} non sono state approvate a causa di errori.` };
+    }
+    return { success: true, message: `${successCount} registrazioni approvate con successo.` };
+}
+
+export async function rejectMultipleInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    const batch = writeBatch(db);
+    const recordsQuery = query(collection(db, "inventoryRecords"), where("__name__", "in", recordIds));
+    const recordsSnap = await getDocs(recordsQuery);
+
+    let processedCount = 0;
+    recordsSnap.forEach(docSnap => {
+        if (docSnap.data().status === 'pending') {
+            batch.update(docSnap.ref, {
+                status: 'rejected',
+                approvedBy: uid,
+                approvedAt: Timestamp.now(),
+            });
+            processedCount++;
+        }
+    });
+
+    try {
+        await batch.commit();
+        revalidatePath('/admin/inventory-management');
+        return { success: true, message: `${processedCount} registrazioni rifiutate con successo.` };
+    } catch (error) {
+        return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
+    }
 }
     
 
