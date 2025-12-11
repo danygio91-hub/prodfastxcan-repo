@@ -1,6 +1,5 @@
 
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from '@/components/layout/ThemeProvider';
@@ -41,10 +40,6 @@ export default function RootLayout({
   return (
     <html lang="it" suppressHydrationWarning>
       <head>
-         <Script
-            src="https://storage.googleapis.com/workbox-cdn/releases/6.2.0/workbox-window.prod.mjs"
-            strategy="beforeInteractive"
-          />
       </head>
       <body className={cn("font-body antialiased", ptSans.variable)}>
         <AuthProvider>
