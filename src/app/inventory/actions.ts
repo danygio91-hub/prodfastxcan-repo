@@ -65,13 +65,16 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       let netWeight: number;
       let grossWeight: number;
 
-      // Bidirectional calculation
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
-          // For KG items, the "units" are the net weight itself
-          finalInputQuantity = netWeight;
-      } else { // 'n' or 'mt' was entered
+          
+          if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+            finalInputQuantity = netWeight / material.conversionFactor;
+          } else {
+            finalInputQuantity = netWeight; // For kg materials, the "unit" quantity is the net weight
+          }
+      } else { // 'n' or 'mt'
           finalInputQuantity = inputQuantity;
           const conversionFactor = material.conversionFactor;
             
@@ -82,6 +85,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
                throw new Error("Fattore di conversione mancante per calcolare il peso dalle unità.");
           }
       }
+
 
       if (netWeight < 0) {
           throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
@@ -99,8 +103,8 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: inputUnit, // The unit the user actually entered ('kg', 'n', 'mt')
-          inputQuantity: finalInputQuantity, // The calculated piece count if KG was entered, or the entered value itself if N/MT
+          inputUnit: inputUnit,
+          inputQuantity: finalInputQuantity, 
       };
       
       await addDoc(inventoryRef, newInventoryRecord);

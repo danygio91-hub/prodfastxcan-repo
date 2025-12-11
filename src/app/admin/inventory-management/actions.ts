@@ -103,7 +103,13 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
           // For KG items, the "units" are the net weight itself
-          finalInputQuantity = netWeight;
+          if (material.unitOfMeasure === 'kg') {
+            finalInputQuantity = netWeight;
+          } else if (material.conversionFactor && material.conversionFactor > 0) {
+            finalInputQuantity = netWeight / material.conversionFactor;
+          } else {
+            finalInputQuantity = 0; // Or handle error
+          }
       } else { // 'n' or 'mt'
           finalInputQuantity = inputQuantity;
           const conversionFactor = material.conversionFactor;
@@ -133,7 +139,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
-          inputUnit: inputUnit,
+          inputUnit: inputUnit, // The unit the user actually entered ('kg', 'n', 'mt')
           inputQuantity: finalInputQuantity,
       };
       
@@ -191,7 +197,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: record.netWeight,
+                netQuantity: record.netWeight, // Net quantity for a batch is always its weight for traceability
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -201,11 +207,21 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const existingBatches = material.batches || [];
             const updatedBatches = [...existingBatches, newBatchData];
             
-            let unitsToAdd = record.inputQuantity;
+            let unitsToAdd: number;
             const weightToAdd = record.netWeight;
 
-            if(material.unitOfMeasure === 'kg') {
-                unitsToAdd = weightToAdd;
+            if (material.unitOfMeasure === 'kg') {
+                unitsToAdd = record.netWeight;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                 if (record.inputUnit === 'kg') {
+                    // If user entered weight, calculate pieces from net weight
+                    unitsToAdd = record.netWeight / material.conversionFactor;
+                } else {
+                    // If user entered pieces, use that directly
+                    unitsToAdd = record.inputQuantity;
+                }
+            } else {
+                 unitsToAdd = record.inputQuantity;
             }
 
             const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
@@ -285,11 +301,19 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                    let unitsToRevert = record.inputQuantity;
+                    let unitsToRevert: number;
                     const weightToRevert = record.netWeight;
 
-                    if(material.unitOfMeasure === 'kg'){
+                    if (material.unitOfMeasure === 'kg') {
                         unitsToRevert = weightToRevert;
+                    } else if (material.conversionFactor && material.conversionFactor > 0) {
+                        if (record.inputUnit === 'kg') {
+                            unitsToRevert = weightToRevert / material.conversionFactor;
+                        } else {
+                            unitsToRevert = record.inputQuantity;
+                        }
+                    } else {
+                        unitsToRevert = record.inputQuantity;
                     }
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
@@ -353,26 +377,25 @@ export async function updateInventoryRecord(
         }
         
         let netWeight = 0;
-        let finalInputQuantity = inputQuantity;
+        let finalInputQuantity = 0; // The quantity in pieces (n)
+        let finalGrossWeight = 0;
 
         if (inputUnit === 'kg') {
-            netWeight = inputQuantity - tareWeight; // Here, inputQuantity is the gross weight
-            grossWeight = inputQuantity;
-            if (material.unitOfMeasure === 'n' || material.unitOfMeasure === 'mt') {
-                if (material.conversionFactor && material.conversionFactor > 0) {
-                    finalInputQuantity = netWeight / material.conversionFactor;
-                } else {
-                    finalInputQuantity = 0; // Or handle error
-                }
+            finalGrossWeight = inputQuantity; // User entered the gross weight
+            netWeight = finalGrossWeight - tareWeight;
+            
+            if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+              finalInputQuantity = netWeight / material.conversionFactor;
             } else {
-                 finalInputQuantity = netWeight;
+              finalInputQuantity = netWeight; // For kg materials, units = net weight
             }
+
         } else { // 'n' or 'mt'
+            finalInputQuantity = inputQuantity; // User entered the number of pieces
             if (material.conversionFactor && material.conversionFactor > 0) {
-                netWeight = inputQuantity * material.conversionFactor;
+                netWeight = finalInputQuantity * material.conversionFactor;
             }
-            grossWeight = netWeight + tareWeight;
-            finalInputQuantity = inputQuantity;
+            finalGrossWeight = netWeight + tareWeight;
         }
 
         if (netWeight < 0) {
@@ -380,7 +403,7 @@ export async function updateInventoryRecord(
         }
 
         await updateDoc(recordRef, {
-            grossWeight: grossWeight,
+            grossWeight: finalGrossWeight,
             tareWeight: tareWeight,
             netWeight: netWeight,
             packagingId: packagingId || null,
@@ -444,9 +467,12 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           if (batchToRemove) {
                 let unitsToRevert = recordData.inputQuantity;
                 const weightToRevert = recordData.netWeight;
-
+                
                 if (materialData.unitOfMeasure === 'kg') {
                     unitsToRevert = weightToRevert;
+                } else if(materialData.conversionFactor && materialData.conversionFactor > 0 && recordData.inputUnit === 'kg') {
+                    // if user input kg for a 'n' material, we need to convert back
+                    unitsToRevert = weightToRevert / materialData.conversionFactor;
                 }
             
                 const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
@@ -486,3 +512,4 @@ export async function getMaterialById(materialId: string): Promise<RawMaterial |
     
 
     
+

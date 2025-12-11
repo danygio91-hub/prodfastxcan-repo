@@ -193,25 +193,28 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     const batches = material.batches || [];
     
     const combinedMovements: Movement[] = [
-      ...batches.map((b): Movement => ({
-          type: 'Carico' as const,
-          date: b.date,
-          description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-          quantity: b.netQuantity,
-          unit: material.unitOfMeasure.toUpperCase(),
-          id: b.id,
-      })),
-      ...withdrawals.map((w): Movement => {
-        const quantity = material.unitOfMeasure === 'kg' ? w.consumedWeight : w.consumedUnits;
-        return {
-            type: 'Scarico' as const,
-            date: w.withdrawalDate.toISOString(),
-            description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
-            quantity: -(quantity || 0),
-            unit: material.unitOfMeasure.toUpperCase(),
-            id: w.id,
-        };
-      }),
+        ...batches.map((b): Movement => {
+            const quantity = material.unitOfMeasure === 'kg' ? b.netQuantity : b.netQuantity;
+            return {
+                type: 'Carico' as const,
+                date: b.date,
+                description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+                quantity: quantity,
+                unit: material.unitOfMeasure.toUpperCase(),
+                id: b.id,
+            };
+        }),
+        ...withdrawals.map((w): Movement => {
+            const quantity = material.unitOfMeasure === 'kg' ? w.consumedWeight : (w.consumedUnits || 0);
+            return {
+                type: 'Scarico' as const,
+                date: w.withdrawalDate.toISOString(),
+                description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+                quantity: -(quantity || 0),
+                unit: material.unitOfMeasure.toUpperCase(),
+                id: w.id,
+            };
+        }),
     ];
 
     combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -551,7 +554,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{material.unitOfMeasure === 'kg' ? material.currentWeightKg.toFixed(2) : material.currentStockUnits}</TableCell>
+                            <TableCell>{(material.currentStockUnits ?? 0).toFixed(2)}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
@@ -859,7 +862,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{selectedMaterial.currentStockUnits ?? 0}</p>
+                                <p className="text-2xl font-bold">{(selectedMaterial.currentStockUnits ?? 0).toFixed(2)}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock Calcolato (KG)</Label>
@@ -886,6 +889,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
 
     
+
 
 
 
