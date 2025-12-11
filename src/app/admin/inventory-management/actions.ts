@@ -204,7 +204,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const weightToAdd = record.netWeight;
 
             if (material.unitOfMeasure === 'kg') {
-                unitsToAdd = record.netWeight;
+                unitsToAdd = weightToAdd;
             } else {
                  if (material.conversionFactor && material.conversionFactor > 0) {
                      unitsToAdd = record.netWeight / material.conversionFactor;
@@ -311,8 +311,12 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                     if (material.unitOfMeasure === 'kg') {
                         unitsToRevert = weightToRevert;
                     } else {
-                        // The 'inputQuantity' on the record is already the correct number of units.
-                        unitsToRevert = record.inputQuantity;
+                         if (material.conversionFactor && material.conversionFactor > 0) {
+                            unitsToRevert = record.netWeight / material.conversionFactor;
+                        } else {
+                            // Fallback, should not happen if data is consistent
+                            unitsToRevert = record.inputQuantity; 
+                        }
                     }
 
                     const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
@@ -499,7 +503,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
 
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
     const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(docRef);
+    const docSnap = await getDoc(materialRef);
     if (docSnap.exists()) {
         return docSnap.data() as RawMaterial;
     }
@@ -514,3 +518,6 @@ export async function getMaterialById(materialId: string): Promise<RawMaterial |
 
 
 
+
+
+    
