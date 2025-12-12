@@ -82,6 +82,8 @@ function ProductionConsoleView() {
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
+  const [analysisDataMap, setAnalysisDataMap] = useState<Map<string, ProductionTimeData>>(new Map());
+  const [jobsWithLoadingAnalysis, setJobsWithLoadingAnalysis] = useState<Set<string>>(new Set());
 
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
@@ -530,6 +532,41 @@ function ProductionConsoleView() {
       setActiveFilter(value);
   }
 
+  const handleFetchAnalysis = async (job: JobOrder) => {
+    if (!job.id) return;
+
+    setJobsWithLoadingAnalysis(prev => new Set(prev).add(job.id));
+
+    try {
+        const analysisMap = await getProductionTimeAnalysisMap();
+        const data = analysisMap.get(job.details);
+        setAnalysisDataMap(prevMap => {
+            const newMap = new Map(prevMap);
+            newMap.set(job.id, data || null);
+            return newMap;
+        });
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Errore Analisi Tempi",
+            description: "Impossibile caricare i dati di analisi.",
+        });
+        // Clear data for this job on error
+        setAnalysisDataMap(prevMap => {
+             const newMap = new Map(prevMap);
+             newMap.set(job.id, null);
+             return newMap;
+        });
+    } finally {
+        setJobsWithLoadingAnalysis(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(job.id);
+            return newSet;
+        });
+    }
+  };
+
+
   return (
     <>
       <div className="space-y-6">
@@ -709,6 +746,9 @@ function ProductionConsoleView() {
                   key={job.id} 
                   jobOrder={job}
                   allOperators={allOperators}
+                  analysisData={analysisDataMap.get(job.id)}
+                  onFetchAnalysis={() => handleFetchAnalysis(job)}
+                  isAnalysisLoading={jobsWithLoadingAnalysis.has(job.id)}
                   onProblemClick={() => setProblemJob(job)}
                   onForceFinishClick={handleForceFinish}
                   onRevertForceFinishClick={handleRevertForceFinish}

@@ -1,10 +1,9 @@
-
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle, ChevronDown } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -114,6 +113,8 @@ export default function JobOrderCard({
     jobOrder,
     allOperators,
     analysisData,
+    onFetchAnalysis,
+    isAnalysisLoading,
     groupPhases,
     onProblemClick, 
     onForceFinishClick,
@@ -135,6 +136,8 @@ export default function JobOrderCard({
     jobOrder: JobOrder;
     allOperators: Operator[];
     analysisData?: ProductionTimeData | null;
+    onFetchAnalysis: () => void;
+    isAnalysisLoading: boolean;
     groupPhases?: JobPhase[];
     onProblemClick: () => void; 
     onForceFinishClick: (jobId: string) => void;
@@ -158,7 +161,7 @@ export default function JobOrderCard({
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
 
-  const updateRemainingTime = React.useCallback(() => {
+   const updateRemainingTime = React.useCallback(() => {
     if (!analysisData || !analysisData.isTimeCalculationReliable) {
       setRemainingTime(null);
       return;
@@ -170,14 +173,15 @@ export default function JobOrderCard({
     const totalEstimatedMinutes = analysisData.averageMinutesPerPiece * jobOrder.qta;
     const remainingMinutes = totalEstimatedMinutes - completedPhasesTotalMinutes;
     
-    setRemainingTime(formatTime(remainingMinutes * 60)); // convert minutes to seconds for formatTime
+    setRemainingTime(formatTime(remainingMinutes * 60));
   }, [analysisData, jobOrder]);
   
   useEffect(() => {
-    updateRemainingTime();
-    const interval = setInterval(updateRemainingTime, 60000); // update every minute
-    return () => clearInterval(interval);
-  }, [updateRemainingTime]);
+    // We only automatically calculate the time if the data is already present.
+    if (analysisData) {
+      updateRemainingTime();
+    }
+  }, [analysisData, updateRemainingTime]);
 
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
@@ -252,9 +256,9 @@ export default function JobOrderCard({
     
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
   
-  const isAnyPhaseActive = activePhasesWithOperators.length > 0;
+  const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const canForceComplete = !isAnyPhaseActive && overallStatus !== 'Completata';
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
 
@@ -520,47 +524,32 @@ export default function JobOrderCard({
                 )}
                 
                 <div className="p-3 rounded-lg border bg-background/50 space-y-2">
-                      <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2 text-sm font-semibold">
-                              <Timer className="h-4 w-4 text-primary"/>
-                              Ore Rimanenti Stimate
-                          </div>
-                          <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                      onClick={(e) => { e.stopPropagation(); updateRemainingTime(); }}
-                                      disabled={!analysisData?.isTimeCalculationReliable}
-                                  >
-                                      <RefreshCcw className="h-4 w-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p>Aggiorna stima</p>
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      {analysisData?.isTimeCalculationReliable ? (
-                          <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime || 'Calcolo...'}</p>
-                      ) : (
-                          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                              <TooltipProvider>
-                                  <Tooltip>
-                                      <TooltipTrigger>
-                                          <HelpCircle className="h-4 w-4" />
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                          <p>Dati di produzione insufficienti per una stima affidabile.</p>
-                                      </TooltipContent>
-                                  </Tooltip>
-                              </TooltipProvider>
-                              <span>N/D</span>
-                          </div>
-                      )}
+                    {remainingTime ? (
+                        <>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-2 text-sm font-semibold">
+                                    <Timer className="h-4 w-4 text-primary"/>
+                                    Ore Rimanenti Stimate
+                                </div>
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); updateRemainingTime(); }}>
+                                                <RefreshCcw className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Aggiorna stima</p></TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            </div>
+                            <p className="font-mono text-xl font-bold text-primary text-center">{remainingTime}</p>
+                        </>
+                    ) : (
+                        <Button onClick={onFetchAnalysis} disabled={isAnalysisLoading} className="w-full">
+                            {isAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Timer className="mr-2 h-4 w-4" />}
+                            Calcola Stima Tempi
+                        </Button>
+                    )}
                 </div>
                 
                 <div className="w-full pt-2">
@@ -668,5 +657,3 @@ export default function JobOrderCard({
     </>
   );
 }
-
-    
