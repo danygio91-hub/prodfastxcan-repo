@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
@@ -126,9 +125,12 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
 
           if (material.unitOfMeasure !== 'kg') {
               if (!material.conversionFactor || material.conversionFactor <= 0) {
-                  throw new Error(`Fattore di conversione mancante o non valido per il materiale ${material.code}. Impossibile calcolare le unità dal peso.`);
+                  // Don't throw error here. Allow registration but set quantity to 0.
+                  // Admin will see this and must fix conversion factor before approving.
+                  finalInputQuantity = 0; 
+              } else {
+                  finalInputQuantity = netWeight / material.conversionFactor;
               }
-              finalInputQuantity = netWeight / material.conversionFactor;
           } else {
               finalInputQuantity = netWeight;
           }
@@ -218,11 +220,10 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             if (material.unitOfMeasure === 'kg') {
                 unitsToAdd = record.netWeight;
             } else {
-                 if (material.conversionFactor && material.conversionFactor > 0) {
-                     unitsToAdd = record.netWeight / material.conversionFactor;
-                 } else {
-                     throw new Error(`Fattore di conversione mancante per il materiale ${material.code}. Impossibile calcolare le unità.`);
+                 if (!material.conversionFactor || material.conversionFactor <= 0) {
+                     throw new Error(`Fattore di conversione mancante per ${material.code}. Inserirlo prima di approvare.`);
                  }
+                 unitsToAdd = record.netWeight / material.conversionFactor;
             }
 
             const newBatchData: RawMaterialBatch = {
@@ -322,7 +323,11 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                   if (material.unitOfMeasure === 'kg') {
                       unitsToRevert = weightToRevert;
                   } else {
-                      unitsToRevert = record.inputQuantity;
+                      if (material.conversionFactor && material.conversionFactor > 0) {
+                         unitsToRevert = record.netWeight / material.conversionFactor;
+                      } else {
+                         unitsToRevert = record.inputQuantity; // Fallback to original input if no factor
+                      }
                   }
               
                   const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
@@ -475,7 +480,11 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
                 if (materialData.unitOfMeasure === 'kg') {
                     unitsToRevert = weightToRevert;
                 } else {
-                    unitsToRevert = recordData.inputQuantity;
+                     if (materialData.conversionFactor && materialData.conversionFactor > 0) {
+                       unitsToRevert = weightToRevert / materialData.conversionFactor;
+                     } else {
+                       unitsToRevert = recordData.inputQuantity;
+                     }
                 }
             
                 const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
@@ -569,3 +578,4 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
 
 
     
+
