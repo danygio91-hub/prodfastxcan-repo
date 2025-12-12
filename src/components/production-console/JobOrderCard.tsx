@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -378,7 +379,7 @@ export default function JobOrderCard({
                                       </AlertDialog>
                                   )}
                                    <DropdownMenuSeparator />
-                                   <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseActive}>
+                                   <DropdownMenuItem onSelect={handleOpenPauseDialog} disabled={!isAnyPhaseInProgress}>
                                       <Users className="mr-2 h-4 w-4" />
                                       <span>Forza Pausa Operatori</span>
                                   </DropdownMenuItem>
@@ -501,7 +502,7 @@ export default function JobOrderCard({
                     </div>
                 </div>
 
-                {isAnyPhaseActive && (
+                {isAnyPhaseInProgress && (
                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                       <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
                           <Hourglass className="h-4 w-4 text-cyan-500"/>
@@ -657,3 +658,5 @@ export default function JobOrderCard({
     </>
   );
 }
+
+    
