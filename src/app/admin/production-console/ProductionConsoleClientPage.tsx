@@ -82,10 +82,7 @@ function ProductionConsoleView() {
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
-  const [analysisMap, setAnalysisMap] = useState<Map<string, ProductionTimeData>>(new Map());
-  const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
 
-  
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
@@ -105,21 +102,6 @@ function ProductionConsoleView() {
   
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
-
-  const handleFetchAnalysis = useCallback(async () => {
-    setIsAnalysisLoading(true);
-    toast({ title: "Calcolo Stime...", description: "Sto analizzando i dati di produzione per calcolare i tempi." });
-    try {
-        const map = await getProductionTimeAnalysisMap();
-        setAnalysisMap(map);
-        toast({ title: "Stime Calcolate", description: "Le stime dei tempi sono state aggiornate." });
-    } catch (error) {
-        toast({ variant: 'destructive', title: "Errore Calcolo Stime", description: "Impossibile recuperare i dati per la stima." });
-    } finally {
-        setIsAnalysisLoading(false);
-    }
-  }, [toast]);
-
 
   // This effect will listen for changes in the main data lists (jobOrders, workGroups)
   // and update the state of the currently open dialog (`materialManagedItem`).
@@ -708,9 +690,6 @@ function ProductionConsoleView() {
                   group={group}
                   jobsInGroup={jobsByGroupId.get(group.id) || []}
                   allOperators={allOperators}
-                  analysisData={analysisMap.get(group.details)}
-                   onFetchAnalysis={handleFetchAnalysis}
-                   isAnalysisLoading={isAnalysisLoading}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
                   onForcePauseClick={handleForcePause}
@@ -730,9 +709,6 @@ function ProductionConsoleView() {
                   key={job.id} 
                   jobOrder={job}
                   allOperators={allOperators}
-                  analysisData={analysisMap.get(job.details)}
-                  onFetchAnalysis={handleFetchAnalysis}
-                  isAnalysisLoading={isAnalysisLoading}
                   onProblemClick={() => setProblemJob(job)}
                   onForceFinishClick={handleForceFinish}
                   onRevertForceFinishClick={handleRevertForceFinish}

@@ -4,7 +4,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -62,9 +62,6 @@ export default function WorkGroupCard({
     group,
     jobsInGroup,
     allOperators,
-    analysisData,
-    onFetchAnalysis,
-    isAnalysisLoading,
     onProblemClick,
     onForceFinishClick,
     onForcePauseClick,
@@ -81,9 +78,6 @@ export default function WorkGroupCard({
     group: WorkGroup;
     jobsInGroup: JobOrder[];
     allOperators: Operator[];
-    analysisData?: ProductionTimeData | null;
-    onFetchAnalysis: () => void;
-    isAnalysisLoading: boolean;
     onProblemClick: () => void;
     onForceFinishClick: (groupId: string) => void;
     onForcePauseClick: (groupId: string, operatorIds: string[]) => void;
@@ -350,12 +344,6 @@ export default function WorkGroupCard({
                       ))}
                   </div>
                 )}
-                 <div className="p-3 rounded-lg border bg-background/50 space-y-2">
-                     <Button onClick={onFetchAnalysis} disabled={isAnalysisLoading} className="w-full">
-                        {isAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Timer className="mr-2 h-4 w-4" />}
-                        Calcola Stima Tempi
-                    </Button>
-                </div>
             </CardContent>
         </div>
         <CardFooter className="flex-col items-start gap-2 pt-4">
@@ -443,9 +431,6 @@ export default function WorkGroupCard({
                               jobOrder={job}
                               groupPhases={group.phases}
                               allOperators={allOperators}
-                              analysisData={analysisData}
-                              onFetchAnalysis={onFetchAnalysis}
-                              isAnalysisLoading={isAnalysisLoading}
                               onProblemClick={() => {}}
                               onForceFinishClick={() => {}}
                               onRevertForceFinishClick={() => {}}
