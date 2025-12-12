@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData } from '@/app/admin/production-console/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -82,7 +82,8 @@ function ProductionConsoleView() {
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
-  const [analysisMap, setAnalysisMap] = useState<Map<string, any>>(new Map());
+  const [analysisMap, setAnalysisMap] = useState<Map<string, ProductionTimeData>>(new Map());
+  const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
 
   
   const searchParams = useSearchParams();
@@ -105,10 +106,20 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  useEffect(() => {
-    getProductionTimeAnalysisMap().then(setAnalysisMap);
-    // You might want to refresh this periodically if needed
-  }, []);
+  const handleFetchAnalysis = useCallback(async () => {
+    setIsAnalysisLoading(true);
+    toast({ title: "Calcolo Stime...", description: "Sto analizzando i dati di produzione per calcolare i tempi." });
+    try {
+        const map = await getProductionTimeAnalysisMap();
+        setAnalysisMap(map);
+        toast({ title: "Stime Calcolate", description: "Le stime dei tempi sono state aggiornate." });
+    } catch (error) {
+        toast({ variant: 'destructive', title: "Errore Calcolo Stime", description: "Impossibile recuperare i dati per la stima." });
+    } finally {
+        setIsAnalysisLoading(false);
+    }
+  }, [toast]);
+
 
   // This effect will listen for changes in the main data lists (jobOrders, workGroups)
   // and update the state of the currently open dialog (`materialManagedItem`).
@@ -697,6 +708,9 @@ function ProductionConsoleView() {
                   group={group}
                   jobsInGroup={jobsByGroupId.get(group.id) || []}
                   allOperators={allOperators}
+                  analysisData={analysisMap.get(group.details)}
+                   onFetchAnalysis={handleFetchAnalysis}
+                   isAnalysisLoading={isAnalysisLoading}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
                   onForcePauseClick={handleForcePause}
@@ -709,7 +723,6 @@ function ProductionConsoleView() {
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
                    getOverallStatus={getOverallStatus}
-                   analysisData={analysisMap.get(group.details)}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -717,6 +730,9 @@ function ProductionConsoleView() {
                   key={job.id} 
                   jobOrder={job}
                   allOperators={allOperators}
+                  analysisData={analysisMap.get(job.details)}
+                  onFetchAnalysis={handleFetchAnalysis}
+                  isAnalysisLoading={isAnalysisLoading}
                   onProblemClick={() => setProblemJob(job)}
                   onForceFinishClick={handleForceFinish}
                   onRevertForceFinishClick={handleRevertForceFinish}
@@ -733,7 +749,6 @@ function ProductionConsoleView() {
                   overallStatus={getOverallStatus(job)}
                   onNavigateToAnalysis={handleNavigateToAnalysis}
                   onCopyArticleCode={handleCopy}
-                  analysisData={analysisMap.get(job.details)}
                 />
             ))}
           </div>
@@ -924,5 +939,3 @@ export default function ProductionConsoleClientPage() {
         </React.Suspense>
     )
 }
-
-    
