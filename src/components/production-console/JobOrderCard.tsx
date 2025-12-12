@@ -658,5 +658,3 @@ export default function JobOrderCard({
     </>
   );
 }
-
-    

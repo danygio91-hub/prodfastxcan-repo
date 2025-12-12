@@ -258,9 +258,9 @@ export default function JobOrderCard({
     
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
   
-  const isAnyPhaseActive = activePhasesWithOperators.length > 0;
+  const isAnyPhaseInProgress = activePhasesWithOperators.length > 0;
   const canForceFinish = ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus);
-  const canForceComplete = !isAnyPhaseActive && overallStatus !== 'Completata';
+  const canForceComplete = !isAnyPhaseInProgress && overallStatus !== 'Completata';
 
   const isForcedToFinish = jobOrder.phases.some(p => p.forced);
 
@@ -503,7 +503,7 @@ export default function JobOrderCard({
                     </div>
                 </div>
 
-                {isAnyPhaseActive && (
+                {isAnyPhaseInProgress && (
                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-3 animate-pulse">
                       <h4 className="text-sm font-semibold text-foreground/90 flex items-center gap-2">
                           <Hourglass className="h-4 w-4 text-cyan-500"/>
