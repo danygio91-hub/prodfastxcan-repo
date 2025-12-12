@@ -432,6 +432,8 @@ export default function WorkGroupCard({
                               groupPhases={group.phases}
                               allOperators={allOperators}
                               onProblemClick={() => {}}
+                              onFetchAnalysis={() => {}}
+                              isAnalysisLoading={false}
                               onForceFinishClick={() => {}}
                               onRevertForceFinishClick={() => {}}
                               onToggleGuainaClick={() => {}}
