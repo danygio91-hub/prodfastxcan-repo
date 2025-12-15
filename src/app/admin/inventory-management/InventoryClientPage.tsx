@@ -313,7 +313,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
             </CardHeader>
             <CardContent>
               {sortedDates.length > 0 ? (
-                <Accordion type="multiple" className="w-full" defaultValue={sortedDates.filter(date => groupedRecords[date] && Object.values(groupedRecords[date]).flat().some(r => r.status === 'pending'))}>
+                <Accordion type="multiple" className="w-full">
                   {sortedDates.map(date => {
                     const dailyRecordsByMaterial = groupedRecords[date];
                     const allDailyRecords = Object.values(dailyRecordsByMaterial).flat();
