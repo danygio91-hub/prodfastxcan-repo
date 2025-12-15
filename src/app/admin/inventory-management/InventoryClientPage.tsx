@@ -330,7 +330,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                             </div>
                             <div className="space-y-6">
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
-                                const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - b.status);
+                                const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
                                 return (
                                 <Collapsible key={materialCode} defaultOpen={recordsForMaterial.some(r => r.status === 'pending')}>
                                   <CollapsibleTrigger className="w-full">
@@ -390,7 +390,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 <TableCell>{record.lotto}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
                                                 <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
@@ -501,5 +501,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
 }
 
 
+
+    
 
     
