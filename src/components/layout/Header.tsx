@@ -48,10 +48,6 @@ export default function Header() {
   const pathname = usePathname();
   const { toast } = useToast();
   
-  const operatorName = operator ? operator.nome : null;
-  const isAdmin = operator?.role === 'admin';
-  const isAdminPage = pathname.startsWith('/admin');
-
   const handleRefresh = () => {
     window.location.reload();
   };
@@ -69,6 +65,10 @@ export default function Header() {
     return `${firstInitial}${lastInitial}`.toUpperCase();
   };
   
+  const operatorName = operator ? operator.nome : null;
+  const isAdmin = operator?.role === 'admin';
+  const isAdminPage = pathname.startsWith('/admin');
+
   const avatarName = operator ? operator.nome : 'Operatore';
   const displayInitials = getInitials(avatarName);
   

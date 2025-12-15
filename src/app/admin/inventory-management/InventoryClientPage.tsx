@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/collapsible"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown, ShieldCheck, ShieldX } from 'lucide-react';
+import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown, ShieldCheck, ShieldX, RefreshCw } from 'lucide-react';
 import { type InventoryRecord } from '@/lib/mock-data';
 import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords, approveMultipleInventoryRecords, rejectMultipleInventoryRecords } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -51,6 +51,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   const [selectedRecord, setSelectedRecord] = useState<InventoryRecord | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isPending, setIsPending] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const { user } = useAuth();
@@ -92,7 +93,11 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   }), [groupedRecords]);
   
   const refreshData = () => {
+    setIsRefreshing(true);
     router.refresh();
+    // The useEffect listening to initialRecords will update the state.
+    // We can set a timeout to turn off the loading indicator after a bit.
+    setTimeout(() => setIsRefreshing(false), 1000);
   };
 
   const handleApprove = async (recordId: string) => {
@@ -250,6 +255,10 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                     </CardDescription>
                   </div>
                    <div className="flex items-center gap-2 flex-wrap">
+                       <Button onClick={refreshData} variant="outline" size="sm" disabled={isRefreshing}>
+                           {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
+                           Aggiorna Dati
+                       </Button>
                       {selectedRecords.length > 0 && (
                         <div className="flex items-center gap-2">
                           <AlertDialog>
@@ -390,7 +399,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 <TableCell>{record.lotto}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)}</TableCell>
                                                 <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
