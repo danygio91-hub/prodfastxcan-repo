@@ -499,3 +499,4 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     </>
   );
 }
+

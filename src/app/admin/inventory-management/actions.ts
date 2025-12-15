@@ -537,3 +537,4 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
         return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
     }
 }
+

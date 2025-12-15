@@ -83,7 +83,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
         // User is inputting GROSS weight. Net weight is Gross - Tare.
         return (inputQuantity || 0) - tareWeight;
     } else {
-        // User is inputting net units (pieces or meters).
+        // User is inputting net quantity (pieces or meters).
         // Net weight is calculated from units * conversion factor.
         const conversionFactor = material.conversionFactor;
         if (conversionFactor && conversionFactor > 0) {
@@ -100,29 +100,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
-    const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
-    let netWeight: number;
-
-    if (values.inputUnit === 'kg') {
-        // The user entered the GROSS weight.
-        netWeight = values.inputQuantity - tareWeight;
-    } else { // 'n' or 'mt'
-        // The user entered the net quantity in pieces/meters.
-        netWeight = (material.conversionFactor && material.conversionFactor > 0)
-            ? values.inputQuantity * material.conversionFactor
-            : 0; // Or handle as an error if conversion factor is essential
-    }
-
-    if (netWeight < 0) {
-        toast({
-            variant: "destructive",
-            title: "Errore",
-            description: "Il peso netto calcolato è negativo. Controllare i dati inseriti.",
-        });
-        setIsPending(false);
-        return;
-    }
-
     // IMPORTANT: We are now passing the *original* input quantity and unit to the server.
     // The server action will be responsible for recalculating everything based on this.
     const result = await updateInventoryRecord(

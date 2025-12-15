@@ -61,7 +61,6 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      let finalInputQuantity: number;
       let netWeight: number;
       let grossWeight: number;
 
@@ -72,33 +71,15 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           if (netWeight < 0) {
             throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
           }
-
-          if (material.unitOfMeasure !== 'kg') {
-              if (!material.conversionFactor || material.conversionFactor <= 0) {
-                  // Don't throw an error for the operator. Record with 0 quantity.
-                  // The admin will be forced to fix this upon approval.
-                  finalInputQuantity = 0;
-              } else {
-                  finalInputQuantity = netWeight / material.conversionFactor;
-              }
-          } else {
-              finalInputQuantity = netWeight;
-          }
-
       } else { // 'n' or 'mt'
-          finalInputQuantity = inputQuantity;
-          
           if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = finalInputQuantity * material.conversionFactor;
+              netWeight = inputQuantity * material.conversionFactor;
           } else {
-               netWeight = finalInputQuantity;
+              // Cannot calculate net weight, but we can still record the inventory
+              // with a net weight of 0. Admin must approve and fix conversion factor.
+              netWeight = 0;
           }
           grossWeight = netWeight + tareWeight;
-      }
-
-
-      if (netWeight < 0) {
-          throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
       }
       
       const newInventoryRecord: Omit<InventoryRecord, 'id'> = {
@@ -114,7 +95,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           recordedAt: Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit,
-          inputQuantity: finalInputQuantity,
+          inputQuantity: inputQuantity, // Store the original input
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -126,3 +107,4 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
+
