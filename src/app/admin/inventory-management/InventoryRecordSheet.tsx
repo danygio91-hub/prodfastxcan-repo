@@ -38,7 +38,6 @@ interface InventoryRecordSheetProps {
 
 const formSchema = z.object({
   inputQuantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  grossWeight: z.coerce.number().optional(), // Now optional
   packagingId: z.string().optional(),
   inputUnit: z.enum(['n', 'mt', 'kg']),
 });
@@ -67,7 +66,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
       form.reset({ 
         inputQuantity: record.inputQuantity,
         inputUnit: record.inputUnit,
-        grossWeight: record.grossWeight,
         packagingId: record.packagingId || 'none',
       });
     }
@@ -77,26 +75,23 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   
   const calculatedNetWeight = useMemo(() => {
     if (!material) return 0;
+    
+    const { inputQuantity, inputUnit, packagingId } = watchedValues;
+    const tareWeight = packagingItems.find(p => p.id === packagingId)?.weightKg || 0;
 
-    const tareWeight = packagingItems.find(p => p.id === watchedValues.packagingId)?.weightKg || 0;
-    const quantity = watchedValues.inputQuantity || 0;
-    const unit = watchedValues.inputUnit;
-
-    if (unit === 'kg') {
-        // If the user is inputting weight, it's the gross weight. Net weight is gross - tare.
-        return quantity - tareWeight;
+    if (inputUnit === 'kg') {
+        // User is inputting GROSS weight. Net weight is Gross - Tare.
+        return (inputQuantity || 0) - tareWeight;
     } else {
-        // If the user is inputting pieces/meters, quantity is the net material.
-        // We calculate the net weight using the conversion factor.
+        // User is inputting net units (pieces or meters).
+        // Net weight is calculated from units * conversion factor.
         const conversionFactor = material.conversionFactor;
-        
         if (conversionFactor && conversionFactor > 0) {
-            return quantity * conversionFactor;
+            return (inputQuantity || 0) * conversionFactor;
         }
     }
     
-    // Fallback if no valid calculation can be made
-    return 0;
+    return 0; // Fallback if no valid calculation can be made
 
   }, [material, watchedValues, packagingItems]);
 
@@ -105,47 +100,36 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
-    let grossWeight: number;
-    let netWeight: number;
-    let finalInputQuantity = values.inputQuantity;
     const tareWeight = packagingItems.find(p => p.id === values.packagingId)?.weightKg || 0;
-    
+    let netWeight: number;
+
     if (values.inputUnit === 'kg') {
-        grossWeight = values.inputQuantity;
-        netWeight = grossWeight - tareWeight;
-        
-        if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-            finalInputQuantity = netWeight / material.conversionFactor;
-        } else {
-            finalInputQuantity = netWeight;
-        }
-
+        // The user entered the GROSS weight.
+        netWeight = values.inputQuantity - tareWeight;
     } else { // 'n' or 'mt'
-        finalInputQuantity = values.inputQuantity;
-        
-        netWeight = (material.conversionFactor && material.conversionFactor > 0) 
-            ? finalInputQuantity * material.conversionFactor 
-            : 0;
-
-        grossWeight = netWeight + tareWeight;
+        // The user entered the net quantity in pieces/meters.
+        netWeight = (material.conversionFactor && material.conversionFactor > 0)
+            ? values.inputQuantity * material.conversionFactor
+            : 0; // Or handle as an error if conversion factor is essential
     }
 
     if (netWeight < 0) {
-      toast({
-        variant: "destructive",
-        title: "Errore",
-        description: "Il peso netto calcolato è negativo. Controllare i dati inseriti.",
-      });
-      setIsPending(false);
-      return;
+        toast({
+            variant: "destructive",
+            title: "Errore",
+            description: "Il peso netto calcolato è negativo. Controllare i dati inseriti.",
+        });
+        setIsPending(false);
+        return;
     }
 
+    // IMPORTANT: We are now passing the *original* input quantity and unit to the server.
+    // The server action will be responsible for recalculating everything based on this.
     const result = await updateInventoryRecord(
         record.id, 
-        finalInputQuantity,
-        values.inputUnit,
-        grossWeight,
-        values.packagingId, 
+        values.inputQuantity, // The value from the form field
+        values.inputUnit,     // The unit selected in the form
+        values.packagingId,
         user.uid
     );
     toast({

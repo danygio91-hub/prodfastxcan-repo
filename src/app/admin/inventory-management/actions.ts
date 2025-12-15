@@ -61,7 +61,6 @@ const inventoryBatchSchema = z.object({
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
   
-  // We manually add operator data here as it's not part of the form fields filled by the user directly.
   const dataToValidate = {
       materialId: rawData.materialId,
       lotto: rawData.lotto,
@@ -111,37 +110,17 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
         }
       }
 
-      let finalInputQuantity: number;
       let netWeight: number;
       let grossWeight: number;
 
       if (inputUnit === 'kg') {
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
-          
-          if (netWeight < 0) {
-            throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
-          }
-
-          if (material.unitOfMeasure !== 'kg') {
-              if (!material.conversionFactor || material.conversionFactor <= 0) {
-                  // Don't throw error here. Allow registration but set quantity to 0.
-                  // Admin will see this and must fix conversion factor before approving.
-                  finalInputQuantity = 0; 
-              } else {
-                  finalInputQuantity = netWeight / material.conversionFactor;
-              }
-          } else {
-              finalInputQuantity = netWeight;
-          }
-
       } else { // 'n' or 'mt'
-          finalInputQuantity = inputQuantity;
-          
           if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = finalInputQuantity * material.conversionFactor;
+              netWeight = inputQuantity * material.conversionFactor;
           } else {
-               netWeight = finalInputQuantity;
+               netWeight = 0; // Can't calculate weight without factor, admin must fix
           }
           grossWeight = netWeight + tareWeight;
       }
@@ -164,7 +143,7 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           recordedAt: Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit,
-          inputQuantity: finalInputQuantity,
+          inputQuantity: inputQuantity, // Store the original input
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -219,9 +198,9 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
 
             if (material.unitOfMeasure === 'kg') {
                 unitsToAdd = record.netWeight;
-            } else {
+            } else { // 'n' or 'mt'
                  if (!material.conversionFactor || material.conversionFactor <= 0) {
-                     throw new Error(`Fattore di conversione mancante per ${material.code}. Inserirlo prima di approvare.`);
+                     throw new Error(`Fattore di conversione mancante o non valido per ${material.code}. Inserirlo dalla gestione materie prime prima di approvare.`);
                  }
                  unitsToAdd = record.netWeight / material.conversionFactor;
             }
@@ -357,11 +336,10 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
 }
 
 export async function updateInventoryRecord(
-    recordId: string, 
-    inputQuantity: number, 
-    inputUnit: 'n' | 'mt' | 'kg', 
-    grossWeight: number, 
-    packagingId: string | undefined, 
+    recordId: string,
+    inputQuantity: number,
+    inputUnit: 'n' | 'mt' | 'kg',
+    packagingId: string | undefined,
     uid: string
 ): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
@@ -388,38 +366,31 @@ export async function updateInventoryRecord(
         }
         
         let netWeight: number;
-        let finalInputQuantity: number;
-        let finalGrossWeight: number;
+        let grossWeight: number;
         
         if (inputUnit === 'kg') {
-            finalGrossWeight = inputQuantity;
-            netWeight = finalGrossWeight - tareWeight;
-            if (netWeight < 0) throw new Error("Il peso netto risultante è negativo.");
-            
-            if(material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                finalInputQuantity = netWeight / material.conversionFactor;
-            } else {
-                finalInputQuantity = netWeight;
-            }
+            grossWeight = inputQuantity;
+            netWeight = grossWeight - tareWeight;
         } else { // 'n' or 'mt'
-            finalInputQuantity = inputQuantity;
-            
             if (material.conversionFactor && material.conversionFactor > 0) {
-                netWeight = finalInputQuantity * material.conversionFactor;
+                netWeight = inputQuantity * material.conversionFactor;
             } else {
-                netWeight = finalInputQuantity;
+                netWeight = 0; // Cannot calculate if factor is missing
             }
-            finalGrossWeight = netWeight + tareWeight;
+            grossWeight = netWeight + tareWeight;
         }
 
+        if (netWeight < 0) {
+            throw new Error("Il peso netto risultante è negativo.");
+        }
 
         await updateDoc(recordRef, {
-            grossWeight: finalGrossWeight,
+            grossWeight: grossWeight,
             tareWeight: tareWeight,
             netWeight: netWeight,
             packagingId: packagingId || null,
-            inputQuantity: finalInputQuantity,
-            inputUnit: inputUnit,
+            inputQuantity: inputQuantity, // Store the original input quantity
+            inputUnit: inputUnit, // Store the original input unit
         });
         
         revalidatePath('/admin/inventory-management');
@@ -566,16 +537,3 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
         return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
     }
 }
-    
-
-    
-
-    
-
-
-
-
-
-
-    
-
