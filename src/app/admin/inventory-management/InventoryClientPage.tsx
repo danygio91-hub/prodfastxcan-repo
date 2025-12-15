@@ -151,7 +151,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
       'Lotto': r.lotto,
       'Quantità (N)': r.inputUnit === 'n' ? r.inputQuantity : 0,
       'Quantità (MT)': r.inputUnit === 'mt' ? r.inputQuantity : 0,
-      'Peso Inserito (KG)': r.inputUnit === 'kg' ? r.inputQuantity : 0,
+      'Quantità (KG)': r.inputUnit === 'kg' ? r.inputQuantity : 0,
       'Peso Lordo (kg)': r.grossWeight.toFixed(3),
       'Peso Tara (kg)': r.tareWeight.toFixed(3),
       'Peso Netto (kg)': r.netWeight.toFixed(3),
@@ -304,7 +304,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
             </CardHeader>
             <CardContent>
               {sortedDates.length > 0 ? (
-                <Accordion type="multiple" className="w-full">
+                <Accordion type="multiple" className="w-full" defaultValue={sortedDates.filter(date => groupedRecords[date] && Object.values(groupedRecords[date]).flat().some(r => r.status === 'pending'))}>
                   {sortedDates.map(date => {
                     const dailyRecordsByMaterial = groupedRecords[date];
                     const allDailyRecords = Object.values(dailyRecordsByMaterial).flat();
@@ -330,10 +330,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                             </div>
                             <div className="space-y-6">
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
-                                const hasPending = recordsForMaterial.some(r => r.status === 'pending');
                                 const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
                                 return (
-                                <Collapsible key={materialCode} defaultOpen={hasPending}>
+                                <Collapsible key={materialCode} defaultOpen={recordsForMaterial.some(r => r.status === 'pending')}>
                                   <CollapsibleTrigger className="w-full">
                                       <div className="font-semibold text-md mb-2 flex items-center justify-between gap-2 hover:bg-background p-2 rounded-md group">
                                           <div className="flex items-center gap-2">
@@ -344,7 +343,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                             <LinkIcon className="h-4 w-4 text-muted-foreground" />
                                           </div>
                                           <div className="flex items-center gap-2">
-                                            {hasPending && <Badge variant="destructive">In Attesa</Badge>}
+                                            {recordsForMaterial.some(r => r.status === 'pending') && <Badge variant="destructive">In Attesa</Badge>}
                                             <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                                           </div>
                                       </div>
@@ -370,7 +369,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                               <TableHead>Lotto</TableHead>
                                               <TableHead>Qtà (N)</TableHead>
                                               <TableHead>Qtà (MT)</TableHead>
-                                              <TableHead>Peso Inserito (KG)</TableHead>
+                                              <TableHead>Qtà (KG)</TableHead>
                                               <TableHead>Peso Lordo</TableHead>
                                               <TableHead>Tara</TableHead>
                                               <TableHead>Peso Netto</TableHead>
@@ -389,9 +388,9 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                   />
                                                 </TableCell>
                                                 <TableCell>{record.lotto}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity : '0'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity : '0'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity : '0.00'}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
                                                 <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
