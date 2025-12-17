@@ -63,16 +63,18 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setSelectedRecords([]);
   }, [initialRecords]);
 
-  const groupedRecords = useMemo(() => {
-    const filteredRecords = searchTerm
+  const filteredRecordsBySearch = useMemo(() => {
+    return searchTerm
       ? records.filter(record => 
           record.materialCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
           record.lotto.toLowerCase().includes(searchTerm.toLowerCase()) ||
           (record.operatorName || '').toLowerCase().includes(searchTerm.toLowerCase())
         )
       : records;
-      
-    return filteredRecords.reduce((acc, record) => {
+  }, [records, searchTerm]);
+
+  const groupedRecords = useMemo(() => {
+    return filteredRecordsBySearch.reduce((acc, record) => {
       const date = format(parseISO(record.recordedAt as unknown as string), 'dd.MM.yyyy');
       if (!acc[date]) {
         acc[date] = {};
@@ -84,7 +86,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
       acc[date][materialCode].push(record);
       return acc;
     }, {} as Record<string, Record<string, InventoryRecord[]>>);
-  }, [records, searchTerm]);
+  }, [filteredRecordsBySearch]);
 
   const sortedDates = useMemo(() => Object.keys(groupedRecords).sort((a, b) => {
     const [dayA, monthA, yearA] = a.split('.').map(Number);
@@ -172,7 +174,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedRecords(records.map(r => r.id));
+      setSelectedRecords(filteredRecordsBySearch.map(r => r.id));
     } else {
       setSelectedRecords([]);
     }
@@ -331,17 +333,32 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="p-4 bg-muted/50 rounded-lg">
-                            <div className="flex justify-end mb-4">
-                              <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecordsByMaterial)}>
-                                <Download className="mr-2 h-4 w-4" />
-                                Scarica Inventario del Giorno
-                              </Button>
+                            <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`select-all-${date}`}
+                                    checked={allDailyRecords.every(r => selectedRecords.includes(r.id))}
+                                    onCheckedChange={(checked) => {
+                                        const dailyIds = allDailyRecords.map(r => r.id);
+                                        if (checked) {
+                                            setSelectedRecords(prev => [...new Set([...prev, ...dailyIds])]);
+                                        } else {
+                                            setSelectedRecords(prev => prev.filter(id => !dailyIds.includes(id)));
+                                        }
+                                    }}
+                                  />
+                                  <label htmlFor={`select-all-${date}`} className="text-sm font-medium">Seleziona Tutto</label>
+                                </div>
+                                <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecordsByMaterial)}>
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Scarica Inventario del Giorno
+                                </Button>
                             </div>
                             <div className="space-y-6">
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
                                 const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
                                 return (
-                                <Collapsible key={materialCode} defaultOpen={recordsForMaterial.some(r => r.status === 'pending')}>
+                                <Collapsible key={materialCode} defaultOpen={false}>
                                   <CollapsibleTrigger className="w-full">
                                       <div className="font-semibold text-md mb-2 flex items-center justify-between gap-2 hover:bg-background p-2 rounded-md group">
                                           <div className="flex items-center gap-2">
@@ -514,3 +531,4 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     
 
     
+
