@@ -314,6 +314,14 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
               </div>
             </CardHeader>
             <CardContent>
+              <div className="flex items-center gap-2 mb-4">
+                  <Checkbox
+                      id="select-all-records"
+                      checked={filteredRecordsBySearch.length > 0 && selectedRecords.length === filteredRecordsBySearch.length}
+                      onCheckedChange={handleSelectAll}
+                  />
+                  <label htmlFor="select-all-records" className="text-sm font-medium">Seleziona Tutto ({selectedRecords.length} / {filteredRecordsBySearch.length})</label>
+              </div>
               {sortedDates.length > 0 ? (
                 <Accordion type="multiple" className="w-full">
                   {sortedDates.map(date => {
@@ -337,7 +345,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                 <div className="flex items-center gap-2">
                                   <Checkbox
                                     id={`select-all-${date}`}
-                                    checked={allDailyRecords.every(r => selectedRecords.includes(r.id))}
+                                    checked={allDailyRecords.length > 0 && allDailyRecords.every(r => selectedRecords.includes(r.id))}
                                     onCheckedChange={(checked) => {
                                         const dailyIds = allDailyRecords.map(r => r.id);
                                         if (checked) {
@@ -347,7 +355,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                         }
                                     }}
                                   />
-                                  <label htmlFor={`select-all-${date}`} className="text-sm font-medium">Seleziona Tutto</label>
+                                  <label htmlFor={`select-all-${date}`} className="text-sm font-medium">Seleziona Tutto nel Giorno</label>
                                 </div>
                                 <Button variant="outline" size="sm" onClick={() => handleExport(date, dailyRecordsByMaterial)}>
                                   <Download className="mr-2 h-4 w-4" />
@@ -358,7 +366,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
                                 const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
                                 return (
-                                <Collapsible key={materialCode} defaultOpen={false}>
+                                <Collapsible key={materialCode} defaultOpen={recordsForMaterial.some(r => r.status === 'pending')}>
                                   <CollapsibleTrigger className="w-full">
                                       <div className="font-semibold text-md mb-2 flex items-center justify-between gap-2 hover:bg-background p-2 rounded-md group">
                                           <div className="flex items-center gap-2">
@@ -381,7 +389,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                             <TableRow>
                                                <TableHead padding="checkbox">
                                                 <Checkbox
-                                                  checked={recordsForMaterial.every(r => selectedRecords.includes(r.id))}
+                                                  checked={recordsForMaterial.length > 0 && recordsForMaterial.every(r => selectedRecords.includes(r.id))}
                                                   onCheckedChange={(checked) => {
                                                     const recordIds = recordsForMaterial.map(r => r.id);
                                                     if (checked) {
@@ -416,7 +424,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 <TableCell>{record.lotto}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
                                                 <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
@@ -532,3 +540,6 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
 
     
 
+
+
+    
