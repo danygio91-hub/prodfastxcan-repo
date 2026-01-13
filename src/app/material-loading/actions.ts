@@ -170,3 +170,4 @@ export async function getPackagingItems(): Promise<Packaging[]> {
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
+

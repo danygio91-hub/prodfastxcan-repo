@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -158,6 +157,7 @@ export async function verifyAndGetJobOrder(scannedData: {
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
 
+    // This checks if all *preparation* phases that haven't been postponed are complete.
     const allPrepCompleted = sortedPhases
         .filter(p => p.type === 'preparation' && !p.postponed)
         .every(p => p.status === 'completed' || p.status === 'skipped');
@@ -565,38 +565,28 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
     let material: RawMaterial | null = null;
     let materialToSearchId = materialId;
 
+    const materialsRef = collection(db, "rawMaterials");
+    const allMaterialsSnap = await getDocs(materialsRef);
+    const allMaterials = allMaterialsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
+
     // If materialId is not provided, try to find it via the lotto number across all materials
     if (!materialToSearchId) {
-        const materialsRef = collection(db, "rawMaterials");
-        const q = firestoreQuery(materialsRef, where("batches", "array-contains", { lotto: lotto }));
-        const snapshot = await getDocs(q);
-        
-        // This is a simplification. A lot number might not be unique across all materials.
-        // A more robust system would require a globally unique lot identifier.
-        // For now, we take the first match.
-        if (!snapshot.empty) {
-            const materialDoc = snapshot.docs[0];
-            materialToSearchId = materialDoc.id;
-            material = { id: materialDoc.id, ...materialDoc.data() } as RawMaterial;
-        } else {
-             // If not found in batches, we can't proceed without a materialId
-            return null;
+        for (const mat of allMaterials) {
+            if ((mat.batches || []).some(b => b.lotto === lotto)) {
+                material = mat;
+                materialToSearchId = mat.id;
+                break;
+            }
         }
+        if (!material) return null;
     } else {
-       const materialRef = doc(db, "rawMaterials", materialToSearchId);
-       const materialSnap = await getDoc(materialRef);
-       if (materialSnap.exists()) {
-           material = { id: materialSnap.id, ...materialSnap.data() } as RawMaterial;
-       } else {
-           return null; // materialId was provided but doc doesn't exist
-       }
+       material = allMaterials.find(m => m.id === materialToSearchId) || null;
+       if (!material) return null; // materialId was provided but doc doesn't exist
     }
-    
 
-    // STRATEGY 1: Find the last usage (closing weight) of this lot.
+    // STRATEGY 1: Find the last usage (closing weight) of this lot from all jobs.
     const jobsRef = collection(db, "jobOrders");
-    const qJobs = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
-    const snapshotJobs = await getDocs(qJobs);
+    const snapshotJobs = await getDocs(jobsRef);
     const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
 
     if (!snapshotJobs.empty) {
@@ -1070,10 +1060,3 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
-
-
-
-
-
-
-
