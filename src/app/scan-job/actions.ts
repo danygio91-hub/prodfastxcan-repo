@@ -165,6 +165,12 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     for (let i = 0; i < sortedPhases.length; i++) {
         const currentPhase = sortedPhases[i];
         
+        // A phase that requires an optional material association is always ready.
+        if (currentPhase.requiresMaterialAssociation) {
+            currentPhase.materialReady = true;
+            continue;
+        }
+
         // If material is marked as missing, it's not ready. This has priority.
         if (currentPhase.materialStatus === 'missing') {
             currentPhase.materialReady = false;
@@ -298,7 +304,7 @@ export async function updateWorkGroup(groupData: WorkGroup, operatorId: string):
 
     } catch (error) {
         console.error("Error updating work group:", error);
-        return { success: false, message: "Errore durante l'aggiornamento del gruppo." };
+        return { success: false, message: "Errore during l'aggiornamento del gruppo." };
     }
 }
 
@@ -1032,6 +1038,7 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 
 
 
