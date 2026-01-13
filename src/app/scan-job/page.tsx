@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -46,7 +45,7 @@ import Link from 'next/link';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-
+import MaterialAssociationDialog from './MaterialAssociationDialog';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -116,8 +115,7 @@ const PhaseCard = ({ phase, job, handlers }: {
         handlePostponeQuality: (phaseId: string) => void,
         openQualityProblemDialog: (isOpen: boolean) => void,
         setPhaseForQualityProblem: (phase: JobPhase) => void,
-        handleOpenMaterialSearchDialog?: (phase: JobPhase) => void,
-        handleOpenMaterialConsumptionDialog?: (phase: JobPhase) => void,
+        handleOpenMaterialAssociationDialog: (phase: JobPhase) => void,
     }
 }) => {
     const { operator } = useAuth();
@@ -205,18 +203,10 @@ const PhaseCard = ({ phase, job, handlers }: {
           
         <div className="mt-3 flex items-start gap-2">
             <div className="flex-grow space-y-2">
-                 {canStartPhase && phase.type === 'preparation' && (
-                    <Button size="sm" className="w-full">Associa Materiale</Button>
-                 )}
-                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialScan && (
-                    <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
-                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-                    </Button>
-                 )}
-                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialSearch && (
-                    <Button size="sm" className="w-full">Cerca e Aggiungi Materiale</Button>
-                 )}
-                 {canStartPhase && phase.type !== 'quality' && !phase.requiresMaterialScan && !phase.requiresMaterialAssociation && !phase.requiresMaterialSearch && (
+                {canStartPhase && phase.type === 'preparation' && (
+                    <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+                )}
+                 {canStartPhase && phase.type !== 'quality' && !phase.requiresMaterialScan && !phase.requiresMaterialAssociation && (
                     <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
@@ -318,6 +308,9 @@ export default function ScanJobPage() {
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
   
   const [materialMissingPhase, setMaterialMissingPhase] = useState<JobPhase | null>(null);
+
+  const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
+  const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
   const problemForm = useForm<ProblemReportFormValues>({
     resolver: zodResolver(problemReportSchema),
@@ -471,6 +464,12 @@ export default function ScanJobPage() {
     setPhaseForPhaseScan(phase);
     setIsPhaseScanDialogOpen(true);
   };
+  
+  const handleOpenMaterialAssociationDialog = (phase: JobPhase) => {
+    setPhaseForMaterialAssociation(phase);
+    setIsMaterialAssociationDialogOpen(true);
+  };
+
 
   const handleLocalPhaseScanResult = async (scannedId: string) => {
       if (!activeJob || !operator || !phaseForPhaseScan) return;
@@ -997,14 +996,6 @@ export default function ScanJobPage() {
         });
     };
 
-    const handleOpenMaterialConsumptionDialog = (phase: JobPhase) => {
-        // Dummy function for type conformity
-    };
-
-    const handleOpenMaterialSearchDialog = (phase: JobPhase) => {
-         // Dummy function for type conformity
-    };
-
   if (step === 'loading') {
     return (
       <AppShell>
@@ -1217,7 +1208,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialSearchDialog, handleOpenMaterialConsumptionDialog}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialAssociationDialog}} />
                 ))}
             </div>
           </>
@@ -1240,7 +1231,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialSearchDialog, handleOpenMaterialConsumptionDialog}} />
+                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialAssociationDialog}} />
                 ))}
             </div>
           </>
@@ -1518,8 +1509,28 @@ export default function ScanJobPage() {
           {renderPhaseScanDialog()}
           {renderContinueOrCloseDialog()}
           {renderMaterialMissingDialog()}
+          {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
+            <MaterialAssociationDialog
+              isOpen={isMaterialAssociationDialogOpen}
+              onOpenChange={setIsMaterialAssociationDialogOpen}
+              phase={phaseForMaterialAssociation}
+              job={activeJob}
+              onSessionStart={(sessionData, type) => {
+                startSession(sessionData, type);
+                setIsMaterialAssociationDialogOpen(false);
+              }}
+              onWithdrawalComplete={() => {
+                if (activeJob) {
+                  forceJobDataRefresh(activeJob.id);
+                }
+                setIsMaterialAssociationDialogOpen(false);
+              }}
+            />
+          )}
         </div>
       </AppShell>
     </AuthGuard>
   );
 }
+
+    
