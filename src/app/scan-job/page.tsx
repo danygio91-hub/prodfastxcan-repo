@@ -205,8 +205,10 @@ const PhaseCard = ({ phase, job, handlers }: {
           
           <div className="mt-3 flex items-start gap-2">
               <div className="flex-grow space-y-2">
-                   <Button size="sm" className="w-full">PULSANTE</Button>
-                   {canStartPhase && phase.type !== 'quality' && phase.requiresMaterialScan && (
+                  {phase.type === 'preparation' && (
+                    <Button size="sm" className="w-full">Associa Materiale</Button>
+                  )}
+                   {canStartPhase && phase.type !== 'quality' && (
                        <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                            <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                        </Button>
