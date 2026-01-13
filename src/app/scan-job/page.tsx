@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -43,6 +42,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
+import { useCameraStream } from '@/hooks/use-camera-stream';
+import { useRouter } from 'next/navigation';
+
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -83,6 +85,20 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   return formattedTime.trim();
 }
 
+function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
+  if (status === 'completed') {
+    if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
+    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+  }
+  switch (status) {
+    case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
+    case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
+    case 'paused': return <PausePhaseIcon className="h-4 w-4 text-orange-500" />;
+    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
+    default: return <Circle className="h-4 w-4 text-muted-foreground" />;
+  }
+}
 
 export default function ScanJobPage() {
   const { toast } = useToast();
@@ -790,6 +806,14 @@ export default function ScanJobPage() {
         });
     };
 
+    const handleOpenMaterialConsumptionDialog = (phase: JobPhase) => {
+        // Dummy function for type conformity
+    };
+
+    const handleOpenMaterialSearchDialog = (phase: JobPhase) => {
+         // Dummy function for type conformity
+    };
+
   if (step === 'loading') {
     return (
       <AppShell>
@@ -960,6 +984,179 @@ export default function ScanJobPage() {
     );
   }
 
+  const PhaseCard = ({ phase, job, handlers }: {
+    phase: JobPhase,
+    job: JobOrder,
+    handlers: {
+        handleOpenPhaseScanDialog: (phase: JobPhase) => void,
+        handleMaterialMissing: () => void,
+        handlePausePhase: (phaseId: string) => void,
+        handleResumePhase: (phaseId: string) => void,
+        handleCompletePhase: (phaseId: string) => void,
+        handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed', notes?: string) => void,
+        handleForceStartPhase?: (phaseId: string) => void,
+        handlePostponeQuality: (phaseId: string) => void,
+        openQualityProblemDialog: (isOpen: boolean) => void,
+        setPhaseForQualityProblem: (phase: JobPhase) => void,
+        handleOpenMaterialSearchDialog?: (phase: JobPhase) => void,
+        handleOpenMaterialConsumptionDialog?: (phase: JobPhase) => void,
+    }
+}) => {
+    const { operator } = useAuth();
+    if (!operator) return null;
+
+    const isSuperadvisor = operator.role === 'supervisor';
+    const operatorReparti = operator.reparto || [];
+
+    const operatorHasPermissionForDepartment = isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
+    const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
+
+    const canStartPhase = operatorHasPermissionForDepartment && phase.status === 'pending' && phase.materialReady;
+    const canPausePhase = !job.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
+    const canResumePhase = operatorHasPermissionForDepartment && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
+    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
+    const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
+    const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
+
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
+
+    const openProblemDialog = () => {
+        handlers.setPhaseForQualityProblem(phase);
+        handlers.openQualityProblemDialog(true);
+    };
+
+    return (
+      <Card key={phase.id} className={`p-4 bg-card/50 ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center">
+              {getPhaseIcon(phase.status, phase.qualityResult)}
+              <span className={`font-semibold ${!operatorHasPermissionForDepartment && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
+          </div>
+          <div className="flex items-center space-x-2">
+              <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
+              <Switch id={`material-${phase.id}`} checked={phase.materialReady} disabled={true} />
+              {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
+          </div>
+          </div>
+          
+          {!operatorHasPermissionForDepartment && (
+          <p className="text-xs text-amber-600 dark:text-amber-500 font-semibold mt-2">
+              Fase non di competenza del tuo reparto.
+          </p>
+          )}
+          {isPhaseOwner && (
+          <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">
+              <UserCheck className="h-4 w-4" />
+              Stai lavorando a questa fase.
+          </p>
+          )}
+          {otherOperatorsActive && (
+            <p className="text-xs text-blue-500 font-semibold mt-2 flex items-center gap-1">
+              <Users className="h-4 w-4" />
+              Altri operatori sono attivi su questa fase.
+            </p>
+          )}
+
+
+          {phase.qualityResult && (
+              <div className="mt-2">
+                  <Badge variant={phase.qualityResult === 'passed' ? 'default' : 'destructive'}>
+                      Esito: {phase.qualityResult === 'passed' ? 'Superato' : 'Fallito'}
+                  </Badge>
+              </div>
+          )}
+
+          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+          {(phase.materialConsumptions || []).map((mc, index) => (
+              <p key={index} className="font-semibold text-primary/90 text-xs bg-primary/10 p-2 rounded-md">
+                  Materiale: {mc.materialCode} 
+                  {mc.grossOpeningWeight !== undefined && ` (Aperto: ${mc.grossOpeningWeight} kg)`}
+                  {mc.closingWeight !== undefined && ` (Chiuso: ${mc.closingWeight} kg)`}
+                  {mc.pcs !== undefined && ` (Pezzi: ${mc.pcs})`}
+                  {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}
+              </p>
+          ))}
+          {lastActiveWorkPeriod?.start && (
+              <p>Ultimo avvio: {format(new Date(lastActiveWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
+          )}
+          {phase.status === 'paused' && lastActiveWorkPeriod?.end && (
+              <p>Messa in pausa il: {format(new Date(lastActiveWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
+          )}
+          {phase.type !== 'quality' && <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
+          </div>
+          
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button>PULSANTE</Button>
+            {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
+               <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing}>
+                   <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
+               </Button>
+            )}
+
+            {canStartPhase && phase.type !== 'quality' && phase.requiresMaterialScan && (
+                <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
+                    <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
+                </Button>
+            )}
+          {canStartPhase && phase.type === 'quality' && handlers.handleQualityPhaseResult && (
+              <div className="flex gap-2">
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 h-12 w-16 flex-col" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
+                      <ThumbsUp className="h-5 w-5" />
+                      <span className="text-xs">OK</span>
+                  </Button>
+                   <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
+                     <ThumbsDown className="h-5 w-5" />
+                     <span className="text-xs">NC</span>
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-12 w-16 flex-col border-amber-500 text-amber-500 hover:bg-amber-500/10 hover:text-amber-500" onClick={() => handlers.handlePostponeQuality(phase.id)}>
+                     <ArchiveRestore className="h-5 w-5" />
+                     <span className="text-xs">Posticipa</span>
+                  </Button>
+              </div>
+          )}
+          {isSuperadvisor && phase.status === 'pending' && handlers.handleForceStartPhase && (
+               <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                      <Button size="sm" variant="destructive" disabled={!operatorHasPermissionForDepartment}>
+                          <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
+                      </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                      <AlertDialogHeader>
+                          <AlertDialogTitle>Sei sicuro di forzare l'avvio?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                              Questa azione avvierà la fase "{phase.name}" senza rispettare la sequenza prevista. Usare con cautela.
+                          </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                          <AlertDialogCancel>Annulla</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handlers.handleForceStartPhase?.(phase.id)}>
+                              Sì, forza avvio
+                          </AlertDialogAction>
+                      </AlertDialogFooter>
+                  </AlertDialogContent>
+              </AlertDialog>
+          )}
+          {canPausePhase && (
+              <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500">
+              <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
+              </Button>
+          )}
+          {canResumePhase && (
+              <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
+              <PlayCircle className="mr-2 h-4 w-4" /> {anyOperatorActive ? "Partecipa alla Fase" : "Riprendi Fase"}
+              </Button>
+          )}
+          {canCompletePhase && (
+              <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(job.isProblemReported && phase.status !== 'completed')}>
+              <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa la tua Attività
+              </Button>
+          )}
+          </div>
+      </Card>
+    );
+  }
+
   const renderPhasesManagement = () => {
     if (!activeJob) return null;
     
@@ -1002,7 +1199,7 @@ export default function ScanJobPage() {
             </div>
             <div className="space-y-4">
                 {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialSearchDialog, handleOpenMaterialConsumptionDialog}} />
                 ))}
             </div>
           </>
@@ -1025,7 +1222,7 @@ export default function ScanJobPage() {
             </div>
              <div className="space-y-4">
                 {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality}} />
+                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialSearchDialog, handleOpenMaterialConsumptionDialog}} />
                 ))}
             </div>
           </>
@@ -1303,245 +1500,9 @@ export default function ScanJobPage() {
           {renderPhaseScanDialog()}
           {renderContinueOrCloseDialog()}
           {renderMaterialMissingDialog()}
-
-            <Dialog open={isQualityProblemDialogOpen} onOpenChange={setIsQualityProblemDialogOpen}>
-                <DialogContent>
-                    <Form {...problemForm}>
-                        <form onSubmit={problemForm.handleSubmit((data) => {
-                            if (phaseForQualityProblem) {
-                                handleQualityPhaseResult(phaseForQualityProblem.id, 'failed', data.notes);
-                            }
-                            setIsQualityProblemDialogOpen(false);
-                            problemForm.reset();
-                        })}>
-                            <DialogHeader>
-                                <DialogTitle>Segnala Non Conformità</DialogTitle>
-                                <DialogDescription>Descrivi il problema riscontrato durante il collaudo per la fase "{phaseForQualityProblem?.name}".</DialogDescription>
-                            </DialogHeader>
-                            <div className="py-4">
-                                <FormField
-                                    control={problemForm.control}
-                                    name="notes"
-                                    render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Note sulla non conformità</FormLabel>
-                                        <FormControl>
-                                        <Input {...field} placeholder="Es. Quote fuori tolleranza" />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                    )}
-                                />
-                            </div>
-                             <DialogFooter>
-                                <Button type="button" variant="ghost" onClick={() => setIsQualityProblemDialogOpen(false)} disabled={problemForm.formState.isSubmitting}>Annulla</Button>
-                                <Button type="submit" variant="destructive" disabled={problemForm.formState.isSubmitting}>
-                                     {problemForm.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
-                                    Invia Segnalazione
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    </Form>
-                </DialogContent>
-            </Dialog>
-
         </div>
       </AppShell>
     </AuthGuard>
   );
 }
 
-function PhaseCard({ phase, job, handlers }: {
-    phase: JobPhase,
-    job: JobOrder,
-    handlers: {
-        handleOpenPhaseScanDialog: (phase: JobPhase) => void,
-        handleMaterialMissing: () => void,
-        handlePausePhase: (phaseId: string) => void,
-        handleResumePhase: (phaseId: string) => void,
-        handleCompletePhase: (phaseId: string) => void,
-        handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed', notes?: string) => void,
-        handleForceStartPhase?: (phaseId: string) => void,
-        handlePostponeQuality: (phaseId: string) => void,
-        openQualityProblemDialog: (isOpen: boolean) => void,
-        setPhaseForQualityProblem: (phase: JobPhase) => void,
-        // These two were added back from your last successful attempt, but are not used yet in the JSX below.
-        // I will leave them for now to avoid breaking anything else.
-        handleOpenMaterialSearchDialog?: (phase: JobPhase) => void,
-        handleOpenMaterialConsumptionDialog?: (phase: JobPhase) => void,
-    }
-}) {
-    const { operator } = useAuth();
-    if (!operator) return null;
-
-    const isSuperadvisor = operator.role === 'supervisor';
-    const operatorReparti = operator.reparto || [];
-
-    const operatorHasPermissionForDepartment = isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
-    const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
-
-    const canStartPhase = operatorHasPermissionForDepartment && phase.status === 'pending' && phase.materialReady;
-    const canPausePhase = !job.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
-    const canResumePhase = operatorHasPermissionForDepartment && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
-    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
-    const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
-    const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
-    
-    // --- ICON LOGIC ---
-    function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
-        if (status === 'completed') {
-            if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-            if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
-            return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-        }
-        switch (status) {
-            case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
-            case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
-            case 'paused': return <PausePhaseIcon className="h-4 w-4 text-orange-500" />;
-            case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
-            default: return <Circle className="h-4 w-4 text-muted-foreground" />;
-        }
-    }
-
-
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
-
-    const openProblemDialog = () => {
-        handlers.setPhaseForQualityProblem(phase);
-        handlers.openQualityProblemDialog(true);
-    };
-
-    return (
-      <Card key={phase.id} className={`p-4 bg-card/50 ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
-          <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center">
-              {getPhaseIcon(phase.status, phase.qualityResult)}
-              <span className={`font-semibold ${!operatorHasPermissionForDepartment && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
-          </div>
-          <div className="flex items-center space-x-2">
-              <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
-              <Switch id={`material-${phase.id}`} checked={phase.materialReady} disabled={true} />
-              {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
-          </div>
-          </div>
-          
-          {!operatorHasPermissionForDepartment && (
-          <p className="text-xs text-amber-600 dark:text-amber-500 font-semibold mt-2">
-              Fase non di competenza del tuo reparto.
-          </p>
-          )}
-          {isPhaseOwner && (
-          <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">
-              <UserCheck className="h-4 w-4" />
-              Stai lavorando a questa fase.
-          </p>
-          )}
-          {otherOperatorsActive && (
-            <p className="text-xs text-blue-500 font-semibold mt-2 flex items-center gap-1">
-              <Users className="h-4 w-4" />
-              Altri operatori sono attivi su questa fase.
-            </p>
-          )}
-
-
-          {phase.qualityResult && (
-              <div className="mt-2">
-                  <Badge variant={phase.qualityResult === 'passed' ? 'default' : 'destructive'}>
-                      Esito: {phase.qualityResult === 'passed' ? 'Superato' : 'Fallito'}
-                  </Badge>
-              </div>
-          )}
-
-          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-          {(phase.materialConsumptions || []).map((mc, index) => (
-              <p key={index} className="font-semibold text-primary/90 text-xs bg-primary/10 p-2 rounded-md">
-                  Materiale: {mc.materialCode} 
-                  {mc.grossOpeningWeight !== undefined && ` (Aperto: ${mc.grossOpeningWeight} kg)`}
-                  {mc.closingWeight !== undefined && ` (Chiuso: ${mc.closingWeight} kg)`}
-                  {mc.pcs !== undefined && ` (Pezzi: ${mc.pcs})`}
-                  {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}
-              </p>
-          ))}
-          {lastActiveWorkPeriod?.start && (
-              <p>Ultimo avvio: {format(new Date(lastActiveWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
-          )}
-          {phase.status === 'paused' && lastActiveWorkPeriod?.end && (
-              <p>Messa in pausa il: {format(new Date(lastActiveWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
-          )}
-          {phase.type !== 'quality' && <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
-          </div>
-          
-          <div className="mt-3 flex flex-wrap gap-2">
-             {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
-               <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing}>
-                   <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
-               </Button>
-            )}
-
-            {canStartPhase && phase.type !== 'quality' && phase.requiresMaterialScan && (
-                <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
-                    <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-                </Button>
-            )}
-             <Button>PULSANTE</Button>
-          {canStartPhase && phase.type === 'quality' && handlers.handleQualityPhaseResult && (
-              <div className="flex gap-2">
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700 h-12 w-16 flex-col" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
-                      <ThumbsUp className="h-5 w-5" />
-                      <span className="text-xs">OK</span>
-                  </Button>
-                   <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
-                     <ThumbsDown className="h-5 w-5" />
-                     <span className="text-xs">NC</span>
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-12 w-16 flex-col border-amber-500 text-amber-500 hover:bg-amber-500/10 hover:text-amber-500" onClick={() => handlers.handlePostponeQuality(phase.id)}>
-                     <ArchiveRestore className="h-5 w-5" />
-                     <span className="text-xs">Posticipa</span>
-                  </Button>
-              </div>
-          )}
-          {isSuperadvisor && phase.status === 'pending' && handlers.handleForceStartPhase && (
-               <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                      <Button size="sm" variant="destructive" disabled={!operatorHasPermissionForDepartment}>
-                          <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
-                      </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                      <AlertDialogHeader>
-                          <AlertDialogTitle>Sei sicuro di forzare l'avvio?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                              Questa azione avvierà la fase "{phase.name}" senza rispettare la sequenza prevista. Usare con cautela.
-                          </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                          <AlertDialogCancel>Annulla</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handlers.handleForceStartPhase?.(phase.id)}>
-                              Sì, forza avvio
-                          </AlertDialogAction>
-                      </AlertDialogFooter>
-                  </AlertDialogContent>
-              </AlertDialog>
-          )}
-          {canPausePhase && (
-              <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500">
-              <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
-              </Button>
-          )}
-          {canResumePhase && (
-              <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
-              <PlayCircle className="mr-2 h-4 w-4" /> {anyOperatorActive ? "Partecipa alla Fase" : "Riprendi Fase"}
-              </Button>
-          )}
-          {canCompletePhase && (
-              <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(job.isProblemReported && phase.status !== 'completed')}>
-              <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa la tua Attività
-              </Button>
-          )}
-          </div>
-      </Card>
-    );
-}
-  
-
-```
