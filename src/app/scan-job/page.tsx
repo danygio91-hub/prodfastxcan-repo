@@ -204,24 +204,24 @@ const PhaseCard = ({ phase, job, handlers }: {
           </div>
           
         <div className="mt-3 flex items-start gap-2">
-          <div className="flex-grow space-y-2">
-            {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialAssociation && (
-              <Button size="sm" className="w-full">Associa Materiale</Button>
-            )}
-            {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialSearch && (
-              <Button size="sm" className="w-full">Cerca e Aggiungi Materiale</Button>
-            )}
-            {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialScan && (
-              <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
-                <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-              </Button>
-            )}
-            {canStartPhase && phase.type !== 'quality' && !phase.requiresMaterialScan && !phase.requiresMaterialAssociation && (
-                <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
-                    <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-                </Button>
-            )}
-          </div>
+            <div className="flex-grow space-y-2">
+                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialAssociation && (
+                    <Button size="sm" className="w-full">Associa Materiale</Button>
+                )}
+                {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialSearch && (
+                    <Button size="sm" className="w-full">Cerca e Aggiungi Materiale</Button>
+                )}
+                {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialScan && (
+                    <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
+                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
+                    </Button>
+                )}
+                 {canStartPhase && phase.type !== 'quality' && !phase.requiresMaterialScan && !phase.requiresMaterialAssociation && (
+                    <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
+                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
+                    </Button>
+                )}
+            </div>
           <Button size="icon" variant="destructive" onClick={handlers.handleMaterialMissing} className="shrink-0">
             <AlertTriangle className="h-5 w-5" />
             <span className="sr-only">Manca Materiale</span>
@@ -1523,4 +1523,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-

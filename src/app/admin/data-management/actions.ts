@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -67,8 +68,6 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending' as const,
-            // A phase is ready if it's independent OR a preparation phase.
-            // All other phases start as not ready.
             materialReady: isIndependent || template.type === 'preparation' || template.requiresMaterialAssociation || false,
             workPeriods: [],
             sequence: index + 1, 
