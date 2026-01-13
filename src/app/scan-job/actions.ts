@@ -159,7 +159,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
 
     const allPrepCompleted = sortedPhases
-        .filter(p => p.type === 'preparation' && p.postponed !== true)
+        .filter(p => p.type === 'preparation' && !p.postponed)
         .every(p => p.status === 'completed' || p.status === 'skipped');
 
     for (let i = 0; i < sortedPhases.length; i++) {
@@ -1041,6 +1041,7 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 
 
 
