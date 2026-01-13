@@ -165,36 +165,39 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     for (let i = 0; i < sortedPhases.length; i++) {
         const currentPhase = sortedPhases[i];
         
-        // A phase that requires an optional material association is always ready.
-        if (currentPhase.requiresMaterialAssociation) {
-            currentPhase.materialReady = true;
-            continue;
-        }
-
         // If material is marked as missing, it's not ready. This has priority.
         if (currentPhase.materialStatus === 'missing') {
             currentPhase.materialReady = false;
             continue;
         }
 
-        if (currentPhase.type === 'preparation') {
-            currentPhase.materialReady = true;
-            continue;
-        }
-
+        // An independent phase is always ready, regardless of anything else.
         if (currentPhase.isIndependent) {
             currentPhase.materialReady = true;
             continue;
         }
+        
+        // A phase that allows optional material association is always ready.
+        if (currentPhase.requiresMaterialAssociation) {
+            currentPhase.materialReady = true;
+            continue;
+        }
 
-        // For sequential phases (production, quality, packaging)
-        // Condition 1: All non-postponed preparations must be complete.
+
+        // A preparation phase is always considered ready to start.
+        if (currentPhase.type === 'preparation') {
+            currentPhase.materialReady = true;
+            continue;
+        }
+        
+        // --- For sequential phases (production, quality, packaging) ---
+        // Rule 1: All non-postponed preparation phases must be complete.
         if (!allPrepCompleted) {
             currentPhase.materialReady = false;
             continue;
         }
 
-        // Condition 2: Check the preceding sequential phase.
+        // Rule 2: Find the true preceding sequential phase.
         let previousSequentialPhase: JobPhase | null = null;
         for (let j = i - 1; j >= 0; j--) {
             if (!sortedPhases[j].isIndependent) {
@@ -207,7 +210,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
              // This is the FIRST sequential phase after preparations, so it's ready.
             currentPhase.materialReady = true;
         } else {
-            // It's ready if the previous one has been started or is done.
+            // It's ready if the previous one has been started, completed or skipped.
             const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped', 'paused'].includes(previousSequentialPhase.status);
             currentPhase.materialReady = isPreviousStartedOrDone;
         }
@@ -1038,6 +1041,7 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 
 
 
