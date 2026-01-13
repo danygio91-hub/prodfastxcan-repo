@@ -68,6 +68,7 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
             id: template.id,
             name: template.name,
             status: 'pending' as const,
+            // The material is ready if the phase is independent OR it's a preparation phase
             materialReady: isIndependent || template.type === 'preparation' || template.requiresMaterialAssociation || false,
             workPeriods: [],
             sequence: index + 1, 
