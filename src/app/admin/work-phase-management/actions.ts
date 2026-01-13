@@ -22,6 +22,7 @@ const workPhaseSchema = z.object({
   tracksTime: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  requiresMaterialAssociation: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(), // Keep as string array
   isIndependent: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
 });
@@ -56,6 +57,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         tracksTime: formData.get('tracksTime'),
         requiresMaterialScan: formData.get('requiresMaterialScan'),
         requiresMaterialSearch: formData.get('requiresMaterialSearch'),
+        requiresMaterialAssociation: formData.get('requiresMaterialAssociation'),
         allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
         isIndependent: formData.get('isIndependent'),
     };
@@ -75,7 +77,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         };
     }
 
-    const { id, name, description, departmentCodes, type, tracksTime, requiresMaterialScan, requiresMaterialSearch, allowedMaterialTypes, isIndependent } = validatedFields.data;
+    const { id, name, description, departmentCodes, type, tracksTime, requiresMaterialScan, requiresMaterialSearch, requiresMaterialAssociation, allowedMaterialTypes, isIndependent } = validatedFields.data;
 
     const dataToSave: Partial<WorkPhaseTemplate> = {
         name,
@@ -85,6 +87,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         tracksTime: tracksTime || false,
         requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
         requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
+        requiresMaterialAssociation: requiresMaterialAssociation || false,
         allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[]) || [],
         isIndependent: isIndependent || false,
     };
@@ -122,6 +125,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             tracksTime: dataToSave.tracksTime,
             requiresMaterialScan: dataToSave.requiresMaterialScan,
             requiresMaterialSearch: dataToSave.requiresMaterialSearch,
+            requiresMaterialAssociation: dataToSave.requiresMaterialAssociation,
             allowedMaterialTypes: dataToSave.allowedMaterialTypes,
             isIndependent: dataToSave.isIndependent,
             sequence: newSequence,

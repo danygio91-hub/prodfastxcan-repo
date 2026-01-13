@@ -19,10 +19,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Input } from '@/components/ui/input';
+import { Input } from "@/components/ui/input";
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
 import { Switch } from '@/components/ui/switch';
 import { Workflow, PlusCircle, Edit, Trash2, Download, Save, Loader2, ListOrdered, Check, X, Timer } from 'lucide-react';
 import AppShell from '@/components/layout/AppShell';
@@ -40,6 +40,7 @@ const workPhaseSchema = z.object({
   tracksTime: z.boolean().default(true).optional(),
   requiresMaterialScan: z.boolean().default(false).optional(),
   requiresMaterialSearch: z.boolean().default(false).optional(),
+  requiresMaterialAssociation: z.boolean().default(false).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(),
   isIndependent: z.boolean().default(false).optional(),
 });
@@ -60,7 +61,7 @@ export default function WorkPhaseManagementClientPage() {
 
   const form = useForm<WorkPhaseFormValues>({
     resolver: zodResolver(workPhaseSchema),
-    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [], isIndependent: false },
+    defaultValues: { id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, requiresMaterialAssociation: false, allowedMaterialTypes: [], isIndependent: false },
   });
   
   const fetchAllData = async () => {
@@ -91,11 +92,12 @@ export default function WorkPhaseManagementClientPage() {
         tracksTime: phase.tracksTime !== false,
         requiresMaterialScan: phase.requiresMaterialScan || false,
         requiresMaterialSearch: phase.requiresMaterialSearch || false,
+        requiresMaterialAssociation: phase.requiresMaterialAssociation || false,
         allowedMaterialTypes: phase.allowedMaterialTypes || [],
         isIndependent: phase.isIndependent || false,
       });
     } else {
-      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, allowedMaterialTypes: [], isIndependent: false });
+      form.reset({ id: undefined, name: "", description: "", departmentCodes: [], type: 'production', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: false, requiresMaterialAssociation: false, allowedMaterialTypes: [], isIndependent: false });
     }
     setIsDialogOpen(true);
   };
@@ -117,6 +119,7 @@ export default function WorkPhaseManagementClientPage() {
     if (values.type !== 'quality') {
         if (values.requiresMaterialScan) formData.append('requiresMaterialScan', 'on');
         if (values.requiresMaterialSearch) formData.append('requiresMaterialSearch', 'on');
+        if (values.requiresMaterialAssociation) formData.append('requiresMaterialAssociation', 'on');
     }
     if (values.isIndependent) formData.append('isIndependent', 'on');
     (values.allowedMaterialTypes || []).forEach(type => formData.append('allowedMaterialTypes', type));
@@ -206,6 +209,7 @@ export default function WorkPhaseManagementClientPage() {
         'Tipo': phase.type === 'production' ? 'Produzione' : 'Preparazione',
         'Traccia Tempo': phase.tracksTime ? 'Sì' : 'No',
         'Richiede Scansione Materiale': phase.requiresMaterialScan ? 'Sì' : 'No',
+        'Richiede Associazione Materiale': phase.requiresMaterialAssociation ? 'Sì' : 'No',
         'Nome Fase': phase.name,
         'Descrizione': phase.description,
         'Reparti': (phase.departmentCodes || []).map(code => departmentNameMap.get(code) || code).join(', '),
@@ -218,7 +222,7 @@ export default function WorkPhaseManagementClientPage() {
   
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={10} className="h-24 text-center">
+          <TableCell colSpan={11} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento fasi...</span>
@@ -310,6 +314,7 @@ export default function WorkPhaseManagementClientPage() {
                         <TableHead>Tipo</TableHead>
                         <TableHead>Traccia Tempo</TableHead>
                         <TableHead>Scansione Mat.</TableHead>
+                        <TableHead>Associa Mat.</TableHead>
                         <TableHead>Ricerca Mat.</TableHead>
                         <TableHead>Descrizione</TableHead>
                         <TableHead>Reparti</TableHead>
@@ -346,6 +351,9 @@ export default function WorkPhaseManagementClientPage() {
                             </TableCell>
                              <TableCell className="text-center">
                                 {phase.requiresMaterialScan ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
+                            </TableCell>
+                            <TableCell className="text-center">
+                                {phase.requiresMaterialAssociation ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
                             </TableCell>
                              <TableCell className="text-center">
                                 {phase.requiresMaterialSearch ? <Check className="h-5 w-5 text-green-500" /> : <X className="h-5 w-5 text-muted-foreground" />}
@@ -386,7 +394,7 @@ export default function WorkPhaseManagementClientPage() {
                         ))
                         ) : (
                         <TableRow>
-                            <TableCell colSpan={10} className="text-center h-24">Nessuna fase definita.</TableCell>
+                            <TableCell colSpan={11} className="text-center h-24">Nessuna fase definita.</TableCell>
                         </TableRow>
                         )}
                     </TableBody>
@@ -503,7 +511,7 @@ export default function WorkPhaseManagementClientPage() {
                       </FormItem>
                       )}
                     />
-                    {form.watch('type') !== 'quality' && (
+                    {form.watch('type') === 'preparation' && (
                     <div className="space-y-4">
                         <FormField
                         control={form.control}
@@ -526,7 +534,7 @@ export default function WorkPhaseManagementClientPage() {
                             </FormControl>
                         </FormItem>
                         )}
-                    />
+                        />
                         <FormField
                         control={form.control}
                         name="requiresMaterialSearch"
@@ -548,7 +556,29 @@ export default function WorkPhaseManagementClientPage() {
                             </FormControl>
                         </FormItem>
                         )}
-                    />
+                        />
+                         <FormField
+                        control={form.control}
+                        name="requiresMaterialAssociation"
+                        render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                            <FormLabel className="text-base">
+                                Associazione Materiale Facoltativa
+                            </FormLabel>
+                            <FormDescription>
+                                Se attiva, mostra il pulsante "Associa Materiale".
+                            </FormDescription>
+                            </div>
+                            <FormControl>
+                            <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                            />
+                            </FormControl>
+                        </FormItem>
+                        )}
+                        />
                     {(form.watch('requiresMaterialScan') || form.watch('requiresMaterialSearch')) && (
                         <FormField
                             control={form.control}

@@ -39,6 +39,7 @@ export interface JobPhase {
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean;
+  requiresMaterialAssociation?: boolean; // New field for optional material association
   materialConsumptions: MaterialConsumption[];
   allowedMaterialTypes?: Array<RawMaterialType>;
   qualityResult?: 'passed' | 'failed' | null;
@@ -109,6 +110,7 @@ export interface WorkPhaseTemplate {
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean;
+  requiresMaterialAssociation?: boolean; // New field for optional material association
   allowedMaterialTypes?: Array<RawMaterialType>;
   isIndependent?: boolean; // New field
 }
