@@ -208,7 +208,9 @@ const PhaseCard = ({ phase, job, handlers }: {
                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialAssociation && (
                     <Button size="sm" className="w-full">Associa Materiale</Button>
                 )}
-                
+                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialSearch && (
+                  <Button size="sm" className="w-full">Cerca e Aggiungi Materiale</Button>
+                )}
                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialScan && (
                     <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
@@ -587,7 +589,7 @@ export default function ScanJobPage() {
   
     updateOperatorStatus(operator.id, jobToUpdate.id, null);
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Messa in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
+    toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
   };
 
   const handleResumePhase = async (phaseId: string) => {
@@ -1521,3 +1523,4 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
