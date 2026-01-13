@@ -205,7 +205,7 @@ const PhaseCard = ({ phase, job, handlers }: {
           
         <div className="mt-3 flex items-start gap-2">
             <div className="flex-grow space-y-2">
-                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialAssociation && (
+                {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialAssociation && (
                     <Button size="sm" className="w-full">Associa Materiale</Button>
                 )}
                 {canStartPhase && phase.type === 'preparation' && phase.requiresMaterialSearch && (
