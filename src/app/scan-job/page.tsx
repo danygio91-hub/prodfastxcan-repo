@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle as PhasePendingIcon, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -1365,6 +1365,10 @@ function PhaseCard({ phase, job, handlers }: {
         handlePostponeQuality: (phaseId: string) => void,
         openQualityProblemDialog: (isOpen: boolean) => void,
         setPhaseForQualityProblem: (phase: JobPhase) => void,
+        // These two were added back from your last successful attempt, but are not used yet in the JSX below.
+        // I will leave them for now to avoid breaking anything else.
+        handleOpenMaterialSearchDialog?: (phase: JobPhase) => void,
+        handleOpenMaterialConsumptionDialog?: (phase: JobPhase) => void,
     }
 }) {
     const { operator } = useAuth();
@@ -1382,18 +1386,24 @@ function PhaseCard({ phase, job, handlers }: {
     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
     const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
     const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
-
-
-    let phaseIcon = <PhasePendingIcon className="mr-2 h-5 w-5 text-muted-foreground" />;
-    if (phase.status === 'in-progress') phaseIcon = <Hourglass className="mr-2 h-5 w-5 text-yellow-500 animate-spin" />;
-    if (phase.status === 'paused') phaseIcon = <PausePhaseIcon className="mr-2 h-5 w-5 text-orange-500" />;
-    if (phase.status === 'completed') {
-      phaseIcon = <PhaseCompletedIcon className="mr-2 h-5 w-5 text-green-500" />;
-      if (phase.qualityResult === 'failed') {
-         phaseIcon = <ThumbsDown className="mr-2 h-5 w-5 text-destructive" />;
-      }
-    }
     
+    // --- ICON LOGIC ---
+    function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
+        if (status === 'completed') {
+            if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+            if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
+            return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+        }
+        switch (status) {
+            case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
+            case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
+            case 'paused': return <PausePhaseIcon className="h-4 w-4 text-orange-500" />;
+            case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
+            default: return <Circle className="h-4 w-4 text-muted-foreground" />;
+        }
+    }
+
+
     const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
@@ -1405,7 +1415,7 @@ function PhaseCard({ phase, job, handlers }: {
       <Card key={phase.id} className={`p-4 bg-card/50 ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center">
-              {phaseIcon}
+              {getPhaseIcon(phase.status, phase.qualityResult)}
               <span className={`font-semibold ${!operatorHasPermissionForDepartment && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
           </div>
           <div className="flex items-center space-x-2">
@@ -1462,17 +1472,18 @@ function PhaseCard({ phase, job, handlers }: {
           </div>
           
           <div className="mt-3 flex flex-wrap gap-2">
-          {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
-             <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing}>
-                <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
-            </Button>
-          )}
+             {phase.type === 'preparation' && phase.status === 'pending' && operatorHasPermissionForDepartment && (
+               <Button size="sm" variant="destructive" onClick={handlers.handleMaterialMissing}>
+                   <AlertTriangle className="mr-2 h-4 w-4" /> Manca Materiale
+               </Button>
+            )}
 
-          {canStartPhase && phase.type !== 'quality' && (
-              <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
-                  <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-              </Button>
-          )}
+            {canStartPhase && phase.type !== 'quality' && phase.requiresMaterialScan && (
+                <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="border-primary text-primary hover:bg-primary/10">
+                    <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
+                </Button>
+            )}
+             <Button>PULSANTE</Button>
           {canStartPhase && phase.type === 'quality' && handlers.handleQualityPhaseResult && (
               <div className="flex gap-2">
                   <Button size="sm" className="bg-green-600 hover:bg-green-700 h-12 w-16 flex-col" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
@@ -1531,7 +1542,6 @@ function PhaseCard({ phase, job, handlers }: {
       </Card>
     );
 }
-
   
 
-
+```
