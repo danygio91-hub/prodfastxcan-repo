@@ -559,22 +559,53 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
 }
 
 
-export async function findLastWeightForLotto(materialId: string, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string, isInitialLoad: boolean} | null> {
-    if (!materialId || !lotto) return null;
+export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string, isInitialLoad: boolean, material: RawMaterial | null} | null> {
+    if (!lotto) return null;
 
-    // STRATEGY 1: Find the last usage (closing weight) of this lot, as it's most current.
+    let material: RawMaterial | null = null;
+    let materialToSearchId = materialId;
+
+    // If materialId is not provided, try to find it via the lotto number across all materials
+    if (!materialToSearchId) {
+        const materialsRef = collection(db, "rawMaterials");
+        const q = firestoreQuery(materialsRef, where("batches", "array-contains", { lotto: lotto }));
+        const snapshot = await getDocs(q);
+        
+        // This is a simplification. A lot number might not be unique across all materials.
+        // A more robust system would require a globally unique lot identifier.
+        // For now, we take the first match.
+        if (!snapshot.empty) {
+            const materialDoc = snapshot.docs[0];
+            materialToSearchId = materialDoc.id;
+            material = { id: materialDoc.id, ...materialDoc.data() } as RawMaterial;
+        } else {
+             // If not found in batches, we can't proceed without a materialId
+            return null;
+        }
+    } else {
+       const materialRef = doc(db, "rawMaterials", materialToSearchId);
+       const materialSnap = await getDoc(materialRef);
+       if (materialSnap.exists()) {
+           material = { id: materialSnap.id, ...materialSnap.data() } as RawMaterial;
+       } else {
+           return null; // materialId was provided but doc doesn't exist
+       }
+    }
+    
+
+    // STRATEGY 1: Find the last usage (closing weight) of this lot.
     const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
-    const snapshot = await getDocs(q);
+    const qJobs = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
+    const snapshotJobs = await getDocs(qJobs);
     const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
 
-    if (!snapshot.empty) {
-        for (const docSnap of snapshot.docs) {
+    if (!snapshotJobs.empty) {
+        for (const docSnap of snapshotJobs.docs) {
             const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
             for (const phase of (job.phases || [])) {
                 for (const consumption of (phase.materialConsumptions || [])) {
                   if (
-                      consumption.materialId === materialId &&
+                      consumption.materialId === materialToSearchId &&
                       consumption.lottoBobina === lotto &&
                       consumption.closingWeight !== undefined &&
                       consumption.closingWeight !== null
@@ -607,15 +638,13 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
             grossWeight: lastUsage.closingWeight,
             netWeight: lastUsage.closingWeight - lastUsage.tareWeight,
             packagingId: lastUsage.packagingId,
-            isInitialLoad: false, // It's from a previous usage, not the initial load.
+            isInitialLoad: false,
+            material: material,
         };
     }
 
     // STRATEGY 2: If no usage found, find the initial loading data for this lot.
-    const materialRef = doc(db, "rawMaterials", materialId);
-    const materialSnap = await getDoc(materialRef);
-    if (materialSnap.exists()) {
-        const material = materialSnap.data() as RawMaterial;
+    if (material) {
         const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
         if (specificBatch) {
             return { 
@@ -623,11 +652,11 @@ export async function findLastWeightForLotto(materialId: string, lotto: string):
                 netWeight: specificBatch.netQuantity,
                 packagingId: specificBatch.packagingId || 'none',
                 isInitialLoad: true,
+                material: material,
             };
         }
     }
 
-    // If neither strategy finds a weight, return null.
     return null;
 }
 
@@ -1041,6 +1070,7 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
     
+
 
 
 

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -9,9 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 
-import type { JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
-import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal } from './actions';
-import { getPackagingItems } from '@/app/inventory/actions';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
+import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal, getRawMaterialByCode } from './actions';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
@@ -24,7 +22,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from '@/components/ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus } from 'lucide-react';
+import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const formSchema = z.object({
@@ -36,6 +34,7 @@ const formSchema = z.object({
 });
 
 type FormValues = z.infer<typeof formSchema>;
+type ScanType = 'material' | 'lotto' | null;
 
 interface MaterialAssociationDialogProps {
   isOpen: boolean;
@@ -56,16 +55,12 @@ export default function MaterialAssociationDialog({
 }: MaterialAssociationDialogProps) {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const [step, setStep] = useState<'initial' | 'scanning_material' | 'scanning_lotto'>('initial');
-  const [isProcessing, setIsProcessing] = useState(false);
   
-  // Search state
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<RawMaterial[]>([]);
-
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [scanType, setScanType] = useState<ScanType>(null);
+  
   const videoRef = React.useRef<HTMLVideoElement>(null);
-  const { hasPermission } = useCameraStream(step === 'scanning_material' || step === 'scanning_lotto', videoRef);
+  const { hasPermission } = useCameraStream(!!scanType, videoRef);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -82,31 +77,59 @@ export default function MaterialAssociationDialog({
 
   const handleMaterialSelect = (material: RawMaterial) => {
     form.setValue('material', material);
-    setSearchQuery("");
-    setIsSearchOpen(false);
+  };
+  
+  const handleScanTrigger = (type: ScanType) => {
+    setScanType(type);
   };
 
-  const handleScan = async (scannedValue: string) => {
+  const triggerScan = async () => {
+    if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
+      toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
+      return;
+    }
+    if (!('BarcodeDetector' in window)) {
+        toast({ variant: 'destructive', title: 'Funzionalità non supportata.' });
+        return;
+    }
+
     setIsProcessing(true);
-    if (step === 'scanning_material') {
-      const material = await searchRawMaterials(scannedValue, phase.allowedMaterialTypes);
-      if (material.length > 0) {
-        handleMaterialSelect(material[0]);
+    try {
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
+        const barcodes = await barcodeDetector.detect(videoRef.current);
+        if (barcodes.length > 0) {
+            await handleScan(barcodes[0].rawValue);
+        } else {
+            toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
+        }
+    } catch (error) {
+        toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+
+  const handleScan = async (scannedValue: string) => {
+    if (scanType === 'material') {
+      const materialResult = await getRawMaterialByCode(scannedValue);
+      if ('error' in materialResult) {
+        toast({ variant: 'destructive', title: materialResult.title, description: materialResult.error });
       } else {
-        toast({ variant: 'destructive', title: 'Materiale non trovato' });
+        handleMaterialSelect(materialResult);
       }
-    } else if (step === 'scanning_lotto') {
-      form.setValue('lotto', scannedValue);
-      const lottoData = await findLastWeightForLotto(selectedMaterial!.id, scannedValue);
-      if (lottoData) {
+    } else if (scanType === 'lotto') {
+      const lottoData = await findLastWeightForLotto(selectedMaterial?.id, scannedValue);
+      if (lottoData?.material) {
+        handleMaterialSelect(lottoData.material);
+        form.setValue('lotto', scannedValue);
         form.setValue('openingWeight', lottoData.netWeight);
         form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
       } else {
-        toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente.' });
+        toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente o scansionare prima il materiale.' });
       }
     }
-    setStep('initial');
-    setIsProcessing(false);
+    setScanType(null); // Close scanner view
   };
 
   const onAvviaSessione = (values: FormValues) => {
@@ -114,7 +137,7 @@ export default function MaterialAssociationDialog({
     onSessionStart({
       materialId: selectedMaterial.id,
       materialCode: selectedMaterial.code,
-      grossOpeningWeight: values.openingWeight || 0, // This should be gross, need to adjust
+      grossOpeningWeight: values.openingWeight || 0,
       netOpeningWeight: values.openingWeight || 0,
       originatorJobId: job.id,
       associatedJobs: [{ jobId: job.id, jobOrderPF: job.ordinePF }],
@@ -145,32 +168,52 @@ export default function MaterialAssociationDialog({
       setIsProcessing(false);
   };
   
-  const triggerScan = async () => {
-    // ... scan logic ...
-  };
+  const renderScanView = () => (
+    <div>
+        <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden my-4">
+            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+            {hasPermission === false && (
+                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                    <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                    <p className="text-destructive-foreground font-semibold">Accesso Fotocamera Negato</p>
+                </div>
+            )}
+            <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                <div className="w-5/6 h-2/5 relative">
+                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                    <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                </div>
+            </div>
+        </div>
+        <div className="flex flex-col gap-2">
+            <Button onClick={triggerScan} disabled={isProcessing || !hasPermission} className="w-full">
+                {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4" />}
+                {isProcessing ? 'Scansionando...' : 'Scansiona Ora'}
+            </Button>
+             <Button variant="outline" onClick={() => setScanType(null)}>Annulla Scansione</Button>
+        </div>
+    </div>
+  );
 
-  const renderContent = () => {
-    if (step === 'scanning_material' || step === 'scanning_lotto') {
-      // ... render scan UI ...
-      return <div>Scanning...</div>;
-    }
-    
-    return (
-      <Form {...form}>
+  const renderForm = () => (
+     <Form {...form}>
         <form className="space-y-4">
             {selectedMaterial ? (
                 <div className="p-4 border rounded-lg bg-muted">
-                    <p className="text-sm font-medium">{selectedMaterial.code}</p>
+                    <p className="font-semibold text-lg">{selectedMaterial.code}</p>
                     <p className="text-sm text-muted-foreground">{selectedMaterial.description}</p>
-                    <p className="text-lg font-bold text-primary">{selectedMaterial.currentWeightKg?.toFixed(2)} KG / {selectedMaterial.currentStockUnits} {selectedMaterial.unitOfMeasure.toUpperCase()}</p>
+                    <p className="text-xl font-bold text-primary">{selectedMaterial.currentWeightKg?.toFixed(2)} KG / {selectedMaterial.currentStockUnits} {selectedMaterial.unitOfMeasure.toUpperCase()}</p>
                 </div>
-            ) : <Alert>Seleziona o scansiona un materiale</Alert>}
+            ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
             <div className="flex gap-2">
-                <Button type="button" onClick={() => setStep('scanning_material')} className="w-full">
+                <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full">
                     <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
                 </Button>
-                 <Button type="button" onClick={() => setStep('scanning_lotto')} className="w-full" disabled={!selectedMaterial}>
+                 <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full">
                     <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
                 </Button>
             </div>
@@ -183,16 +226,16 @@ export default function MaterialAssociationDialog({
             )}/>
             <FormField control={form.control} name="ddt" render={({field}) => (
                 <FormItem>
-                    <FormLabel>DDT</FormLabel>
+                    <FormLabel>DDT / Origine</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                 </FormItem>
             )}/>
 
-             {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") ? (
+             {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || phase.name.includes("BARRA") ? (
                 <FormField control={form.control} name="openingWeight" render={({field}) => (
                     <FormItem>
                         <FormLabel>Kg Netti di Apertura</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                 )}/>
              ) : phase.name.includes("TUBI") ? (
@@ -200,13 +243,13 @@ export default function MaterialAssociationDialog({
                     <FormField control={form.control} name="openingWeight" render={({field}) => (
                     <FormItem>
                         <FormLabel>Kg Netti di Apertura</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                     <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                     <FormItem>
                         <FormLabel>N° pezzi da prelevare</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                 </>
@@ -214,29 +257,32 @@ export default function MaterialAssociationDialog({
                 <>
                     <FormField control={form.control} name="openingWeight" render={({field}) => (
                     <FormItem>
-                        <FormLabel>Mt di Apertura</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormLabel>Metri di Apertura</FormLabel>
+                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                     <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                     <FormItem>
-                        <FormLabel>Mt da prelevare</FormLabel>
-                        <FormControl><Input type="number" {...field} /></FormControl>
+                        <FormLabel>Metri da prelevare</FormLabel>
+                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                 </>
              ): null}
 
-            <DialogFooter>
-                <Button type="button" onClick={form.handleSubmit(onAvviaSessione)}>Avvia Sessione Materiale</Button>
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing}>
+                  <Play className="mr-2 h-4 w-4" /> Avvia Sessione
+                </Button>
                  {(phase.name.includes("TUBI") || phase.name.includes("GUAINA")) && (
-                    <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)}>Preleva Materiale</Button>
+                    <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing}>
+                      <Send className="mr-2 h-4 w-4" /> Preleva Materiale
+                    </Button>
                 )}
             </DialogFooter>
         </form>
       </Form>
-    );
-  };
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -244,10 +290,8 @@ export default function MaterialAssociationDialog({
         <DialogHeader>
           <DialogTitle>Associa Materiale a "{phase.name}"</DialogTitle>
         </DialogHeader>
-        {renderContent()}
+        {scanType ? renderScanView() : renderForm()}
       </DialogContent>
     </Dialog>
   );
 }
-
-    
