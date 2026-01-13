@@ -32,8 +32,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, logTubiGuainaWithdrawal, findLastWeightForLotto, resolveJobProblem, getJobOrderById, searchRawMaterials, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus } from './actions';
-import { getRawMaterialByCode, getPackagingItems } from '@/app/material-loading/actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -203,10 +202,10 @@ const PhaseCard = ({ phase, job, handlers }: {
           
         <div className="mt-3 flex items-start gap-2">
             <div className="flex-grow space-y-2">
-                {canStartPhase && phase.type === 'preparation' && (
-                    <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+               {canStartPhase && phase.type === 'preparation' && (
+                  <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
                 )}
-                 {canStartPhase && phase.type !== 'quality' && !phase.requiresMaterialScan && !phase.requiresMaterialAssociation && (
+                {canStartPhase && phase.type !== 'quality' && (
                     <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
                         <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
                     </Button>
@@ -1426,7 +1425,7 @@ export default function ScanJobPage() {
                            {renderScanArea(handleScannedData)}
                       </CardContent>
                       <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing || !hasCameraPermission} className="w-full h-14">
+                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing} className="w-full h-14">
                               {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
                               <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
                            </Button>
@@ -1494,7 +1493,7 @@ export default function ScanJobPage() {
                             </div>
                          </CardContent>
                         <CardFooter className="flex-col sm:flex-row gap-2">
-                             <Button onClick={() => triggerScan(handleGroupScan)} disabled={isCapturing || !hasCameraPermission} className="w-full sm:w-auto flex-1 h-14">
+                             <Button onClick={() => triggerScan(handleGroupScan)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-14">
                                 {isCapturing ? <Loader2 className="h-6 w-6 animate-spin"/> : <QrCode className="h-6 w-6" />}
                                 <span className="ml-2 text-lg">Aggiungi</span>
                              </Button>
@@ -1532,5 +1531,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-    
