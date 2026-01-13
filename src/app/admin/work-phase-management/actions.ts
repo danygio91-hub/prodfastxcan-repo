@@ -19,12 +19,12 @@ const workPhaseSchema = z.object({
   description: z.string().min(10, 'La descrizione deve avere almeno 10 caratteri.'),
   departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
   type: z.enum(['preparation', 'production', 'quality', 'packaging']),
-  tracksTime: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
-  requiresMaterialScan: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
-  requiresMaterialSearch: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
-  requiresMaterialAssociation: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  tracksTime: z.boolean().default(true).optional(),
+  requiresMaterialScan: z.boolean().default(false).optional(),
+  requiresMaterialSearch: z.boolean().default(false).optional(),
+  requiresMaterialAssociation: z.boolean().default(false).optional(),
   allowedMaterialTypes: z.array(z.string()).optional(), // Keep as string array
-  isIndependent: z.preprocess((val) => val === 'on' || val === true, z.boolean()).optional(),
+  isIndependent: z.boolean().default(false).optional(),
 });
 
 // --- Actions ---
@@ -54,20 +54,15 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         description: formData.get('description'),
         departmentCodes: formData.getAll('departmentCodes'),
         type: formData.get('type'),
-        tracksTime: formData.get('tracksTime'),
-        requiresMaterialScan: formData.get('requiresMaterialScan'),
-        requiresMaterialSearch: formData.get('requiresMaterialSearch'),
-        requiresMaterialAssociation: formData.get('requiresMaterialAssociation'),
+        tracksTime: formData.get('tracksTime') === 'on',
+        requiresMaterialScan: formData.get('requiresMaterialScan') === 'on',
+        requiresMaterialSearch: formData.get('requiresMaterialSearch') === 'on',
+        requiresMaterialAssociation: formData.get('requiresMaterialAssociation') === 'on',
         allowedMaterialTypes: formData.getAll('allowedMaterialTypes'),
-        isIndependent: formData.get('isIndependent'),
+        isIndependent: formData.get('isIndependent') === 'on',
     };
 
-    // We can't use the enum from mock-data anymore as it's dynamic
-    const dynamicWorkPhaseSchema = workPhaseSchema.extend({
-        departmentCodes: z.array(z.string()).min(1, 'Selezionare almeno un reparto.'),
-    });
-
-    const validatedFields = dynamicWorkPhaseSchema.safeParse(rawData);
+    const validatedFields = workPhaseSchema.safeParse(rawData);
 
     if (!validatedFields.success) {
         return {
@@ -84,12 +79,12 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         description,
         departmentCodes,
         type,
-        tracksTime: tracksTime || false,
-        requiresMaterialScan: type === 'quality' ? false : (requiresMaterialScan || false),
-        requiresMaterialSearch: type === 'quality' ? false : (requiresMaterialSearch || false),
-        requiresMaterialAssociation: requiresMaterialAssociation || false,
+        tracksTime: tracksTime,
+        requiresMaterialScan: type === 'quality' ? false : requiresMaterialScan,
+        requiresMaterialSearch: type === 'quality' ? false : requiresMaterialSearch,
+        requiresMaterialAssociation: requiresMaterialAssociation,
         allowedMaterialTypes: (allowedMaterialTypes as RawMaterialType[]) || [],
-        isIndependent: isIndependent || false,
+        isIndependent: isIndependent,
     };
 
     if (id) {
