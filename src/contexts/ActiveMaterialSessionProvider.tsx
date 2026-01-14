@@ -58,7 +58,11 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     if (!storageKey) return;
 
     try {
-      localStorage.setItem(storageKey, JSON.stringify(sessions));
+      if (sessions.length > 0) {
+        localStorage.setItem(storageKey, JSON.stringify(sessions));
+      } else {
+        localStorage.removeItem(storageKey);
+      }
       broadcastSessionsUpdate(sessions);
     } catch (error) {
       console.error("Failed to save active material sessions", error);
@@ -153,7 +157,7 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
         if (hasChanged) {
           persistSessions(updatedSessions);
         }
-        return updatedSessions;
+        return hasChanged ? updatedSessions : prevSessions;
     });
   }, [persistSessions]);
 

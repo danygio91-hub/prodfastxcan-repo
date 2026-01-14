@@ -36,15 +36,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fullLogout = useCallback(async () => {
     const currentOperator = operatorRef.current;
     
-    // We intentionally DO NOT clear the activeJobId on logout.
-    // That state should persist so the user can resume.
-    // It is only cleared when they explicitly pause or complete a task.
-    
     await firebaseLogout();
     
-    if (currentOperator?.id) {
-        localStorage.removeItem(`${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}`);
-    }
+    // On logout, we don't clear material sessions anymore, as they are now persistent.
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
     
     setUser(null);

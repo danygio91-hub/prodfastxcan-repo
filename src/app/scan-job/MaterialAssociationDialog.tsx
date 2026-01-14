@@ -141,11 +141,22 @@ export default function MaterialAssociationDialog({
 
   const onAvviaSessione = (values: FormValues) => {
     if (!selectedMaterial || !job || !operator) return;
+    
+    // Calculate the real opening weight in KG
+    let realOpeningWeightKg = 0;
+    const openingValue = values.openingWeight || 0;
+
+    if (selectedMaterial.unitOfMeasure === 'kg') {
+      realOpeningWeightKg = openingValue;
+    } else if (selectedMaterial.conversionFactor && selectedMaterial.conversionFactor > 0) {
+      realOpeningWeightKg = openingValue * selectedMaterial.conversionFactor;
+    }
+
     onSessionStart({
       materialId: selectedMaterial.id,
       materialCode: selectedMaterial.code,
-      grossOpeningWeight: values.openingWeight || 0,
-      netOpeningWeight: values.openingWeight || 0,
+      grossOpeningWeight: realOpeningWeightKg, // Always use the calculated KG value
+      netOpeningWeight: realOpeningWeightKg, // For session start, net and gross are the same concept
       originatorJobId: job.id,
       associatedJobs: [{ jobId: job.id, jobOrderPF: job.ordinePF }],
     }, selectedMaterial.type);
@@ -278,7 +289,7 @@ export default function MaterialAssociationDialog({
                       <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                       <FormItem>
                           <FormLabel>Quantità da prelevare ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
-                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
+                          <FormControl><Input type="number" {...field} value={field.value ?? undefined} /></FormControl>
                       </FormItem>
                       )}/>
                   </>
