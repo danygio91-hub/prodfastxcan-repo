@@ -18,7 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -67,7 +67,7 @@ export default function MaterialAssociationDialog({
       lotto: "",
       ddt: "",
       openingWeight: 0,
-      quantityToWithdraw: 0,
+      quantityToWithdraw: undefined,
     },
   });
 
@@ -226,7 +226,7 @@ export default function MaterialAssociationDialog({
     return (
      <Form {...form}>
         <form className="space-y-4 h-full flex flex-col">
-          <div className="flex-1 overflow-y-auto px-6 py-2">
+          <ScrollArea className="flex-1 px-6 py-2">
             <div className="space-y-4">
               {selectedMaterial ? (
                   <div className="p-4 border rounded-lg bg-muted text-center">
@@ -284,7 +284,7 @@ export default function MaterialAssociationDialog({
                   </>
               )}
             </div>
-          </div>
+          </ScrollArea>
           <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t">
               <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="w-full">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
@@ -302,7 +302,7 @@ export default function MaterialAssociationDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md h-full sm:h-auto sm:max-h-[90vh] flex flex-col p-0">
+      <DialogContent className="max-w-md h-[90vh] flex flex-col p-0">
         <DialogHeader className="p-6 pb-2">
           <DialogTitle>Associa Materiale a "{phase.name}"</DialogTitle>
         </DialogHeader>
