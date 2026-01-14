@@ -205,7 +205,9 @@ export default function MaterialAssociationDialog({
                 <div className="p-4 border rounded-lg bg-muted">
                     <p className="font-semibold text-lg">{selectedMaterial.code}</p>
                     <p className="text-sm text-muted-foreground">{selectedMaterial.description}</p>
-                    <p className="text-xl font-bold text-primary">{selectedMaterial.currentWeightKg?.toFixed(2)} KG / {selectedMaterial.currentStockUnits} {selectedMaterial.unitOfMeasure.toUpperCase()}</p>
+                    <p className="text-xl font-bold text-primary">
+                        {selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'} KG / {selectedMaterial.currentStockUnits ?? 0} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                    </p>
                 </div>
             ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
@@ -231,51 +233,36 @@ export default function MaterialAssociationDialog({
                 </FormItem>
             )}/>
 
-             {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || phase.name.includes("BARRA") ? (
+             {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial?.unitOfMeasure === 'kg' ? (
                 <FormField control={form.control} name="openingWeight" render={({field}) => (
                     <FormItem>
                         <FormLabel>Kg Netti di Apertura</FormLabel>
                         <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                 )}/>
-             ) : phase.name.includes("TUBI") ? (
+             ) : (
                 <>
                     <FormField control={form.control} name="openingWeight" render={({field}) => (
                     <FormItem>
-                        <FormLabel>Kg Netti di Apertura</FormLabel>
+                        <FormLabel>Quantità di Apertura ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
                         <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                     <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                     <FormItem>
-                        <FormLabel>N° pezzi da prelevare</FormLabel>
+                        <FormLabel>Quantità da prelevare ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
                         <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                     </FormItem>
                     )}/>
                 </>
-             ) : phase.name.includes("GUAINA") ? (
-                <>
-                    <FormField control={form.control} name="openingWeight" render={({field}) => (
-                    <FormItem>
-                        <FormLabel>Metri di Apertura</FormLabel>
-                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                    )}/>
-                    <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
-                    <FormItem>
-                        <FormLabel>Metri da prelevare</FormLabel>
-                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                    )}/>
-                </>
-             ): null}
+             )}
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
                 <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing}>
                   <Play className="mr-2 h-4 w-4" /> Avvia Sessione
                 </Button>
-                 {(phase.name.includes("TUBI") || phase.name.includes("GUAINA")) && (
-                    <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing}>
+                 {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
+                    <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')}>
                       <Send className="mr-2 h-4 w-4" /> Preleva Materiale
                     </Button>
                 )}

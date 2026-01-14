@@ -171,18 +171,17 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
             continue;
         }
 
-        // An independent phase is always ready, regardless of anything else.
-        if (currentPhase.isIndependent) {
-            currentPhase.materialReady = true;
-            continue;
-        }
-        
         // A phase that allows optional material association is always ready.
         if (currentPhase.requiresMaterialAssociation) {
             currentPhase.materialReady = true;
             continue;
         }
 
+        // An independent phase is always ready, regardless of anything else.
+        if (currentPhase.isIndependent) {
+            currentPhase.materialReady = true;
+            continue;
+        }
 
         // A preparation phase is always considered ready to start.
         if (currentPhase.type === 'preparation') {
@@ -1058,5 +1057,3 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
-
-    
