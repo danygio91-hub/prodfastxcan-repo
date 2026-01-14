@@ -225,9 +225,9 @@ export default function MaterialAssociationDialog({
 
     return (
      <Form {...form}>
-        <form className="space-y-4">
-          <ScrollArea className="max-h-[60vh] p-1">
-            <div className="space-y-4 p-4">
+        <form className="space-y-4 h-full flex flex-col">
+          <div className="flex-1 overflow-y-auto px-6 py-2">
+            <div className="space-y-4">
               {selectedMaterial ? (
                   <div className="p-4 border rounded-lg bg-muted text-center">
                       <p className="font-semibold text-lg">{selectedMaterial.code}</p>
@@ -284,13 +284,13 @@ export default function MaterialAssociationDialog({
                   </>
               )}
             </div>
-          </ScrollArea>
-          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t px-4">
-              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="flex-1">
+          </div>
+          <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t">
+              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="w-full">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
               </Button>
                 {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
-                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="flex-1">
+                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full">
                     <Send className="mr-2 h-4 w-4" /> Preleva Materiale
                   </Button>
               )}
@@ -302,11 +302,11 @@ export default function MaterialAssociationDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="p-6 pb-0">
+      <DialogContent className="max-w-md h-full sm:h-auto sm:max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-2">
           <DialogTitle>Associa Materiale a "{phase.name}"</DialogTitle>
         </DialogHeader>
-        {scanType ? <div className="p-6 pt-2">{renderScanView()}</div> : renderForm()}
+        {scanType ? <div className="p-6 pt-0">{renderScanView()}</div> : renderForm()}
       </DialogContent>
     </Dialog>
   );
