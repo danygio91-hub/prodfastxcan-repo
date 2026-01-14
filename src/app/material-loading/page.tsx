@@ -46,6 +46,73 @@ type NcReportFormValues = z.infer<typeof ncReportFormSchema>;
 
 type Step = 'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success';
 
+// New isolated component for scanning UI
+const ScanUI = ({ title, onScan, onCancel }: { title: string, onScan: (code: string) => void, onCancel: () => void }) => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const { hasPermission } = useCameraStream(true, videoRef);
+    const [isCapturing, setIsCapturing] = useState(false);
+    const { toast } = useToast();
+
+    const triggerScan = async () => {
+        if (!videoRef.current || videoRef.current.readyState < 2) {
+            toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
+            return;
+        }
+        if (!('BarcodeDetector' in window)) {
+            toast({ variant: 'destructive', title: 'Funzionalità non supportata.' });
+            return;
+        }
+
+        setIsCapturing(true);
+        try {
+            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+            const barcodes = await barcodeDetector.detect(videoRef.current);
+            if (barcodes.length > 0) {
+                onScan(barcodes[0].rawValue);
+            } else {
+                toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
+            }
+        } catch (error) {
+            toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
+        } finally {
+            setIsCapturing(false);
+        }
+    };
+
+    return (
+        <div className="text-center space-y-4">
+            <h3 className="text-xl font-semibold">{title}</h3>
+            <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
+                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                {hasPermission === false ? (
+                     <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                        <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
+                        <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
+                    </div>
+                ) : (
+                    <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                        <div className="w-5/6 h-2/5 relative">
+                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                            <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <div className="flex flex-col gap-2">
+                <Button onClick={triggerScan} disabled={isCapturing || !hasPermission} className="w-full h-12">
+                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+                    <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Ora'}</span>
+                </Button>
+                <Button variant="outline" onClick={onCancel}>Annulla</Button>
+            </div>
+        </div>
+    );
+};
+
 
 export default function MaterialLoadingPage() {
     const { operator, loading: authLoading } = useAuth();
@@ -56,12 +123,8 @@ export default function MaterialLoadingPage() {
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
-    const [isCapturing, setIsCapturing] = useState(false);
     const [showNCReport, setShowNCReport] = useState(false);
     const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
-    
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scan_material' || step === 'scan_lotto', videoRef);
     
     useEffect(() => {
         if (!authLoading && operator) {
@@ -109,36 +172,6 @@ export default function MaterialLoadingPage() {
         form.setValue('lotto', code.trim());
         setStep('validate');
     };
-
-    const triggerScan = useCallback(async () => {
-        if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
-            toast({ variant: 'destructive', title: 'Fotocamera non pronta.' });
-            return;
-        }
-        if (!('BarcodeDetector' in window)) {
-            toast({ variant: 'destructive', title: 'Funzionalità non supportata.' });
-            return;
-        }
-
-        setIsCapturing(true);
-        try {
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-            const barcodes = await barcodeDetector.detect(videoRef.current);
-            if (barcodes.length > 0) {
-                if (step === 'scan_material') {
-                    handleMaterialScanned(barcodes[0].rawValue);
-                } else if (step === 'scan_lotto') {
-                    handleLottoScanned(barcodes[0].rawValue);
-                }
-            } else {
-                toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
-            }
-        } catch (error) {
-            toast({ variant: 'destructive', title: 'Errore durante la scansione.' });
-        } finally {
-            setIsCapturing(false);
-        }
-    }, [step, toast, handleMaterialScanned, handleLottoScanned]);
 
     async function onFinalSubmit(values: BatchFormValues) {
         setStep('saving');
@@ -207,37 +240,6 @@ export default function MaterialLoadingPage() {
         return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
     }
     
-    const renderScanUI = (title: string) => (
-        <div className="text-center space-y-4">
-            <h3 className="text-xl font-semibold">{title}</h3>
-            {scannedMaterial && <p className="text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial.code}</span></p>}
-            <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
-                <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                {hasCameraPermission === false ? (
-                     <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
-                        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-                        <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
-                        <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
-                    </div>
-                ) : (
-                    <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                        <div className="w-5/6 h-2/5 relative">
-                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                            <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                        </div>
-                    </div>
-                )}
-            </div>
-            <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
-                {isCapturing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-                <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Ora'}</span>
-            </Button>
-        </div>
-    );
-
     const filteredPackagingItems = scannedMaterial
         ? packagingItems.filter(item => item.associatedTypes?.includes(scannedMaterial.type))
         : [];
@@ -272,8 +274,12 @@ export default function MaterialLoadingPage() {
                             </ol>
                             
                             <div className="mt-8">
-                                {step === 'scan_material' && renderScanUI('1. Scansiona il Codice Materiale')}
-                                {step === 'scan_lotto' && renderScanUI('2. Scansiona il Codice del Lotto')}
+                                {step === 'scan_material' && (
+                                    <ScanUI title="1. Scansiona il Codice Materiale" onScan={handleMaterialScanned} onCancel={resetFlow} />
+                                )}
+                                {step === 'scan_lotto' && (
+                                    <ScanUI title="2. Scansiona il Codice del Lotto" onScan={handleLottoScanned} onCancel={resetFlow} />
+                                )}
                                 {step === 'validate' && (
                                      <div className="text-center space-y-4">
                                         <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
