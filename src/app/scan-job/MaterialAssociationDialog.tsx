@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from '@/components/ui/badge';
@@ -226,7 +226,7 @@ export default function MaterialAssociationDialog({
     return (
      <Form {...form}>
         <form className="space-y-4">
-          <ScrollArea className="max-h-[70vh] p-1">
+          <ScrollArea className="max-h-[60vh] p-1">
             <div className="space-y-4 p-4">
               {selectedMaterial ? (
                   <div className="p-4 border rounded-lg bg-muted text-center">
@@ -239,10 +239,10 @@ export default function MaterialAssociationDialog({
               ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full">
+                  <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full h-12">
                       <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
                   </Button>
-                   <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full">
+                   <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full h-12">
                       <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
                   </Button>
               </div>
@@ -285,12 +285,12 @@ export default function MaterialAssociationDialog({
               )}
             </div>
           </ScrollArea>
-          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
-              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing}>
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t px-4">
+              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="flex-1">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
               </Button>
                 {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
-                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')}>
+                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="flex-1">
                     <Send className="mr-2 h-4 w-4" /> Preleva Materiale
                   </Button>
               )}
@@ -302,11 +302,11 @@ export default function MaterialAssociationDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-0">
           <DialogTitle>Associa Materiale a "{phase.name}"</DialogTitle>
         </DialogHeader>
-        {scanType ? renderScanView() : renderForm()}
+        {scanType ? <div className="p-6 pt-2">{renderScanView()}</div> : renderForm()}
       </DialogContent>
     </Dialog>
   );
