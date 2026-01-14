@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from 'react';
@@ -86,7 +85,7 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
                 Inserisci il peso finale per il materiale <span className="font-bold">{session.materialCode}</span>.
                 Il consumo totale verrà scaricato dal magazzino e associato a tutte le commesse lavorate.
                 <br/>
-                Peso Lordo di apertura: <span className="font-bold">{session.grossOpeningWeight} kg</span>.
+                Peso Lordo di apertura: <span className="font-bold">{session.grossOpeningWeight.toFixed(2)} kg</span>.
                 </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -155,7 +154,7 @@ export default function ActiveMaterialSessionBar() {
                     <div key={session.materialId} className="p-4 border rounded-lg space-y-3">
                         <div>
                             <div className="font-semibold text-sm flex items-center gap-2">{session.materialCode} <Badge variant="outline">{session.category}</Badge></div>
-                            <p className="text-xs text-muted-foreground">Aperto con: {session.grossOpeningWeight} kg</p>
+                            <p className="text-xs text-muted-foreground">Aperto con: {session.grossOpeningWeight.toFixed(2)} kg</p>
                         </div>
                          <div className="text-xs text-muted-foreground">
                             <p className="font-medium text-foreground">Commesse Associate:</p>

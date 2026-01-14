@@ -438,6 +438,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     );
   };
 
+  const formatStock = (value: number, unit: 'n' | 'mt' | 'kg') => {
+    if (unit === 'n') return Math.floor(value);
+    if (unit === 'mt') return value.toFixed(1);
+    return value.toFixed(2);
+  }
 
   return (
       <div className="space-y-6">
@@ -546,7 +551,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{(material.currentStockUnits ?? 0).toFixed(2)}</TableCell>
+                            <TableCell>{formatStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
                             <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
                             <TableCell className="text-right">
@@ -854,7 +859,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{(selectedMaterial.currentStockUnits ?? 0).toFixed(2)}</p>
+                                <p className="text-2xl font-bold">{formatStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock Calcolato (KG)</Label>
@@ -875,4 +880,5 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
