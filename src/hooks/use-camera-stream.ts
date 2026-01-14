@@ -51,7 +51,7 @@ export function useCameraStream(shouldBeActive: boolean, videoRef: React.RefObje
             videoRef.current.srcObject = stream;
             // The `play()` call might fail if the video element is not yet ready.
             // It's often better to rely on the `autoPlay` attribute on the video tag itself.
-            videoRef.current.play().catch(e => console.error("Video play failed:", e));
+            await videoRef.current.play().catch(e => console.error("Video play failed:", e));
         }
 
       } catch (error) {
