@@ -18,8 +18,6 @@ import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from '@/components/ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
@@ -198,78 +196,97 @@ export default function MaterialAssociationDialog({
     </div>
   );
 
-  const renderForm = () => (
+  const renderForm = () => {
+    let stockDisplay = '';
+    if (selectedMaterial) {
+      const kgStock = (selectedMaterial.currentWeightKg ?? 0).toFixed(2);
+      const unitStock = selectedMaterial.currentStockUnits ?? 0;
+      
+      if (selectedMaterial.unitOfMeasure === 'n') {
+        stockDisplay = `${kgStock} KG / ${Math.floor(unitStock)} N`;
+      } else if (selectedMaterial.unitOfMeasure === 'mt') {
+        stockDisplay = `${kgStock} KG / ${unitStock.toFixed(1)} MT`;
+      } else { // kg
+        stockDisplay = `${kgStock} KG`;
+      }
+    }
+
+    return (
      <Form {...form}>
         <form className="space-y-4">
-            {selectedMaterial ? (
-                <div className="p-4 border rounded-lg bg-muted">
-                    <p className="font-semibold text-lg">{selectedMaterial.code}</p>
-                    <p className="text-sm text-muted-foreground">{selectedMaterial.description}</p>
-                    <p className="text-xl font-bold text-primary">
-                        {selectedMaterial.currentWeightKg?.toFixed(2) ?? '0.00'} KG / {selectedMaterial.currentStockUnits ?? 0} {selectedMaterial.unitOfMeasure.toUpperCase()}
-                    </p>
-                </div>
-            ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
+          <ScrollArea className="max-h-[70vh] p-1">
+            <div className="space-y-4 p-4">
+              {selectedMaterial ? (
+                  <div className="p-4 border rounded-lg bg-muted text-center">
+                      <p className="font-semibold text-lg">{selectedMaterial.code}</p>
+                      <p className="text-sm text-muted-foreground">{selectedMaterial.description}</p>
+                      <p className="text-xl font-bold text-primary mt-1">
+                          {stockDisplay}
+                      </p>
+                  </div>
+              ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
-            <div className="flex gap-2">
-                <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full">
-                    <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
-                </Button>
-                 <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full">
-                    <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
-                </Button>
+              <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full">
+                      <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
+                  </Button>
+                   <Button type="button" onClick={() => handleScanTrigger('lotto')} className="w-full">
+                      <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
+                  </Button>
+              </div>
+              
+              <FormField control={form.control} name="lotto" render={({field}) => (
+                  <FormItem>
+                      <FormLabel>Lotto</FormLabel>
+                      <FormControl><Input {...field} /></FormControl>
+                  </FormItem>
+              )}/>
+              <FormField control={form.control} name="ddt" render={({field}) => (
+                  <FormItem>
+                      <FormLabel>DDT / Origine</FormLabel>
+                      <FormControl><Input {...field} /></FormControl>
+                  </FormItem>
+              )}/>
+
+              {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial?.unitOfMeasure === 'kg' ? (
+                  <FormField control={form.control} name="openingWeight" render={({field}) => (
+                      <FormItem>
+                          <FormLabel>Kg Netti di Apertura</FormLabel>
+                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
+                      </FormItem>
+                  )}/>
+              ) : (
+                  <>
+                      <FormField control={form.control} name="openingWeight" render={({field}) => (
+                      <FormItem>
+                          <FormLabel>Quantità di Apertura ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
+                      </FormItem>
+                      )}/>
+                      <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
+                      <FormItem>
+                          <FormLabel>Quantità da prelevare ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
+                      </FormItem>
+                      )}/>
+                  </>
+              )}
             </div>
-            
-            <FormField control={form.control} name="lotto" render={({field}) => (
-                <FormItem>
-                    <FormLabel>Lotto</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                </FormItem>
-            )}/>
-            <FormField control={form.control} name="ddt" render={({field}) => (
-                <FormItem>
-                    <FormLabel>DDT / Origine</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                </FormItem>
-            )}/>
-
-             {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial?.unitOfMeasure === 'kg' ? (
-                <FormField control={form.control} name="openingWeight" render={({field}) => (
-                    <FormItem>
-                        <FormLabel>Kg Netti di Apertura</FormLabel>
-                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                )}/>
-             ) : (
-                <>
-                    <FormField control={form.control} name="openingWeight" render={({field}) => (
-                    <FormItem>
-                        <FormLabel>Quantità di Apertura ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
-                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                    )}/>
-                    <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
-                    <FormItem>
-                        <FormLabel>Quantità da prelevare ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
-                        <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                    )}/>
-                </>
-             )}
-
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing}>
-                  <Play className="mr-2 h-4 w-4" /> Avvia Sessione
-                </Button>
-                 {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
-                    <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')}>
-                      <Send className="mr-2 h-4 w-4" /> Preleva Materiale
-                    </Button>
-                )}
-            </DialogFooter>
+          </ScrollArea>
+          <DialogFooter className="flex-col sm:flex-row gap-2 pt-4 border-t">
+              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing}>
+                <Play className="mr-2 h-4 w-4" /> Avvia Sessione
+              </Button>
+                {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
+                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')}>
+                    <Send className="mr-2 h-4 w-4" /> Preleva Materiale
+                  </Button>
+              )}
+          </DialogFooter>
         </form>
       </Form>
-  );
+    );
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
