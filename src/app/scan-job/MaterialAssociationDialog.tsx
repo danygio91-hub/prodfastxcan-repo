@@ -121,7 +121,16 @@ export default function MaterialAssociationDialog({
       if (lottoData?.material) {
         handleMaterialSelect(lottoData.material);
         form.setValue('lotto', scannedValue);
-        form.setValue('openingWeight', lottoData.netWeight);
+        
+        // Apply rounding based on the unit of measure before setting the value
+        let roundedOpeningWeight = lottoData.netWeight;
+        if(lottoData.material.unitOfMeasure === 'n') {
+            roundedOpeningWeight = Math.floor(lottoData.netWeight);
+        } else if (lottoData.material.unitOfMeasure === 'mt') {
+            roundedOpeningWeight = parseFloat(lottoData.netWeight.toFixed(1));
+        }
+        form.setValue('openingWeight', roundedOpeningWeight);
+        
         form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
       } else {
         toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente o scansionare prima il materiale.' });
@@ -200,15 +209,18 @@ export default function MaterialAssociationDialog({
     let stockDisplay = '';
     if (selectedMaterial) {
       const kgStock = (selectedMaterial.currentWeightKg ?? 0).toFixed(2);
+      let unitStockDisplay: string;
       const unitStock = selectedMaterial.currentStockUnits ?? 0;
       
       if (selectedMaterial.unitOfMeasure === 'n') {
-        stockDisplay = `${kgStock} KG / ${Math.floor(unitStock)} N`;
+        unitStockDisplay = `${Math.floor(unitStock)} N`;
       } else if (selectedMaterial.unitOfMeasure === 'mt') {
-        stockDisplay = `${kgStock} KG / ${unitStock.toFixed(1)} MT`;
+        unitStockDisplay = `${unitStock.toFixed(1)} MT`;
       } else { // kg
-        stockDisplay = `${kgStock} KG`;
+        unitStockDisplay = `${kgStock} KG`;
       }
+
+      stockDisplay = `${kgStock} KG` + (selectedMaterial.unitOfMeasure !== 'kg' ? ` / ${unitStockDisplay}` : '');
     }
 
     return (
@@ -226,7 +238,7 @@ export default function MaterialAssociationDialog({
                   </div>
               ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <Button type="button" onClick={() => handleScanTrigger('material')} className="w-full">
                       <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
                   </Button>
@@ -290,7 +302,7 @@ export default function MaterialAssociationDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Associa Materiale a "{phase.name}"</DialogTitle>
         </DialogHeader>
