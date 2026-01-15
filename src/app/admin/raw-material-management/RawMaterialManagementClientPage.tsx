@@ -203,14 +203,21 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            let quantity = b.netQuantity;
-            let unit = updatedMaterial.unitOfMeasure.toUpperCase();
+            let quantity;
+            const unit = updatedMaterial.unitOfMeasure.toUpperCase();
             
-            // For inventory loads, the primary quantity IS the net weight in KG.
-            // We need to convert it back to units for display IF the material is not KG based.
-            if (b.inventoryRecordId && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                quantity = b.netQuantity / material.conversionFactor;
+            if (b.inventoryRecordId) {
+                // If from inventory, netQuantity IS net weight in KG. We need to convert it to units for display.
+                if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                    quantity = b.netQuantity / material.conversionFactor;
+                } else {
+                    quantity = b.netQuantity; // If it's already KG or no factor, display as is.
+                }
+            } else {
+                // For manual batches, netQuantity is already in the correct unit.
+                quantity = b.netQuantity;
             }
+
             return {
                 type: 'Carico' as const,
                 date: b.date,
@@ -465,6 +472,13 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     if (unit === 'n') return Math.floor(value);
     if (unit === 'mt') return value.toFixed(1);
     return value.toFixed(2);
+  }
+
+  const formatHistoryQuantity = (quantity: number, unit: string) => {
+      const lowerUnit = unit.toLowerCase();
+      if (lowerUnit === 'n') return Math.round(quantity);
+      if (lowerUnit === 'mt') return quantity.toFixed(1);
+      return quantity.toFixed(2);
   }
 
   return (
@@ -828,7 +842,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {mov.quantity.toFixed(2)} {mov.unit}
+                                  {formatHistoryQuantity(mov.quantity, mov.unit)} {mov.unit}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {mov.type === 'Carico' ? (
@@ -944,6 +958,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
