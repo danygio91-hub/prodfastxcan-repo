@@ -105,6 +105,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     if (!isRefresh) {
       setHistoryMaterial(material);
       setIsHistoryDialogOpen(true);
+      setMaterialMovements([]); // Clear previous movements and show loading state
     }
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
@@ -114,8 +115,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
              if (b.inventoryRecordId) {
-                // If from inventory, the quantity is the net weight in KG.
-                return {
+                 return {
                     type: 'Carico' as const,
                     date: b.date,
                     description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
@@ -124,7 +124,6 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                     id: b.id,
                 };
             } else {
-                 // For manual batches, netQuantity is in the correct primary unit.
                 return {
                     type: 'Carico' as const,
                     date: b.date,
@@ -375,7 +374,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                             ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={5} className="h-24 text-center">Nessuno storico movimenti per questo materiale.</TableCell>
+                            <TableCell colSpan={5} className="h-24 text-center">Caricamento storico movimenti...</TableCell>
                           </TableRow>
                         )}
                       </TableBody>
