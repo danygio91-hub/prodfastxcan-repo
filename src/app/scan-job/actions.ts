@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -489,25 +490,29 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         let unitsConsumed = 0;
         let consumedWeight = 0;
 
+        // This calculation determines how much to subtract from stock
         if (unit === 'kg') {
           consumedWeight = quantity;
+          // If a conversion factor exists, we can estimate the units consumed.
           unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? Math.round(quantity / material.conversionFactor) : 0;
         } else { // 'n' or 'mt'
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
         }
         
-        let newStockUnits = material.currentStockUnits ?? 0;
-        let currentWeightKg = material.currentWeightKg ?? 0;
+        const currentStockUnits = material.currentStockUnits ?? 0;
+        const currentWeightKg = material.currentWeightKg ?? 0;
 
-        if (newStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${newStockUnits}, Richiesto: ${unitsConsumed}.`);
+        // Validation against available stock
+        if (currentStockUnits < unitsConsumed) {
+            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
         }
-         if (consumedWeight > 0 && currentWeightKg < consumedWeight) {
+         if (currentWeightKg < consumedWeight) {
              throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
-        newStockUnits -= unitsConsumed;
+        // Correctly calculate new stock values
+        const newStockUnits = currentStockUnits - unitsConsumed;
         const newWeightKg = currentWeightKg - consumedWeight;
 
         // Update material stock
@@ -1057,3 +1062,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
+
