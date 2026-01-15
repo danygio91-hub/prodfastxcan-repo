@@ -72,12 +72,9 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
             throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
           }
       } else { // 'n' or 'mt'
+          netWeight = 0; // Default to 0 if no conversion factor
           if (material.conversionFactor && material.conversionFactor > 0) {
               netWeight = inputQuantity * material.conversionFactor;
-          } else {
-              // Cannot calculate net weight, but we can still record the inventory
-              // with a net weight of 0. Admin must approve and fix conversion factor.
-              netWeight = 0;
           }
           grossWeight = netWeight + tareWeight;
       }

@@ -118,10 +118,9 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
       } else { // 'n' or 'mt'
+          netWeight = 0; // Default to 0 if no conversion factor
           if (material.conversionFactor && material.conversionFactor > 0) {
               netWeight = inputQuantity * material.conversionFactor;
-          } else {
-               netWeight = 0; // Can't calculate weight without factor, admin must fix
           }
           grossWeight = netWeight + tareWeight;
       }
@@ -222,13 +221,21 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
 
             let unitsToAdd: number;
 
-            if (material.unitOfMeasure === 'kg') {
-                unitsToAdd = record.netWeight;
+            // CORRECTED LOGIC: The `inputQuantity` from the record is the source of truth for units.
+            // The `netWeight` from the record is the source of truth for weight.
+            if (record.inputUnit === 'kg') {
+                // If input was in KG, the net weight is the primary value. We derive units from it.
+                if (material.unitOfMeasure === 'kg') {
+                    unitsToAdd = record.netWeight;
+                } else { // n or mt
+                    if (!material.conversionFactor || material.conversionFactor <= 0) {
+                        throw new Error(`Fattore di conversione mancante o non valido per ${material.code}. Inserirlo dalla gestione materie prime prima di approvare.`);
+                    }
+                    unitsToAdd = record.netWeight / material.conversionFactor;
+                }
             } else { // 'n' or 'mt'
-                 if (!material.conversionFactor || material.conversionFactor <= 0) {
-                     throw new Error(`Fattore di conversione mancante o non valido per ${material.code}. Inserirlo dalla gestione materie prime prima di approvare.`);
-                 }
-                 unitsToAdd = record.netWeight / material.conversionFactor;
+                // If input was in units, that's our primary value.
+                unitsToAdd = record.inputQuantity;
             }
 
             const newBatchData: RawMaterialBatch = {
@@ -236,7 +243,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: unitsToAdd,
+                netQuantity: unitsToAdd, // Always store the primary unit quantity here
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -322,18 +329,9 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
                 
                 if (batchToRemove) {
-                  let unitsToRevert: number;
                   const weightToRevert = record.netWeight;
-  
-                  if (material.unitOfMeasure === 'kg') {
-                      unitsToRevert = weightToRevert;
-                  } else {
-                      if (material.conversionFactor && material.conversionFactor > 0) {
-                         unitsToRevert = record.netWeight / material.conversionFactor;
-                      } else {
-                         unitsToRevert = record.inputQuantity; // Fallback to original input if no factor
-                      }
-                  }
+                  // Use the `netQuantity` stored in the batch for accurate unit reversal
+                  const unitsToRevert = batchToRemove.netQuantity;
               
                   const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
                   const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
@@ -398,10 +396,9 @@ export async function updateInventoryRecord(
             grossWeight = inputQuantity;
             netWeight = grossWeight - tareWeight;
         } else { // 'n' or 'mt'
+            netWeight = 0; // Default to 0
             if (material.conversionFactor && material.conversionFactor > 0) {
                 netWeight = inputQuantity * material.conversionFactor;
-            } else {
-                netWeight = 0; // Cannot calculate if factor is missing
             }
             grossWeight = netWeight + tareWeight;
         }
@@ -471,18 +468,8 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
           const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
           
           if (batchToRemove) {
-                let unitsToRevert: number;
                 const weightToRevert = recordData.netWeight;
-
-                if (materialData.unitOfMeasure === 'kg') {
-                    unitsToRevert = weightToRevert;
-                } else {
-                     if (materialData.conversionFactor && materialData.conversionFactor > 0) {
-                       unitsToRevert = weightToRevert / materialData.conversionFactor;
-                     } else {
-                       unitsToRevert = recordData.inputQuantity;
-                     }
-                }
+                const unitsToRevert = batchToRemove.netQuantity;
             
                 const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
                 const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
