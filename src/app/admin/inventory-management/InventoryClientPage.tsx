@@ -427,10 +427,17 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     </TableCell>
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
-                                                    {/* Correctly display quantities based on input unit */}
-                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(0) : '-'}</TableCell>
-                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(2) : '-'}</TableCell>
-                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
+                                                    <TableCell className="font-mono font-semibold">
+                                                        {record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : 
+                                                        record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(0) : '-'}
+                                                    </TableCell>
+                                                    <TableCell className="font-mono font-semibold">
+                                                        {record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : 
+                                                        record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(2) : '-'}
+                                                    </TableCell>
+                                                    <TableCell className="font-mono font-semibold">
+                                                        {record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}
+                                                    </TableCell>
 
                                                     <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
                                                     <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
@@ -548,6 +555,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     
 
 
+
+    
 
     
 
