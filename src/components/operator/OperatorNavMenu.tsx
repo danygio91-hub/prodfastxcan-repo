@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse } from 'lucide-react';
+import { LayoutDashboard, Users, ScanLine, AlertTriangle, Clock, PackagePlus, SearchCheck, Warehouse, MinusSquare } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 function OperatorNavMenu() {
@@ -29,6 +29,7 @@ function OperatorNavMenu() {
       { href: '/material-check', label: 'Verifica Materiale', icon: SearchCheck }
     ] : []),
     ...(operator?.canAccessInventory ? [{ href: '/inventory', label: 'Inventario', icon: Warehouse }] : []),
+    ...(operator?.canAccessMaterialWithdrawal ? [{ href: '/manual-withdrawal', label: 'Scarico Materiale', icon: MinusSquare }] : []),
     { href: '/operator', label: 'Dati Operatore', icon: Users },
     { href: '/report-problem', label: 'Segnala Problema', icon: AlertTriangle },
   ];
