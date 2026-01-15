@@ -291,6 +291,7 @@ export interface InventoryRecord {
     approvedAt?: Date | any;
     inputUnit: 'n' | 'mt' | 'kg';
     inputQuantity: number;
+    conversionFactor?: number;
 }
 
 
@@ -336,3 +337,5 @@ export const initialDepartmentMap: Record<string, string> = {
 };
 
   
+
+    

@@ -413,91 +413,98 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                             </TableRow>
                                           </TableHeader>
                                           <TableBody>
-                                            {sortedRecords.map(record => (
-                                              <TableRow key={record.id} data-state={selectedRecords.includes(record.id) ? 'selected' : ''} className={cn(record.status === 'pending' && 'bg-yellow-500/10')}>
-                                                 <TableCell padding="checkbox">
-                                                  <Checkbox
-                                                    checked={selectedRecords.includes(record.id)}
-                                                    onCheckedChange={() => handleSelectRecord(record.id)}
-                                                  />
-                                                </TableCell>
-                                                <TableCell>{record.lotto}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : '-'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
-                                                <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
-                                                <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
-                                                <TableCell>{record.operatorName}</TableCell>
-                                                <TableCell>
-                                                  <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
-                                                    {record.status === 'pending' ? 'In Attesa' : record.status === 'approved' ? 'Approvato' : 'Rifiutato'}
-                                                  </Badge>
-                                                </TableCell>
-                                                <TableCell className="text-right space-x-2">
-                                                  {isPending === record.id ? (
-                                                    <Loader2 className="h-5 w-5 animate-spin ml-auto" />
-                                                  ) : (
-                                                    <>
-                                                      <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)} disabled={record.status !== 'pending'}>
-                                                        <Pencil className="h-4 w-4"/>
-                                                      </Button>
-                                                      {record.status === 'pending' ? (
-                                                        <>
-                                                          <AlertDialog>
-                                                            <AlertDialogTrigger asChild>
-                                                              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                                                                <X className="h-5 w-5"/>
-                                                              </Button>
-                                                            </AlertDialogTrigger>
-                                                            <AlertDialogContent>
-                                                              <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>La registrazione verrà marcata come "rifiutata" e non potrà essere modificata.</AlertDialogDescription></AlertDialogHeader>
-                                                              <AlertDialogFooter>
-                                                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={() => handleReject(record.id)} className="bg-destructive hover:bg-destructive/90">Sì, rifiuta</AlertDialogAction>
-                                                              </AlertDialogFooter>
-                                                            </AlertDialogContent>
-                                                          </AlertDialog>
+                                            {sortedRecords.map(record => {
+                                                const conversionFactor = record.conversionFactor;
+                                                const unitsFromWeight = (conversionFactor && conversionFactor > 0) ? (record.netWeight / conversionFactor) : record.inputQuantity;
+                                                
+                                                return (
+                                                  <TableRow key={record.id} data-state={selectedRecords.includes(record.id) ? 'selected' : ''} className={cn(record.status === 'pending' && 'bg-yellow-500/10')}>
+                                                    <TableCell padding="checkbox">
+                                                        <Checkbox
+                                                        checked={selectedRecords.includes(record.id)}
+                                                        onCheckedChange={() => handleSelectRecord(record.id)}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>{record.lotto}</TableCell>
+                                                    
+                                                    {/* Correctly display quantities based on input unit */}
+                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(0) : '-'}</TableCell>
+                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(2) : '-'}</TableCell>
+                                                    <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
 
-                                                          <AlertDialog>
-                                                            <AlertDialogTrigger asChild>
-                                                              <Button variant="ghost" size="icon" className="text-green-500 hover:text-green-500">
-                                                                <Check className="h-5 w-5"/>
-                                                              </Button>
-                                                            </AlertDialogTrigger>
-                                                            <AlertDialogContent>
-                                                              <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Lo stock della materia prima verrà aggiornato con il peso netto di questa registrazione. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
-                                                              <AlertDialogFooter>
-                                                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={() => handleApprove(record.id)} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction>
-                                                              </AlertDialogFooter>
-                                                            </AlertDialogContent>
-                                                          </AlertDialog>
-                                                        </>
-                                                      ) : (
-                                                        <AlertDialog>
-                                                          <AlertDialogTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="text-amber-500 hover:text-amber-500">
-                                                              <Undo2 className="h-4 w-4"/>
+                                                    <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
+                                                    <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
+                                                    <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
+                                                    <TableCell>{record.operatorName}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>
+                                                        {record.status === 'pending' ? 'In Attesa' : record.status === 'approved' ? 'Approvato' : 'Rifiutato'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right space-x-2">
+                                                        {isPending === record.id ? (
+                                                        <Loader2 className="h-5 w-5 animate-spin ml-auto" />
+                                                        ) : (
+                                                        <>
+                                                            <Button variant="ghost" size="icon" onClick={() => handleOpenSheet(record)} disabled={record.status !== 'pending'}>
+                                                            <Pencil className="h-4 w-4"/>
                                                             </Button>
-                                                          </AlertDialogTrigger>
-                                                          <AlertDialogContent>
-                                                            <AlertDialogHeader>
-                                                              <AlertDialogTitle>Annullare l'operazione?</AlertDialogTitle>
-                                                              <AlertDialogDescription>Questa azione riporterà la registrazione allo stato "In Attesa". Se approvata, lo stock verrà stornato.</AlertDialogDescription>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogFooter>
-                                                              <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                                                              <AlertDialogAction onClick={() => handleRevertStatus(record.id)}>Sì, annulla</AlertDialogAction>
-                                                            </AlertDialogFooter>
-                                                          </AlertDialogContent>
-                                                        </AlertDialog>
-                                                      )}
-                                                    </>
-                                                  )}
-                                                </TableCell>
-                                              </TableRow>
-                                            ))}
+                                                            {record.status === 'pending' ? (
+                                                            <>
+                                                                <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                                                                    <X className="h-5 w-5"/>
+                                                                    </Button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di rifiutare?</AlertDialogTitle><AlertDialogDescription>La registrazione verrà marcata come "rifiutata" e non potrà essere modificata.</AlertDialogDescription></AlertDialogHeader>
+                                                                    <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={() => handleReject(record.id)} className="bg-destructive hover:bg-destructive/90">Sì, rifiuta</AlertDialogAction>
+                                                                    </AlertDialogFooter>
+                                                                </AlertDialogContent>
+                                                                </AlertDialog>
+
+                                                                <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="text-green-500 hover:text-green-500">
+                                                                    <Check className="h-5 w-5"/>
+                                                                    </Button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader><AlertDialogTitle>Confermi di approvare?</AlertDialogTitle><AlertDialogDescription>Lo stock della materia prima verrà aggiornato con il peso netto di questa registrazione. L'azione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
+                                                                    <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={() => handleApprove(record.id)} className="bg-green-600 hover:bg-green-700">Sì, approva</AlertDialogAction>
+                                                                    </AlertDialogFooter>
+                                                                </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            </>
+                                                            ) : (
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                <Button variant="ghost" size="icon" className="text-amber-500 hover:text-amber-500">
+                                                                    <Undo2 className="h-4 w-4"/>
+                                                                </Button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>Annullare l'operazione?</AlertDialogTitle>
+                                                                    <AlertDialogDescription>Questa azione riporterà la registrazione allo stato "In Attesa". Se approvata, lo stock verrà stornato.</AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Chiudi</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={() => handleRevertStatus(record.id)}>Sì, annulla</AlertDialogAction>
+                                                                </AlertDialogFooter>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
+                                                            )}
+                                                        </>
+                                                        )}
+                                                    </TableCell>
+                                                  </TableRow>
+                                            )})}
                                           </TableBody>
                                         </Table>
                                       </div>
@@ -541,5 +548,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     
 
 
+
+    
 
     

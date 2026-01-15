@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
@@ -165,7 +166,27 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
     return [];
   }
   
-  const records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as InventoryRecord));
+  const materialIds = [...new Set(snapshot.docs.map(doc => doc.data().materialId))];
+  const materialsMap = new Map<string, RawMaterial>();
+
+  if(materialIds.length > 0) {
+    const materialsQuery = query(collection(db, 'rawMaterials'), where('__name__', 'in', materialIds));
+    const materialsSnapshot = await getDocs(materialsQuery);
+    materialsSnapshot.forEach(doc => {
+      materialsMap.set(doc.id, doc.data() as RawMaterial);
+    });
+  }
+
+  const records = snapshot.docs.map(doc => {
+    const data = doc.data() as InventoryRecord;
+    const material = materialsMap.get(data.materialId);
+    return { 
+      id: doc.id,
+      ...data,
+      conversionFactor: material?.conversionFactor
+    } as InventoryRecord & { conversionFactor?: number };
+  });
+
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
 
@@ -538,3 +559,5 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
     }
 }
 
+
+    
