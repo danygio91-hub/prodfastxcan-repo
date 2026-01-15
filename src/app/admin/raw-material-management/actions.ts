@@ -40,14 +40,25 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
 
   for (const batch of batches) {
     const batchNetQuantity = batch.netQuantity || 0;
-    if (material.unitOfMeasure === 'kg') {
-      newTotalStockUnits += batchNetQuantity;
-      newTotalWeightKg += batchNetQuantity;
-    } else { // 'n' or 'mt'
-      newTotalStockUnits += batchNetQuantity;
-      if (material.conversionFactor && material.conversionFactor > 0) {
-        newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-      }
+    
+    // Check if the batch comes from an inventory record.
+    // If so, its netQuantity represents the NET WEIGHT in KG.
+    if (batch.inventoryRecordId) {
+        newTotalWeightKg += batchNetQuantity;
+        if (material.conversionFactor && material.conversionFactor > 0) {
+            // Calculate units from the weight
+            newTotalStockUnits += batchNetQuantity / material.conversionFactor;
+        }
+    } else { // This is a manual batch entry where netQuantity is in the material's primary unit
+        if (material.unitOfMeasure === 'kg') {
+            newTotalStockUnits += batchNetQuantity;
+            newTotalWeightKg += batchNetQuantity;
+        } else { // 'n' or 'mt'
+            newTotalStockUnits += batchNetQuantity;
+            if (material.conversionFactor && material.conversionFactor > 0) {
+                newTotalWeightKg += batchNetQuantity * material.conversionFactor;
+            }
+        }
     }
   }
 
@@ -448,20 +459,26 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 stockKg = validData.stock;
                 stockUnits = validData.stock; 
             } else { // Unit is 'n' or 'mt'
-                stockUnits = validData.stock;
-                // Calculate weight from units if possible
                 if (conversionFactor && conversionFactor > 0) {
-                    stockKg = stockUnits * conversionFactor;
+                  // If the UoM is not KG, the 'stock' value from Excel can be either units OR KG.
+                  // We need a heuristic. If a conversion factor is present, it's more likely
+                  // the user provided a weight, so we derive units from it.
+                  // If no conversion factor, we assume 'stock' IS the unit count.
+                  stockKg = validData.stock;
+                  stockUnits = validData.stock / conversionFactor;
+                } else {
+                   stockUnits = validData.stock;
+                   stockKg = 0; // Cannot be calculated
                 }
             }
         }
         
-        const initialBatch: RawMaterialBatch | null = stockUnits > 0 ? {
+        const initialBatch: RawMaterialBatch | null = (stockUnits > 0 || stockKg > 0) ? {
             id: `batch-import-${Date.now()}-${addedCount}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            netQuantity: stockUnits,
-            grossWeight: stockKg, // Assume gross = net for initial import if no other info
+            netQuantity: unitOfMeasure === 'kg' ? stockKg : stockUnits, // Store the primary UoM value
+            grossWeight: stockKg, // For import, assume gross = net
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
         } : null;

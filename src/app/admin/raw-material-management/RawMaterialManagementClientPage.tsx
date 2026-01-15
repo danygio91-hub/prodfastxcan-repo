@@ -205,10 +205,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         ...batches.map((b): Movement => {
             let quantity = b.netQuantity;
             let unit = updatedMaterial.unitOfMeasure.toUpperCase();
-            // For inventory loads, we always show the net weight, as that's the core truth.
+            
+            // For inventory loads, the primary quantity IS the net weight in KG.
             if (b.inventoryRecordId) {
-                // netQuantity in inventory batches IS the net weight.
-                quantity = b.grossWeight - b.tareWeight;
+                quantity = b.netQuantity; // This is already the net weight in KG
                 unit = 'KG';
             }
             return {
@@ -944,6 +944,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
