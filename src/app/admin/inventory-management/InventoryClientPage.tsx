@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -66,34 +66,34 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setSelectedRecords([]);
   }, [initialRecords]);
   
-  useEffect(() => {
-    const fetchMaterials = async () => {
-        const materialIdsToFetch = initialRecords
-            .map(r => r.materialId)
-            .filter(id => !materialsCache[id]);
-        
-        if (materialIdsToFetch.length === 0) return;
+  const fetchMaterials = useCallback(async () => {
+    const materialIdsToFetch = initialRecords
+      .map(r => r.materialId)
+      .filter(id => !materialsCache[id]);
 
-        const uniqueIds = [...new Set(materialIdsToFetch)];
-        const fetchedMaterials: Record<string, RawMaterial> = {};
-        
-        const CHUNK_SIZE = 30; // Firestore 'in' query limit
-        for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
-            const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
-            const materialsChunk = await Promise.all(chunk.map(id => getMaterialById(id)));
-            materialsChunk.forEach((material, index) => {
-                if (material) {
-                    fetchedMaterials[chunk[index]] = material;
-                }
-            });
-        }
-        setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
-    };
+    if (materialIdsToFetch.length === 0) return;
 
-    if (initialRecords.length > 0) {
-        fetchMaterials();
+    const uniqueIds = [...new Set(materialIdsToFetch)];
+    const fetchedMaterials: Record<string, RawMaterial> = {};
+    
+    const CHUNK_SIZE = 30; // Firestore 'in' query limit
+    for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+        const materialsChunk = await Promise.all(chunk.map(id => getMaterialById(id)));
+        materialsChunk.forEach((material, index) => {
+            if (material && chunk[index]) {
+                fetchedMaterials[chunk[index]] = material;
+            }
+        });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
+  }, [initialRecords, materialsCache]);
+
+  useEffect(() => {
+    if (initialRecords.length > 0) {
+      fetchMaterials();
+    }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRecords]);
 
 
@@ -453,7 +453,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     return (
                                                         <TableRow key={record.id}>
                                                             <TableCell colSpan={11}>
-                                                              <div className="flex items-center gap-2">
+                                                              <div className="flex items-center gap-2 animate-pulse">
                                                                 <Skeleton className="h-4 w-4 rounded-full" />
                                                                 <Skeleton className="h-4 w-24" />
                                                               </div>
@@ -464,7 +464,6 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                 const conversionFactor = material.conversionFactor;
                                                 const materialUnit = material.unitOfMeasure;
                                                 
-                                                // Calculate the correct quantity display based on unit of measure
                                                 let displayQuantity;
                                                 if (record.inputUnit === 'kg' && conversionFactor && conversionFactor > 0) {
                                                     displayQuantity = record.netWeight / conversionFactor;
