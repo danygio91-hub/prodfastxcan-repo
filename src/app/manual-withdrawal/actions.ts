@@ -12,6 +12,7 @@ const manualWithdrawalSchema = z.object({
   operatorName: z.string(),
   lotto: z.string(),
   quantity: z.coerce.number().positive(),
+  unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
 });
 
@@ -23,7 +24,7 @@ export async function logManualWithdrawal(
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
   
-  const { materialId, operatorId, operatorName, lotto, quantity, notes } = validated.data;
+  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes } = validated.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -33,13 +34,16 @@ export async function logManualWithdrawal(
         
         const material = materialDoc.data() as RawMaterial;
         
-        let unitsConsumed = quantity;
+        let unitsConsumed = 0;
         let consumedWeight = 0;
 
-        if (material.unitOfMeasure === 'kg') {
+        if (unit === 'kg') {
           consumedWeight = quantity;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-          consumedWeight = quantity * material.conversionFactor;
+          // If a conversion factor exists, we can estimate the units consumed.
+          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? Math.round(quantity / material.conversionFactor) : 0;
+        } else { // 'n' or 'mt'
+          unitsConsumed = quantity;
+          consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
         }
         
         const currentStockUnits = material.currentStockUnits ?? 0;
@@ -74,7 +78,7 @@ export async function logManualWithdrawal(
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: `Scarico di ${quantity} ${lotto} registrato con successo.` };
+    return { success: true, message: `Scarico di ${quantity} ${unit} registrato con successo.` };
   } catch (error) {
      const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
      return { success: false, message: errorMessage };

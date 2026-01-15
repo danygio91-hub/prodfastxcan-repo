@@ -21,6 +21,7 @@ import type { RawMaterial } from '@/lib/mock-data';
 import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Switch } from '@/components/ui/switch';
 
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -41,6 +42,7 @@ export default function ManualWithdrawalPage() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -48,6 +50,12 @@ export default function ManualWithdrawalPage() {
   const form = useForm<WithdrawalFormValues>({
     resolver: zodResolver(withdrawalFormSchema),
   });
+  
+  useEffect(() => {
+    if (scannedMaterial) {
+      setInputUnit('primary');
+    }
+  }, [scannedMaterial]);
 
   useEffect(() => {
     if (!authLoading && operator && !operator.canAccessMaterialWithdrawal) {
@@ -101,7 +109,7 @@ export default function ManualWithdrawalPage() {
         const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
         const barcodes = await barcodeDetector.detect(videoRef.current);
         if (barcodes.length > 0) {
-            handleScan(barcodes[0].rawValue);
+            await handleScan(barcodes[0].rawValue);
         } else {
             toast({ variant: 'destructive', title: 'Nessun codice trovato.' });
         }
@@ -113,13 +121,14 @@ export default function ManualWithdrawalPage() {
   };
 
   const onSubmit = async (values: WithdrawalFormValues) => {
-    if (!operator) return;
+    if (!operator || !scannedMaterial) return;
     setIsSubmitting(true);
 
     const result = await logManualWithdrawal({
       ...values,
       operatorId: operator.id,
       operatorName: operator.nome,
+      unit: inputUnit === 'kg' ? 'kg' : scannedMaterial.unitOfMeasure,
     });
     
     toast({
@@ -214,6 +223,18 @@ export default function ManualWithdrawalPage() {
                           <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
                       </Button>
                   </div>
+                  
+                  {scannedMaterial && scannedMaterial.unitOfMeasure !== 'kg' && (
+                     <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                        <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                        <Switch
+                          id="unit-switch"
+                          checked={inputUnit === 'kg'}
+                          onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
+                        />
+                        <Label htmlFor="unit-switch">KG</Label>
+                    </div>
+                  )}
 
                   <FormField
                     control={form.control}
@@ -231,7 +252,7 @@ export default function ManualWithdrawalPage() {
                     name="quantity"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Quantità da Scaricare ({scannedMaterial?.unitOfMeasure.toUpperCase() || 'Unità'})</FormLabel>
+                        <FormLabel>Quantità da Scaricare ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
                         <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
                         <FormMessage />
                       </FormItem>
