@@ -15,8 +15,26 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
   let newTotalWeightKg = 0;
 
   for (const batch of batches) {
-    newTotalStockUnits += batch.netQuantity;
-    newTotalWeightKg += batch.grossWeight - batch.tareWeight;
+    if (batch.inventoryRecordId) {
+        const netWeightFromInventory = batch.grossWeight - batch.tareWeight;
+        newTotalWeightKg += netWeightFromInventory;
+        
+        if (material.unitOfMeasure === 'kg') {
+            newTotalStockUnits += netWeightFromInventory;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalStockUnits += netWeightFromInventory / material.conversionFactor;
+        }
+
+    } else { // This is a manual batch entry
+        const batchNetQuantity = batch.netQuantity || 0;
+        newTotalStockUnits += batchNetQuantity;
+
+        if (material.unitOfMeasure === 'kg') {
+            newTotalWeightKg += batchNetQuantity;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
+        }
+    }
   }
 
   return {
@@ -220,21 +238,17 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 : new Date(record.recordedAt);
 
             let unitsToAdd: number;
-
-            // CORRECTED LOGIC: The `inputQuantity` from the record is the source of truth for units.
-            // The `netWeight` from the record is the source of truth for weight.
+            
             if (record.inputUnit === 'kg') {
-                // If input was in KG, the net weight is the primary value. We derive units from it.
                 if (material.unitOfMeasure === 'kg') {
                     unitsToAdd = record.netWeight;
-                } else { // n or mt
+                } else {
                     if (!material.conversionFactor || material.conversionFactor <= 0) {
-                        throw new Error(`Fattore di conversione mancante o non valido per ${material.code}. Inserirlo dalla gestione materie prime prima di approvare.`);
+                        throw new Error(`Fattore di conversione mancante per ${material.code}.`);
                     }
                     unitsToAdd = record.netWeight / material.conversionFactor;
                 }
-            } else { // 'n' or 'mt'
-                // If input was in units, that's our primary value.
+            } else {
                 unitsToAdd = record.inputQuantity;
             }
 
@@ -243,7 +257,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
                 ddt: `INVENTARIO`,
-                netQuantity: unitsToAdd, // Always store the primary unit quantity here
+                netQuantity: unitsToAdd, 
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
                 packagingId: record.packagingId,
@@ -258,13 +272,11 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
               currentWeightKg: (material.currentWeightKg || 0) + record.netWeight,
             };
 
-            // Update material stock
             transaction.update(materialRef, { 
                 batches: updatedBatches,
                 ...newStock
             });
             
-            // Update record status
             transaction.update(recordRef, { 
                 status: 'approved',
                 approvedBy: uid,
@@ -330,7 +342,6 @@ export async function revertInventoryRecordStatus(recordId: string, uid: string)
                 
                 if (batchToRemove) {
                   const weightToRevert = record.netWeight;
-                  // Use the `netQuantity` stored in the batch for accurate unit reversal
                   const unitsToRevert = batchToRemove.netQuantity;
               
                   const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;

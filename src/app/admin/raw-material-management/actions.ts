@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -26,23 +27,13 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
-/**
- * Centralized function to recalculate stock totals from batches.
- * This is the single source of truth for stock calculation.
- * @param material The raw material object.
- * @param batches The array of batches to calculate from.
- * @returns An object with the new currentStockUnits and currentWeightKg.
- */
+
 function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): { currentStockUnits: number; currentWeightKg: number } {
   let newTotalStockUnits = 0;
   let newTotalWeightKg = 0;
 
   for (const batch of batches) {
-    const batchNetQuantity = batch.netQuantity || 0;
-    
-    // Check if the batch comes from an inventory record.
     if (batch.inventoryRecordId) {
-        // If from inventory, netQuantity is the weight. We need to calculate units.
         const netWeightFromInventory = batch.grossWeight - batch.tareWeight;
         newTotalWeightKg += netWeightFromInventory;
         
@@ -51,15 +42,14 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
         } else if (material.conversionFactor && material.conversionFactor > 0) {
             newTotalStockUnits += netWeightFromInventory / material.conversionFactor;
         }
-
-    } else { // This is a manual batch entry where netQuantity is in the material's primary unit
+    } else { // This is a manual batch entry
+        const batchNetQuantity = batch.netQuantity || 0;
         newTotalStockUnits += batchNetQuantity;
+
         if (material.unitOfMeasure === 'kg') {
             newTotalWeightKg += batchNetQuantity;
-        } else { // 'n' or 'mt'
-            if (material.conversionFactor && material.conversionFactor > 0) {
-                newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-            }
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
         }
     }
   }
@@ -221,13 +211,21 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             packagingId: packagingId,
             lotto: lotto || null,
           };
-
-          const updatedBatches = [...(material.batches || []), newBatch];
-          const newStock = recalculateStock(material, updatedBatches);
           
+          const currentStockUnits = material.currentStockUnits || 0;
+          const currentWeightKg = material.currentWeightKg || 0;
+          let weightFromNewBatch = 0;
+
+          if (material.unitOfMeasure === 'kg') {
+              weightFromNewBatch = netQuantity;
+          } else if (material.conversionFactor && material.conversionFactor > 0) {
+              weightFromNewBatch = netQuantity * material.conversionFactor;
+          }
+
           transaction.update(materialRef, { 
-              batches: updatedBatches,
-              ...newStock,
+              batches: arrayUnion(newBatch),
+              currentStockUnits: currentStockUnits + netQuantity,
+              currentWeightKg: currentWeightKg + weightFromNewBatch,
           });
       });
       
