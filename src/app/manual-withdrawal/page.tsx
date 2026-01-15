@@ -90,7 +90,7 @@ export default function ManualWithdrawalPage() {
              toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Scansionare prima il materiale se necessario.' });
         }
     }
-    setScanType(null);
+    setScanType(null); // Close the dialog after scan
     setIsCapturing(false);
   };
   
