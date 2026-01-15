@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -13,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2 } from 'lucide-react';
-import { type GroupedBatches, type EnrichedBatch, getAllGroupedBatches, getMaterialWithdrawalsForMaterial } from './actions';
+import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -54,13 +55,28 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   const { toast } = useToast();
 
   const refreshData = async () => {
-    const freshData = await getAllGroupedBatches();
-    setGroupedBatches(freshData);
+    // router.refresh() is not sufficient here as it may not refetch server actions called inside client components
+    // We need a more robust way to get fresh data. Let's see if we can do this without a full reload.
+    // For now, let's just update the state from the initial props which will be fresh if the page reloads.
+    const response = await fetch(window.location.href);
+    const text = await response.text();
+    const serverProps = JSON.parse(text.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/)?.[1] || '{}');
+    const freshInitialData = serverProps.props.pageProps.initialGroupedBatches;
+    setGroupedBatches(freshInitialData);
+
      if (isHistoryDialogOpen && historyMaterial) {
       // If history dialog is open, re-fetch its content
       await handleOpenHistoryDialog(historyMaterial, true);
     }
   };
+  
+  useEffect(() => {
+    const updatedData = initialGroupedBatches.map(group => {
+      const freshGroupData = (window as any).__NEXT_DATA__?.props.pageProps.initialGroupedBatches.find((g: GroupedBatches) => g.materialId === group.materialId);
+      return freshGroupData || group;
+    });
+    setGroupedBatches(updatedData);
+  }, [initialGroupedBatches]);
 
   useEffect(() => {
     setGroupedBatches(initialGroupedBatches);
@@ -81,7 +97,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   const handleBatchFormClose = (refresh?: boolean) => {
     setEditingBatchInfo(null);
     if(refresh) {
-      refreshData();
+      router.refresh();
     }
   }
   
@@ -95,7 +111,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      refreshData();
+      router.refresh();
     }
     setBatchToDelete(null);
   };
@@ -108,44 +124,34 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     }
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
-    
-    // The material object passed to the function should already have the correct batches
-    const batches = material.batches || [];
+    // Find the most up-to-date version of the material from the current state
+    const currentMaterialState = groupedBatches.find(g => g.materialId === material.materialId) || material;
+    const batches = currentMaterialState.batches || [];
     
     const combinedMovements: Movement[] = [
-        ...batches.map((b): Movement => {
-            if (b.inventoryRecordId) {
-                // If from inventory, the quantity is the net weight in KG.
-                const netWeight = b.grossWeight - b.tareWeight;
-                let units = netWeight;
-                let unitLabel = 'KG';
-                if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                   units = netWeight / material.conversionFactor;
-                   unitLabel = material.unitOfMeasure.toUpperCase();
-                }
-
-                return {
-                    type: 'Carico' as const,
-                    date: b.date,
-                    description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
-                    quantity: netWeight,
-                    unit: 'KG',
-                    id: b.id,
-                };
-            } else {
-                 // For manual batches, netQuantity is in the correct primary unit.
-                return {
-                    type: 'Carico' as const,
-                    date: b.date,
-                    description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-                    quantity: b.netQuantity,
-                    unit: material.unitOfMeasure.toUpperCase(),
-                    id: b.id,
-                };
-            }
-        }),
+      ...batches.map((b): Movement => {
+        if (b.inventoryRecordId) {
+          const netWeight = b.grossWeight - b.tareWeight;
+          return {
+            type: 'Carico' as const,
+            date: b.date,
+            description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
+            quantity: netWeight, // This is the net weight in KG
+            unit: 'KG',
+            id: b.id,
+          };
+        } else {
+          return {
+            type: 'Carico' as const,
+            date: b.date,
+            description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+            quantity: b.netQuantity,
+            unit: material.unitOfMeasure.toUpperCase(),
+            id: b.id,
+          };
+        }
+      }),
         ...withdrawals.map((w): Movement => {
-            // Withdrawals can consume units or weight. We display what was recorded.
             const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined || w.consumedUnits === 0);
             const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
             const unit = isWeightBased ? 'KG' : material.unitOfMeasure.toUpperCase();
@@ -173,7 +179,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      refreshData();
+      router.refresh();
     }
     setWithdrawalToDelete(null);
   };
@@ -423,3 +429,4 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
+
