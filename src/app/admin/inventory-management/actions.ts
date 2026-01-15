@@ -166,7 +166,7 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
     return [];
   }
   
-  const materialIds = [...new Set(snapshot.docs.map(doc => doc.data().materialId))];
+  const materialIds = [...new Set(snapshot.docs.map(doc => doc.data().materialId).filter(Boolean))];
   const materialsMap = new Map<string, RawMaterial>();
 
   if(materialIds.length > 0) {
@@ -182,13 +182,14 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
   }
 
   const records = snapshot.docs.map(doc => {
-    const data = doc.data() as InventoryRecord;
+    const data = doc.data() as Omit<InventoryRecord, 'id'>;
     const material = materialsMap.get(data.materialId);
     return { 
       id: doc.id,
       ...data,
-      conversionFactor: material?.conversionFactor
-    } as InventoryRecord & { conversionFactor?: number };
+      conversionFactor: material?.conversionFactor,
+      materialUnitOfMeasure: material?.unitOfMeasure,
+    } as InventoryRecord;
   });
 
   return JSON.parse(JSON.stringify(convertTimestamps(records)));

@@ -55,8 +55,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [materialsCache, setMaterialsCache] = useState<Record<string, RawMaterial>>({});
-
+  
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -64,36 +63,6 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   useEffect(() => {
     setRecords(initialRecords);
     setSelectedRecords([]);
-  }, [initialRecords]);
-  
-  const fetchMaterials = useCallback(async () => {
-    const materialIdsToFetch = initialRecords
-      .map(r => r.materialId)
-      .filter(id => !materialsCache[id]);
-
-    if (materialIdsToFetch.length === 0) return;
-
-    const uniqueIds = [...new Set(materialIdsToFetch)];
-    const fetchedMaterials: Record<string, RawMaterial> = {};
-    
-    const CHUNK_SIZE = 30; // Firestore 'in' query limit
-    for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
-        const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
-        const materialsChunk = await Promise.all(chunk.map(id => getMaterialById(id)));
-        materialsChunk.forEach((material, index) => {
-            if (material && chunk[index]) {
-                fetchedMaterials[chunk[index]] = material;
-            }
-        });
-    }
-    setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
-  }, [initialRecords, materialsCache]);
-
-  useEffect(() => {
-    if (initialRecords.length > 0) {
-      fetchMaterials();
-    }
-     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRecords]);
 
 
@@ -399,6 +368,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                             <div className="space-y-6">
                               {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
                                 const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
+                                const materialSample = recordsForMaterial[0]; // Use a sample record to get material info
+                                
                                 return (
                                 <Collapsible key={materialCode} defaultOpen={recordsForMaterial.some(r => r.status === 'pending')}>
                                   <CollapsibleTrigger className="w-full">
@@ -448,26 +419,28 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                           </TableHeader>
                                           <TableBody>
                                             {sortedRecords.map(record => {
-                                                const material = materialsCache[record.materialId];
-                                                if (!material) {
-                                                    return (
-                                                        <TableRow key={record.id}>
-                                                            <TableCell colSpan={11}>
-                                                              <div className="flex items-center gap-2 animate-pulse">
-                                                                <Skeleton className="h-4 w-4 rounded-full" />
-                                                                <Skeleton className="h-4 w-24" />
-                                                              </div>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    );
+                                                if (!record.materialUnitOfMeasure) {
+                                                  return (
+                                                    <TableRow key={record.id}>
+                                                      <TableCell colSpan={11}>
+                                                        <div className="flex items-center gap-2">
+                                                          <Skeleton className="h-4 w-4 rounded-full" />
+                                                          <Skeleton className="h-4 w-24" />
+                                                        </div>
+                                                      </TableCell>
+                                                    </TableRow>
+                                                  );
                                                 }
-                                                const conversionFactor = material.conversionFactor;
-                                                const materialUnit = material.unitOfMeasure;
-                                                
+
                                                 let displayQuantity;
-                                                if (record.inputUnit === 'kg' && conversionFactor && conversionFactor > 0) {
-                                                    displayQuantity = record.netWeight / conversionFactor;
-                                                } else {
+                                                // If input was in KG, convert net weight to units for display
+                                                if (record.inputUnit === 'kg') {
+                                                    if (record.conversionFactor && record.conversionFactor > 0) {
+                                                        displayQuantity = record.netWeight / record.conversionFactor;
+                                                    } else {
+                                                        displayQuantity = record.inputQuantity; // Fallback
+                                                    }
+                                                } else { // Input was in N or MT
                                                     displayQuantity = record.inputQuantity;
                                                 }
 
@@ -482,13 +455,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'n' ? displayQuantity.toFixed(0) : '-'}
+                                                      {record.materialUnitOfMeasure === 'n' ? displayQuantity.toFixed(0) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'mt' ? displayQuantity.toFixed(2) : '-'}
+                                                      {record.materialUnitOfMeasure === 'mt' ? displayQuantity.toFixed(2) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'kg' ? displayQuantity.toFixed(3) : '-'}
+                                                      {record.materialUnitOfMeasure === 'kg' ? displayQuantity.toFixed(3) : '-'}
                                                     </TableCell>
 
                                                     <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
@@ -599,5 +572,3 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     </>
   );
 }
-
-    

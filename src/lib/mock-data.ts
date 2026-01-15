@@ -292,6 +292,7 @@ export interface InventoryRecord {
     inputUnit: 'n' | 'mt' | 'kg';
     inputQuantity: number;
     conversionFactor?: number;
+    materialUnitOfMeasure?: 'n' | 'mt' | 'kg';
 }
 
 
