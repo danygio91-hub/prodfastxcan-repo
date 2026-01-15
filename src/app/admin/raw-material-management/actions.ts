@@ -437,14 +437,27 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
 
         const newDocRef = doc(materialsRef);
         
-        const stockUnits = validData.stock ?? 0;
         const conversionFactor = unitOfMeasure === 'kg' ? null : (validData.conversionFactor || null);
         
         let stockKg = 0;
-        if (unitOfMeasure === 'kg') {
-            stockKg = stockUnits;
-        } else if (conversionFactor && conversionFactor > 0) {
-            stockKg = stockUnits * conversionFactor;
+        let stockUnits = 0;
+
+        if (validData.stock) {
+            if (unitOfMeasure === 'kg') {
+                stockKg = validData.stock;
+                // If we have a conversion factor, we can back-calculate the units from weight
+                if (conversionFactor && conversionFactor > 0) {
+                    stockUnits = Math.floor(stockKg / conversionFactor);
+                } else {
+                    stockUnits = validData.stock; // Assume 1:1 if no factor
+                }
+            } else { // Unit is 'n' or 'mt'
+                stockUnits = validData.stock;
+                // Calculate weight from units if possible
+                if (conversionFactor && conversionFactor > 0) {
+                    stockKg = stockUnits * conversionFactor;
+                }
+            }
         }
         
         const initialBatch: RawMaterialBatch | null = stockUnits > 0 ? {
@@ -499,5 +512,3 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
 }
-
-    
