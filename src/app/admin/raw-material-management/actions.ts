@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -54,11 +53,10 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
         }
 
     } else { // This is a manual batch entry where netQuantity is in the material's primary unit
+        newTotalStockUnits += batchNetQuantity;
         if (material.unitOfMeasure === 'kg') {
-            newTotalStockUnits += batchNetQuantity;
             newTotalWeightKg += batchNetQuantity;
         } else { // 'n' or 'mt'
-            newTotalStockUnits += batchNetQuantity;
             if (material.conversionFactor && material.conversionFactor > 0) {
                 newTotalWeightKg += batchNetQuantity * material.conversionFactor;
             }
