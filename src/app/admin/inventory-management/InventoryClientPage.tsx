@@ -24,8 +24,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
 import { Warehouse, Download, Check, X, Pencil, Loader2, Package, Undo2, Trash2, LinkIcon, Search, ChevronDown, ShieldCheck, ShieldX, RefreshCw } from 'lucide-react';
-import { type InventoryRecord } from '@/lib/mock-data';
-import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords, approveMultipleInventoryRecords, rejectMultipleInventoryRecords } from './actions';
+import { type InventoryRecord, type RawMaterial } from '@/lib/mock-data';
+import { approveInventoryRecord, rejectInventoryRecord, revertInventoryRecordStatus, deleteInventoryRecords, approveMultipleInventoryRecords, rejectMultipleInventoryRecords, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -54,6 +54,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [materialsCache, setMaterialsCache] = useState<Record<string, RawMaterial>>({});
+
   const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -62,6 +64,31 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setRecords(initialRecords);
     setSelectedRecords([]);
   }, [initialRecords]);
+  
+  useEffect(() => {
+    const fetchMaterials = async () => {
+        const materialIdsToFetch = initialRecords
+            .map(r => r.materialId)
+            .filter(id => !materialsCache[id]);
+        
+        if (materialIdsToFetch.length === 0) return;
+
+        const uniqueIds = [...new Set(materialIdsToFetch)];
+        const fetchedMaterials: Record<string, RawMaterial> = {};
+        
+        for (const id of uniqueIds) {
+            const material = await getMaterialById(id);
+            if (material) {
+                fetchedMaterials[id] = material;
+            }
+        }
+        setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
+    };
+    if (initialRecords.length > 0) {
+        fetchMaterials();
+    }
+  }, [initialRecords, materialsCache]);
+
 
   const filteredRecordsBySearch = useMemo(() => {
     return searchTerm
@@ -414,8 +441,10 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                           </TableHeader>
                                           <TableBody>
                                             {sortedRecords.map(record => {
-                                                const conversionFactor = record.conversionFactor;
+                                                const material = materialsCache[record.materialId];
+                                                const conversionFactor = material?.conversionFactor;
                                                 const unitsFromWeight = (conversionFactor && conversionFactor > 0) ? (record.netWeight / conversionFactor) : record.inputQuantity;
+                                                const materialUnit = material?.unitOfMeasure || record.inputUnit;
                                                 
                                                 return (
                                                   <TableRow key={record.id} data-state={selectedRecords.includes(record.id) ? 'selected' : ''} className={cn(record.status === 'pending' && 'bg-yellow-500/10')}>
@@ -428,15 +457,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
                                                     <TableCell className="font-mono font-semibold">
-                                                        {record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : 
-                                                        record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(0) : '-'}
+                                                        {materialUnit === 'n' ? unitsFromWeight.toFixed(0) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : 
-                                                        record.inputUnit === 'kg' && conversionFactor ? unitsFromWeight.toFixed(2) : '-'}
+                                                        {materialUnit === 'mt' ? unitsFromWeight.toFixed(2) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}
+                                                        {materialUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}
                                                     </TableCell>
 
                                                     <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
@@ -555,6 +582,8 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     
 
 
+
+    
 
     
 
