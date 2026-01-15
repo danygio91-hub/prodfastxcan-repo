@@ -1,12 +1,10 @@
+"use server";
 
-'use server';
-
-import { doc, runTransaction } from 'firebase/firestore';
+import { doc, runTransaction, Timestamp, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
+import type { RawMaterial } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
-import { Timestamp } from 'firebase/firestore';
 
 const manualWithdrawalSchema = z.object({
   materialId: z.string(),
@@ -59,7 +57,7 @@ export async function logManualWithdrawal(
 
         transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
         
-        const withdrawalRef = doc(db, "materialWithdrawals", `manual-${Date.now()}`);
+        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
             jobIds: [],
             jobOrderPFs: ['SCARICO_MANUALE'],
@@ -76,7 +74,7 @@ export async function logManualWithdrawal(
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: `Scarico di ${quantity} ${data.lotto} registrato con successo.` };
+    return { success: true, message: `Scarico di ${quantity} ${lotto} registrato con successo.` };
   } catch (error) {
      const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
      return { success: false, message: errorMessage };
