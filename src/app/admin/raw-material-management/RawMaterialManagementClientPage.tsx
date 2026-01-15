@@ -13,7 +13,7 @@ import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -87,6 +87,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
 
   const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
+  const [withdrawalToDelete, setWithdrawalToDelete] = useState<string | null>(null);
+
 
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
@@ -128,9 +130,13 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     );
   }, [materials, searchTerm]);
 
-  const refreshData = useCallback(() => {
+  const refreshData = useCallback(async () => {
     router.refresh();
-  }, [router]);
+     if (isHistoryDialogOpen && selectedMaterial) {
+      // If history dialog is open, re-fetch its content
+      await handleOpenHistoryDialog(selectedMaterial, true);
+    }
+  }, [router, isHistoryDialogOpen, selectedMaterial]);
   
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
@@ -185,17 +191,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   };
 
 
- const handleOpenHistoryDialog = async (material: RawMaterial) => {
-    setSelectedMaterial(material);
-    setIsHistoryDialogOpen(true);
+ const handleOpenHistoryDialog = async (material: RawMaterial, isRefresh: boolean = false) => {
+    if (!isRefresh) {
+      setSelectedMaterial(material);
+      setIsHistoryDialogOpen(true);
+    }
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.id);
-    const batches = material.batches || [];
+    const updatedMaterial = materials.find(m => m.id === material.id) || material;
+    const batches = updatedMaterial.batches || [];
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
             let quantity = b.netQuantity;
-            let unit = material.unitOfMeasure.toUpperCase();
+            let unit = updatedMaterial.unitOfMeasure.toUpperCase();
             // For inventory loads, we always show the net weight, as that's the core truth.
             if (b.inventoryRecordId) {
                 // netQuantity in inventory batches IS the net weight.
@@ -212,13 +221,13 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             };
         }),
         ...withdrawals.map((w): Movement => {
-            const quantity = material.unitOfMeasure === 'kg' ? w.consumedWeight : (w.consumedUnits || 0);
+            const quantity = updatedMaterial.unitOfMeasure === 'kg' ? w.consumedWeight : (w.consumedUnits || 0);
             return {
                 type: 'Scarico' as const,
                 date: w.withdrawalDate.toISOString(),
                 description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
                 quantity: -(quantity || 0),
-                unit: material.unitOfMeasure.toUpperCase(),
+                unit: updatedMaterial.unitOfMeasure.toUpperCase(),
                 id: w.id,
             };
         }),
@@ -317,6 +326,20 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       refreshData();
     }
     setBatchToDelete(null);
+  };
+  
+  const handleDeleteWithdrawal = async () => {
+    if (!withdrawalToDelete) return;
+    const result = await deleteSingleWithdrawalAndRestoreStock(withdrawalToDelete);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setWithdrawalToDelete(null);
   };
 
   const handleImportClick = () => {
@@ -789,6 +812,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           <TableHead>Tipo</TableHead>
                           <TableHead>Descrizione</TableHead>
                           <TableHead className="text-right">Quantità</TableHead>
+                          <TableHead className="text-right">Azioni</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -805,6 +829,29 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
                                   {mov.quantity.toFixed(2)} {mov.unit}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {mov.type === 'Carico' ? (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare il lotto caricato. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => setBatchToDelete({ materialId: selectedMaterial!.id, batchId: mov.id })}>Elimina Lotto</AlertDialogAction></AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  ) : (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare questo scarico. L'azione è irreversibile e la quantità verrà ripristinata a magazzino.</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setWithdrawalToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => setWithdrawalToDelete(mov.id)}>Elimina Scarico</AlertDialogAction></AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
                                 </TableCell>
                             </TableRow>
                             ))
@@ -839,6 +886,23 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+        
+        {/* Delete Withdrawal Confirmation Dialog */}
+        <AlertDialog open={!!withdrawalToDelete} onOpenChange={(open) => !open && setWithdrawalToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sei sicuro di voler eliminare questo scarico?</AlertDialogTitle>
+              <AlertDialogDescription>
+                L'azione è irreversibile e lo stock del materiale verrà ripristinato.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setWithdrawalToDelete(null)}>Annulla</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteWithdrawal} className="bg-destructive hover:bg-destructive/90">Sì, elimina scarico</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
 
          {/* Detail View Dialog */}
         <Dialog open={isDetailViewOpen} onOpenChange={setIsDetailViewOpen}>
@@ -880,5 +944,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 

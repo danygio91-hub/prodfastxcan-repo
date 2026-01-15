@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -445,12 +446,7 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         if (validData.stock) {
             if (unitOfMeasure === 'kg') {
                 stockKg = validData.stock;
-                // If we have a conversion factor, we can back-calculate the units from weight
-                if (conversionFactor && conversionFactor > 0) {
-                    stockUnits = Math.floor(stockKg / conversionFactor);
-                } else {
-                    stockUnits = validData.stock; // Assume 1:1 if no factor
-                }
+                stockUnits = validData.stock; 
             } else { // Unit is 'n' or 'mt'
                 stockUnits = validData.stock;
                 // Calculate weight from units if possible
@@ -511,4 +507,53 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   const snapshot = await getDocs(q);
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   return withdrawals;
+}
+
+export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string): Promise<{ success: boolean; message: string }> {
+  const withdrawalRef = doc(db, "materialWithdrawals", withdrawalId);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const withdrawalSnap = await transaction.get(withdrawalRef);
+      if (!withdrawalSnap.exists()) {
+        throw new Error("Movimento di scarico non trovato.");
+      }
+      const withdrawal = withdrawalSnap.data() as MaterialWithdrawal;
+
+      const materialRef = doc(db, "rawMaterials", withdrawal.materialId);
+      const materialSnap = await transaction.get(materialRef);
+      if (!materialSnap.exists()) {
+        throw new Error("Materia prima associata allo scarico non trovata.");
+      }
+      const material = materialSnap.data() as RawMaterial;
+      
+      const weightToRestore = withdrawal.consumedWeight || 0;
+      const unitsToRestore = withdrawal.consumedUnits || 0;
+
+      const newWeightKg = (material.currentWeightKg || 0) + weightToRestore;
+      let newStockUnits = (material.currentStockUnits || 0) + unitsToRestore;
+
+      // Ensure consistency if units were not logged but can be recalculated
+      if (unitsToRestore === 0 && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+        const recalculatedUnits = Math.round(weightToRestore / material.conversionFactor);
+        newStockUnits += recalculatedUnits;
+      }
+      
+      if (material.unitOfMeasure === 'kg') {
+          newStockUnits = newWeightKg;
+      }
+
+      transaction.update(materialRef, {
+        currentStockUnits: newStockUnits,
+        currentWeightKg: newWeightKg,
+      });
+
+      transaction.delete(withdrawalRef);
+    });
+
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: "Scarico eliminato e stock ripristinato." };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
+    return { success: false, message: errorMessage };
+  }
 }
