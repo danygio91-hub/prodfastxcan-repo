@@ -1,9 +1,9 @@
 
 'use server';
 
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/lib/mock-data';
 
 export type EnrichedBatch = RawMaterialBatch & {
     materialId: string;
@@ -57,31 +57,28 @@ export async function getAllGroupedBatches(): Promise<GroupedBatches[]> {
     return JSON.parse(JSON.stringify(allGroupedBatches));
 }
 
-// Keep the old function for any part of the app that might still use it temporarily
-export async function getAllBatches(): Promise<EnrichedBatch[]> {
-     const materialsCol = collection(db, 'rawMaterials');
-    const materialsSnapshot = await getDocs(materialsCol);
 
-    if (materialsSnapshot.empty) {
-        return [];
+function convertTimestampsToDates(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
     }
+    if (obj.toDate && typeof obj.toDate === 'function') {
+        return obj.toDate();
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(item => convertTimestampsToDates(item));
+    }
+    const newObj: { [key: string]: any } = {};
+    for (const key in obj) {
+        newObj[key] = convertTimestampsToDates(obj[key]);
+    }
+    return newObj;
+}
 
-    const allBatches: EnrichedBatch[] = [];
-
-    materialsSnapshot.docs.forEach(doc => {
-        const material = { id: doc.id, ...doc.data() } as RawMaterial;
-        const batches = material.batches || [];
-        
-        batches.forEach(batch => {
-            allBatches.push({
-                ...batch,
-                materialId: material.id,
-            });
-        });
-    });
-
-    // Sort by date, most recent first
-    allBatches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    return JSON.parse(JSON.stringify(allBatches));
+export async function getMaterialWithdrawalsForMaterial(materialId: string): Promise<MaterialWithdrawal[]> {
+  const withdrawalsRef = collection(db, "materialWithdrawals");
+  const q = query(withdrawalsRef, where("materialId", "==", materialId));
+  const snapshot = await getDocs(q);
+  const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
+  return withdrawals;
 }
