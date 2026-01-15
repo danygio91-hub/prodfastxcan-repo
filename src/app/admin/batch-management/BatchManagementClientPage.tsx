@@ -11,7 +11,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { History, Search, Package, Link as LinkIcon, Edit } from 'lucide-react';
+import { Package, Search, Link as LinkIcon, Edit } from 'lucide-react';
 import type { EnrichedBatch } from './actions';
 
 interface BatchManagementClientPageProps {
@@ -46,7 +46,7 @@ export default function BatchManagementClientPage({ initialBatches }: BatchManag
     <div className="space-y-6">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-          <History className="h-8 w-8 text-primary" />
+          <Package className="h-8 w-8 text-primary" />
           Gestione Lotti Materie Prime
         </h1>
         <p className="text-muted-foreground">
