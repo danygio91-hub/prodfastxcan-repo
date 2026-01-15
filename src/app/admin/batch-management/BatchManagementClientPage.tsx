@@ -109,20 +109,21 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
     
-    // We get the latest version of the material from state. This is much more efficient.
-    const updatedMaterialFromState = groupedBatches.find(m => m.materialId === material.materialId);
-    if (!updatedMaterialFromState) {
-        // This can happen if the material was just deleted. Close the dialog.
-        setIsHistoryDialogOpen(false);
-        return;
-    }
-    const updatedMaterial = updatedMaterialFromState;
-    const batches = updatedMaterial.batches || [];
+    // The material object passed to the function should already have the correct batches
+    const batches = material.batches || [];
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            const netWeight = b.grossWeight - b.tareWeight;
             if (b.inventoryRecordId) {
+                // If from inventory, the quantity is the net weight in KG.
+                const netWeight = b.grossWeight - b.tareWeight;
+                let units = netWeight;
+                let unitLabel = 'KG';
+                if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                   units = netWeight / material.conversionFactor;
+                   unitLabel = material.unitOfMeasure.toUpperCase();
+                }
+
                 return {
                     type: 'Carico' as const,
                     date: b.date,
@@ -138,7 +139,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                     date: b.date,
                     description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
                     quantity: b.netQuantity,
-                    unit: updatedMaterial.unitOfMeasure.toUpperCase(),
+                    unit: material.unitOfMeasure.toUpperCase(),
                     id: b.id,
                 };
             }
