@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -34,6 +33,8 @@ import InventoryRecordSheet from './InventoryRecordSheet';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
+
 
 
 interface InventoryClientPageProps {
@@ -88,10 +89,12 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
         }
         setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
     };
+
     if (initialRecords.length > 0) {
         fetchMaterials();
     }
-  }, [initialRecords, materialsCache]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRecords]);
 
 
   const filteredRecordsBySearch = useMemo(() => {
@@ -215,7 +218,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setSelectedRecords(prev => 
       prev.includes(recordId) 
         ? prev.filter(id => id !== recordId) 
-        : [...prev, id]
+        : [...prev, recordId]
     );
   };
 
@@ -450,7 +453,10 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     return (
                                                         <TableRow key={record.id}>
                                                             <TableCell colSpan={11}>
-                                                                <Loader2 className="h-4 w-4 animate-spin"/> Caricamento...
+                                                              <div className="flex items-center gap-2">
+                                                                <Skeleton className="h-4 w-4 rounded-full" />
+                                                                <Skeleton className="h-4 w-24" />
+                                                              </div>
                                                             </TableCell>
                                                         </TableRow>
                                                     );
@@ -594,19 +600,5 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     </>
   );
 }
-
-
-
-    
-
-    
-
-
-
-    
-
-    
-
-    
 
     
