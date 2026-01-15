@@ -412,8 +412,8 @@ export async function updateInventoryRecord(
             tareWeight: tareWeight,
             netWeight: netWeight,
             packagingId: packagingId || null,
-            inputQuantity: inputQuantity, // Store the original input quantity
-            inputUnit: inputUnit, // Store the original input unit
+            inputQuantity: inputQuantity,
+            inputUnit: inputUnit,
         });
         
         revalidatePath('/admin/inventory-management');
