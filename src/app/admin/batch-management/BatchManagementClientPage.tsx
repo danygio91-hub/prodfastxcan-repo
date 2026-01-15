@@ -113,16 +113,27 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-             const quantity = b.inventoryRecordId ? (b.grossWeight - b.tareWeight) : b.netQuantity;
-             const unit = b.inventoryRecordId ? 'KG' : material.unitOfMeasure.toUpperCase();
-             return {
-                type: 'Carico' as const,
-                date: b.date,
-                description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-                quantity: quantity,
-                unit: unit,
-                id: b.id,
-            };
+             if (b.inventoryRecordId) {
+                // If from inventory, the quantity is the net weight in KG.
+                return {
+                    type: 'Carico' as const,
+                    date: b.date,
+                    description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
+                    quantity: b.grossWeight - b.tareWeight, // This is the net weight in KG
+                    unit: 'KG',
+                    id: b.id,
+                };
+            } else {
+                 // For manual batches, netQuantity is in the correct primary unit.
+                return {
+                    type: 'Carico' as const,
+                    date: b.date,
+                    description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+                    quantity: b.netQuantity,
+                    unit: updatedMaterial.unitOfMeasure.toUpperCase(),
+                    id: b.id,
+                };
+            }
         }),
         ...withdrawals.map((w): Movement => {
             const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
@@ -328,10 +339,10 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                             <TableRow key={mov.id}>
                                 <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                                 <TableCell>
-                                    <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
+                                    <Badge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
                                       {mov.type === 'Carico' ? <ArrowUpCircle className="mr-2 h-4 w-4"/> : <ArrowDownCircle className="mr-2 h-4 w-4"/>}
                                       {mov.type}
-                                    </UiBadge>
+                                    </Badge>
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
