@@ -76,11 +76,15 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
         const uniqueIds = [...new Set(materialIdsToFetch)];
         const fetchedMaterials: Record<string, RawMaterial> = {};
         
-        for (const id of uniqueIds) {
-            const material = await getMaterialById(id);
-            if (material) {
-                fetchedMaterials[id] = material;
-            }
+        const CHUNK_SIZE = 30; // Firestore 'in' query limit
+        for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+            const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+            const materialsChunk = await Promise.all(chunk.map(id => getMaterialById(id)));
+            materialsChunk.forEach((material, index) => {
+                if (material) {
+                    fetchedMaterials[chunk[index]] = material;
+                }
+            });
         }
         setMaterialsCache(prev => ({ ...prev, ...fetchedMaterials }));
     };
@@ -211,7 +215,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
     setSelectedRecords(prev => 
       prev.includes(recordId) 
         ? prev.filter(id => id !== recordId) 
-        : [...prev, recordId]
+        : [...prev, id]
     );
   };
 
@@ -442,10 +446,26 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                           <TableBody>
                                             {sortedRecords.map(record => {
                                                 const material = materialsCache[record.materialId];
-                                                const conversionFactor = material?.conversionFactor;
-                                                const unitsFromWeight = (conversionFactor && conversionFactor > 0) ? (record.netWeight / conversionFactor) : record.inputQuantity;
-                                                const materialUnit = material?.unitOfMeasure || record.inputUnit;
+                                                if (!material) {
+                                                    return (
+                                                        <TableRow key={record.id}>
+                                                            <TableCell colSpan={11}>
+                                                                <Loader2 className="h-4 w-4 animate-spin"/> Caricamento...
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    );
+                                                }
+                                                const conversionFactor = material.conversionFactor;
+                                                const materialUnit = material.unitOfMeasure;
                                                 
+                                                // Calculate the correct quantity display based on unit of measure
+                                                let displayQuantity;
+                                                if (record.inputUnit === 'kg' && conversionFactor && conversionFactor > 0) {
+                                                    displayQuantity = record.netWeight / conversionFactor;
+                                                } else {
+                                                    displayQuantity = record.inputQuantity;
+                                                }
+
                                                 return (
                                                   <TableRow key={record.id} data-state={selectedRecords.includes(record.id) ? 'selected' : ''} className={cn(record.status === 'pending' && 'bg-yellow-500/10')}>
                                                     <TableCell padding="checkbox">
@@ -457,13 +477,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'n' ? unitsFromWeight.toFixed(0) : '-'}
+                                                        {materialUnit === 'n' ? displayQuantity.toFixed(0) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'mt' ? unitsFromWeight.toFixed(2) : '-'}
+                                                        {materialUnit === 'mt' ? displayQuantity.toFixed(2) : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                        {materialUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}
+                                                        {materialUnit === 'kg' ? displayQuantity.toFixed(3) : '-'}
                                                     </TableCell>
 
                                                     <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
