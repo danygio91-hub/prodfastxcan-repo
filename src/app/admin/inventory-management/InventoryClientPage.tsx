@@ -422,7 +422,7 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                   />
                                                 </TableCell>
                                                 <TableCell>{record.lotto}</TableCell>
-                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
+                                                <TableCell className="font-mono font-semibold">{record.inputUnit === 'n' ? record.inputQuantity.toFixed(0) : '-'}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'mt' ? record.inputQuantity.toFixed(2) : '-'}</TableCell>
                                                 <TableCell className="font-mono font-semibold">{record.inputUnit === 'kg' ? record.inputQuantity.toFixed(3) : '-'}</TableCell>
                                                 <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
