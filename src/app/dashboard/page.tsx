@@ -66,7 +66,7 @@ export default function DashboardPage() {
              {operator?.canAccessMaterialWithdrawal && (
                 <DashboardItem
                   title="Scarico Materiale"
-                  description="Registra uno scarico manuale di materiale non legato a commesse."
+                  description="Registra uno scarico manuale di materiale per la produzione"
                   icon={MinusSquare}
                   href="/manual-withdrawal"
                 />
