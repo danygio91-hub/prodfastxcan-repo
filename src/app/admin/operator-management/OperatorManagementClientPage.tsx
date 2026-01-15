@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse, MinusSquare } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from 'next/navigation';
 
@@ -38,6 +38,7 @@ const operatorFormSchema = z.object({
   reparto: z.array(z.string()).max(3, "Puoi selezionare al massimo 3 reparti.").optional(),
   role: z.enum(['admin', 'supervisor', 'operator']),
   canAccessInventory: z.boolean().optional(),
+  canAccessMaterialWithdrawal: z.boolean().optional(),
 }).refine(data => {
     if (data.role === 'operator') {
         return data.reparto && data.reparto.length > 0;
@@ -86,6 +87,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       reparto: [],
       role: 'operator',
       canAccessInventory: false,
+      canAccessMaterialWithdrawal: false,
     },
   });
 
@@ -116,9 +118,10 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         reparto: operator.reparto || [],
         role: operator.role,
         canAccessInventory: operator.canAccessInventory || false,
+        canAccessMaterialWithdrawal: operator.canAccessMaterialWithdrawal || false,
       });
     } else {
-      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false });
     }
     setIsDialogOpen(true);
   };
@@ -165,6 +168,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         'Stato': op.stato,
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
         'Accesso Inventario': op.canAccessInventory ? 'Sì' : 'No',
+        'Accesso Scarico Materiale': op.canAccessMaterialWithdrawal ? 'Sì' : 'No',
     }));
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -212,7 +216,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     <TableHead>Ruolo</TableHead>
                     <TableHead>Stato</TableHead>
                     <TableHead>Privacy</TableHead>
-                    <TableHead>Inventario</TableHead>
+                    <TableHead>Permessi</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -255,22 +259,40 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                           </TooltipProvider>
                         </TableCell>
                         <TableCell>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className="flex items-center justify-center">
-                                  {op.canAccessInventory ? (
-                                    <Warehouse className="h-5 w-5 text-green-500" />
-                                  ) : (
-                                    <Warehouse className="h-5 w-5 text-muted-foreground opacity-50" />
-                                  )}
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{op.canAccessInventory ? 'Accesso Inventario Abilitato' : 'Accesso Inventario Disabilitato'}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+                          <div className="flex items-center justify-center gap-2">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div>
+                                    {op.canAccessInventory ? (
+                                      <Warehouse className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                      <Warehouse className="h-5 w-5 text-muted-foreground opacity-50" />
+                                    )}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{op.canAccessInventory ? 'Accesso Inventario Abilitato' : 'Accesso Inventario Disabilitato'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                             <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div>
+                                    {op.canAccessMaterialWithdrawal ? (
+                                      <MinusSquare className="h-5 w-5 text-green-500" />
+                                    ) : (
+                                      <MinusSquare className="h-5 w-5 text-muted-foreground opacity-50" />
+                                    )}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{op.canAccessMaterialWithdrawal ? 'Accesso Scarico Materiale Abilitato' : 'Accesso Scarico Materiale Disabilitato'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
                         </TableCell>
                         <TableCell className="text-right space-x-2">
                           <Button variant="outline" size="icon" onClick={() => handleOpenDialog(op)}>
@@ -407,6 +429,29 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                         </FormLabel>
                         <FormDescription>
                           Consenti a questo operatore di accedere alla sezione Inventario.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                 <FormField
+                  control={form.control}
+                  name="canAccessMaterialWithdrawal"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base flex items-center gap-2">
+                           <MinusSquare className="h-5 w-5" />
+                           Accesso Scarico Materiale
+                        </FormLabel>
+                        <FormDescription>
+                          Consenti di registrare uno scarico manuale di materiale.
                         </FormDescription>
                       </div>
                       <FormControl>

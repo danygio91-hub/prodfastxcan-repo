@@ -95,6 +95,7 @@ export interface Operator {
   nome_normalized?: string;
   email?: string;
   canAccessInventory?: boolean; // New privilege for inventory access
+  canAccessMaterialWithdrawal?: boolean; // New privilege for manual withdrawal
   // Fields to track active state across devices
   activeJobId?: string | null;
   activePhaseName?: string | null;
@@ -192,6 +193,7 @@ export interface MaterialWithdrawal {
   operatorId: string;
   operatorName?: string;
   withdrawalDate: Date;
+  notes?: string; // Optional field for manual withdrawals
 }
 
 export interface WorkCycle {
