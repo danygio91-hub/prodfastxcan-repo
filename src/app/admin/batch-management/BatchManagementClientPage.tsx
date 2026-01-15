@@ -12,13 +12,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2 } from 'lucide-react';
 import { type GroupedBatches, type EnrichedBatch, getAllGroupedBatches, getMaterialWithdrawalsForMaterial } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import BatchFormDialog from './BatchFormDialog';
-import { deleteBatchFromRawMaterial } from '../raw-material-management/actions';
 import { Dialog, DialogClose, DialogTitle, DialogHeader, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { DialogContent } from '@radix-ui/react-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -104,18 +103,24 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   const handleOpenHistoryDialog = async (material: GroupedBatches, isRefresh: boolean = false) => {
     if (!isRefresh) {
       setHistoryMaterial(material);
-      setIsHistoryDialogOpen(true);
       setMaterialMovements([]); // Clear previous movements and show loading state
+      setIsHistoryDialogOpen(true);
     }
 
+    // Await makes the dialog feel sluggish, so we set loading and then fetch.
+    // The UI will show a loading spinner based on materialMovements being empty.
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
-    const updatedMaterial = groupedBatches.find(m => m.materialId === material.materialId) || material;
+    
+    // We need to find the latest version of the material from state in case it was updated
+    const updatedMaterialData = await getAllGroupedBatches();
+    const updatedMaterial = updatedMaterialData.find(m => m.materialId === material.materialId) || material;
+    
     const batches = updatedMaterial.batches || [];
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-             if (b.inventoryRecordId) {
-                 return {
+            if (b.inventoryRecordId) {
+                return {
                     type: 'Carico' as const,
                     date: b.date,
                     description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
@@ -374,7 +379,12 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                             ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={5} className="h-24 text-center">Caricamento storico movimenti...</TableCell>
+                            <TableCell colSpan={5} className="h-24 text-center">
+                                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                    <Loader2 className="h-5 w-5 animate-spin" />
+                                    <span>Caricamento storico movimenti...</span>
+                                </div>
+                            </TableCell>
                           </TableRow>
                         )}
                       </TableBody>
