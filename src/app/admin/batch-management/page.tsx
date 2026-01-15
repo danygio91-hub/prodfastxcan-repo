@@ -1,7 +1,7 @@
 
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getAllBatches } from './actions';
+import { getAllGroupedBatches } from './actions';
 import BatchManagementClientPage from './BatchManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function BatchManagementPage() {
-  const initialBatches = await getAllBatches();
+  const initialGroupedBatches = await getAllGroupedBatches();
 
   return (
     <AdminAuthGuard>
@@ -20,7 +20,7 @@ export default async function BatchManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento lotti...</p>
           </div>
         }>
-          <BatchManagementClientPage initialBatches={initialBatches} />
+          <BatchManagementClientPage initialGroupedBatches={initialGroupedBatches} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

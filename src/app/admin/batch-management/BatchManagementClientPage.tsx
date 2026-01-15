@@ -5,42 +5,72 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
-import Link from 'next/link';
+import { useToast } from '@/hooks/use-toast';
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Package, Search, Link as LinkIcon, Edit } from 'lucide-react';
-import type { EnrichedBatch } from './actions';
+import { Package, Search, Edit, History, AlertTriangle, Trash2 } from 'lucide-react';
+import { type GroupedBatches, type EnrichedBatch } from './actions';
+import { Badge } from '@/components/ui/badge';
+import Link from 'next/link';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import BatchFormDialog from './BatchFormDialog';
+import { deleteBatchFromRawMaterial } from '../raw-material-management/actions';
 
 interface BatchManagementClientPageProps {
-  initialBatches: EnrichedBatch[];
+  initialGroupedBatches: GroupedBatches[];
 }
 
-export default function BatchManagementClientPage({ initialBatches }: BatchManagementClientPageProps) {
-  const [batches, setBatches] = useState<EnrichedBatch[]>(initialBatches);
+export default function BatchManagementClientPage({ initialGroupedBatches }: BatchManagementClientPageProps) {
+  const [groupedBatches, setGroupedBatches] = useState<GroupedBatches[]>(initialGroupedBatches);
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingBatch, setEditingBatch] = useState<{material: GroupedBatches, batch: EnrichedBatch} | null>(null);
+  const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
+
   const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
-    setBatches(initialBatches);
-  }, [initialBatches]);
+    setGroupedBatches(initialGroupedBatches);
+  }, [initialGroupedBatches]);
 
-  const filteredBatches = useMemo(() => {
+  const filteredGroups = useMemo(() => {
     if (!searchTerm) {
-      return batches;
+      return groupedBatches;
     }
     const lowercasedFilter = searchTerm.toLowerCase();
-    return batches.filter(batch =>
-      (batch.lotto?.toLowerCase() || '').includes(lowercasedFilter) ||
-      batch.materialCode.toLowerCase().includes(lowercasedFilter)
+    return groupedBatches.filter(group =>
+      group.materialCode.toLowerCase().includes(lowercasedFilter) ||
+      group.materialDescription.toLowerCase().includes(lowercasedFilter) ||
+      group.batches.some(b => b.lotto?.toLowerCase().includes(lowercasedFilter))
     );
-  }, [batches, searchTerm]);
+  }, [groupedBatches, searchTerm]);
   
-  const handleNavigateToMaterial = (materialCode: string) => {
-    router.push(`/admin/raw-material-management?code=${encodeURIComponent(materialCode)}`);
+  const handleBatchFormClose = (refresh?: boolean) => {
+    setEditingBatch(null);
+    if(refresh) {
+      router.refresh();
+    }
+  }
+  
+  const handleDeleteBatch = async () => {
+    if (!batchToDelete) return;
+    const { materialId, batchId } = batchToDelete;
+    const result = await deleteBatchFromRawMaterial(materialId, batchId);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      router.refresh();
+    }
+    setBatchToDelete(null);
   };
+
 
   return (
     <div className="space-y-6">
@@ -50,7 +80,7 @@ export default function BatchManagementClientPage({ initialBatches }: BatchManag
           Gestione Lotti Materie Prime
         </h1>
         <p className="text-muted-foreground">
-          Visualizza, cerca e gestisci tutti i lotti caricati a magazzino.
+          Visualizza, cerca e gestisci tutti i lotti caricati a magazzino, raggruppati per materiale.
         </p>
       </header>
 
@@ -58,15 +88,15 @@ export default function BatchManagementClientPage({ initialBatches }: BatchManag
         <CardHeader>
           <div className="flex justify-between items-center flex-wrap gap-4">
             <div>
-              <CardTitle>Elenco Completo Lotti</CardTitle>
+              <CardTitle>Anagrafica Lotti</CardTitle>
               <CardDescription>
-                Ricerca per lotto o codice materiale per trovare rapidamente le informazioni.
+                Ricerca per codice o descrizione materiale per trovare rapidamente le informazioni.
               </CardDescription>
             </div>
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Cerca per lotto o materiale..."
+                placeholder="Cerca materiale..."
                 className="pl-9 w-full sm:w-64"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -75,52 +105,110 @@ export default function BatchManagementClientPage({ initialBatches }: BatchManag
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>N° Lotto</TableHead>
-                  <TableHead>Materia Prima</TableHead>
-                  <TableHead>Data Carico</TableHead>
-                  <TableHead>DDT</TableHead>
-                  <TableHead>Quantità Netta</TableHead>
-                  <TableHead>Azioni</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredBatches.length > 0 ? (
-                  filteredBatches.map((batch) => (
-                    <TableRow key={batch.id}>
-                      <TableCell className="font-semibold font-mono">{batch.lotto || 'N/D'}</TableCell>
-                      <TableCell>
-                        <Button variant="link" className="p-0 h-auto" onClick={() => handleNavigateToMaterial(batch.materialCode)}>
-                            {batch.materialCode}
-                            <LinkIcon className="ml-2 h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                      <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                      <TableCell>{batch.ddt}</TableCell>
-                      <TableCell>{batch.netQuantity.toFixed(2)} {batch.materialUnitOfMeasure.toUpperCase()}</TableCell>
-                      <TableCell>
-                         <Button variant="outline" size="sm" onClick={() => alert('Funzione di modifica in arrivo!')}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Modifica
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      Nessun lotto trovato.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <Accordion type="multiple" className="w-full space-y-4">
+             {filteredGroups.length > 0 ? (
+              filteredGroups.map((group) => (
+                <AccordionItem value={group.materialId} key={group.materialId} className="border rounded-lg bg-card shadow-sm">
+                  <AccordionTrigger className="p-4 hover:no-underline">
+                    <div className="flex-1 text-left">
+                       <div className="flex items-center gap-2">
+                           <h3 className="font-semibold text-lg">{group.materialCode}</h3>
+                           <Badge variant="secondary">{group.batches.length} Lotti</Badge>
+                       </div>
+                      <p className="text-sm text-muted-foreground">{group.materialDescription}</p>
+                    </div>
+                     <div className="text-right ml-4">
+                         <p className="font-bold text-xl">{group.unitOfMeasure === 'n' ? Math.floor(group.currentStockUnits) : group.currentStockUnits.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{group.unitOfMeasure.toUpperCase()}</span></p>
+                         <p className="text-xs text-muted-foreground">({group.currentWeightKg.toFixed(2)} KG)</p>
+                     </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="p-0">
+                    <div className="overflow-x-auto border-t">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>N° Lotto</TableHead>
+                            <TableHead>Data Carico</TableHead>
+                            <TableHead>Origine/DDT</TableHead>
+                            <TableHead>Quantità Caricata</TableHead>
+                            <TableHead className="text-right">Azioni</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.batches.map(batch => (
+                            <TableRow key={batch.id}>
+                              <TableCell className="font-semibold font-mono">{batch.lotto || 'N/D'}</TableCell>
+                              <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                              <TableCell>{batch.ddt}</TableCell>
+                              <TableCell>{batch.netQuantity.toFixed(2)} {group.unitOfMeasure.toUpperCase()}</TableCell>
+                              <TableCell className="text-right space-x-2">
+                                <Button variant="outline" size="sm" onClick={() => {
+                                  // TODO: Future: Open history dialog
+                                  alert('Funzionalità di visualizzazione storico movimenti in arrivo!');
+                                }}>
+                                    <History className="mr-2 h-4 w-4" />
+                                    Storico
+                                </Button>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="text-destructive">
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                      <AlertDialogDescription>Stai per eliminare il lotto <span className="font-bold">{batch.lotto}</span>. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => setBatchToDelete({ materialId: group.materialId, batchId: batch.id })}>
+                                        Elimina Lotto
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))
+            ) : (
+              <div className="text-center py-10 text-muted-foreground">Nessun lotto trovato.</div>
+            )}
+          </Accordion>
         </CardContent>
       </Card>
+      
+      {editingBatch && (
+        <BatchFormDialog
+          isOpen={!!editingBatch}
+          onClose={handleBatchFormClose}
+          material={editingBatch.material}
+          batch={editingBatch.batch}
+        />
+      )}
+
+      {/* Delete Batch Confirmation Dialog */}
+      <AlertDialog open={!!batchToDelete} onOpenChange={(open) => !open && setBatchToDelete(null)}>
+        <AlertDialogContent>
+            <AlertDialogHeader>
+                <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    Questa azione è irreversibile. Lo stock totale verrà ricalcolato.
+                </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDeleteBatch} className="bg-destructive hover:bg-destructive/90">Elimina</AlertDialogAction>
+            </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
