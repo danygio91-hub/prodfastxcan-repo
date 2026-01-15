@@ -207,9 +207,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             let unit = updatedMaterial.unitOfMeasure.toUpperCase();
             
             // For inventory loads, the primary quantity IS the net weight in KG.
-            if (b.inventoryRecordId) {
-                quantity = b.netQuantity; // This is already the net weight in KG
-                unit = 'KG';
+            // We need to convert it back to units for display IF the material is not KG based.
+            if (b.inventoryRecordId && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+                quantity = b.netQuantity / material.conversionFactor;
             }
             return {
                 type: 'Carico' as const,
@@ -944,6 +944,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
