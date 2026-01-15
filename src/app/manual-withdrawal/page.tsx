@@ -67,8 +67,8 @@ export default function ManualWithdrawalPage() {
       router.replace('/dashboard');
     }
   }, [operator, authLoading, router, toast]);
-
-  const handleScan = async (code: string) => {
+  
+  const handleScan = useCallback(async (code: string) => {
     setIsCapturing(true);
     if (scanType === 'material') {
       const result = await getRawMaterialByCode(code.trim());
@@ -92,7 +92,7 @@ export default function ManualWithdrawalPage() {
     }
     setScanType(null); // Close the dialog after scan
     setIsCapturing(false);
-  };
+  }, [scanType, form, toast, scannedMaterial]);
   
   const triggerScan = async () => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
