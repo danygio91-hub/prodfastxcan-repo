@@ -203,38 +203,39 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            let quantity;
-            const unit = updatedMaterial.unitOfMeasure.toUpperCase();
-            
             if (b.inventoryRecordId) {
-                // If from inventory, netQuantity IS net weight in KG. We need to convert it to units for display.
-                if (material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-                    quantity = b.netQuantity / material.conversionFactor;
-                } else {
-                    quantity = b.netQuantity; // If it's already KG or no factor, display as is.
-                }
+                // If from inventory, the quantity is the net weight in KG.
+                return {
+                    type: 'Carico' as const,
+                    date: b.date,
+                    description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
+                    quantity: b.grossWeight - b.tareWeight, // This is the net weight in KG
+                    unit: 'KG',
+                    id: b.id,
+                };
             } else {
-                // For manual batches, netQuantity is already in the correct unit.
-                quantity = b.netQuantity;
+                 // For manual batches, netQuantity is in the correct primary unit.
+                return {
+                    type: 'Carico' as const,
+                    date: b.date,
+                    description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+                    quantity: b.netQuantity,
+                    unit: updatedMaterial.unitOfMeasure.toUpperCase(),
+                    id: b.id,
+                };
             }
-
-            return {
-                type: 'Carico' as const,
-                date: b.date,
-                description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-                quantity: quantity,
-                unit: unit,
-                id: b.id,
-            };
         }),
         ...withdrawals.map((w): Movement => {
-            const quantity = updatedMaterial.unitOfMeasure === 'kg' ? w.consumedWeight : (w.consumedUnits || 0);
+            // Withdrawals can consume units or weight. We display what was recorded.
+            const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
+            const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
+            const unit = isWeightBased ? 'KG' : updatedMaterial.unitOfMeasure.toUpperCase();
             return {
                 type: 'Scarico' as const,
                 date: w.withdrawalDate.toISOString(),
                 description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
                 quantity: -(quantity || 0),
-                unit: updatedMaterial.unitOfMeasure.toUpperCase(),
+                unit: unit,
                 id: w.id,
             };
         }),
@@ -958,6 +959,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 
