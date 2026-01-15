@@ -100,31 +100,34 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     setBatchToDelete(null);
   };
   
-  const handleOpenHistoryDialog = async (material: GroupedBatches, isRefresh: boolean = false) => {
+ const handleOpenHistoryDialog = async (material: GroupedBatches, isRefresh: boolean = false) => {
     if (!isRefresh) {
       setHistoryMaterial(material);
       setMaterialMovements([]); // Clear previous movements and show loading state
       setIsHistoryDialogOpen(true);
     }
 
-    // Await makes the dialog feel sluggish, so we set loading and then fetch.
-    // The UI will show a loading spinner based on materialMovements being empty.
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
     
     // We get the latest version of the material from state. This is much more efficient.
-    const updatedMaterial = groupedBatches.find(m => m.materialId === material.materialId) || material;
-    
+    const updatedMaterialFromState = groupedBatches.find(m => m.materialId === material.materialId);
+    if (!updatedMaterialFromState) {
+        // This can happen if the material was just deleted. Close the dialog.
+        setIsHistoryDialogOpen(false);
+        return;
+    }
+    const updatedMaterial = updatedMaterialFromState;
     const batches = updatedMaterial.batches || [];
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            const isInventory = !!b.inventoryRecordId;
-            if (isInventory) {
-                 return {
+            const netWeight = b.grossWeight - b.tareWeight;
+            if (b.inventoryRecordId) {
+                return {
                     type: 'Carico' as const,
                     date: b.date,
                     description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
-                    quantity: b.grossWeight - b.tareWeight, // This is the net weight in KG
+                    quantity: netWeight,
                     unit: 'KG',
                     id: b.id,
                 };
@@ -142,7 +145,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
         }),
         ...withdrawals.map((w): Movement => {
             // Withdrawals can consume units or weight. We display what was recorded.
-            const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
+            const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined || w.consumedUnits === 0);
             const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
             const unit = isWeightBased ? 'KG' : material.unitOfMeasure.toUpperCase();
             return {
