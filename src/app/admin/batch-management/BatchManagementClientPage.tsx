@@ -22,7 +22,7 @@ import { Dialog, DialogClose, DialogTitle, DialogHeader, DialogDescription, Dial
 import { DialogContent } from '@radix-ui/react-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { deleteSingleWithdrawalAndRestoreStock } from '../raw-material-management/actions';
+import { deleteSingleWithdrawalAndRestoreStock, deleteBatchFromRawMaterial } from '../raw-material-management/actions';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -40,7 +40,7 @@ interface BatchManagementClientPageProps {
 export default function BatchManagementClientPage({ initialGroupedBatches }: BatchManagementClientPageProps) {
   const [groupedBatches, setGroupedBatches] = useState<GroupedBatches[]>(initialGroupedBatches);
   const [searchTerm, setSearchTerm] = useState('');
-  const [editingBatchInfo, setEditingBatchInfo] = useState<{material: GroupedBatches, batch: EnrichedBatch} | null>(null);
+  const [editingBatchInfo, setEditingBatchInfo] = useState<{material: GroupedBatches, batch: EnrichedBatch | null} | null>(null);
   const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
   
   // State for history dialog
@@ -111,16 +111,16 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     // The UI will show a loading spinner based on materialMovements being empty.
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
     
-    // We need to find the latest version of the material from state in case it was updated
-    const updatedMaterialData = await getAllGroupedBatches();
-    const updatedMaterial = updatedMaterialData.find(m => m.materialId === material.materialId) || material;
+    // We get the latest version of the material from state. This is much more efficient.
+    const updatedMaterial = groupedBatches.find(m => m.materialId === material.materialId) || material;
     
     const batches = updatedMaterial.batches || [];
     
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
-            if (b.inventoryRecordId) {
-                return {
+            const isInventory = !!b.inventoryRecordId;
+            if (isInventory) {
+                 return {
                     type: 'Carico' as const,
                     date: b.date,
                     description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
@@ -129,6 +129,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                     id: b.id,
                 };
             } else {
+                 // For manual batches, netQuantity is in the correct primary unit.
                 return {
                     type: 'Carico' as const,
                     date: b.date,
@@ -140,6 +141,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
             }
         }),
         ...withdrawals.map((w): Movement => {
+            // Withdrawals can consume units or weight. We display what was recorded.
             const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
             const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
             const unit = isWeightBased ? 'KG' : material.unitOfMeasure.toUpperCase();

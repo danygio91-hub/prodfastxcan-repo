@@ -42,13 +42,17 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
     const batchNetQuantity = batch.netQuantity || 0;
     
     // Check if the batch comes from an inventory record.
-    // If so, its netQuantity represents the NET WEIGHT in KG.
     if (batch.inventoryRecordId) {
-        newTotalWeightKg += batchNetQuantity;
-        if (material.conversionFactor && material.conversionFactor > 0) {
-            // Calculate units from the weight
-            newTotalStockUnits += batchNetQuantity / material.conversionFactor;
+        // If from inventory, netQuantity is the weight. We need to calculate units.
+        const netWeightFromInventory = batch.grossWeight - batch.tareWeight;
+        newTotalWeightKg += netWeightFromInventory;
+        
+        if (material.unitOfMeasure === 'kg') {
+            newTotalStockUnits += netWeightFromInventory;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalStockUnits += netWeightFromInventory / material.conversionFactor;
         }
+
     } else { // This is a manual batch entry where netQuantity is in the material's primary unit
         if (material.unitOfMeasure === 'kg') {
             newTotalStockUnits += batchNetQuantity;
@@ -338,6 +342,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
         });
 
         revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/batch-management');
         return { success: true, message: 'Lotto eliminato con successo. Stock ricalcolato.' };
     } catch (error) {
         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione del lotto." };
@@ -568,6 +573,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
     });
 
     revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/batch-management');
     return { success: true, message: "Scarico eliminato e stock ripristinato." };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
