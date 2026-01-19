@@ -87,9 +87,9 @@ function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
 
 function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
   if (status === 'completed') {
-    if (qualityResult === 'passed') return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    if (qualityResult === 'passed') return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
     if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
-    return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+    return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
   }
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
