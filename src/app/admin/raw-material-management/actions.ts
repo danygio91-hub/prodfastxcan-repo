@@ -33,19 +33,25 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
   let newTotalWeightKg = 0;
 
   for (const batch of batches) {
-    const netWeight = batch.grossWeight - batch.tareWeight;
-    newTotalWeightKg += netWeight;
+    // For manual batches, netQuantity is the source of truth for units
+    if (!batch.inventoryRecordId) {
+        const batchNetQuantity = batch.netQuantity || 0;
+        newTotalStockUnits += batchNetQuantity;
 
-    if (material.unitOfMeasure === 'kg') {
-        newTotalStockUnits += netWeight;
-    } else if (batch.inventoryRecordId) {
-        // If it comes from inventory, derive units from weight
-         if (material.conversionFactor && material.conversionFactor > 0) {
+        if (material.unitOfMeasure === 'kg') {
+            newTotalWeightKg += batchNetQuantity;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
+        }
+    } else { // It's from an inventory record
+        const netWeight = batch.grossWeight - batch.tareWeight;
+        newTotalWeightKg += netWeight;
+
+        if (material.unitOfMeasure === 'kg') {
+            newTotalStockUnits += netWeight;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
             newTotalStockUnits += netWeight / material.conversionFactor;
         }
-    } else {
-        // For manual batches, netQuantity is the source of truth for units
-        newTotalStockUnits += batch.netQuantity || 0;
     }
   }
 
@@ -544,11 +550,37 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
         currentWeightKg: newWeightKg,
       });
 
+      // --- NEW LOGIC TO UPDATE JOB ---
+      if (withdrawal.jobIds && withdrawal.jobIds.length > 0) {
+        for (const jobId of withdrawal.jobIds) {
+          const jobRef = doc(db, 'jobOrders', jobId);
+          const jobSnap = await transaction.get(jobRef);
+          if (jobSnap.exists()) {
+            const jobData = jobSnap.data() as JobOrder;
+            const updatedPhases = jobData.phases.map(phase => {
+              const consumptions = phase.materialConsumptions || [];
+              // The withdrawalId is the document ID of the withdrawal record.
+              const updatedConsumptions = consumptions.filter(
+                c => c.withdrawalId !== withdrawalId
+              );
+              // if consumptions changed, return a new phase object
+              if (updatedConsumptions.length < consumptions.length) {
+                return { ...phase, materialConsumptions: updatedConsumptions };
+              }
+              return phase;
+            });
+            transaction.update(jobRef, { phases: updatedPhases });
+          }
+        }
+      }
+      // --- END NEW LOGIC ---
+
       transaction.delete(withdrawalRef);
     });
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/batch-management');
+    revalidatePath('/scan-job');
     return { success: true, message: "Scarico eliminato e stock ripristinato." };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";

@@ -543,7 +543,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         if (unit === 'kg') {
           consumedWeight = quantity;
           // If a conversion factor exists, we can estimate the units consumed.
-          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? Math.round(quantity / material.conversionFactor) : 0;
+          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? quantity / material.conversionFactor : 0;
         } else { // 'n' or 'mt'
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
@@ -587,6 +587,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         }
         
         const newConsumption: MaterialConsumption = {
+            withdrawalId: withdrawalRef.id,
             materialId: materialId,
             materialCode: material.code,
             pcs: unitsConsumed,
@@ -1111,6 +1112,3 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
-
-
-

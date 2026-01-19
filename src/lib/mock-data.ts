@@ -15,6 +15,7 @@ export interface WorkPeriod {
 }
 
 export interface MaterialConsumption {
+  withdrawalId?: string; // ID of the corresponding withdrawal document
   materialId: string;
   materialCode: string;
   grossOpeningWeight?: number; // Peso lordo all'apertura della sessione
