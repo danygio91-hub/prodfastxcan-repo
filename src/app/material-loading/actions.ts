@@ -8,43 +8,6 @@ import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging } fr
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 
-export async function getRawMaterialByCode(code: string): Promise<RawMaterial | { error: string; title?: string }> {
-  const materialsRef = collection(db, "rawMaterials");
-  const trimmedCode = code.trim();
-  
-  if (!trimmedCode) {
-     return {
-      error: `Il codice inserito è vuoto.`,
-      title: 'Codice Vuoto',
-    };
-  }
-
-  // Security check: if the code looks like a login credential, reject it with a generic error.
-  if (trimmedCode.includes('@') && trimmedCode.length > 3) {
-      return {
-          error: "Scansione non valida per questo contesto. Assicurati di scansionare un codice materiale.",
-          title: "Scansione non Valida",
-      };
-  }
-
-  const normalizedCode = trimmedCode.toLowerCase();
-  const q = query(materialsRef, where("code_normalized", "==", normalizedCode));
-  const querySnapshot = await getDocs(q);
-
-  if (querySnapshot.empty) {
-    return {
-      error: `Materia prima non trovata. Verificare il codice o aggiungerla dall'area amministrazione.`,
-      title: 'Materiale non Trovato',
-    };
-  }
-
-  const docSnap = querySnapshot.docs[0];
-  const material = docSnap.data() as RawMaterial;
-  material.id = docSnap.id;
-
-  return JSON.parse(JSON.stringify(material));
-}
-
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
   lotto: z.string().min(1, "Il lotto è obbligatorio."),
@@ -170,4 +133,3 @@ export async function getPackagingItems(): Promise<Packaging[]> {
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
-

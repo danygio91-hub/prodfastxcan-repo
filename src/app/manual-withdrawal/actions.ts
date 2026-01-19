@@ -10,7 +10,7 @@ const manualWithdrawalSchema = z.object({
   materialId: z.string(),
   operatorId: z.string(),
   operatorName: z.string(),
-  lotto: z.string(),
+  lotto: z.string().optional(),
   quantity: z.coerce.number().positive(),
   unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
@@ -72,7 +72,7 @@ export async function logManualWithdrawal(
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),
-            notes: `Lotto: ${lotto}. ${notes || ''}`.trim(),
+            notes: lotto ? `Lotto: ${lotto}. ${notes || ''}`.trim() : notes,
         });
     });
 

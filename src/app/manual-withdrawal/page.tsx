@@ -25,7 +25,7 @@ import { Switch } from '@/components/ui/switch';
 
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
-  lotto: z.string().min(1, "Il lotto è obbligatorio."),
+  lotto: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   notes: z.string().optional(),
 });
