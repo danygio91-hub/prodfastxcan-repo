@@ -41,7 +41,9 @@ export async function logManualWithdrawal(
         if (unit === 'kg') {
           consumedWeight = quantity;
           // If a conversion factor exists, we can estimate the units consumed.
-          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? Math.round(quantity / material.conversionFactor) : 0;
+          if (material.conversionFactor && material.conversionFactor > 0) {
+            unitsConsumed = quantity / material.conversionFactor;
+          }
         } else { // 'n' or 'mt'
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;

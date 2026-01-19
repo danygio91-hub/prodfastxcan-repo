@@ -136,7 +136,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
             type: 'Carico' as const,
             date: b.date,
             description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
-            quantity: netWeight, // This is the net weight in KG
+            quantity: netWeight,
             unit: 'KG',
             id: b.id,
           };
@@ -152,9 +152,10 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
         }
       }),
         ...withdrawals.map((w): Movement => {
-            const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined || w.consumedUnits === 0);
-            const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
-            const unit = isWeightBased ? 'KG' : material.unitOfMeasure.toUpperCase();
+            // For withdrawals, prefer showing consumedUnits if available and not 0, otherwise show weight.
+            const hasUnits = w.consumedUnits !== null && w.consumedUnits !== undefined && w.consumedUnits !== 0;
+            const quantity = hasUnits ? w.consumedUnits : w.consumedWeight;
+            const unit = hasUnits ? material.unitOfMeasure.toUpperCase() : 'KG';
             return {
                 type: 'Scarico' as const,
                 date: w.withdrawalDate.toISOString(),
@@ -429,4 +430,3 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
-

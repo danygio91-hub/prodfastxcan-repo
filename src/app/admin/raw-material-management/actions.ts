@@ -33,24 +33,19 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
   let newTotalWeightKg = 0;
 
   for (const batch of batches) {
-    if (batch.inventoryRecordId) {
-        const netWeightFromInventory = batch.grossWeight - batch.tareWeight;
-        newTotalWeightKg += netWeightFromInventory;
-        
-        if (material.unitOfMeasure === 'kg') {
-            newTotalStockUnits += netWeightFromInventory;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalStockUnits += netWeightFromInventory / material.conversionFactor;
-        }
-    } else { // This is a manual batch entry
-        const batchNetQuantity = batch.netQuantity || 0;
-        newTotalStockUnits += batchNetQuantity;
+    const netWeight = batch.grossWeight - batch.tareWeight;
+    newTotalWeightKg += netWeight;
 
-        if (material.unitOfMeasure === 'kg') {
-            newTotalWeightKg += batchNetQuantity;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
+    if (material.unitOfMeasure === 'kg') {
+        newTotalStockUnits += netWeight;
+    } else if (batch.inventoryRecordId) {
+        // If it comes from inventory, derive units from weight
+         if (material.conversionFactor && material.conversionFactor > 0) {
+            newTotalStockUnits += netWeight / material.conversionFactor;
         }
+    } else {
+        // For manual batches, netQuantity is the source of truth for units
+        newTotalStockUnits += batch.netQuantity || 0;
     }
   }
 
@@ -212,20 +207,13 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             lotto: lotto || null,
           };
           
-          const currentStockUnits = material.currentStockUnits || 0;
-          const currentWeightKg = material.currentWeightKg || 0;
-          let weightFromNewBatch = 0;
-
-          if (material.unitOfMeasure === 'kg') {
-              weightFromNewBatch = netQuantity;
-          } else if (material.conversionFactor && material.conversionFactor > 0) {
-              weightFromNewBatch = netQuantity * material.conversionFactor;
-          }
+          const currentBatches = material.batches || [];
+          const updatedBatches = [...currentBatches, newBatch];
+          const newStock = recalculateStock(material, updatedBatches);
 
           transaction.update(materialRef, { 
-              batches: arrayUnion(newBatch),
-              currentStockUnits: currentStockUnits + netQuantity,
-              currentWeightKg: currentWeightKg + weightFromNewBatch,
+              batches: updatedBatches,
+              ...newStock,
           });
       });
       
@@ -461,10 +449,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
                 stockUnits = validData.stock; 
             } else { // Unit is 'n' or 'mt'
                 if (conversionFactor && conversionFactor > 0) {
-                  // If the UoM is not KG, the 'stock' value from Excel can be either units OR KG.
-                  // We need a heuristic. If a conversion factor is present, it's more likely
-                  // the user provided a weight, so we derive units from it.
-                  // If no conversion factor, we assume 'stock' IS the unit count.
                   stockKg = validData.stock;
                   stockUnits = validData.stock / conversionFactor;
                 } else {
@@ -545,20 +529,15 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
       const material = materialSnap.data() as RawMaterial;
       
       const weightToRestore = withdrawal.consumedWeight || 0;
-      const unitsToRestore = withdrawal.consumedUnits || 0;
-
-      const newWeightKg = (material.currentWeightKg || 0) + weightToRestore;
-      let newStockUnits = (material.currentStockUnits || 0) + unitsToRestore;
+      let unitsToRestore = withdrawal.consumedUnits ?? 0;
 
       // Ensure consistency if units were not logged but can be recalculated
       if (unitsToRestore === 0 && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-        const recalculatedUnits = Math.round(weightToRestore / material.conversionFactor);
-        newStockUnits += recalculatedUnits;
+        unitsToRestore = weightToRestore / material.conversionFactor;
       }
       
-      if (material.unitOfMeasure === 'kg') {
-          newStockUnits = newWeightKg;
-      }
+      const newWeightKg = (material.currentWeightKg || 0) + weightToRestore;
+      let newStockUnits = (material.currentStockUnits || 0) + unitsToRestore;
 
       transaction.update(materialRef, {
         currentStockUnits: newStockUnits,
