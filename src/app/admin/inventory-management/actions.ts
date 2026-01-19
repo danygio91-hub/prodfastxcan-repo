@@ -197,17 +197,53 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
         });
     }
   }
+  
+  const batch = writeBatch(db);
+  let hasUpdates = false;
 
-  const records = snapshot.docs.map(doc => {
-    const data = doc.data() as Omit<InventoryRecord, 'id'>;
+  const records = snapshot.docs.map(docSnap => {
+    const recordId = docSnap.id;
+    const data = docSnap.data() as Omit<InventoryRecord, 'id'>;
     const material = materialsMap.get(data.materialId);
+
+    // Check if recalculation is needed
+    const needsRecalculation = (data.netWeight === 0 || data.netWeight === undefined) && 
+                                data.inputQuantity > 0 && 
+                                data.inputUnit !== 'kg';
+
+    if (needsRecalculation && material?.conversionFactor && material.conversionFactor > 0) {
+        const tareWeight = data.tareWeight || 0;
+        const newNetWeight = data.inputQuantity * material.conversionFactor;
+        const newGrossWeight = newNetWeight + tareWeight;
+        
+        const recordRef = doc(db, 'inventoryRecords', recordId);
+        batch.update(recordRef, { netWeight: newNetWeight, grossWeight: newGrossWeight });
+        hasUpdates = true;
+        
+        // Return the corrected data immediately for UI consistency
+        return { 
+          id: recordId,
+          ...data,
+          netWeight: newNetWeight,
+          grossWeight: newGrossWeight,
+          conversionFactor: material?.conversionFactor,
+          materialUnitOfMeasure: material?.unitOfMeasure,
+        } as InventoryRecord;
+    }
+
+    // Return original data if no update is needed
     return { 
-      id: doc.id,
+      id: recordId,
       ...data,
       conversionFactor: material?.conversionFactor,
       materialUnitOfMeasure: material?.unitOfMeasure,
     } as InventoryRecord;
   });
+  
+  if (hasUpdates) {
+    await batch.commit();
+    revalidatePath('/admin/inventory-management');
+  }
 
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
@@ -562,5 +598,7 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
     }
 }
 
+
+    
 
     
