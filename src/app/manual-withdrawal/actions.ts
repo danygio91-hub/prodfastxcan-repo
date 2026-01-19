@@ -14,6 +14,7 @@ const manualWithdrawalSchema = z.object({
   quantity: z.coerce.number().positive(),
   unit: z.enum(['n', 'mt', 'kg']),
   notes: z.string().optional(),
+  jobOrderPF: z.string().optional(),
 });
 
 export async function logManualWithdrawal(
@@ -24,7 +25,7 @@ export async function logManualWithdrawal(
     return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
   }
   
-  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes } = validated.data;
+  const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF } = validated.data;
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
@@ -64,11 +65,11 @@ export async function logManualWithdrawal(
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
             jobIds: [],
-            jobOrderPFs: ['SCARICO_MANUALE'],
+            jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_MANUALE'],
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            consumedUnits,
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),

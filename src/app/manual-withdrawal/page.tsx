@@ -28,6 +28,7 @@ const withdrawalFormSchema = z.object({
   lotto: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   notes: z.string().optional(),
+  jobOrderPF: z.string().optional(),
 });
 type WithdrawalFormValues = z.infer<typeof withdrawalFormSchema>;
 
@@ -243,6 +244,17 @@ export default function ManualWithdrawalPage() {
                       <FormItem>
                         <FormLabel>Lotto da Scaricare</FormLabel>
                         <FormControl><Input placeholder="Scansiona o digita il lotto..." {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                   <FormField
+                    control={form.control}
+                    name="jobOrderPF"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Commessa / PF (Opzionale)</FormLabel>
+                        <FormControl><Input placeholder="Es. Comm-123/24" {...field} value={field.value ?? ''} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
