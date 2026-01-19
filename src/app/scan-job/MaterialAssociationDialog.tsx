@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -236,7 +237,7 @@ export default function MaterialAssociationDialog({
 
     return (
      <Form {...form}>
-        <form className="space-y-4 h-full flex flex-col">
+        <form className="h-full flex flex-col overflow-hidden" onSubmit={(e) => e.preventDefault()}>
           <ScrollArea className="flex-1 px-6 py-2">
             <div className="space-y-4">
               {selectedMaterial ? (
@@ -296,7 +297,7 @@ export default function MaterialAssociationDialog({
               )}
             </div>
           </ScrollArea>
-          <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t">
+          <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background">
               <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="w-full">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
               </Button>
