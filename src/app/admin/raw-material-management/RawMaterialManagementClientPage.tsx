@@ -394,8 +394,8 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             'tipologia': 'tipologia',
             'unita misura': 'unitOfMeasure',
             'fattore conversione': 'conversionFactor',
-            'stock': 'stock',
-            'peso (kg)': 'stock',
+            'stock': 'stockInUnits',
+            'peso (kg)': 'stockInKg',
         };
         
         const mappedJson = filteredData.map((row: any) => {
@@ -404,13 +404,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, ' ');
                 const targetKey = headerMapping[normalizedKey];
                 if (targetKey && row[key] !== null && row[key] !== undefined && row[key] !== '') {
-                  if (targetKey === 'stock') {
-                    if (normalizedKey === 'stock' || !normalizedRow['stock']) {
-                       normalizedRow[targetKey] = row[key];
-                    }
-                  } else {
                     normalizedRow[targetKey] = row[key];
-                  }
                 }
             }
             return normalizedRow;
@@ -959,6 +953,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
+
 
 
 

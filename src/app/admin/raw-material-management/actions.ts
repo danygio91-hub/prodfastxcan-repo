@@ -383,7 +383,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
       tipologia: z.coerce.string().optional(),
       unitOfMeasure: z.enum(['n', 'mt', 'kg', 'm']).optional(),
       conversionFactor: z.coerce.number().optional().nullable(),
-      stock: z.coerce.number().min(0).optional(),
+      stockInUnits: z.coerce.number().min(0).optional(),
+      stockInKg: z.coerce.number().min(0).optional(),
     });
 
     const materialsRef = collection(db, "rawMaterials");
@@ -449,18 +450,19 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
         let stockKg = 0;
         let stockUnits = 0;
 
-        if (validData.stock) {
+        if (validData.stockInKg !== undefined) {
+            stockKg = validData.stockInKg;
             if (unitOfMeasure === 'kg') {
-                stockKg = validData.stock;
-                stockUnits = validData.stock; 
-            } else { // Unit is 'n' or 'mt'
-                if (conversionFactor && conversionFactor > 0) {
-                  stockKg = validData.stock;
-                  stockUnits = validData.stock / conversionFactor;
-                } else {
-                   stockUnits = validData.stock;
-                   stockKg = 0; // Cannot be calculated
-                }
+                stockUnits = stockKg;
+            } else if (conversionFactor && conversionFactor > 0) {
+                stockUnits = stockKg / conversionFactor;
+            }
+        } else if (validData.stockInUnits !== undefined) {
+            stockUnits = validData.stockInUnits;
+            if (unitOfMeasure === 'kg') {
+                stockKg = stockUnits;
+            } else if (conversionFactor && conversionFactor > 0) {
+                stockKg = stockUnits * conversionFactor;
             }
         }
         
@@ -468,8 +470,8 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             id: `batch-import-${Date.now()}-${addedCount}`,
             date: new Date().toISOString(),
             ddt: 'Importazione Iniziale',
-            netQuantity: unitOfMeasure === 'kg' ? stockKg : stockUnits, // Store the primary UoM value
-            grossWeight: stockKg, // For import, assume gross = net
+            netQuantity: stockUnits,
+            grossWeight: stockKg,
             tareWeight: 0,
             lotto: 'IMPORT-INIZIALE',
         } : null;
