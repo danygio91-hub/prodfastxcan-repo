@@ -23,6 +23,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Switch } from '../ui/switch';
 
 const formSchema = z.object({
   material: z.custom<RawMaterial>().nullable(),
@@ -57,6 +58,7 @@ export default function MaterialAssociationDialog({
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
+  const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -73,6 +75,12 @@ export default function MaterialAssociationDialog({
   });
 
   const selectedMaterial = form.watch('material');
+
+  useEffect(() => {
+    if (selectedMaterial) {
+      setInputUnit('primary');
+    }
+  }, [selectedMaterial]);
 
   const handleMaterialSelect = (material: RawMaterial) => {
     form.setValue('material', material);
@@ -173,7 +181,7 @@ export default function MaterialAssociationDialog({
       formData.append('jobOrderPF', job.ordinePF);
       formData.append('phaseId', phase.id);
       formData.append('quantity', String(values.quantityToWithdraw));
-      formData.append('unit', selectedMaterial.unitOfMeasure);
+      formData.append('unit', inputUnit === 'kg' ? 'kg' : selectedMaterial.unitOfMeasure);
       
       const result = await logTubiGuainaWithdrawal(formData);
       toast({
@@ -281,15 +289,28 @@ export default function MaterialAssociationDialog({
                   )}/>
               ) : (
                   <>
+                      {selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg' && (
+                        <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                            <Label htmlFor="unit-switch-assoc">{selectedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                            <Switch
+                              id="unit-switch-assoc"
+                              checked={inputUnit === 'kg'}
+                              onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
+                            />
+                            <Label htmlFor="unit-switch-assoc">KG</Label>
+                        </div>
+                      )}
+                      
                       <FormField control={form.control} name="openingWeight" render={({field}) => (
                       <FormItem>
-                          <FormLabel>Quantità di Apertura ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                          <FormLabel>Quantità di Apertura ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
                           <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
                       </FormItem>
                       )}/>
+                      
                       <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                       <FormItem>
-                          <FormLabel>Quantità da prelevare ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel>
+                          <FormLabel>Quantità da prelevare ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
                           <FormControl><Input type="number" {...field} value={field.value ?? undefined} /></FormControl>
                       </FormItem>
                       )}/>
@@ -301,7 +322,7 @@ export default function MaterialAssociationDialog({
               <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="w-full">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
               </Button>
-                {(selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg') && (
+                {(selectedMaterial && (phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial.unitOfMeasure === 'kg' ? false : true)) && (
                   <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full">
                     <Send className="mr-2 h-4 w-4" /> Preleva Materiale
                   </Button>

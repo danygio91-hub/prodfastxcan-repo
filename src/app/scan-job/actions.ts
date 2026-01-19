@@ -417,6 +417,8 @@ export async function closeMaterialSessionAndUpdateStock(
         // --- 1. ALL READS FIRST ---
         const materialDoc = await transaction.get(materialRef);
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+        const operatorSnap = await getDoc(doc(db, "operators", operatorId));
+        const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
 
         // --- 2. VALIDATION AND PREPARATION ---
         if (!materialDoc.exists()) {
@@ -445,10 +447,7 @@ export async function closeMaterialSessionAndUpdateStock(
 
         const currentStockUnits = materialData.currentStockUnits ?? 0;
         const newStockUnits = currentStockUnits - unitsConsumed;
-        if (newStockUnits < 0) {
-             throw new Error(`Stock in unità insufficiente. Disponibile: ${currentStockUnits.toFixed(2)}, richiesto: ${unitsConsumed.toFixed(2)}.`);
-        }
-
+        
         // 3a. Update material stock with correct unit and weight values
         transaction.update(materialRef, { 
             currentWeightKg: newWeightKg,
@@ -465,6 +464,7 @@ export async function closeMaterialSessionAndUpdateStock(
             consumedWeight: consumedWeight,
             consumedUnits: unitsConsumed,
             operatorId: operatorId,
+            operatorName: operatorName,
             withdrawalDate: Timestamp.now(),
         });
 
@@ -529,6 +529,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
     await runTransaction(db, async (transaction) => {
         const materialDoc = await transaction.get(materialRef);
         const jobDoc = await transaction.get(jobRef);
+        const operatorSnap = await getDoc(doc(db, "operators", operatorId));
+        const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
 
         if (!materialDoc.exists()) throw new Error("Materia prima non trovata.");
         if (!jobDoc.exists()) throw new Error("Commessa non trovata.");
@@ -554,7 +556,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
 
         // Validation against available stock
         if (currentStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
+            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits.toFixed(2)}, Richiesto: ${unitsConsumed.toFixed(2)}.`);
         }
          if (currentWeightKg < consumedWeight) {
              throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
@@ -575,8 +577,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            consumedUnits,
             operatorId,
+            operatorName, // Add operator name to the log
             withdrawalDate: Timestamp.now(),
         });
         
