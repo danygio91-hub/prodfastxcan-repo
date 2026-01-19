@@ -69,7 +69,7 @@ export async function logManualWithdrawal(
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits,
+            consumedUnits: unitsConsumed,
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),

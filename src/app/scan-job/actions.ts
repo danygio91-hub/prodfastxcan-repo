@@ -429,19 +429,30 @@ export async function closeMaterialSessionAndUpdateStock(
         }
         
         const materialData = materialDoc.data() as RawMaterial;
-        const newWeightKg = (materialData.currentWeightKg ?? 0) - consumedWeight;
+        const currentWeightKg = materialData.currentWeightKg ?? 0;
+        const newWeightKg = currentWeightKg - consumedWeight;
         
         if (newWeightKg < 0) {
-           throw new Error(`Stock insufficiente. Peso disponibile: ${(materialData.currentWeightKg ?? 0).toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
+           throw new Error(`Stock insufficiente. Peso disponibile: ${currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
-        // --- 3. ALL WRITES LAST ---
-        const finalStock = newWeightKg;
+        let unitsConsumed = 0;
+        if (materialData.unitOfMeasure === 'kg') {
+            unitsConsumed = consumedWeight;
+        } else if (materialData.conversionFactor && materialData.conversionFactor > 0) {
+            unitsConsumed = consumedWeight / materialData.conversionFactor;
+        }
 
-        // 3a. Update material stock (both weight and units for KG-based materials)
+        const currentStockUnits = materialData.currentStockUnits ?? 0;
+        const newStockUnits = currentStockUnits - unitsConsumed;
+        if (newStockUnits < 0) {
+             throw new Error(`Stock in unità insufficiente. Disponibile: ${currentStockUnits.toFixed(2)}, richiesto: ${unitsConsumed.toFixed(2)}.`);
+        }
+
+        // 3a. Update material stock with correct unit and weight values
         transaction.update(materialRef, { 
-            currentWeightKg: finalStock,
-            currentStockUnits: finalStock,
+            currentWeightKg: newWeightKg,
+            currentStockUnits: newStockUnits,
         });
 
         // 3b. Create a single withdrawal log for the entire session
@@ -452,7 +463,7 @@ export async function closeMaterialSessionAndUpdateStock(
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
-            consumedUnits: null, // Set to null for weight-based sessions to avoid Firestore 'undefined' error
+            consumedUnits: unitsConsumed,
             operatorId: operatorId,
             withdrawalDate: Timestamp.now(),
         });
@@ -1100,5 +1111,6 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
+
 
 
