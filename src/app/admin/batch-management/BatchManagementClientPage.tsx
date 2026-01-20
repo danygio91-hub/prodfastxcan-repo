@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -13,7 +12,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2, ChevronRight } from 'lucide-react';
+import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2, ChevronRight, LinkIcon } from 'lucide-react';
 import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
@@ -235,7 +234,10 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                   <AccordionTrigger className="p-4 hover:no-underline">
                     <div className="flex-1 text-left">
                        <div className="flex items-center gap-2">
-                           <h3 className="font-semibold text-lg">{group.materialCode}</h3>
+                            <Link href={`/admin/raw-material-management?code=${encodeURIComponent(group.materialCode)}`} className="font-semibold text-lg hover:text-primary hover:underline">
+                                {group.materialCode}
+                           </Link>
+                           <LinkIcon className="h-4 w-4 text-muted-foreground" />
                            <Badge variant="secondary">{Object.keys(batchesByLotto).length} Lotti</Badge>
                        </div>
                       <p className="text-sm text-muted-foreground">{group.materialDescription}</p>
@@ -458,3 +460,5 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
+
+    
