@@ -154,6 +154,25 @@ export default function MaterialLoadingPage() {
     });
     
     const ncForm = useForm<NcReportFormValues>();
+
+    const selectedPackagingId = form.watch('packagingId');
+    const enteredNetQuantity = form.watch('quantity') || 0;
+    
+    const calculatedGrossWeight = React.useMemo(() => {
+        if (!scannedMaterial || !enteredNetQuantity) return 0;
+        
+        const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
+        let netWeightKg = 0;
+
+        if (inputUnit === 'kg') {
+            netWeightKg = enteredNetQuantity;
+        } else if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
+            netWeightKg = enteredNetQuantity * scannedMaterial.conversionFactor;
+        }
+
+        return netWeightKg + selectedTara;
+    }, [scannedMaterial, enteredNetQuantity, inputUnit, packagingItems, selectedPackagingId]);
+
     
     const handleMaterialScanned = useCallback(async (code: string) => {
         const result = await getRawMaterialByCode(code.trim());
@@ -377,37 +396,40 @@ export default function MaterialLoadingPage() {
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
-                                                          {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità in Entrata (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
+                                                          Quantità Netta ({inputUnit === 'kg' ? 'KG' : scannedMaterial?.unitOfMeasure.toUpperCase()})
                                                         </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
                                                     </FormItem>
                                                 )} />
 
-                                                {scannedMaterial?.type === 'BOB' && (
-                                                  <FormField
-                                                    control={form.control}
-                                                    name="packagingId"
-                                                    render={({ field }) => (
-                                                      <FormItem>
-                                                        <FormLabel>Imballo (Tara)</FormLabel>
-                                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                                          <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
-                                                          <SelectContent>
-                                                              <SelectItem value="none">Nessuna Tara</SelectItem>
-                                                              {filteredPackagingItems.map(item => (
-                                                                  <SelectItem key={item.id} value={item.id}>
-                                                                      {item.name} ({item.weightKg} kg)
-                                                                  </SelectItem>
-                                                              ))}
-                                                          </SelectContent>
-                                                        </Select>
-                                                        <FormMessage />
-                                                      </FormItem>
-                                                    )}
-                                                  />
-                                                )}
+                                                <FormField
+                                                  control={form.control}
+                                                  name="packagingId"
+                                                  render={({ field }) => (
+                                                    <FormItem>
+                                                      <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" />Imballo (Tara)</FormLabel>
+                                                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                        <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
+                                                        <SelectContent>
+                                                            <SelectItem value="none">Nessuna Tara</SelectItem>
+                                                            {filteredPackagingItems.map(item => (
+                                                                <SelectItem key={item.id} value={item.id}>
+                                                                    {item.name} ({item.weightKg} kg)
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                      </Select>
+                                                      <FormMessage />
+                                                    </FormItem>
+                                                  )}
+                                                />
 
+                                                <div className="p-4 rounded-lg border bg-muted">
+                                                    <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
+                                                    <p className="text-2xl font-bold text-primary">{calculatedGrossWeight > 0 ? calculatedGrossWeight.toFixed(3) : '---'}</p>
+                                                </div>
+                                                
                                                 <Button type="submit" className="w-full">Registra Carico</Button>
                                             </form>
                                         </Form>

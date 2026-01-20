@@ -51,41 +51,30 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
           
           let netWeight: number;
-          let grossWeight: number;
           let unitsToAdd: number;
 
+          // The 'quantity' from form is always net quantity now.
           if (unit === 'kg') {
-              grossWeight = quantity; // Input is gross weight
-              netWeight = grossWeight - tareWeight;
-              if (netWeight < 0) {
-                throw new Error("Il peso netto è negativo. Controllare peso lordo e tara.");
-              }
-              // Calculate units from net weight
-              if (material.unitOfMeasure === 'kg') {
-                  unitsToAdd = netWeight;
-              } else if (material.conversionFactor && material.conversionFactor > 0) {
-                  unitsToAdd = netWeight / material.conversionFactor;
-              } else {
-                  unitsToAdd = 0; // Cannot determine units if no conversion factor
-              }
+              netWeight = quantity;
+              unitsToAdd = quantity; // For kg, units and weight are the same
           } else { // unit is 'n' or 'mt'
-              unitsToAdd = quantity; // Input is net units
-              // Calculate weight from units
-              if (material.unitOfMeasure === 'kg') {
-                netWeight = unitsToAdd;
-              } else if (material.conversionFactor && material.conversionFactor > 0) {
+              unitsToAdd = quantity;
+              // Calculate net weight from units
+              if (material.conversionFactor && material.conversionFactor > 0) {
                 netWeight = unitsToAdd * material.conversionFactor;
               } else {
+                // Cannot calculate weight if no conversion factor, but we proceed with 0 weight for this batch.
                 netWeight = 0;
               }
-              grossWeight = netWeight + tareWeight;
           }
 
+          const grossWeight = netWeight + tareWeight;
+          
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
-            netQuantity: unitsToAdd,
+            netQuantity: unitsToAdd, // This is the net quantity in the material's primary UoM
             tareWeight: tareWeight,
             grossWeight: grossWeight,
             packagingId: packagingId || null,
@@ -106,7 +95,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               batches: [...existingBatches, newBatch], 
               currentStockUnits: newStockUnits,
               currentWeightKg: newWeightKg,
-              stock: newStockUnits
+              stock: newStockUnits // For legacy compatibility if needed
           };
       });
       
