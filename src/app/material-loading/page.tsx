@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -162,26 +161,26 @@ export default function MaterialLoadingPage() {
     const ncForm = useForm<NcReportFormValues>();
 
     const selectedPackagingId = form.watch('packagingId');
-    const enteredNetQuantity = form.watch('quantity') || 0;
+    const enteredQuantity = form.watch('quantity') || 0;
     
     const calculatedGrossWeight = React.useMemo(() => {
-        if (!scannedMaterial || !enteredNetQuantity) return 0;
+        if (!scannedMaterial || !enteredQuantity) return 0;
         
         const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
         let netWeightKg = 0;
 
         if (inputUnit === 'kg') {
-            netWeightKg = enteredNetQuantity;
+            netWeightKg = enteredQuantity;
         } else { // unit is 'primary' (n or mt)
             if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
-                netWeightKg = enteredNetQuantity * scannedMaterial.conversionFactor;
+                netWeightKg = enteredQuantity * scannedMaterial.conversionFactor;
             } else if (scannedMaterial.unitOfMeasure === 'kg') {
-                netWeightKg = enteredNetQuantity;
+                netWeightKg = enteredQuantity;
             }
         }
 
         return netWeightKg + selectedTara;
-    }, [scannedMaterial, enteredNetQuantity, inputUnit, packagingItems, selectedPackagingId]);
+    }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
     
     const handleMaterialScanned = useCallback(async (code: string) => {
@@ -405,7 +404,7 @@ export default function MaterialLoadingPage() {
                                                     </div>
                                                 )}
 
-                                                <FormField control={form.control} name="quantity" render={({ field }) => (
+                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
                                                             {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
@@ -424,7 +423,7 @@ export default function MaterialLoadingPage() {
                                                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                                                         <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
                                                         <SelectContent>
-                                                            <SelectItem value="none">Nessuna Tara</SelectItem>
+                                                            <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
                                                             {filteredPackagingItems.map(item => (
                                                                 <SelectItem key={item.id} value={item.id}>
                                                                     {item.name} ({item.weightKg} kg)
@@ -463,7 +462,7 @@ export default function MaterialLoadingPage() {
                         </CardContent>
 
                         <CardFooter className="flex-col gap-4">
-                           {step !== 'success' && (
+                           {step !== 'success' && step !== 'scan_material' && (
                             <div className="w-full flex justify-between items-center">
                                 <Button variant="ghost" onClick={resetFlow}><ArrowLeft className="mr-2 h-4 w-4"/>Ricomincia</Button>
                             </div>
@@ -475,5 +474,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-
-    
