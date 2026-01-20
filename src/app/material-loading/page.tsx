@@ -34,6 +34,7 @@ const batchFormSchema = z.object({
   ddt: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   packagingId: z.string().optional(),
+  unit: z.enum(['n', 'kg', 'mt']),
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
@@ -161,21 +162,24 @@ export default function MaterialLoadingPage() {
     const ncForm = useForm<NcReportFormValues>();
 
     const selectedPackagingId = form.watch('packagingId');
-    const enteredQuantity = form.watch('quantity') || 0;
+    const enteredQuantity = form.watch('quantity');
     
-    const calculatedGrossWeight = React.useMemo(() => {
+     const calculatedGrossWeight = React.useMemo(() => {
         if (!scannedMaterial || !enteredQuantity) return 0;
         
+        const numEnteredQuantity = parseFloat(String(enteredQuantity));
+        if (isNaN(numEnteredQuantity)) return 0;
+
         const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
         let netWeightKg = 0;
 
         if (inputUnit === 'kg') {
-            netWeightKg = enteredQuantity;
+            netWeightKg = numEnteredQuantity;
         } else { // unit is 'primary' (n or mt)
             if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
-                netWeightKg = enteredQuantity * scannedMaterial.conversionFactor;
+                netWeightKg = numEnteredQuantity * scannedMaterial.conversionFactor;
             } else if (scannedMaterial.unitOfMeasure === 'kg') {
-                netWeightKg = enteredQuantity;
+                netWeightKg = numEnteredQuantity;
             }
         }
 
@@ -407,7 +411,7 @@ export default function MaterialLoadingPage() {
                                                  <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
-                                                            {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
+                                                            {inputUnit === 'kg' ? 'Quantità Netta (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
                                                         </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
