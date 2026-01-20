@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -396,7 +397,7 @@ export default function MaterialLoadingPage() {
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
-                                                          Quantità Netta ({inputUnit === 'kg' ? 'KG' : scannedMaterial?.unitOfMeasure.toUpperCase()})
+                                                          {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Netta (${scannedMaterial.unitOfMeasure.toUpperCase()})`}
                                                         </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
@@ -424,7 +425,6 @@ export default function MaterialLoadingPage() {
                                                     </FormItem>
                                                   )}
                                                 />
-
                                                 <div className="p-4 rounded-lg border bg-muted">
                                                     <Label className="text-muted-foreground">Peso Lordo Calcolato (KG)</Label>
                                                     <p className="text-2xl font-bold text-primary">{calculatedGrossWeight > 0 ? calculatedGrossWeight.toFixed(3) : '---'}</p>
@@ -464,3 +464,5 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
+
+    
