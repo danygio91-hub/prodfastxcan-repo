@@ -407,7 +407,7 @@ export default function MaterialLoadingPage() {
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
                                                         <FormLabel>
-                                                            {inputUnit === 'kg' ? 'Quantità Netta (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
+                                                            {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
                                                         </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
