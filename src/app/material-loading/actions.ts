@@ -2,7 +2,7 @@
 
 'use server';
 
-import { collection, doc, getDoc, getDocs, query, where, runTransaction, addDoc, Timestamp, orderBy } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -42,24 +42,24 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const existingBatches = material.batches || [];
           
           let tareWeight = 0;
+          let validPackagingId: string | undefined = undefined;
+
           if (packagingId && packagingId !== 'none') {
             const packagingRef = doc(db, 'packaging', packagingId);
             const packagingSnap = await transaction.get(packagingRef);
             if (packagingSnap.exists()) {
               tareWeight = packagingSnap.data().weightKg || 0;
+              validPackagingId = packagingId;
             }
           }
           
           let netWeightKg: number;
           let unitsToAdd: number;
+          const netQuantityInput = quantity;
 
           if (unit === 'kg') {
-              // The user inputs GROSS weight when unit is KG
-              const grossWeight = quantity;
-              netWeightKg = grossWeight - tareWeight;
-              if (netWeightKg < 0) {
-                  throw new Error("Peso lordo inferiore alla tara. Controllare i valori.");
-              }
+              // User inputs NET weight
+              netWeightKg = netQuantityInput;
               if (material.unitOfMeasure === 'kg') {
                   unitsToAdd = netWeightKg;
               } else {
@@ -69,27 +69,30 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                   unitsToAdd = netWeightKg / material.conversionFactor;
               }
           } else { // unit is 'n' or 'mt'
-              // The user inputs NET quantity
-              unitsToAdd = quantity;
-              if (material.conversionFactor && material.conversionFactor > 0) {
-                  netWeightKg = unitsToAdd * material.conversionFactor;
-              } else if (material.unitOfMeasure === 'kg') {
+              // User inputs NET quantity in primary UOM
+              unitsToAdd = netQuantityInput;
+              if (material.unitOfMeasure === 'kg') {
                   netWeightKg = unitsToAdd;
+              } else if (material.conversionFactor && material.conversionFactor > 0) {
+                  netWeightKg = unitsToAdd * material.conversionFactor;
               } else {
-                  netWeightKg = 0; // Cannot determine weight without factor
+                  netWeightKg = 0; 
               }
           }
-          
+
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
             tareWeight: tareWeight,
-            grossWeight: netWeightKg + tareWeight,
-            packagingId: packagingId || undefined,
+            grossWeight: netWeightKg + tareWeight, // Gross is always Net + Tare
             lotto: lotto || null,
           };
+          
+          if (validPackagingId) {
+            newBatch.packagingId = validPackagingId;
+          }
 
           const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
           const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
@@ -111,6 +114,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
+      revalidatePath('/admin/batch-management'); // Added revalidation for batch page
       return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
 
   } catch (error) {

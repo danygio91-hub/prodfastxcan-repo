@@ -13,7 +13,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2 } from 'lucide-react';
+import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2, ChevronRight } from 'lucide-react';
 import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
@@ -25,6 +25,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { deleteSingleWithdrawalAndRestoreStock, deleteBatchFromRawMaterial } from '../raw-material-management/actions';
 import { formatDisplayStock } from '@/lib/utils';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -221,13 +222,21 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
         <CardContent>
           <Accordion type="multiple" className="w-full space-y-4">
              {filteredGroups.length > 0 ? (
-              filteredGroups.map((group) => (
+              filteredGroups.map((group) => {
+                const batchesByLotto = group.batches.reduce((acc, batch) => {
+                  const lottoKey = batch.lotto || 'SENZA_LOTTO';
+                  if (!acc[lottoKey]) acc[lottoKey] = [];
+                  acc[lottoKey].push(batch);
+                  return acc;
+                }, {} as Record<string, EnrichedBatch[]>);
+                
+                return (
                 <AccordionItem value={group.materialId} key={group.materialId} className="border rounded-lg bg-card shadow-sm">
                   <AccordionTrigger className="p-4 hover:no-underline">
                     <div className="flex-1 text-left">
                        <div className="flex items-center gap-2">
                            <h3 className="font-semibold text-lg">{group.materialCode}</h3>
-                           <Badge variant="secondary">{group.batches.length} Lotti</Badge>
+                           <Badge variant="secondary">{Object.keys(batchesByLotto).length} Lotti</Badge>
                        </div>
                       <p className="text-sm text-muted-foreground">{group.materialDescription}</p>
                     </div>
@@ -236,61 +245,87 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                          <p className="text-xs text-muted-foreground">({formatDisplayStock(group.currentWeightKg, 'kg')} KG)</p>
                      </div>
                   </AccordionTrigger>
-                  <AccordionContent className="p-0">
-                    <div className="overflow-x-auto border-t">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>N° Lotto</TableHead>
-                            <TableHead>Data Carico</TableHead>
-                            <TableHead>Origine/DDT</TableHead>
-                            <TableHead>Quantità Caricata</TableHead>
-                            <TableHead className="text-right">Azioni</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {group.batches.map(batch => (
-                            <TableRow key={batch.id}>
-                              <TableCell className="font-semibold font-mono">{batch.lotto || 'N/D'}</TableCell>
-                              <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                              <TableCell>{batch.ddt}</TableCell>
-                              <TableCell>{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</TableCell>
-                              <TableCell className="text-right space-x-2">
-                                <Button variant="outline" size="sm" onClick={() => handleOpenHistoryDialog(group)}>
-                                    <History className="mr-2 h-4 w-4" />
-                                    Storico
-                                </Button>
-                                <Button variant="outline" size="icon" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="text-destructive">
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                      <AlertDialogDescription>Stai per eliminare il lotto <span className="font-bold">{batch.lotto}</span>. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => setBatchToDelete({ materialId: group.materialId, batchId: batch.id })}>
-                                        Elimina Lotto
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                  <AccordionContent className="p-0 border-t">
+                     <div className="space-y-2 p-4 bg-muted/50">
+                        {Object.entries(batchesByLotto).map(([lotto, lottoBatches]) => {
+                           const totalQuantityInLotto = lottoBatches.reduce((acc, b) => acc + b.netQuantity, 0);
+                           const firstLoadDate = lottoBatches.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
+                          return (
+                            <Collapsible key={lotto} className="border rounded-md bg-card shadow-sm">
+                                <CollapsibleTrigger className="p-3 flex justify-between items-center w-full group hover:bg-accent/50">
+                                    <div className="flex items-center gap-4">
+                                      <ChevronRight className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                                      <div className="text-left">
+                                        <p className="font-semibold font-mono">{lotto}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Primo carico: {firstLoadDate ? format(parseISO(firstLoadDate), 'dd/MM/yyyy') : 'N/D'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="font-bold">{formatDisplayStock(totalQuantityInLotto, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</p>
+                                      <p className="text-xs text-muted-foreground">{lottoBatches.length} carichi</p>
+                                    </div>
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                    <div className="border-t p-2">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>Data Carico</TableHead>
+                                                    <TableHead>Origine/DDT</TableHead>
+                                                    <TableHead>Quantità</TableHead>
+                                                    <TableHead className="text-right">Azioni</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                 {lottoBatches.map(batch => (
+                                                  <TableRow key={batch.id}>
+                                                    <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                                    <TableCell>{batch.ddt}</TableCell>
+                                                    <TableCell>{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</TableCell>
+                                                    <TableCell className="text-right space-x-2">
+                                                      <Button variant="outline" size="sm" onClick={() => handleOpenHistoryDialog(group)}>
+                                                          <History className="mr-2 h-4 w-4" />
+                                                          Storico Lotto
+                                                      </Button>
+                                                      <Button variant="outline" size="icon" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
+                                                        <Edit className="h-4 w-4" />
+                                                      </Button>
+                                                      <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                          <Button variant="ghost" size="icon" className="text-destructive">
+                                                            <Trash2 className="h-4 w-4" />
+                                                          </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                          <AlertDialogHeader>
+                                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                                            <AlertDialogDescription>Stai per eliminare il carico del <span className="font-bold">{format(parseISO(batch.date), 'dd/MM/yyyy')}</span>. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription>
+                                                          </AlertDialogHeader>
+                                                          <AlertDialogFooter>
+                                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => setBatchToDelete({ materialId: group.materialId, batchId: batch.id })}>
+                                                              Elimina Carico
+                                                            </AlertDialogAction>
+                                                          </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                      </AlertDialog>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                ))}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </CollapsibleContent>
+                            </Collapsible>
+                          )
+                        })}
+                     </div>
                   </AccordionContent>
                 </AccordionItem>
-              ))
+                )
+              })
             ) : (
               <div className="text-center py-10 text-muted-foreground">Nessun lotto trovato.</div>
             )}
@@ -311,7 +346,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       <AlertDialog open={!!batchToDelete} onOpenChange={(open) => !open && setBatchToDelete(null)}>
         <AlertDialogContent>
             <AlertDialogHeader>
-                <AlertDialogTitle>Sei sicuro di voler eliminare questo lotto?</AlertDialogTitle>
+                <AlertDialogTitle>Sei sicuro di voler eliminare questo carico?</AlertDialogTitle>
                 <AlertDialogDescription>
                     Questa azione è irreversibile. Lo stock totale verrà ricalcolato.
                 </AlertDialogDescription>
@@ -365,8 +400,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                         <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4" /></Button>
                                       </AlertDialogTrigger>
                                       <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare il lotto caricato. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => {setBatchToDelete({ materialId: historyMaterial!.materialId, batchId: mov.id }); setIsHistoryDialogOpen(false);}}>Elimina Lotto</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare il carico. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => {setBatchToDelete({ materialId: historyMaterial!.materialId, batchId: mov.id }); setIsHistoryDialogOpen(false);}}>Elimina Carico</AlertDialogAction></AlertDialogFooter>
                                       </AlertDialogContent>
                                     </AlertDialog>
                                   ) : (
