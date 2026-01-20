@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -384,21 +383,9 @@ export default function MaterialLoadingPage() {
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
-                                                <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                                                    <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
-                                                    <Switch
-                                                        id="unit-switch"
-                                                        checked={inputUnit === 'kg'}
-                                                        onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
-                                                    />
-                                                    <Label htmlFor="unit-switch">KG</Label>
-                                                </div>
-
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>
-                                                          {inputUnit === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Netta (${scannedMaterial.unitOfMeasure.toUpperCase()})`}
-                                                        </FormLabel>
+                                                        <FormLabel>Quantità Netta</FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
                                                     </FormItem>
@@ -464,5 +451,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-
-    
