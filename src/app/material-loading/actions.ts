@@ -50,31 +50,35 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
           
-          let netWeight: number;
+          let netWeightKg: number;
           let unitsToAdd: number;
 
           if (unit === 'kg') {
-              netWeight = quantity;
+              // The user inputs GROSS weight when unit is KG
+              const grossWeight = quantity;
+              netWeightKg = grossWeight - tareWeight;
+              if (netWeightKg < 0) {
+                  throw new Error("Peso lordo inferiore alla tara. Controllare i valori.");
+              }
               if (material.unitOfMeasure === 'kg') {
-                  unitsToAdd = quantity;
+                  unitsToAdd = netWeightKg;
               } else {
                   if (!material.conversionFactor || material.conversionFactor <= 0) {
                       throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure} senza un fattore di conversione per ${material.code}.`);
                   }
-                  unitsToAdd = quantity / material.conversionFactor;
+                  unitsToAdd = netWeightKg / material.conversionFactor;
               }
           } else { // unit is 'n' or 'mt'
+              // The user inputs NET quantity
               unitsToAdd = quantity;
               if (material.conversionFactor && material.conversionFactor > 0) {
-                  netWeight = quantity * material.conversionFactor;
+                  netWeightKg = unitsToAdd * material.conversionFactor;
               } else if (material.unitOfMeasure === 'kg') {
-                  netWeight = quantity;
+                  netWeightKg = unitsToAdd;
               } else {
-                  netWeight = 0;
+                  netWeightKg = 0; // Cannot determine weight without factor
               }
           }
-          
-          const grossWeight = netWeight + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
@@ -82,13 +86,13 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
             tareWeight: tareWeight,
-            grossWeight: grossWeight,
-            packagingId: packagingId || null,
+            grossWeight: netWeightKg + tareWeight,
+            packagingId: packagingId || undefined,
             lotto: lotto || null,
           };
 
           const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
-          const newWeightKg = (material.currentWeightKg || 0) + netWeight;
+          const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
           
           transaction.update(materialRef, { 
               batches: [...existingBatches, newBatch],

@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useCameraStream } from '@/hooks/use-camera-stream';
+import { formatDisplayStock } from '@/lib/utils';
 
 // Schema for the inventory form
 const inventoryFormSchema = z.object({
@@ -68,7 +69,7 @@ export default function InventoryPage() {
     const selectedTara = packagingItems.find(p => p.id === selectedPackagingId)?.weightKg || 0;
 
     if (inputUnit === 'kg') {
-        return enteredQuantity - selectedTara;
+        return (enteredQuantity || 0) - selectedTara;
     } 
 
     if (scannedMaterial.conversionFactor) {
@@ -76,6 +77,7 @@ export default function InventoryPage() {
     }
     
     return 0; // Return 0 if no valid calculation can be made
+
   }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
 
@@ -335,7 +337,7 @@ export default function InventoryPage() {
 
                             <div className="p-4 rounded-lg border bg-muted">
                                 <Label className="text-muted-foreground">Peso Netto Calcolato (KG)</Label>
-                                <p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? calculatedNetWeight.toFixed(3) : '---'}</p>
+                                <p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? formatDisplayStock(calculatedNetWeight, 'kg') : '---'}</p>
                             </div>
 
                         </CardContent>
