@@ -33,7 +33,6 @@ const batchFormSchema = z.object({
   date: z.string().refine((val) => !isNaN(Date.parse(val)), { message: "Data non valida"}),
   ddt: z.string().optional(),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'mt', 'kg']),
   packagingId: z.string().optional(),
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
@@ -141,6 +140,12 @@ export default function MaterialLoadingPage() {
             }
         }
     }, [operator, authLoading, router, toast]);
+    
+    useEffect(() => {
+        if (scannedMaterial) {
+            setInputUnit('primary'); // Reset to primary unit whenever material changes
+        }
+    }, [scannedMaterial]);
 
     useEffect(() => {
         if (step === 'enter_quantity') {
@@ -166,8 +171,12 @@ export default function MaterialLoadingPage() {
 
         if (inputUnit === 'kg') {
             netWeightKg = enteredNetQuantity;
-        } else if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
-            netWeightKg = enteredNetQuantity * scannedMaterial.conversionFactor;
+        } else { // unit is 'primary' (n or mt)
+            if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
+                netWeightKg = enteredNetQuantity * scannedMaterial.conversionFactor;
+            } else if (scannedMaterial.unitOfMeasure === 'kg') {
+                netWeightKg = enteredNetQuantity;
+            }
         }
 
         return netWeightKg + selectedTara;
@@ -383,9 +392,23 @@ export default function MaterialLoadingPage() {
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
                                                 <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
                                                 
+                                                {scannedMaterial.unitOfMeasure !== 'kg' && (
+                                                    <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                                                        <Label htmlFor="unit-switch">{scannedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                                                        <Switch
+                                                        id="unit-switch"
+                                                        checked={inputUnit === 'kg'}
+                                                        onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
+                                                        />
+                                                        <Label htmlFor="unit-switch">KG</Label>
+                                                    </div>
+                                                )}
+
                                                 <FormField control={form.control} name="quantity" render={({ field }) => (
                                                     <FormItem>
-                                                        <FormLabel>Quantità Netta</FormLabel>
+                                                        <FormLabel>
+                                                            {inputUnit === 'kg' ? 'Quantità Netta (KG)' : `Quantità Netta (${scannedMaterial?.unitOfMeasure.toUpperCase()})`}
+                                                        </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
                                                     </FormItem>

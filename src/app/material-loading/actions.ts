@@ -53,28 +53,34 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           let netWeight: number;
           let unitsToAdd: number;
 
-          // The 'quantity' from form is always net quantity now.
           if (unit === 'kg') {
               netWeight = quantity;
-              unitsToAdd = quantity; // For kg, units and weight are the same
+              if (material.unitOfMeasure === 'kg') {
+                  unitsToAdd = quantity;
+              } else {
+                  if (!material.conversionFactor || material.conversionFactor <= 0) {
+                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure} senza un fattore di conversione per ${material.code}.`);
+                  }
+                  unitsToAdd = quantity / material.conversionFactor;
+              }
           } else { // unit is 'n' or 'mt'
               unitsToAdd = quantity;
-              // Calculate net weight from units
               if (material.conversionFactor && material.conversionFactor > 0) {
-                netWeight = unitsToAdd * material.conversionFactor;
+                  netWeight = quantity * material.conversionFactor;
+              } else if (material.unitOfMeasure === 'kg') {
+                  netWeight = quantity;
               } else {
-                // Cannot calculate weight if no conversion factor, but we proceed with 0 weight for this batch.
-                netWeight = 0;
+                  netWeight = 0;
               }
           }
-
+          
           const grossWeight = netWeight + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
-            netQuantity: unitsToAdd, // This is the net quantity in the material's primary UoM
+            netQuantity: unitsToAdd, 
             tareWeight: tareWeight,
             grossWeight: grossWeight,
             packagingId: packagingId || null,
