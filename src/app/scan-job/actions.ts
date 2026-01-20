@@ -696,7 +696,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         if (specificBatch) {
             return { 
                 grossWeight: specificBatch.grossWeight,
-                netWeight: specificBatch.netQuantity,
+                netWeight: specificBatch.grossWeight - specificBatch.tareWeight,
                 packagingId: specificBatch.packagingId || 'none',
                 isInitialLoad: true,
                 material: material,
@@ -1115,3 +1115,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
+
