@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
+import { format } from 'date-fns';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -26,7 +27,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantity, lotto, packagingId } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, packagingId, unit } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   
@@ -49,24 +50,50 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
           
+          let netWeight: number;
+          let grossWeight: number;
+          let unitsToAdd: number;
+
+          if (unit === 'kg') {
+              grossWeight = quantity; // Input is gross weight
+              netWeight = grossWeight - tareWeight;
+              if (netWeight < 0) {
+                throw new Error("Il peso netto è negativo. Controllare peso lordo e tara.");
+              }
+              // Calculate units from net weight
+              if (material.unitOfMeasure === 'kg') {
+                  unitsToAdd = netWeight;
+              } else if (material.conversionFactor && material.conversionFactor > 0) {
+                  unitsToAdd = netWeight / material.conversionFactor;
+              } else {
+                  unitsToAdd = 0; // Cannot determine units if no conversion factor
+              }
+          } else { // unit is 'n' or 'mt'
+              unitsToAdd = quantity; // Input is net units
+              // Calculate weight from units
+              if (material.unitOfMeasure === 'kg') {
+                netWeight = unitsToAdd;
+              } else if (material.conversionFactor && material.conversionFactor > 0) {
+                netWeight = unitsToAdd * material.conversionFactor;
+              } else {
+                netWeight = 0;
+              }
+              grossWeight = netWeight + tareWeight;
+          }
+
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
-            netQuantity: quantity,
+            netQuantity: unitsToAdd,
             tareWeight: tareWeight,
-            grossWeight: quantity + tareWeight,
-            packagingId: packagingId,
-            lotto: lotto || undefined,
+            grossWeight: grossWeight,
+            packagingId: packagingId || null,
+            lotto: lotto || null,
           };
 
-          const newStockUnits = (material.currentStockUnits || 0) + quantity;
-          let newWeightKg = material.currentWeightKg || 0;
-          if (material.unitOfMeasure === 'kg') {
-            newWeightKg += quantity;
-          } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newWeightKg += quantity * material.conversionFactor;
-          }
+          const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
+          const newWeightKg = (material.currentWeightKg || 0) + netWeight;
           
           transaction.update(materialRef, { 
               batches: [...existingBatches, newBatch],
