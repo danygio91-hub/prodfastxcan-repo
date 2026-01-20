@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
@@ -34,6 +35,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatDisplayStock } from '@/lib/utils';
 
 
 
@@ -161,10 +163,10 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
       'Lotto': r.lotto,
       'Quantità (N)': r.inputUnit === 'n' ? r.inputQuantity : 0,
       'Quantità (MT)': r.inputUnit === 'mt' ? r.inputQuantity : 0,
-      'Quantità (KG)': r.netWeight.toFixed(3),
-      'Peso Lordo (kg)': r.grossWeight.toFixed(3),
-      'Peso Tara (kg)': r.tareWeight.toFixed(3),
-      'Peso Netto (kg)': r.netWeight.toFixed(3),
+      'Quantità (KG)': formatDisplayStock(r.netWeight, 'kg'),
+      'Peso Lordo (kg)': formatDisplayStock(r.grossWeight, 'kg'),
+      'Peso Tara (kg)': formatDisplayStock(r.tareWeight, 'kg'),
+      'Peso Netto (kg)': formatDisplayStock(r.netWeight, 'kg'),
       'Operatore': r.operatorName,
       'Data Registrazione': format(parseISO(r.recordedAt as unknown as string), 'dd/MM/yyyy HH:mm'),
       'Stato': r.status,
@@ -455,18 +457,18 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                                     <TableCell>{record.lotto}</TableCell>
                                                     
                                                     <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'n' ? displayQuantity.toFixed(0) : '-'}
+                                                      {record.materialUnitOfMeasure === 'n' ? formatDisplayStock(displayQuantity, 'n') : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'mt' ? displayQuantity.toFixed(2) : '-'}
+                                                      {record.materialUnitOfMeasure === 'mt' ? formatDisplayStock(displayQuantity, 'mt') : '-'}
                                                     </TableCell>
                                                     <TableCell className="font-mono font-semibold">
-                                                      {record.materialUnitOfMeasure === 'kg' ? displayQuantity.toFixed(3) : '-'}
+                                                      {record.materialUnitOfMeasure === 'kg' ? formatDisplayStock(displayQuantity, 'kg') : '-'}
                                                     </TableCell>
 
-                                                    <TableCell className="font-mono">{record.grossWeight.toFixed(3)} kg</TableCell>
-                                                    <TableCell className="font-mono">{record.tareWeight.toFixed(3)} kg</TableCell>
-                                                    <TableCell className="font-mono font-semibold">{record.netWeight.toFixed(3)} kg</TableCell>
+                                                    <TableCell className="font-mono">{formatDisplayStock(record.grossWeight, 'kg')} kg</TableCell>
+                                                    <TableCell className="font-mono">{formatDisplayStock(record.tareWeight, 'kg')} kg</TableCell>
+                                                    <TableCell className="font-mono font-semibold">{formatDisplayStock(record.netWeight, 'kg')} kg</TableCell>
                                                     <TableCell>{record.operatorName}</TableCell>
                                                     <TableCell>
                                                         <Badge variant={record.status === 'pending' ? 'destructive' : record.status === 'approved' ? 'default' : 'secondary'}>

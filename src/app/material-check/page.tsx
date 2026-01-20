@@ -20,11 +20,12 @@ import { Badge as UiBadge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode } from '@/app/material-loading/actions';
+import { getRawMaterialByCode } from '@/app/scan-job/actions';
 import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
 import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, TestTube } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDisplayStock } from '@/lib/utils';
 
 
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -308,11 +309,11 @@ export default function MaterialCheckPage() {
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="p-3 rounded-lg border bg-background">
                                         <Label>Stock Attuale ({foundMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                        <p className="text-2xl font-bold">{foundMaterial.currentStockUnits ?? 0}</p>
+                                        <p className="text-2xl font-bold">{formatDisplayStock(foundMaterial.currentStockUnits, foundMaterial.unitOfMeasure)}</p>
                                     </div>
                                     <div className="p-3 rounded-lg border bg-background">
                                         <Label>Stock Attuale (KG)</Label>
-                                        <p className="text-2xl font-bold">{foundMaterial.currentWeightKg?.toFixed(2) ?? '0.00'}</p>
+                                        <p className="text-2xl font-bold">{formatDisplayStock(foundMaterial.currentWeightKg, 'kg')}</p>
                                     </div>
                                 </div>
                             </CardContent>
@@ -358,7 +359,7 @@ export default function MaterialCheckPage() {
                                         </TableCell>
                                         <TableCell>{mov.description}</TableCell>
                                         <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                          {mov.quantity.toFixed(2)} {mov.unit}
+                                          {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as 'n' | 'mt' | 'kg')} {mov.unit}
                                         </TableCell>
                                     </TableRow>
                                     ))

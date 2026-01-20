@@ -24,6 +24,7 @@ import { DialogContent } from '@radix-ui/react-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { deleteSingleWithdrawalAndRestoreStock, deleteBatchFromRawMaterial } from '../raw-material-management/actions';
+import { formatDisplayStock } from '@/lib/utils';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -184,14 +185,6 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     }
     setWithdrawalToDelete(null);
   };
-  
-   const formatHistoryQuantity = (quantity: number, unit: string) => {
-      const lowerUnit = unit.toLowerCase();
-      if (lowerUnit === 'n') return Math.round(quantity);
-      if (lowerUnit === 'mt') return quantity.toFixed(1);
-      return quantity.toFixed(3);
-  }
-
 
   return (
     <div className="space-y-6">
@@ -239,8 +232,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                       <p className="text-sm text-muted-foreground">{group.materialDescription}</p>
                     </div>
                      <div className="text-right ml-4">
-                         <p className="font-bold text-xl">{group.unitOfMeasure === 'n' ? Math.floor(group.currentStockUnits) : group.currentStockUnits.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{group.unitOfMeasure.toUpperCase()}</span></p>
-                         <p className="text-xs text-muted-foreground">({group.currentWeightKg.toFixed(2)} KG)</p>
+                         <p className="font-bold text-xl">{formatDisplayStock(group.currentStockUnits, group.unitOfMeasure)} <span className="text-sm font-normal text-muted-foreground">{group.unitOfMeasure.toUpperCase()}</span></p>
+                         <p className="text-xs text-muted-foreground">({formatDisplayStock(group.currentWeightKg, 'kg')} KG)</p>
                      </div>
                   </AccordionTrigger>
                   <AccordionContent className="p-0">
@@ -261,7 +254,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                               <TableCell className="font-semibold font-mono">{batch.lotto || 'N/D'}</TableCell>
                               <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                               <TableCell>{batch.ddt}</TableCell>
-                              <TableCell>{batch.netQuantity.toFixed(2)} {group.unitOfMeasure.toUpperCase()}</TableCell>
+                              <TableCell>{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</TableCell>
                               <TableCell className="text-right space-x-2">
                                 <Button variant="outline" size="sm" onClick={() => handleOpenHistoryDialog(group)}>
                                     <History className="mr-2 h-4 w-4" />
@@ -363,7 +356,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {formatHistoryQuantity(mov.quantity, mov.unit)} {mov.unit}
+                                  {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as 'n' | 'mt' | 'kg')} {mov.unit}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {mov.type === 'Carico' ? (

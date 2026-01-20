@@ -24,13 +24,14 @@ import { Badge } from '@/components/ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
+import { formatDisplayStock } from '@/lib/utils';
 
 const formSchema = z.object({
   material: z.custom<RawMaterial>().nullable(),
   lotto: z.string().optional(),
   ddt: z.string().optional(),
-  openingWeight: z.coerce.number().optional(),
   quantityToWithdraw: z.coerce.number().optional(),
+  packagingId: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -41,7 +42,7 @@ interface MaterialAssociationDialogProps {
   onOpenChange: (open: boolean) => void;
   phase: JobPhase;
   job: JobOrder | null;
-  onSessionStart: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
+  onSessionStart: (sessionData: Omit<ActiveMaterialSessionData, 'category'> & { lotto?: string }, type: RawMaterialType) => void;
   onWithdrawalComplete: () => void;
 }
 
@@ -59,6 +60,7 @@ export default function MaterialAssociationDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
+  const [openingStockInKg, setOpeningStockInKg] = useState<number | null>(null);
   
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -69,7 +71,6 @@ export default function MaterialAssociationDialog({
       material: null,
       lotto: "",
       ddt: "",
-      openingWeight: 0,
       quantityToWithdraw: undefined,
     },
   });
@@ -117,7 +118,7 @@ export default function MaterialAssociationDialog({
   };
 
 
-  const handleScan = async (scannedValue: string) => {
+  const handleScan = useCallback(async (scannedValue: string) => {
     if (scanType === 'material') {
       const materialResult = await getRawMaterialByCode(scannedValue);
       if ('error' in materialResult) {
@@ -130,44 +131,52 @@ export default function MaterialAssociationDialog({
       if (lottoData?.material) {
         handleMaterialSelect(lottoData.material);
         form.setValue('lotto', scannedValue);
-        
-        // Apply rounding based on the unit of measure before setting the value
-        let roundedOpeningWeight = lottoData.netWeight;
-        if(lottoData.material.unitOfMeasure === 'n') {
-            roundedOpeningWeight = Math.floor(lottoData.netWeight);
-        } else if (lottoData.material.unitOfMeasure === 'mt') {
-            roundedOpeningWeight = parseFloat(lottoData.netWeight.toFixed(1));
-        }
-        form.setValue('openingWeight', roundedOpeningWeight);
-        
+        setOpeningStockInKg(lottoData.netWeight);
         form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
+        form.setValue('packagingId', lottoData.packagingId);
       } else {
         toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente o scansionare prima il materiale.' });
       }
     }
     setScanType(null); // Close scanner view
-  };
+  }, [scanType, form, toast, selectedMaterial]);
 
-  const onAvviaSessione = (values: FormValues) => {
-    if (!selectedMaterial || !job || !operator) return;
-    
-    // Calculate the real opening weight in KG
-    let realOpeningWeightKg = 0;
-    const openingValue = values.openingWeight || 0;
+  const openingQuantityDisplay = useMemo(() => {
+    if (openingStockInKg === null || !selectedMaterial) return '0.00';
 
-    if (selectedMaterial.unitOfMeasure === 'kg') {
-      realOpeningWeightKg = openingValue;
-    } else if (selectedMaterial.conversionFactor && selectedMaterial.conversionFactor > 0) {
-      realOpeningWeightKg = openingValue * selectedMaterial.conversionFactor;
+    if (inputUnit === 'kg') {
+        return formatDisplayStock(openingStockInKg, 'kg');
     }
 
+    if (selectedMaterial.conversionFactor && selectedMaterial.conversionFactor > 0) {
+        const valueInPrimaryUnit = openingStockInKg / selectedMaterial.conversionFactor;
+        return formatDisplayStock(valueInPrimaryUnit, selectedMaterial.unitOfMeasure);
+    }
+    
+    if (selectedMaterial.unitOfMeasure === 'kg') {
+        return formatDisplayStock(openingStockInKg, 'kg');
+    }
+    
+    return 'N/A';
+  }, [openingStockInKg, selectedMaterial, inputUnit]);
+
+
+  const onAvviaSessione = () => {
+    if (!selectedMaterial || !job || !operator || openingStockInKg === null) return;
+    
+    const realOpeningWeightKg = openingStockInKg;
+    const selectedPackaging = packagingItems.find(p => p.id === form.getValues('packagingId'));
+    
     onSessionStart({
       materialId: selectedMaterial.id,
       materialCode: selectedMaterial.code,
-      grossOpeningWeight: realOpeningWeightKg, // Always use the calculated KG value
-      netOpeningWeight: realOpeningWeightKg, // For session start, net and gross are the same concept
+      grossOpeningWeight: realOpeningWeightKg + (selectedPackaging?.weightKg || 0),
+      netOpeningWeight: realOpeningWeightKg,
       originatorJobId: job.id,
       associatedJobs: [{ jobId: job.id, jobOrderPF: job.ordinePF }],
+      packagingId: form.getValues('packagingId'),
+      tareWeight: selectedPackaging?.weightKg || 0,
+      lotto: form.getValues('lotto'),
     }, selectedMaterial.type);
   };
   
@@ -228,19 +237,13 @@ export default function MaterialAssociationDialog({
   const renderForm = () => {
     let stockDisplay = '';
     if (selectedMaterial) {
-      const kgStock = (selectedMaterial.currentWeightKg ?? 0).toFixed(2);
+      const kgStock = formatDisplayStock(selectedMaterial.currentWeightKg, 'kg');
       let unitStockDisplay: string;
       const unitStock = selectedMaterial.currentStockUnits ?? 0;
       
-      if (selectedMaterial.unitOfMeasure === 'n') {
-        unitStockDisplay = `${Math.floor(unitStock)} N`;
-      } else if (selectedMaterial.unitOfMeasure === 'mt') {
-        unitStockDisplay = `${unitStock.toFixed(1)} MT`;
-      } else { // kg
-        unitStockDisplay = `${kgStock} KG`;
-      }
+      unitStockDisplay = formatDisplayStock(unitStock, selectedMaterial.unitOfMeasure);
 
-      stockDisplay = `${kgStock} KG` + (selectedMaterial.unitOfMeasure !== 'kg' ? ` / ${unitStockDisplay}` : '');
+      stockDisplay = `${kgStock} KG` + (selectedMaterial.unitOfMeasure !== 'kg' ? ` / ${unitStockDisplay} ${selectedMaterial.unitOfMeasure.toUpperCase()}` : '');
     }
 
     return (
@@ -281,12 +284,16 @@ export default function MaterialAssociationDialog({
               )}/>
 
               {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial?.unitOfMeasure === 'kg' ? (
-                  <FormField control={form.control} name="openingWeight" render={({field}) => (
-                      <FormItem>
-                          <FormLabel>Kg Netti di Apertura</FormLabel>
-                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
-                      </FormItem>
-                  )}/>
+                  <FormItem>
+                      <FormLabel>Kg Netti di Apertura</FormLabel>
+                      <FormControl>
+                          <Input 
+                              readOnly 
+                              className="bg-muted font-mono" 
+                              value={openingQuantityDisplay}
+                          />
+                      </FormControl>
+                  </FormItem>
               ) : (
                   <>
                       {selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg' && (
@@ -301,17 +308,22 @@ export default function MaterialAssociationDialog({
                         </div>
                       )}
                       
-                      <FormField control={form.control} name="openingWeight" render={({field}) => (
                       <FormItem>
                           <FormLabel>Quantità di Apertura ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                          <FormControl><Input type="number" {...field} value={field.value ?? ''} /></FormControl>
+                          <FormControl>
+                            <Input 
+                                readOnly 
+                                className="bg-muted font-mono" 
+                                value={openingQuantityDisplay}
+                            />
+                          </FormControl>
                       </FormItem>
-                      )}/>
                       
                       <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
                       <FormItem>
                           <FormLabel>Quantità da prelevare ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                          <FormControl><Input type="number" {...field} value={field.value ?? undefined} /></FormControl>
+                          <FormControl><Input type="number" step="any" {...field} value={field.value ?? undefined} /></FormControl>
+                          <FormMessage/>
                       </FormItem>
                       )}/>
                   </>
@@ -319,7 +331,7 @@ export default function MaterialAssociationDialog({
             </div>
           </ScrollArea>
           <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background">
-              <Button type="button" onClick={form.handleSubmit(onAvviaSessione)} disabled={!selectedMaterial || isProcessing} className="w-full">
+              <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full">
                 <Play className="mr-2 h-4 w-4" /> Avvia Sessione
               </Button>
                 {(selectedMaterial && (phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial.unitOfMeasure === 'kg' ? false : true)) && (

@@ -32,6 +32,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { formatDisplayStock } from '@/lib/utils';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -463,19 +464,6 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     );
   };
 
-  const formatStock = (value: number, unit: 'n' | 'mt' | 'kg') => {
-    if (unit === 'n') return Math.floor(value);
-    if (unit === 'mt') return value.toFixed(1);
-    return value.toFixed(2);
-  }
-
-  const formatHistoryQuantity = (quantity: number, unit: string) => {
-      const lowerUnit = unit.toLowerCase();
-      if (lowerUnit === 'n') return Math.round(quantity);
-      if (lowerUnit === 'mt') return quantity.toFixed(1);
-      return quantity.toFixed(2);
-  }
-
   return (
       <div className="space-y-6">
         <div className="flex justify-between items-start flex-wrap gap-4">
@@ -583,9 +571,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                             <TableCell className="font-medium">{material.code}</TableCell>
                             <TableCell>{material.type}</TableCell>
                             <TableCell>{material.description}</TableCell>
-                            <TableCell>{formatStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
+                            <TableCell>{formatDisplayStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
                             <TableCell>{material.unitOfMeasure}</TableCell>
-                            <TableCell>{(material.currentWeightKg ?? 0).toFixed(2)}</TableCell>
+                            <TableCell>{formatDisplayStock(material.currentWeightKg, 'kg')}</TableCell>
                             <TableCell className="text-right">
                                 <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -837,7 +825,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                  {formatHistoryQuantity(mov.quantity, mov.unit)} {mov.unit}
+                                  {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as 'n' | 'mt' | 'kg')} {mov.unit}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {mov.type === 'Carico' ? (
@@ -932,11 +920,11 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="grid grid-cols-2 gap-4 pt-4">
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock ({selectedMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                <p className="text-2xl font-bold">{formatStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)}</p>
+                                <p className="text-2xl font-bold">{formatDisplayStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background">
                                 <Label>Stock Calcolato (KG)</Label>
-                                <p className="text-2xl font-bold">{(selectedMaterial.currentWeightKg ?? 0).toFixed(2)}</p>
+                                <p className="text-2xl font-bold">{formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')}</p>
                             </div>
                             <div className="p-3 rounded-lg border bg-background col-span-2">
                                 <Label>Fattore Conversione</Label>
@@ -953,11 +941,3 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
       </div>
   );
 }
-
-
-
-
-
-
-
-

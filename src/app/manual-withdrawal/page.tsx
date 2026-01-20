@@ -22,6 +22,7 @@ import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, B
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from '@/components/ui/switch';
+import { formatDisplayStock } from '@/lib/utils';
 
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -207,7 +208,7 @@ export default function ManualWithdrawalPage() {
                         <p className="font-semibold text-lg">{scannedMaterial.code}</p>
                         <p className="text-sm text-muted-foreground">{scannedMaterial.description}</p>
                         <p className="text-xl font-bold text-primary mt-1">
-                            Stock: {scannedMaterial.currentStockUnits?.toFixed(2) || '0.00'} {scannedMaterial.unitOfMeasure.toUpperCase()} / {scannedMaterial.currentWeightKg?.toFixed(2) || '0.00'} KG
+                            Stock: {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()} / {formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG
                         </p>
                     </div>
                   ) : (
@@ -243,7 +244,7 @@ export default function ManualWithdrawalPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Lotto da Scaricare</FormLabel>
-                        <FormControl><Input placeholder="Scansiona o digita il lotto..." {...field} /></FormControl>
+                        <FormControl><Input placeholder="Scansiona o digita il lotto..." {...field} value={field.value ?? ''} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -276,7 +277,7 @@ export default function ManualWithdrawalPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Note (Opzionale)</FormLabel>
-                        <FormControl><Input placeholder="Es. Prelievo per campioni" {...field} /></FormControl>
+                        <FormControl><Input placeholder="Es. Prelievo per campioni" {...field} value={field.value ?? ''} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
