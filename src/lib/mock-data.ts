@@ -50,6 +50,15 @@ export interface JobPhase {
   isIndependent?: boolean; // New field
 }
 
+export interface JobBillOfMaterialsItem {
+  component: string;
+  unit: 'n' | 'mt' | 'kg';
+  quantity: number;
+  size?: string;
+  status: 'pending' | 'committed' | 'withdrawn';
+  isFromTemplate: boolean;
+}
+
 export interface JobOrder {
   id:string;
   cliente: string;
@@ -69,6 +78,7 @@ export interface JobOrder {
   problemReportedBy?: string;
   status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused';
   workCycleId?: string;
+  billOfMaterials?: JobBillOfMaterialsItem[];
   // New fields for internal ODL number
   numeroODLInterno?: string | null;
   odlCounter?: number;
@@ -171,7 +181,7 @@ export interface RawMaterial {
 
 export interface BillOfMaterialsItem {
   component: string;
-  unit: string;
+  unit: 'n' | 'mt' | 'kg';
   quantity: number;
   size?: string;
 }

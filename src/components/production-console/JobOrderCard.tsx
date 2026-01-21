@@ -1,4 +1,5 @@
 
+
 import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,6 +48,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
+import BOMDialog from './BOMDialog';
 
 
 interface ActivePhaseInfo {
@@ -158,6 +160,7 @@ export default function JobOrderCard({
     onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
+  const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   const hasMaterialMissing = jobOrder.phases.some(p => p.materialStatus === 'missing');
   const [remainingTime, setRemainingTime] = useState<string | null>(null);
@@ -322,6 +325,14 @@ export default function JobOrderCard({
                     <div className="flex items-center gap-1">
                         {!isPartOfGroup && (
                             <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={(e) => { e.stopPropagation(); setIsBOMDialogOpen(true); }}>
+                                            <ClipboardList className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p>Vedi Distinta Base</p></TooltipContent>
+                                </Tooltip>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
@@ -615,6 +626,14 @@ export default function JobOrderCard({
           </CollapsibleContent>
         </Card>
       </Collapsible>
+
+      {isBOMDialogOpen && (
+        <BOMDialog
+            isOpen={isBOMDialogOpen}
+            onOpenChange={setIsBOMDialogOpen}
+            job={jobOrder}
+        />
+      )}
 
       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
           <DialogContent>

@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc, Timestamp, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkCycle, MaterialWithdrawal, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkCycle, MaterialWithdrawal, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // Helper function to sanitize Firestore document IDs
@@ -115,12 +115,16 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const jobsToUpdate: JobOrder[] = [];
     let skippedCount = 0;
 
-    // Fetch all work cycles once to create a lookup map
+    // Fetch all work cycles and articles once to create a lookup map
     const workCyclesSnap = await getDocs(collection(db, "workCycles"));
     const workCyclesMap = new Map(workCyclesSnap.docs.map(doc => {
         const cycleData = doc.data() as Omit<WorkCycle, 'id'>;
         return [cycleData.name, { ...cycleData, id: doc.id }];
     }));
+    
+    const articlesSnap = await getDocs(collection(db, "articles"));
+    const articlesMap = new Map(articlesSnap.docs.map(d => [d.id, d.data() as Article]));
+
 
     const importSchema = z.object({
       cliente: z.coerce.string().optional(),
@@ -159,6 +163,24 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const workCycleId = workCycle?.id;
         const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
 
+        // --- BOM Population Logic ---
+        const articleCode = validData.details || '';
+        const articleData = articlesMap.get(articleCode);
+        let jobBOM: JobBillOfMaterialsItem[] = [];
+
+        if (articleData && articleData.billOfMaterials) {
+            jobBOM = articleData.billOfMaterials
+                .filter(item => item.component && item.quantity > 0)
+                .map(item => ({
+                    ...item,
+                    // The BOM quantity is per unit, so multiply by job quantity
+                    quantity: item.quantity * (validData.qta || 1), 
+                    status: 'pending',
+                    isFromTemplate: true,
+                }));
+        }
+        // --- End BOM Logic ---
+
         let odlToAssign: string | null = null;
         if (validData.numeroODLInternoImport) {
             const odlString = String(validData.numeroODLInternoImport);
@@ -194,6 +216,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                     dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
                     workCycleId: workCycleId ?? existingJob.workCycleId,
                     phases: phases.length > 0 ? phases : existingJob.phases,
+                    billOfMaterials: jobBOM.length > 0 ? jobBOM : existingJob.billOfMaterials || [],
                     status: 'planned', // Always ensure status is planned on update from import
                 };
                 jobsToUpdate.push(updatedJob);
@@ -217,6 +240,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 numeroODLInterno: odlToAssign,
                 details: validData.details || "N/D",
                 qta: validData.qta,
+                billOfMaterials: jobBOM,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
                 department: department,
                 workCycleId: workCycleId || '',
