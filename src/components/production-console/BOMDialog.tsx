@@ -71,11 +71,14 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
             <TableHeader>
               <TableRow>
                 <TableHead>Componente</TableHead>
-                <TableHead className="w-[120px]">Q.tà Necessaria</TableHead>
-                <TableHead className="w-[80px]">UM</TableHead>
-                <TableHead className="w-[150px]">Peso Stimato (KG)</TableHead>
-                <TableHead className="w-[100px]">Impegnato</TableHead>
-                <TableHead className="w-[100px]">Prelevato</TableHead>
+                <TableHead>Q.tà x Pz</TableHead>
+                <TableHead>Lungh. Taglio</TableHead>
+                <TableHead>Note</TableHead>
+                <TableHead>Fabbisogno Tot.</TableHead>
+                <TableHead>UM</TableHead>
+                <TableHead>Peso Stimato (KG)</TableHead>
+                <TableHead>Impegnato</TableHead>
+                <TableHead>Prelevato</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -83,21 +86,38 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                 combinedBOM.map((item, index) => {
                   const material = materialsMap.get(item.component);
                   let estimatedWeight = 0;
+                  let totalRequirement = item.quantity * job.qta;
+
                   if (material) {
-                      if (material.unitOfMeasure === 'kg') {
-                          estimatedWeight = item.quantity;
+                      if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                          const totalLengthMt = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                          totalRequirement = totalLengthMt;
+
+                          if (material.rapportoKgMt && material.rapportoKgMt > 0) {
+                              estimatedWeight = totalLengthMt * material.rapportoKgMt;
+                          } else if (material.conversionFactor && material.conversionFactor > 0) {
+                              // Fallback for older data structure
+                              estimatedWeight = totalLengthMt * material.conversionFactor;
+                          }
+
+                      } else if (material.unitOfMeasure === 'kg') {
+                          estimatedWeight = totalRequirement;
                       } else if (material.conversionFactor && material.conversionFactor > 0) {
-                          estimatedWeight = item.quantity * material.conversionFactor;
+                          estimatedWeight = totalRequirement * material.conversionFactor;
                       }
                   }
+
 
                   return (
                     <TableRow key={index}>
                         <TableCell className="font-medium">
-                            {item.component} {item.size ? `(${item.size})` : ''}
+                            {item.component}
                             {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
                         </TableCell>
-                        <TableCell>{item.quantity % 1 !== 0 ? item.quantity.toFixed(2) : item.quantity}</TableCell>
+                        <TableCell>{item.quantity}</TableCell>
+                        <TableCell>{item.lunghezzaTaglioMm ? `${item.lunghezzaTaglioMm} mm` : 'N/A'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{item.note || 'N/D'}</TableCell>
+                        <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, item.unit)}</TableCell>
                         <TableCell>{item.unit}</TableCell>
                         <TableCell>{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
                         <TableCell><Checkbox disabled /></TableCell>
@@ -107,7 +127,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center h-24">
+                  <TableCell colSpan={9} className="text-center h-24">
                     Nessuna distinta base definita per questo articolo.
                   </TableCell>
                 </TableRow>

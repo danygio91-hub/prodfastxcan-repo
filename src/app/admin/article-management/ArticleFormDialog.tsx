@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState } from 'react';
@@ -32,8 +31,10 @@ const bomItemSchema = z.object({
   component: z.string().min(1, "Selezionare un componente valido."),
   unit: z.string().min(1, "L'unità di misura è obbligatoria."),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  size: z.string().optional(),
+  lunghezzaTaglioMm: z.coerce.number().optional(),
+  note: z.string().optional(),
 });
+
 
 const articleSchema = z.object({
   id: z.string().optional(),
@@ -77,7 +78,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
             billOfMaterials: article.billOfMaterials || [],
         });
         } else {
-        const defaultBOM = Array(10).fill({ component: '', unit: 'n', quantity: 1, size: '' });
+        const defaultBOM = Array(10).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
         form.reset({
             id: undefined,
             code: '',
@@ -143,7 +144,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-4">
                 <h4 className="font-semibold">Componenti Distinta Base</h4>
-                {fields.map((field, index) => (
+                {fields.map((field, index) => {
+                  const selectedComponentCode = form.watch(`billOfMaterials.${index}.component`);
+                  const componentMaterial = rawMaterials.find(m => m.code === selectedComponentCode);
+
+                  return (
                   <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md relative">
                     <div className="col-span-12 sm:col-span-4">
                        <FormField
@@ -210,65 +215,63 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                       />
                     </div>
                     <div className="col-span-6 sm:col-span-2">
-                      <FormField
-                        control={form.control}
-                        name={`billOfMaterials.${index}.unit`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>UM</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
-                              <FormControl>
-                                <SelectTrigger><SelectValue placeholder="Unità" /></SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="n">n</SelectItem>
-                                <SelectItem value="mt">mt</SelectItem>
-                                <SelectItem value="kg">kg</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div className="col-span-6 sm:col-span-2">
-                      <FormField
+                       <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.quantity`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Quantità</FormLabel>
+                            <FormLabel>Q.tà per Pz</FormLabel>
                             <FormControl><Input type="number" step="any" placeholder="0.0" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                     </div>
+
+                    {componentMaterial?.unitOfMeasure !== 'n' ? (
+                       <div className="col-span-6 sm:col-span-3">
+                        <FormField
+                            control={form.control}
+                            name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
+                            render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Lunghezza Taglio (mm)</FormLabel>
+                                <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} /></FormControl>
+                                <FormMessage />
+                            </FormItem>
+                            )}
+                        />
+                       </div>
+                    ) : (
+                         <div className="col-span-6 sm:col-span-3" /> // Placeholder
+                    )}
+                    
                     <div className="col-span-12 sm:col-span-3">
                       <FormField
                         control={form.control}
-                        name={`billOfMaterials.${index}.size`}
+                        name={`billOfMaterials.${index}.note`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Numero/Misura</FormLabel>
-                            <FormControl><Input placeholder="Es. 3,5x16mm" {...field} /></FormControl>
+                            <FormLabel>Note</FormLabel>
+                            <FormControl><Input placeholder="Es. 3,5x16mm, taglio a 45°..." {...field} value={field.value ?? ''} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                     </div>
+
                     <div className="absolute top-2 right-2">
                       <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
                   </div>
-                ))}
+                )})}
                 <Button
                   type="button"
                   variant="outline"
                   className="w-full mt-4"
-                  onClick={() => append({ component: '', unit: 'n', quantity: 1, size: '' })}
+                  onClick={() => append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' })}
                 >
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Aggiungi Componente

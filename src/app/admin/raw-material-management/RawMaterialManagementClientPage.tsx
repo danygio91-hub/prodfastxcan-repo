@@ -54,7 +54,9 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
+  rapportoKgMt: z.coerce.number().optional().nullable(),
 });
+
 
 type RawMaterialFormValues = z.infer<typeof rawMaterialFormSchema>;
 
@@ -104,7 +106,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const form = useForm<RawMaterialFormValues>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null },
+    defaultValues: { id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null },
   });
 
   const batchForm = useForm<BatchFormValues>({
@@ -165,9 +167,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         tipologia: material.details?.tipologia,
         unitOfMeasure: material.unitOfMeasure || 'n',
         conversionFactor: material.conversionFactor || null,
+        rapportoKgMt: material.rapportoKgMt || null,
       });
     } else {
-      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null });
+      form.reset({ id: undefined, code: "", type: 'BOB', description: "", sezione: "", filo_el: "", larghezza: "", tipologia: "", unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null });
     }
     setIsEditDialogOpen(true);
   };
@@ -439,6 +442,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
         'Stock': m.currentStockUnits,
         'Unita Misura': m.unitOfMeasure,
         'Fattore Conversione': m.conversionFactor,
+        'Fattore Rapporto KG/mt': m.rapportoKgMt,
         'Sezione': m.details.sezione,
         'Filo El.': m.details.filo_el,
         'Larghezza': m.details.larghezza,
@@ -678,7 +682,9 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                           <FormMessage />
                         </FormItem>
                       )} />
-                    {watchedUnitOfMeasure !== 'kg' && (
+                    {watchedUnitOfMeasure === 'kg' ? (
+                       <FormField control={form.control} name="rapportoKgMt" render={({ field }) => ( <FormItem> <FormLabel>Rapporto KG/mt</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.012" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
+                    ) : (
                         <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore di Conversione (kg)</FormLabel> <FormControl><Input type="number" step="any" placeholder="Es. 0.025" {...field} value={field.value ?? ''} /></FormControl> <FormMessage /> </FormItem> )} />
                     )}
                 </div>
@@ -926,9 +932,13 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                                 <Label>Stock Calcolato (KG)</Label>
                                 <p className="text-2xl font-bold">{formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')}</p>
                             </div>
-                            <div className="p-3 rounded-lg border bg-background col-span-2">
-                                <Label>Fattore Conversione</Label>
+                            <div className="p-3 rounded-lg border bg-background">
+                                <Label>Fattore Conversione (kg)</Label>
                                 <p className="text-2xl font-bold">{selectedMaterial.conversionFactor ?? 'N/A'}</p>
+                            </div>
+                              <div className="p-3 rounded-lg border bg-background">
+                                <Label>Rapporto KG/mt</Label>
+                                <p className="text-2xl font-bold">{selectedMaterial.rapportoKgMt ?? 'N/A'}</p>
                             </div>
                         </div>
                     </div>

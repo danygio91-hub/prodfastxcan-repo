@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -11,7 +12,8 @@ const bomItemSchema = z.object({
   component: z.string().min(1, "Selezionare un componente valido."),
   unit: z.string().min(1, "L'unità di misura è obbligatoria."),
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  size: z.string().optional(),
+  lunghezzaTaglioMm: z.coerce.number().optional(),
+  note: z.string().optional(),
 });
 
 const articleSchema = z.object({

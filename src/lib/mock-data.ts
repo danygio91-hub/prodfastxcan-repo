@@ -54,7 +54,8 @@ export interface JobBillOfMaterialsItem {
   component: string;
   unit: 'n' | 'mt' | 'kg';
   quantity: number;
-  size?: string;
+  lunghezzaTaglioMm?: number;
+  note?: string;
   status: 'pending' | 'committed' | 'withdrawn';
   isFromTemplate: boolean;
 }
@@ -173,6 +174,7 @@ export interface RawMaterial {
   };
   unitOfMeasure: 'n' | 'mt' | 'kg';
   conversionFactor?: number | null; // e.g. kg per unit (n or mt)
+  rapportoKgMt?: number | null; // e.g. kg per meter, used for cutting calculations
   currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
   currentWeightKg: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
@@ -183,7 +185,8 @@ export interface BillOfMaterialsItem {
   component: string;
   unit: 'n' | 'mt' | 'kg';
   quantity: number;
-  size?: string;
+  lunghezzaTaglioMm?: number;
+  note?: string;
 }
 
 export interface Article {

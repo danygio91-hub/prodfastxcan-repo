@@ -74,6 +74,7 @@ const rawMaterialFormSchema = z.object({
   tipologia: z.string().optional(),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
+  rapportoKgMt: z.coerce.number().optional().nullable(),
 });
 
 const batchFormSchema = z.object({
@@ -136,6 +137,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     },
     unitOfMeasure: data.unitOfMeasure,
     conversionFactor: data.conversionFactor || null,
+    rapportoKgMt: data.rapportoKgMt || null,
   };
 
   if (data.id) {
