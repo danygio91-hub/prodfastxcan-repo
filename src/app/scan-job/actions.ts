@@ -577,7 +577,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits,
+            consumedUnits: unitsConsumed,
             operatorId,
             operatorName, // Add operator name to the log
             withdrawalDate: Timestamp.now(),
@@ -1115,4 +1115,3 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
-
