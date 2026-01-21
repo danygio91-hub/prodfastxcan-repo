@@ -13,7 +13,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Send, Loader2, Wrench, Boxes, ShieldCheck, MessageSquare } from "lucide-react";
-import { RadioGroup, RadioGroupItem } from "../ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 const problemReportSchema = z.object({
   problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"], {
@@ -167,3 +167,5 @@ export default function ProblemReportForm({ onSuccess, onCancel, showTitle = tru
     </Card>
   );
 }
+
+    
