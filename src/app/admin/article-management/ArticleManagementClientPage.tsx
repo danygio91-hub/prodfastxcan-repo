@@ -25,6 +25,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Article, RawMaterial } from '@/lib/mock-data';
 import ArticleFormDialog from './ArticleFormDialog';
