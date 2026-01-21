@@ -479,7 +479,7 @@ export async function closeMaterialSessionAndUpdateStock(
                           mc.grossOpeningWeight === sessionData.grossOpeningWeight &&
                           mc.closingWeight === undefined // Only close sessions that are open
                         ) {
-                          return { ...mc, closingWeight };
+                          return { ...mc, closingWeight, withdrawalId: withdrawalRef.id };
                         }
                         return mc;
                       });
@@ -545,7 +545,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         if (unit === 'kg') {
           consumedWeight = quantity;
           // If a conversion factor exists, we can estimate the units consumed.
-          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? quantity / material.conversionFactor : 0;
+          if (material.conversionFactor && material.conversionFactor > 0) {
+            unitsConsumed = quantity / material.conversionFactor;
+          }
         } else { // 'n' or 'mt'
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;

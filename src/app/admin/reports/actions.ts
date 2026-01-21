@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
@@ -414,6 +415,7 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
 
     await runTransaction(db, async (transaction) => {
         const materialUpdates = new Map<string, { consumedWeight: number; consumedUnits: number }>();
+        const jobUpdates = new Map<string, string[]>();
         
         for (const withdrawal of withdrawals) {
             const update = materialUpdates.get(withdrawal.materialId) || { consumedWeight: 0, consumedUnits: 0 };
@@ -422,39 +424,58 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
                 update.consumedUnits += (withdrawal as any).consumedUnits;
             }
             materialUpdates.set(withdrawal.materialId, update);
+            
+            (withdrawal.jobIds || []).forEach(jobId => {
+                if (!jobUpdates.has(jobId)) {
+                    jobUpdates.set(jobId, []);
+                }
+                jobUpdates.get(jobId)!.push(withdrawal.id);
+            });
         }
 
         const materialIds = Array.from(materialUpdates.keys());
-        if (materialIds.length === 0) {
-            // This case handles if withdrawals exist but have no material to update for some reason.
-            // Still need to delete the withdrawals themselves.
-            for (const withdrawalDoc of withdrawalsSnapshot.docs) {
-                transaction.delete(withdrawalDoc.ref);
-            }
-            return;
-        }
+        if (materialIds.length > 0) {
+            const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
+            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+            
+            for (let i = 0; i < materialDocs.length; i++) {
+                const materialDoc = materialDocs[i];
+                if (materialDoc.exists()) {
+                    const materialData = materialDoc.data() as RawMaterial;
+                    const updates = materialUpdates.get(materialDoc.id)!;
+                    
+                    let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+                    let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
 
-        const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
-        const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-        
-        for (let i = 0; i < materialDocs.length; i++) {
-            const materialDoc = materialDocs[i];
-            if (materialDoc.exists()) {
-                const materialData = materialDoc.data() as RawMaterial;
-                const updates = materialUpdates.get(materialDoc.id)!;
-                
-                let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
-                let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+                    if (materialData.unitOfMeasure === 'kg') {
+                        newUnits = newWeight;
+                    }
 
-                if (materialData.unitOfMeasure === 'kg') {
-                    newUnits = newWeight;
+                    transaction.update(materialDoc.ref, { 
+                        currentWeightKg: newWeight,
+                        currentStockUnits: newUnits,
+                    });
                 }
-
-                transaction.update(materialDoc.ref, { 
-                    currentWeightKg: newWeight,
-                    currentStockUnits: newUnits,
-                });
             }
+        }
+        
+        if (jobUpdates.size > 0) {
+          for (const [jobId, withdrawalIdsToRemove] of jobUpdates.entries()) {
+              const jobRef = doc(db, 'jobOrders', jobId);
+              const jobSnap = await transaction.get(jobRef);
+              if (jobSnap.exists()) {
+                  const jobData = jobSnap.data() as JobOrder;
+                  const updatedPhases = jobData.phases.map(phase => {
+                      const consumptions = phase.materialConsumptions || [];
+                      const updatedConsumptions = consumptions.filter(c => !withdrawalIdsToRemove.includes(c.withdrawalId!));
+                      if (updatedConsumptions.length < consumptions.length) {
+                           return { ...phase, materialConsumptions: updatedConsumptions };
+                      }
+                      return phase;
+                  });
+                  transaction.update(jobRef, { phases: updatedPhases });
+              }
+          }
         }
         
         for (const withdrawalDoc of withdrawalsSnapshot.docs) {
@@ -464,6 +485,7 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
 
     revalidatePath('/admin/reports');
     revalidatePath('/admin/raw-material-management');
+    revalidatePath('/scan-job');
     return { success: true, message: `${withdrawals.length} prelievi eliminati e stock ripristinato.` };
   
   } catch(error) {
