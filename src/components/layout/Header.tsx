@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -6,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -31,6 +30,7 @@ const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
+  { href: '/admin/material-import', label: 'Carico Merce', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
