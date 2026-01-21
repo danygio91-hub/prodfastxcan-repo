@@ -133,7 +133,7 @@ const PhaseCard = ({ phase, job, handlers }: {
     const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
     const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
 
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
@@ -1531,5 +1531,3 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
-
-    
