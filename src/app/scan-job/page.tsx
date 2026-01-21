@@ -32,7 +32,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -133,7 +133,7 @@ const PhaseCard = ({ phase, job, handlers }: {
     const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
     const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
 
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
+    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || []).[(phase.workPeriods || []).length - 1] : null;
 
     const openProblemDialog = () => {
         handlers.setPhaseForQualityProblem(phase);
@@ -1531,3 +1531,5 @@ export default function ScanJobPage() {
     </AuthGuard>
   );
 }
+
+    
