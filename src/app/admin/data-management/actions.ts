@@ -173,8 +173,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 .filter(item => item.component && item.quantity > 0)
                 .map(item => ({
                     ...item,
-                    // The BOM quantity is per unit, so multiply by job quantity
-                    quantity: item.quantity * (validData.qta || 1), 
+                    // Store the per-piece quantity from the article template.
+                    quantity: item.quantity,
                     status: 'pending',
                     isFromTemplate: true,
                 }));

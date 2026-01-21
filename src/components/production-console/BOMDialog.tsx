@@ -44,7 +44,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     if (data.quantity > 0) {
       additionalItems.push({
         component: code,
-        quantity: data.quantity,
+        quantity: data.quantity, // This is already the total quantity
         unit: material ? material.unitOfMeasure : 'n/d',
         status: 'withdrawn',
         isFromTemplate: false,
@@ -85,26 +85,44 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
               {combinedBOM.length > 0 ? (
                 combinedBOM.map((item, index) => {
                   const material = materialsMap.get(item.component);
+                  let totalRequirement = 0;
                   let estimatedWeight = 0;
-                  let totalRequirement = item.quantity * job.qta;
+                  let displayUnit = item.unit;
 
-                  if (material) {
-                      if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                          const totalLengthMt = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
-                          totalRequirement = totalLengthMt;
+                  if (item.isFromTemplate) {
+                     // Case 1: Item is defined by a cut length. Fabbisogno is in meters.
+                    if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                        totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                        displayUnit = 'mt';
 
-                          if (material.rapportoKgMt && material.rapportoKgMt > 0) {
-                              estimatedWeight = totalLengthMt * material.rapportoKgMt;
-                          } else if (material.conversionFactor && material.conversionFactor > 0) {
-                              // Fallback for older data structure
-                              estimatedWeight = totalLengthMt * material.conversionFactor;
-                          }
+                        if (material && material.rapportoKgMt && material.rapportoKgMt > 0) {
+                            estimatedWeight = totalRequirement * material.rapportoKgMt;
+                        }
 
-                      } else if (material.unitOfMeasure === 'kg') {
-                          estimatedWeight = totalRequirement;
-                      } else if (material.conversionFactor && material.conversionFactor > 0) {
-                          estimatedWeight = totalRequirement * material.conversionFactor;
-                      }
+                    } else {
+                        // Case 2: Item is defined by count or weight per piece.
+                        totalRequirement = item.quantity * job.qta;
+                        displayUnit = item.unit;
+                        
+                        if (material) {
+                            if (material.unitOfMeasure === 'kg') {
+                                estimatedWeight = totalRequirement;
+                            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                                estimatedWeight = totalRequirement * material.conversionFactor;
+                            }
+                        }
+                    }
+                  } else {
+                     // For additionally consumed items, quantity is already the total
+                     totalRequirement = item.quantity;
+                     displayUnit = item.unit;
+                     if(material) {
+                        if (material.unitOfMeasure === 'kg') {
+                            estimatedWeight = totalRequirement;
+                        } else if (material.conversionFactor && material.conversionFactor > 0) {
+                            estimatedWeight = totalRequirement * material.conversionFactor;
+                        }
+                     }
                   }
 
 
@@ -114,11 +132,11 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                             {item.component}
                             {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
                         </TableCell>
-                        <TableCell>{item.quantity}</TableCell>
+                        <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>
                         <TableCell>{item.lunghezzaTaglioMm ? `${item.lunghezzaTaglioMm} mm` : 'N/A'}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.note || 'N/D'}</TableCell>
-                        <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, item.unit)}</TableCell>
-                        <TableCell>{item.unit}</TableCell>
+                        <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
+                        <TableCell>{displayUnit}</TableCell>
                         <TableCell>{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
                         <TableCell><Checkbox disabled /></TableCell>
                         <TableCell><Checkbox disabled /></TableCell>
