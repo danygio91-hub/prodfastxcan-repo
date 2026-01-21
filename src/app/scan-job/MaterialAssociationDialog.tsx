@@ -301,7 +301,7 @@ export default function MaterialAssociationDialog({
                   </FormItem>
               ) : (
                   <>
-                      {selectedMaterial && selectedMaterial.unitOfMeasure !== 'kg' && (
+                      {selectedMaterial && (
                         <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
                             <Label htmlFor="unit-switch-assoc">{selectedMaterial.unitOfMeasure.toUpperCase()}</Label>
                             <Switch
