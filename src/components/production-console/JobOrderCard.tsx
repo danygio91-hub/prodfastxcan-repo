@@ -1,6 +1,6 @@
 
 
-import type { JobOrder, JobPhase, Operator } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -115,6 +115,7 @@ function PhaseLiveTimer({ phase }: { phase: JobPhase }) {
 export default function JobOrderCard({ 
     jobOrder,
     allOperators,
+    allRawMaterials,
     analysisData,
     onFetchAnalysis,
     isAnalysisLoading,
@@ -138,6 +139,7 @@ export default function JobOrderCard({
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
+    allRawMaterials: RawMaterial[];
     analysisData?: ProductionTimeData | null;
     onFetchAnalysis: () => void;
     isAnalysisLoading: boolean;
@@ -632,6 +634,7 @@ export default function JobOrderCard({
             isOpen={isBOMDialogOpen}
             onOpenChange={setIsBOMDialogOpen}
             job={jobOrder}
+            allRawMaterials={allRawMaterials}
         />
       )}
 

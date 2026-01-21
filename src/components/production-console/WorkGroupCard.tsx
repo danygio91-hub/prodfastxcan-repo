@@ -1,4 +1,6 @@
-import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
+
+
+import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -61,6 +63,7 @@ export default function WorkGroupCard({
     group,
     jobsInGroup,
     allOperators,
+    allRawMaterials,
     onProblemClick,
     onForceFinishClick,
     onForcePauseClick,
@@ -77,6 +80,7 @@ export default function WorkGroupCard({
     group: WorkGroup;
     jobsInGroup: JobOrder[];
     allOperators: Operator[];
+    allRawMaterials: RawMaterial[];
     onProblemClick: () => void;
     onForceFinishClick: (groupId: string) => void;
     onForcePauseClick: (groupId: string, operatorIds: string[]) => void;
@@ -430,6 +434,7 @@ export default function WorkGroupCard({
                               jobOrder={job}
                               groupPhases={group.phases}
                               allOperators={allOperators}
+                              allRawMaterials={allRawMaterials}
                               onProblemClick={() => {}}
                               onFetchAnalysis={() => {}}
                               isAnalysisLoading={false}

@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -7,7 +8,7 @@ import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, AlertTriangle, BarChart3, Copy } from 'lucide-react';
-import type { JobOrder, JobPhase, Operator, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
@@ -77,6 +78,7 @@ function ProductionConsoleView() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
+  const [allRawMaterials, setAllRawMaterials] = useState<RawMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
@@ -137,6 +139,7 @@ function ProductionConsoleView() {
     const jobsRef = collection(db, "jobOrders");
     const groupsRef = collection(db, "workGroups");
     const opsRef = collection(db, "operators");
+    const materialsRef = collection(db, "rawMaterials");
 
     const unsubscribeJobs = onSnapshot(query(jobsRef, where("status", "in", ["production", "suspended", "completed", "paused"])), (querySnapshot) => {
         const jobs: JobOrder[] = querySnapshot.docs.map(doc => {
@@ -184,11 +187,18 @@ function ProductionConsoleView() {
     }, (error) => {
         console.error("Error fetching operators:", error);
     });
+    
+     const unsubscribeMaterials = onSnapshot(materialsRef, (querySnapshot) => {
+        setAllRawMaterials(querySnapshot.docs.map(doc => ({id: doc.id, ...doc.data()}) as RawMaterial));
+    }, (error) => {
+        console.error("Error fetching realtime raw materials:", error);
+    });
 
     return () => {
       unsubscribeJobs();
       unsubscribeGroups();
       unsubscribeOps();
+      unsubscribeMaterials();
     };
   }, [toast]);
   
@@ -312,7 +322,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
     );
   };
   
@@ -512,7 +522,7 @@ function ProductionConsoleView() {
   const handleNavigateToAnalysis = (articleCode: string) => {
     router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
   };
-
+  
   const filterOptions: { label: string; value: FilterStatus; icon: React.ElementType }[] = [
     { label: 'Tutte', value: 'all', icon: Briefcase },
     { label: 'Da Iniziare', value: 'Da Iniziare', icon: Circle },
@@ -727,6 +737,7 @@ function ProductionConsoleView() {
                   group={group}
                   jobsInGroup={jobsByGroupId.get(group.id) || []}
                   allOperators={allOperators}
+                  allRawMaterials={allRawMaterials}
                   onProblemClick={() => setProblemJob(group)}
                   onForceFinishClick={handleForceFinish}
                   onForcePauseClick={handleForcePause}
@@ -746,6 +757,7 @@ function ProductionConsoleView() {
                   key={job.id} 
                   jobOrder={job}
                   allOperators={allOperators}
+                  allRawMaterials={allRawMaterials}
                   analysisData={analysisDataMap.get(job.id)}
                   onFetchAnalysis={() => handleFetchAnalysis(job)}
                   isAnalysisLoading={jobsWithLoadingAnalysis.has(job.id)}
@@ -923,7 +935,7 @@ function ProductionConsoleView() {
                         {problemJob?.problemNotes && (
                             <div>
                                 <p className="font-bold text-foreground">Note Operatore:</p>
-                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes}</p>
+                                <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob?.problemNotes || 'Nessuna nota fornita.'}</p>
                             </div>
                         )}
                     </div>
