@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -9,8 +8,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType, Packaging } from '@/lib/mock-data';
 import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal, getRawMaterialByCode } from './actions';
+import { getPackagingItems } from '../inventory/actions';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
@@ -61,7 +61,8 @@ export default function MaterialAssociationDialog({
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
   const [openingStockInKg, setOpeningStockInKg] = useState<number | null>(null);
-  
+  const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
+
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
 
@@ -76,6 +77,10 @@ export default function MaterialAssociationDialog({
   });
 
   const selectedMaterial = form.watch('material');
+
+  useEffect(() => {
+    getPackagingItems().then(setPackagingItems);
+  }, []);
 
   useEffect(() => {
     if (selectedMaterial) {
