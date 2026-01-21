@@ -33,6 +33,7 @@
     "@radix-ui/react-tooltip": "^1.0.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
     "firebase": "^10.8.1",
     "genkit": "^1.15.5",

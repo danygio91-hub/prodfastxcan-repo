@@ -25,18 +25,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Article } from '@/lib/mock-data';
+import type { Article, RawMaterial } from '@/lib/mock-data';
 import ArticleFormDialog from './ArticleFormDialog';
 import { deleteArticle, saveArticle } from './actions';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 interface ArticleManagementClientPageProps {
   initialArticles: Article[];
+  rawMaterials: RawMaterial[];
 }
 
-export default function ArticleManagementClientPage({ initialArticles }: ArticleManagementClientPageProps) {
+export default function ArticleManagementClientPage({ initialArticles, rawMaterials }: ArticleManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const articleCodeFromUrl = searchParams.get('code');
@@ -138,6 +138,8 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
       const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
       const articlesToImport: { [code: string]: Omit<Article, 'id'> } = {};
+      const errors: string[] = [];
+      const validMaterialCodes = new Set(rawMaterials.map(m => m.code));
 
       for (const row of json) {
         const articleCode = row['Codice Articolo'] || row['codice articolo'];
@@ -146,6 +148,11 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
         
         if (!articleCode || !component || !quantity) {
           continue; 
+        }
+
+        if (!validMaterialCodes.has(String(component))) {
+          errors.push(`Articolo "${articleCode}": Componente non valido "${component}".`);
+          continue;
         }
 
         if (!articlesToImport[articleCode]) {
@@ -161,6 +168,18 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
           quantity: Number(quantity),
           size: String(row['Numero/Misura'] || row['numero/misura'] || ''),
         });
+      }
+
+      if (errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Errore di Validazione Importazione",
+          description: `Impossibile importare. ${errors.length} componenti non esistono nell'anagrafica materie prime. Esempio: ${errors[0]}`,
+          duration: 9000,
+        });
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
       }
       
       const articlePromises = Object.values(articlesToImport).map(articleData => saveArticle(articleData));
@@ -317,6 +336,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
         isOpen={isFormOpen}
         onClose={handleFormClose}
         article={editingArticle}
+        rawMaterials={rawMaterials}
       />
     </>
   );

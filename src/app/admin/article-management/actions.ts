@@ -8,7 +8,7 @@ import type { Article, BillOfMaterialsItem, JobOrder } from '@/lib/mock-data';
 import * as z from 'zod';
 
 const bomItemSchema = z.object({
-  component: z.string().min(1, "Il nome del componente è obbligatorio."),
+  component: z.string().min(1, "Selezionare un componente valido."),
   unit: z.string().min(1, "L'unità di misura è obbligatoria."),
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
   size: z.string().optional(),
@@ -56,8 +56,24 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
   }
 
   const { code, billOfMaterials } = validatedFields.data;
+
+  // --- Server-side validation of components ---
+  const materialsSnapshot = await getDocs(collection(db, "rawMaterials"));
+  const materialCodeSet = new Set(materialsSnapshot.docs.map(doc => doc.data().code));
   
-  // Use the article code as the primary ID to ensure uniqueness and enable "create or update" logic.
+  const invalidComponents = (billOfMaterials || [])
+    .filter(item => item.component && item.component.trim() !== '')
+    .filter(item => !materialCodeSet.has(item.component));
+
+  if (invalidComponents.length > 0) {
+    const invalidCodes = invalidComponents.map(c => c.component).join(', ');
+    return {
+      success: false,
+      message: `I seguenti componenti non esistono: ${invalidCodes}. Aggiungili prima di creare la distinta base.`
+    };
+  }
+  // --- End Validation ---
+  
   const docId = code;
   const docRef = doc(db, 'articles', docId);
   const existingArticleSnap = await getDoc(docRef);

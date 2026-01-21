@@ -6,6 +6,7 @@ import * as z from 'zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -20,13 +21,15 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { PlusCircle, Trash2, Save, Loader2 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import { PlusCircle, Trash2, Save, Loader2, ChevronsUpDown, Check } from 'lucide-react';
 
-import type { Article } from '@/lib/mock-data';
+import type { Article, RawMaterial } from '@/lib/mock-data';
 import { saveArticle } from './actions';
 
 const bomItemSchema = z.object({
-  component: z.string().min(1, "Il nome del componente è obbligatorio."),
+  component: z.string().min(1, "Selezionare un componente valido."),
   unit: z.string().min(1, "L'unità di misura è obbligatoria."),
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   size: z.string().optional(),
@@ -44,11 +47,13 @@ interface ArticleFormDialogProps {
   isOpen: boolean;
   onClose: (refresh?: boolean) => void;
   article: Article | null;
+  rawMaterials: RawMaterial[];
 }
 
-export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleFormDialogProps) {
+export default function ArticleFormDialog({ isOpen, onClose, article, rawMaterials }: ArticleFormDialogProps) {
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
+  const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
 
   const form = useForm<ArticleFormValues>({
     resolver: zodResolver(articleSchema),
@@ -83,6 +88,18 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
   }, [article, form, isOpen]);
 
   const onSubmit = async (data: ArticleFormValues) => {
+    const materialCodes = new Set(rawMaterials.map(m => m.code));
+    const invalidItem = data.billOfMaterials.find(item => item.component && !materialCodes.has(item.component));
+
+    if (invalidItem) {
+        toast({
+            variant: "destructive",
+            title: "Componente non valido",
+            description: `Il componente "${invalidItem.component}" non esiste nell'anagrafica materie prime.`
+        });
+        return;
+    }
+
     setIsPending(true);
     const result = await saveArticle(data);
     toast({
@@ -129,13 +146,64 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                 {fields.map((field, index) => (
                   <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md relative">
                     <div className="col-span-12 sm:col-span-4">
-                      <FormField
+                       <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.component`}
                         render={({ field }) => (
-                          <FormItem>
+                          <FormItem className="flex flex-col">
                             <FormLabel>Componente</FormLabel>
-                            <FormControl><Input placeholder="Codice componente..." {...field} /></FormControl>
+                             <Popover open={openComboboxIndex === index} onOpenChange={(isOpen) => setOpenComboboxIndex(isOpen ? index : null)}>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    className={cn(
+                                      "w-full justify-between",
+                                      !field.value && "text-muted-foreground"
+                                    )}
+                                  >
+                                    {field.value
+                                      ? rawMaterials.find(
+                                          (material) => material.code === field.value
+                                        )?.code
+                                      : "Seleziona componente..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                <Command>
+                                  <CommandInput placeholder="Cerca componente..." />
+                                  <CommandEmpty>Nessun componente trovato.</CommandEmpty>
+                                  <CommandGroup>
+                                    <ScrollArea className="h-48">
+                                    {rawMaterials.map((material) => (
+                                      <CommandItem
+                                        value={material.code}
+                                        key={material.id}
+                                        onSelect={() => {
+                                          form.setValue(`billOfMaterials.${index}.component`, material.code);
+                                          form.setValue(`billOfMaterials.${index}.unit`, material.unitOfMeasure);
+                                          setOpenComboboxIndex(null);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            material.code === field.value
+                                              ? "opacity-100"
+                                              : "opacity-0"
+                                          )}
+                                        />
+                                        {material.code}
+                                      </CommandItem>
+                                    ))}
+                                    </ScrollArea>
+                                  </CommandGroup>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -148,7 +216,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>UM</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select onValueChange={field.onChange} value={field.value}>
                               <FormControl>
                                 <SelectTrigger><SelectValue placeholder="Unità" /></SelectTrigger>
                               </FormControl>
