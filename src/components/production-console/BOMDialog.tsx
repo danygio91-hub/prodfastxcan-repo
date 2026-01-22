@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useMemo } from 'react';
@@ -45,7 +44,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
       additionalItems.push({
         component: code,
         quantity: data.quantity, // This is already the total quantity
-        unit: material ? material.unitOfMeasure : 'n/d',
+        unit: material ? material.unitOfMeasure : 'n',
         status: 'withdrawn',
         isFromTemplate: false,
       });
