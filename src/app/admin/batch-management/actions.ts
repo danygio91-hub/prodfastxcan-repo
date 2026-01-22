@@ -75,10 +75,18 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
-export async function getMaterialWithdrawalsForMaterial(materialId: string): Promise<MaterialWithdrawal[]> {
+export async function getMaterialWithdrawalsForMaterial(materialId: string, lotto?: string | null): Promise<MaterialWithdrawal[]> {
   const withdrawalsRef = collection(db, "materialWithdrawals");
   const q = query(withdrawalsRef, where("materialId", "==", materialId));
   const snapshot = await getDocs(q);
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
+  
+  if (lotto) {
+    if (lotto === 'SENZA_LOTTO') {
+      return withdrawals.filter(w => !w.lotto);
+    }
+    return withdrawals.filter(w => w.lotto === lotto);
+  }
+
   return withdrawals;
 }

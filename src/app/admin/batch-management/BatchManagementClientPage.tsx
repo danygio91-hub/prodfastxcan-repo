@@ -47,7 +47,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   
   // State for history dialog
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
-  const [historyMaterial, setHistoryMaterial] = useState<GroupedBatches | null>(null);
+  const [historyDialogData, setHistoryDialogData] = useState<{ material: GroupedBatches, lotto: string | null } | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [withdrawalToDelete, setWithdrawalToDelete] = useState<string | null>(null);
 
@@ -65,9 +65,9 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     const freshInitialData = serverProps.props.pageProps.initialGroupedBatches;
     setGroupedBatches(freshInitialData);
 
-     if (isHistoryDialogOpen && historyMaterial) {
+     if (isHistoryDialogOpen && historyDialogData) {
       // If history dialog is open, re-fetch its content
-      await handleOpenHistoryDialog(historyMaterial, true);
+      await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
     }
   };
   
@@ -117,20 +117,25 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     setBatchToDelete(null);
   };
   
- const handleOpenHistoryDialog = async (material: GroupedBatches, isRefresh: boolean = false) => {
+ const handleOpenHistoryDialog = async (material: GroupedBatches, lotto: string | null, isRefresh: boolean = false) => {
     if (!isRefresh) {
-      setHistoryMaterial(material);
+      setHistoryDialogData({ material, lotto });
       setMaterialMovements([]); // Clear previous movements and show loading state
       setIsHistoryDialogOpen(true);
     }
 
-    const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId);
-    // Find the most up-to-date version of the material from the current state
+    const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId, lotto);
+    
     const currentMaterialState = groupedBatches.find(g => g.materialId === material.materialId) || material;
     const batches = currentMaterialState.batches || [];
     
+    // Filter batches for the specific lot
+    const lotBatches = lotto 
+      ? (lotto === 'SENZA_LOTTO' ? batches.filter(b => !b.lotto) : batches.filter(b => b.lotto === lotto))
+      : [];
+
     const combinedMovements: Movement[] = [
-      ...batches.map((b): Movement => {
+      ...lotBatches.map((b): Movement => {
         if (b.inventoryRecordId) {
           const netWeight = b.grossWeight - b.tareWeight;
           return {
@@ -152,8 +157,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
           };
         }
       }),
-        ...withdrawals.map((w): Movement => {
-            // For withdrawals, prefer showing consumedUnits if available and not 0, otherwise show weight.
+      ...withdrawals.map((w): Movement => {
             const hasUnits = w.consumedUnits !== null && w.consumedUnits !== undefined && w.consumedUnits !== 0;
             const quantity = hasUnits ? w.consumedUnits : w.consumedWeight;
             const unit = hasUnits ? material.unitOfMeasure.toUpperCase() : 'KG';
@@ -271,6 +275,12 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                 </CollapsibleTrigger>
                                 <CollapsibleContent>
                                     <div className="border-t p-2">
+                                         <div className="flex justify-end p-2">
+                                            <Button variant="outline" size="sm" onClick={() => handleOpenHistoryDialog(group, lotto)}>
+                                                <History className="mr-2 h-4 w-4" />
+                                                Storico Lotto
+                                            </Button>
+                                        </div>
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
@@ -287,10 +297,6 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                                     <TableCell>{batch.ddt}</TableCell>
                                                     <TableCell>{formatDisplayStock(batch.netQuantity, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</TableCell>
                                                     <TableCell className="text-right space-x-2">
-                                                      <Button variant="outline" size="sm" onClick={() => handleOpenHistoryDialog(group)}>
-                                                          <History className="mr-2 h-4 w-4" />
-                                                          Storico Lotto
-                                                      </Button>
                                                       <Button variant="outline" size="icon" onClick={() => setEditingBatchInfo({material: group, batch: batch})}>
                                                         <Edit className="h-4 w-4" />
                                                       </Button>
@@ -364,9 +370,12 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
             <DialogContent className="sm:max-w-4xl">
                 <DialogHeader>
-                    <DialogTitle>Storico Movimenti per: {historyMaterial?.materialCode}</DialogTitle>
+                    <DialogTitle>
+                        Storico Movimenti per: {historyDialogData?.material.materialCode}
+                        {historyDialogData?.lotto && <span className="font-mono text-primary ml-2 bg-muted p-1 rounded-sm">{historyDialogData.lotto}</span>}
+                    </DialogTitle>
                     <DialogDescription>
-                        Elenco di tutti i carichi e scarichi registrati per questo materiale.
+                        Elenco di tutti i carichi e scarichi registrati per questo lotto.
                     </DialogDescription>
                 </DialogHeader>
                   <ScrollArea className="max-h-[60vh]">
@@ -403,7 +412,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                       </AlertDialogTrigger>
                                       <AlertDialogContent>
                                         <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per eliminare il carico. L'azione è irreversibile e lo stock verrà ricalcolato.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => {setBatchToDelete({ materialId: historyMaterial!.materialId, batchId: mov.id }); setIsHistoryDialogOpen(false);}}>Elimina Carico</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogFooter><AlertDialogCancel onClick={() => setBatchToDelete(null)}>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => {if(historyDialogData) setBatchToDelete({ materialId: historyDialogData.material.materialId, batchId: mov.id }); setIsHistoryDialogOpen(false);}}>Elimina Carico</AlertDialogAction></AlertDialogFooter>
                                       </AlertDialogContent>
                                     </AlertDialog>
                                   ) : (
