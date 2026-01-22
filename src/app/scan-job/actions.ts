@@ -466,6 +466,7 @@ export async function closeMaterialSessionAndUpdateStock(
             operatorId: operatorId,
             operatorName: operatorName,
             withdrawalDate: Timestamp.now(),
+            lotto: sessionData.lotto,
         });
 
         // 3c. Update all associated job orders to record the closing weight for the correct consumption

@@ -1,3 +1,4 @@
+
 "use server";
 
 import { doc, runTransaction, Timestamp, collection } from 'firebase/firestore';
@@ -75,7 +76,8 @@ export async function logManualWithdrawal(
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),
-            notes: lotto ? `Lotto: ${lotto}. ${notes || ''}`.trim() : notes,
+            notes: notes,
+            lotto: lotto,
         });
     });
 
