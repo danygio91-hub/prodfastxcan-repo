@@ -5,6 +5,7 @@ import AppShell from '@/components/layout/AppShell';
 import { getRawMaterials } from './actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
+import type { RawMaterial } from '@/lib/mock-data';
 
 export const dynamic = 'force-dynamic';
 
