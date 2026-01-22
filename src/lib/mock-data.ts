@@ -229,6 +229,7 @@ export interface ActiveMaterialSessionData {
     category: MaterialSessionCategory;
     packagingId?: string;
     tareWeight?: number;
+    lotto?: string;
 }
 
 export interface NonConformityReport {

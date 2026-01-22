@@ -42,7 +42,7 @@ interface MaterialAssociationDialogProps {
   onOpenChange: (open: boolean) => void;
   phase: JobPhase;
   job: JobOrder | null;
-  onSessionStart: (sessionData: Omit<ActiveMaterialSessionData, 'category'> & { lotto?: string }, type: RawMaterialType) => void;
+  onSessionStart: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
   onWithdrawalComplete: () => void;
 }
 
