@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -56,62 +56,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   const router = useRouter();
   const { toast } = useToast();
 
-  const refreshData = useCallback(async () => {
-     if (searchTerm.length >= 2) {
-        setIsDataLoading(true);
-        getAllGroupedBatches(searchTerm).then(results => {
-          setGroupedBatches(results);
-          setIsDataLoading(false);
-        });
-      } else {
-        setGroupedBatches([]);
-      }
-      
-     if (isHistoryDialogOpen && historyDialogData) {
-      // If history dialog is open, re-fetch its content
-      await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
-    }
-  }, [searchTerm, isHistoryDialogOpen, historyDialogData]);
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      if (searchTerm.length >= 2) {
-        setIsDataLoading(true);
-        getAllGroupedBatches(searchTerm).then(results => {
-          setGroupedBatches(results);
-          setIsDataLoading(false);
-        });
-      } else {
-        setGroupedBatches([]);
-      }
-    }, 500);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
-
-  const handleBatchFormClose = (refresh?: boolean) => {
-    setEditingBatchInfo(null);
-    if(refresh) {
-      refreshData();
-    }
-  }
-  
-  const handleDeleteBatch = async () => {
-    if (!batchToDelete) return;
-    const { materialId, batchId } = batchToDelete;
-    const result = await deleteBatchFromRawMaterial(materialId, batchId);
-    toast({
-      title: result.success ? "Successo" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-      refreshData();
-    }
-    setBatchToDelete(null);
-  };
-  
- const handleOpenHistoryDialog = async (material: GroupedBatches, lotto: string | null, isRefresh: boolean = false) => {
+  const handleOpenHistoryDialog = useCallback(async (material: GroupedBatches, lotto: string | null, isRefresh: boolean = false) => {
     if (!isRefresh) {
       setHistoryDialogData({ material, lotto });
       setMaterialMovements([]); // Clear previous movements and show loading state
@@ -170,6 +115,61 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
 
     combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setMaterialMovements(combinedMovements);
+  }, []);
+
+  const refreshData = useCallback(async () => {
+     if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        getAllGroupedBatches(searchTerm).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+      
+     if (isHistoryDialogOpen && historyDialogData) {
+      // If history dialog is open, re-fetch its content
+      await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
+    }
+  }, [searchTerm, isHistoryDialogOpen, historyDialogData, handleOpenHistoryDialog]);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        getAllGroupedBatches(searchTerm).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
+
+  const handleBatchFormClose = (refresh?: boolean) => {
+    setEditingBatchInfo(null);
+    if(refresh) {
+      refreshData();
+    }
+  }
+  
+  const handleDeleteBatch = async () => {
+    if (!batchToDelete) return;
+    const { materialId, batchId } = batchToDelete;
+    const result = await deleteBatchFromRawMaterial(materialId, batchId);
+    toast({
+      title: result.success ? "Successo" : "Errore",
+      description: result.message,
+      variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+      refreshData();
+    }
+    setBatchToDelete(null);
   };
   
   const handleDeleteWithdrawal = async () => {
@@ -472,3 +472,5 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
+
+    
