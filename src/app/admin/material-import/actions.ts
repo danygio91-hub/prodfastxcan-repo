@@ -119,6 +119,15 @@ export async function importStockFromFile(
                 throw new Error(`Materiale ${materialCode} non trovato durante la transazione.`);
             }
             const currentMaterial = freshMaterialDoc.data() as RawMaterial;
+            
+            let netWeightForCalc: number;
+            if (currentMaterial.unitOfMeasure === 'kg') {
+                netWeightForCalc = netQuantity;
+            } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
+                netWeightForCalc = netQuantity * currentMaterial.conversionFactor;
+            } else {
+                netWeightForCalc = 0; // cannot calculate weight
+            }
 
             const newBatch: RawMaterialBatch = {
                 id: `batch-import-${Date.now()}-${index}`,
@@ -127,17 +136,8 @@ export async function importStockFromFile(
                 lotto,
                 netQuantity,
                 tareWeight,
-                grossWeight: netQuantity + tareWeight, // This is simplified. Might need refinement based on unit.
+                grossWeight: netWeightForCalc + tareWeight,
             };
-            
-            if (currentMaterial.unitOfMeasure !== 'kg') {
-                if(currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0){
-                   newBatch.grossWeight = (netQuantity * currentMaterial.conversionFactor) + tareWeight;
-                } else {
-                   newBatch.grossWeight = tareWeight; // Can't calculate gross without factor
-                }
-            }
-
 
             const existingBatches = currentMaterial.batches || [];
             const updatedBatches = [...existingBatches, newBatch];

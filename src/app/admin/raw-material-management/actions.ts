@@ -194,7 +194,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const material = docSnap.data() as RawMaterial;
           let tareWeight = 0;
           
-          if (material.unitOfMeasure === 'kg' && packagingId && packagingId !== 'none') {
+          if (packagingId && packagingId !== 'none') {
             const packagingRef = doc(db, 'packaging', packagingId);
             const packagingSnap = await transaction.get(packagingRef);
             if (packagingSnap.exists()) {
@@ -202,7 +202,15 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             }
           }
 
-          const grossWeight = netQuantity + tareWeight;
+          let netWeightForCalc: number;
+          if (material.unitOfMeasure === 'kg') {
+              netWeightForCalc = netQuantity;
+          } else if (material.conversionFactor && material.conversionFactor > 0) {
+              netWeightForCalc = netQuantity * material.conversionFactor;
+          } else {
+              netWeightForCalc = 0; // Cannot determine weight if no conversion factor
+          }
+          const grossWeight = netWeightForCalc + tareWeight;
           
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
@@ -267,7 +275,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             const oldBatch = existingBatches[oldBatchIndex];
 
             let tareWeight = 0;
-            if (material.unitOfMeasure === 'kg' && newBatchData.packagingId && newBatchData.packagingId !== 'none') {
+            if (newBatchData.packagingId && newBatchData.packagingId !== 'none') {
                 const packagingRef = doc(db, 'packaging', newBatchData.packagingId);
                 const packagingSnap = await transaction.get(packagingRef);
                 if (packagingSnap.exists()) {
@@ -275,7 +283,15 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
                 }
             }
             
-            const grossWeight = newBatchData.netQuantity + tareWeight;
+            let netWeightForCalc: number;
+            if (material.unitOfMeasure === 'kg') {
+                netWeightForCalc = newBatchData.netQuantity;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+                netWeightForCalc = newBatchData.netQuantity * material.conversionFactor;
+            } else {
+                netWeightForCalc = 0;
+            }
+            const grossWeight = netWeightForCalc + tareWeight;
             
             const updatedBatch: RawMaterialBatch = {
                 ...oldBatch,
