@@ -234,10 +234,21 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
             const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
             const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
             const unit = isWeightBased ? 'KG' : updatedMaterial.unitOfMeasure.toUpperCase();
+            
+            const descriptionParts: string[] = [];
+            if (w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE') {
+                descriptionParts.push(`Commesse: ${w.jobOrderPFs.join(', ')}`);
+            } else {
+                descriptionParts.push('Scarico Manuale');
+            }
+            if (w.lotto) {
+                descriptionParts.push(`Lotto: ${w.lotto}`);
+            }
+
             return {
                 type: 'Scarico' as const,
                 date: w.withdrawalDate.toISOString(),
-                description: `Commesse: ${w.jobOrderPFs.join(', ')}`,
+                description: descriptionParts.join(' - '),
                 quantity: -(quantity || 0),
                 unit: unit,
                 id: w.id,
