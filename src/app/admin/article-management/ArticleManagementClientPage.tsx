@@ -163,12 +163,25 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
           };
         }
         
-        articlesToImport[articleCode].billOfMaterials.push({
+        const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase() as 'n' | 'mt' | 'kg';
+        const numeroMisura = row['Numero/Misura'] || row['numero/misura'];
+
+        const bomItem: any = {
           component: String(component),
-          unit: String(row['Unità di Misura'] || row['unità di misura'] || 'n'),
+          unit,
           quantity: Number(quantity),
-          size: String(row['Numero/Misura'] || row['numero/misura'] || ''),
-        });
+        };
+        
+        if (numeroMisura) {
+          const parsedLength = parseFloat(String(numeroMisura));
+          if ((unit === 'mt' || unit === 'kg') && !isNaN(parsedLength)) {
+            bomItem.lunghezzaTaglioMm = parsedLength;
+          } else {
+            bomItem.note = String(numeroMisura);
+          }
+        }
+
+        articlesToImport[articleCode].billOfMaterials.push(bomItem);
       }
 
       if (errors.length > 0) {
