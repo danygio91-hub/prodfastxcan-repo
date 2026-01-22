@@ -4,7 +4,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder } from '@/lib/mock-data';
 import { format } from 'date-fns';
@@ -90,19 +90,36 @@ const batchFormSchema = z.object({
 
 // --- Actions ---
 
-export async function getRawMaterials(): Promise<RawMaterial[]> {
-  const materialsCol = collection(db, 'rawMaterials');
-  const snapshot = await getDocs(materialsCol);
-  const list = snapshot.docs.map(doc => {
-    const data = doc.data() as RawMaterial;
-    return {
-      ...data,
-      id: doc.id,
-      currentStockUnits: data.currentStockUnits ?? 0,
-      currentWeightKg: data.currentWeightKg ?? 0,
-    };
-  });
-  return list;
+export async function getRawMaterials(searchTerm: string): Promise<RawMaterial[]> {
+    if (!searchTerm || searchTerm.length < 2) {
+      return [];
+    }
+    const materialsCol = collection(db, 'rawMaterials');
+    const lowercasedTerm = searchTerm.toLowerCase();
+
+    // This query performs a "starts with" search on the material code.
+    // Full-text search on description is not natively supported by Firestore in a performant way for this use case.
+    const q = query(materialsCol, 
+        where('code_normalized', '>=', lowercasedTerm), 
+        where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), 
+        limit(50)
+    );
+
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) {
+        return [];
+    }
+
+    const list = snapshot.docs.map(doc => {
+        const data = doc.data() as RawMaterial;
+        return {
+        ...data,
+        id: doc.id,
+        currentStockUnits: data.currentStockUnits ?? 0,
+        currentWeightKg: data.currentWeightKg ?? 0,
+        };
+    });
+    return list;
 }
 
 export async function saveRawMaterial(formData: FormData): Promise<{

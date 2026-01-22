@@ -13,7 +13,7 @@ import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -82,6 +82,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   const codeFromUrl = searchParams.get('code');
 
   const [materials, setMaterials] = useState<RawMaterial[]>(initialMaterials);
+  const [isDataLoading, setIsDataLoading] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
@@ -122,34 +123,43 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
     }
   }, [codeFromUrl]);
 
-  const filteredMaterials = useMemo(() => {
-    if (!searchTerm) {
-      return materials;
-    }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return materials.filter(material =>
-      (material.code?.toLowerCase() || '').includes(lowercasedFilter) ||
-      (material.description?.toLowerCase() || '').includes(lowercasedFilter)
-    );
-  }, [materials, searchTerm]);
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        searchRawMaterials(searchTerm).then(results => {
+          setMaterials(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setMaterials([]);
+      }
+    }, 300); // Debounce search
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
 
   const refreshData = useCallback(async () => {
-    router.refresh();
+    // Re-trigger search to get fresh data
+     if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        searchRawMaterials(searchTerm).then(results => {
+          setMaterials(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setMaterials([]);
+      }
+      
      if (isHistoryDialogOpen && selectedMaterial) {
       // If history dialog is open, re-fetch its content
       await handleOpenHistoryDialog(selectedMaterial, true);
     }
-  }, [router, isHistoryDialogOpen, selectedMaterial]);
+  }, [searchTerm, isHistoryDialogOpen, selectedMaterial]);
   
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
   }, []);
-
-  useEffect(() => {
-    setMaterials(initialMaterials);
-    setSelectedRows([]);
-  }, [initialMaterials]);
-
 
   // --- Dialog Handlers ---
 
@@ -467,7 +477,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedRows(filteredMaterials.map(m => m.id));
+      setSelectedRows(materials.map(m => m.id));
     } else {
       setSelectedRows([]);
     }
@@ -513,7 +523,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                 <div className="flex justify-between items-center flex-wrap gap-4">
                     <div>
                     <CardTitle className="font-headline">Elenco Materie Prime</CardTitle>
-                    <CardDescription>Queste sono le materie prime disponibili a magazzino.</CardDescription>
+                    <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
                     </div>
                      <div className="flex items-center gap-2">
                         {selectedRows.length > 0 && (
@@ -541,7 +551,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                         <div className="relative w-full sm:w-64">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Cerca per codice o descrizione..."
+                                placeholder="Cerca per codice..."
                                 className="pl-9"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -557,10 +567,10 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     <TableRow>
                         <TableHead padding="checkbox">
                           <Checkbox
-                            checked={selectedRows.length > 0 ? (selectedRows.length === filteredMaterials.length ? true : 'indeterminate') : false}
+                            checked={selectedRows.length > 0 ? (selectedRows.length === materials.length ? true : 'indeterminate') : false}
                             onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                             aria-label="Seleziona tutte"
-                            disabled={filteredMaterials.length === 0}
+                            disabled={materials.length === 0}
                           />
                         </TableHead>
                         <TableHead>Codice</TableHead>
@@ -573,8 +583,17 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     </TableRow>
                     </TableHeader>
                     <TableBody>
-                    {filteredMaterials.length > 0 ? (
-                        filteredMaterials.map((material) => (
+                    {isDataLoading ? (
+                       <TableRow>
+                          <TableCell colSpan={8} className="h-24 text-center">
+                            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                <span>Caricamento...</span>
+                            </div>
+                          </TableCell>
+                       </TableRow>
+                    ) : materials.length > 0 ? (
+                        materials.map((material) => (
                         <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
                             <TableCell padding="checkbox">
                               <Checkbox
@@ -627,7 +646,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                     ) : (
                         <TableRow>
                         <TableCell colSpan={8} className="text-center h-24">
-                            {materials.length === 0 ? "Nessuna materia prima trovata." : "Nessuna materia prima trovata per la tua ricerca."}
+                            {searchTerm.length < 2 ? "Digita almeno 2 caratteri per avviare la ricerca." : "Nessuna materia prima trovata per la tua ricerca."}
                         </TableCell>
                         </TableRow>
                     )}
@@ -758,7 +777,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
                               render={({ field }) => (
                                 <FormItem>
                                   <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" /> Imballo / Tara</FormLabel>
-                                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                                  <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un imballo..." /></SelectTrigger></FormControl>
                                     <SelectContent>
                                       <SelectItem value="none">Nessuna Tara</SelectItem>

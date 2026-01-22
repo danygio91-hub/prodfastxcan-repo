@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2, ChevronRight, LinkIcon } from 'lucide-react';
-import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial } from './actions';
+import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial, getAllGroupedBatches } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -42,6 +42,7 @@ interface BatchManagementClientPageProps {
 export default function BatchManagementClientPage({ initialGroupedBatches }: BatchManagementClientPageProps) {
   const [groupedBatches, setGroupedBatches] = useState<GroupedBatches[]>(initialGroupedBatches);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isDataLoading, setIsDataLoading] = useState(false);
   const [editingBatchInfo, setEditingBatchInfo] = useState<{material: GroupedBatches, batch: EnrichedBatch | null} | null>(null);
   const [batchToDelete, setBatchToDelete] = useState<{materialId: string, batchId: string} | null>(null);
   
@@ -55,50 +56,43 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
   const router = useRouter();
   const { toast } = useToast();
 
-  const refreshData = async () => {
-    // router.refresh() is not sufficient here as it may not refetch server actions called inside client components
-    // We need a more robust way to get fresh data. Let's see if we can do this without a full reload.
-    // For now, let's just update the state from the initial props which will be fresh if the page reloads.
-    const response = await fetch(window.location.href);
-    const text = await response.text();
-    const serverProps = JSON.parse(text.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/)?.[1] || '{}');
-    const freshInitialData = serverProps.props.pageProps.initialGroupedBatches;
-    setGroupedBatches(freshInitialData);
-
+  const refreshData = useCallback(async () => {
+     if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        getAllGroupedBatches(searchTerm).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+      
      if (isHistoryDialogOpen && historyDialogData) {
       // If history dialog is open, re-fetch its content
       await handleOpenHistoryDialog(historyDialogData.material, historyDialogData.lotto, true);
     }
-  };
-  
-  useEffect(() => {
-    const updatedData = initialGroupedBatches.map(group => {
-      const freshGroupData = (window as any).__NEXT_DATA__?.props.pageProps.initialGroupedBatches.find((g: GroupedBatches) => g.materialId === group.materialId);
-      return freshGroupData || group;
-    });
-    setGroupedBatches(updatedData);
-  }, [initialGroupedBatches]);
+  }, [searchTerm, isHistoryDialogOpen, historyDialogData]);
 
   useEffect(() => {
-    setGroupedBatches(initialGroupedBatches);
-  }, [initialGroupedBatches]);
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsDataLoading(true);
+        getAllGroupedBatches(searchTerm).then(results => {
+          setGroupedBatches(results);
+          setIsDataLoading(false);
+        });
+      } else {
+        setGroupedBatches([]);
+      }
+    }, 500);
 
-  const filteredGroups = useMemo(() => {
-    if (!searchTerm) {
-      return groupedBatches;
-    }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return groupedBatches.filter(group =>
-      group.materialCode.toLowerCase().includes(lowercasedFilter) ||
-      group.materialDescription.toLowerCase().includes(lowercasedFilter) ||
-      group.batches.some(b => b.lotto?.toLowerCase().includes(lowercasedFilter))
-    );
-  }, [groupedBatches, searchTerm]);
-  
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
+
   const handleBatchFormClose = (refresh?: boolean) => {
     setEditingBatchInfo(null);
     if(refresh) {
-      router.refresh();
+      refreshData();
     }
   }
   
@@ -112,7 +106,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      router.refresh();
+      refreshData();
     }
     setBatchToDelete(null);
   };
@@ -126,7 +120,9 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId, lotto);
     
-    const currentMaterialState = groupedBatches.find(g => g.materialId === material.materialId) || material;
+    // Fetch the latest material state to ensure batches are up to date
+    const currentMaterialStateResponse = await getAllGroupedBatches(material.materialCode);
+    const currentMaterialState = currentMaterialStateResponse.find(g => g.materialId === material.materialId) || material;
     const batches = currentMaterialState.batches || [];
     
     // Filter batches for the specific lot
@@ -185,7 +181,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      router.refresh();
+      refreshData();
     }
     setWithdrawalToDelete(null);
   };
@@ -208,13 +204,13 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
             <div>
               <CardTitle>Anagrafica Lotti</CardTitle>
               <CardDescription>
-                Ricerca per codice o descrizione materiale per trovare rapidamente le informazioni.
+                Ricerca per codice materiale per trovare rapidamente le informazioni.
               </CardDescription>
             </div>
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Cerca materiale..."
+                placeholder="Cerca materiale (min 2 caratteri)..."
                 className="pl-9 w-full sm:w-64"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -224,8 +220,13 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
         </CardHeader>
         <CardContent>
           <Accordion type="multiple" className="w-full space-y-4">
-             {filteredGroups.length > 0 ? (
-              filteredGroups.map((group) => {
+             {isDataLoading ? (
+                <div className="flex items-center justify-center h-48 text-muted-foreground gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Caricamento lotti...</span>
+                </div>
+             ) : groupedBatches.length > 0 ? (
+              groupedBatches.map((group) => {
                 const batchesByLotto = group.batches.reduce((acc, batch) => {
                   const lottoKey = batch.lotto || 'SENZA_LOTTO';
                   if (!acc[lottoKey]) acc[lottoKey] = [];
@@ -335,7 +336,9 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                 )
               })
             ) : (
-              <div className="text-center py-10 text-muted-foreground">Nessun lotto trovato.</div>
+              <div className="text-center py-10 text-muted-foreground">
+                {searchTerm.length < 2 ? "Digita almeno 2 caratteri per iniziare la ricerca dei materiali." : "Nessun lotto trovato per la ricerca."}
+                </div>
             )}
           </Accordion>
         </CardContent>
@@ -469,5 +472,3 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
-
-    

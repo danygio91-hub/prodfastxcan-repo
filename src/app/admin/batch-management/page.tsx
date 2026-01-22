@@ -5,11 +5,13 @@ import { getAllGroupedBatches } from './actions';
 import BatchManagementClientPage from './BatchManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
+import { type GroupedBatches } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function BatchManagementPage() {
-  const initialGroupedBatches = await getAllGroupedBatches();
+  // Data is now fetched on the client side.
+  const initialGroupedBatches: GroupedBatches[] = [];
 
   return (
     <AdminAuthGuard>

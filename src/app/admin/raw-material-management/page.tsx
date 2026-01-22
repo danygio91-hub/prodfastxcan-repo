@@ -9,7 +9,8 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
-  const materials = await getRawMaterials();
+  // Data is now fetched on the client side to avoid loading all materials at once.
+  const materials: RawMaterial[] = [];
   
   return (
     <AdminAuthGuard>
