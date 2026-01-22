@@ -90,36 +90,49 @@ const batchFormSchema = z.object({
 
 // --- Actions ---
 
-export async function getRawMaterials(searchTerm: string): Promise<RawMaterial[]> {
-    if (!searchTerm || searchTerm.length < 2) {
-      return [];
-    }
+export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[]> {
     const materialsCol = collection(db, 'rawMaterials');
-    const lowercasedTerm = searchTerm.toLowerCase();
-
-    // This query performs a "starts with" search on the material code.
-    // Full-text search on description is not natively supported by Firestore in a performant way for this use case.
-    const q = query(materialsCol, 
-        where('code_normalized', '>=', lowercasedTerm), 
-        where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), 
-        limit(50)
-    );
-
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) {
-        return [];
+    
+    // If a search term is provided and is long enough, perform a search
+    if (searchTerm && searchTerm.length >= 2) {
+        const lowercasedTerm = searchTerm.toLowerCase();
+        const q = query(materialsCol, 
+            where('code_normalized', '>=', lowercasedTerm), 
+            where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), 
+            limit(50)
+        );
+        const snapshot = await getDocs(q);
+        if (snapshot.empty) return [];
+        const list = snapshot.docs.map(doc => {
+            const data = doc.data() as RawMaterial;
+            return {
+            ...data,
+            id: doc.id,
+            currentStockUnits: data.currentStockUnits ?? 0,
+            currentWeightKg: data.currentWeightKg ?? 0,
+            };
+        });
+        return list;
     }
 
-    const list = snapshot.docs.map(doc => {
-        const data = doc.data() as RawMaterial;
-        return {
-        ...data,
-        id: doc.id,
-        currentStockUnits: data.currentStockUnits ?? 0,
-        currentWeightKg: data.currentWeightKg ?? 0,
-        };
-    });
-    return list;
+    // If no search term is provided (e.g., called from article management page), fetch all
+    if (searchTerm === undefined) {
+        const snapshot = await getDocs(materialsCol);
+        if (snapshot.empty) return [];
+        const list = snapshot.docs.map(doc => {
+            const data = doc.data() as RawMaterial;
+            return {
+                ...data,
+                id: doc.id,
+                currentStockUnits: data.currentStockUnits ?? 0,
+                currentWeightKg: data.currentWeightKg ?? 0,
+            };
+        });
+        return list;
+    }
+
+    // If search term is too short or an empty string, return nothing
+    return [];
 }
 
 export async function saveRawMaterial(formData: FormData): Promise<{
