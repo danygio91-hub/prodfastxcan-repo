@@ -1,43 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, arrayUnion } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
-// Helper to recalculate stock. This can be copied from other actions.ts files.
-function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): { currentStockUnits: number; currentWeightKg: number } {
-  let newTotalStockUnits = 0;
-  let newTotalWeightKg = 0;
-
-  for (const batch of batches) {
-    if (!batch.inventoryRecordId) {
-        const batchNetQuantity = batch.netQuantity || 0;
-        newTotalStockUnits += batchNetQuantity;
-
-        if (material.unitOfMeasure === 'kg') {
-            newTotalWeightKg += batchNetQuantity;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-        }
-    } else {
-        const netWeight = batch.grossWeight - batch.tareWeight;
-        newTotalWeightKg += netWeight;
-
-        if (material.unitOfMeasure === 'kg') {
-            newTotalStockUnits += netWeight;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalStockUnits += netWeight / material.conversionFactor;
-        }
-    }
-  }
-
-  return {
-    currentStockUnits: newTotalStockUnits,
-    currentWeightKg: newTotalWeightKg,
-  };
-}
 
 export async function getPackagingItems(): Promise<Packaging[]> {
   const packagingCol = collection(db, 'packaging');
@@ -138,14 +106,19 @@ export async function importStockFromFile(
                 tareWeight,
                 grossWeight: netWeightForCalc + tareWeight,
             };
-
-            const existingBatches = currentMaterial.batches || [];
-            const updatedBatches = [...existingBatches, newBatch];
-            const newStock = recalculateStock(currentMaterial, updatedBatches);
             
+            const updatedBatches = [...(currentMaterial.batches || []), newBatch];
+
+            const unitsToAdd = newBatch.netQuantity || 0;
+            const weightToAdd = newBatch.grossWeight - newBatch.tareWeight;
+
+            const newStockUnits = (currentMaterial.currentStockUnits || 0) + unitsToAdd;
+            const newWeightKg = (currentMaterial.currentWeightKg || 0) + weightToAdd;
+
             transaction.update(materialRef, {
                 batches: updatedBatches,
-                ...newStock
+                currentStockUnits: newStockUnits,
+                currentWeightKg: newWeightKg
             });
         });
         successCount++;

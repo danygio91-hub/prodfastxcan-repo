@@ -253,13 +253,15 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             lotto: lotto || null,
           };
           
-          const currentBatches = material.batches || [];
-          const updatedBatches = [...currentBatches, newBatch];
-          const newStock = recalculateStock(material, updatedBatches);
+          const existingBatches = material.batches || [];
+          const newStockUnits = (material.currentStockUnits || 0) + newBatch.netQuantity;
+          const newWeightKg = (material.currentWeightKg || 0) + (newBatch.grossWeight - newBatch.tareWeight);
+
 
           transaction.update(materialRef, { 
-              batches: updatedBatches,
-              ...newStock,
+              batches: [...existingBatches, newBatch],
+              currentStockUnits: newStockUnits,
+              currentWeightKg: newWeightKg,
           });
       });
       
@@ -303,7 +305,7 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             }
             
             const oldBatch = existingBatches[oldBatchIndex];
-
+            
             let tareWeight = 0;
             if (newBatchData.packagingId && newBatchData.packagingId !== 'none') {
                 const packagingRef = doc(db, 'packaging', newBatchData.packagingId);
@@ -337,11 +339,19 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
             const updatedBatches = [...existingBatches];
             updatedBatches[oldBatchIndex] = updatedBatch;
 
-            const newStock = recalculateStock(material, updatedBatches);
+            const unitsDiff = updatedBatch.netQuantity - oldBatch.netQuantity;
+            const oldNetWeight = (oldBatch.grossWeight || 0) - (oldBatch.tareWeight || 0);
+            const newNetWeight = updatedBatch.grossWeight - updatedBatch.tareWeight;
+            const weightDiff = newNetWeight - oldNetWeight;
+
+            const newStockUnits = (material.currentStockUnits || 0) + unitsDiff;
+            const newWeightKg = (material.currentWeightKg || 0) + weightDiff;
+
 
             transaction.update(materialRef, {
                 batches: updatedBatches,
-                ...newStock
+                currentStockUnits: newStockUnits,
+                currentWeightKg: newWeightKg
             });
         });
 
@@ -371,11 +381,16 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
 
             const updatedBatches = existingBatches.filter(b => b.id !== batchId);
 
-            const newStock = recalculateStock(material, updatedBatches);
+            const unitsToRemove = batchToDelete.netQuantity || 0;
+            const weightToRemove = (batchToDelete.grossWeight || 0) - (batchToDelete.tareWeight || 0);
+
+            const newStockUnits = (material.currentStockUnits || 0) - unitsToRemove;
+            const newWeightKg = (material.currentWeightKg || 0) - weightToRemove;
 
             transaction.update(materialRef, { 
                 batches: updatedBatches,
-                ...newStock
+                currentStockUnits: newStockUnits,
+                currentWeightKg: newWeightKg,
             });
         });
 
@@ -584,16 +599,16 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
       }
       const material = materialSnap.data() as RawMaterial;
       
-      const weightToRestore = withdrawal.consumedWeight || 0;
-      let unitsToRestore = withdrawal.consumedUnits ?? 0;
+      const weightToRevert = withdrawal.consumedWeight || 0;
+      let unitsToRevert = withdrawal.consumedUnits ?? 0;
 
       // Ensure consistency if units were not logged but can be recalculated
-      if (unitsToRestore === 0 && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
-        unitsToRestore = weightToRestore / material.conversionFactor;
+      if (unitsToRevert === 0 && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
+        unitsToRevert = weightToRevert / material.conversionFactor;
       }
       
-      const newWeightKg = (material.currentWeightKg || 0) + weightToRestore;
-      let newStockUnits = (material.currentStockUnits || 0) + unitsToRestore;
+      const newWeightKg = (material.currentWeightKg || 0) + weightToRevert;
+      let newStockUnits = (material.currentStockUnits || 0) + unitsToRevert;
 
       transaction.update(materialRef, {
         currentStockUnits: newStockUnits,
