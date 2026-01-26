@@ -447,10 +447,6 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
                     let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
                     let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
 
-                    if (materialData.unitOfMeasure === 'kg') {
-                        newUnits = newWeight;
-                    }
-
                     transaction.update(materialDoc.ref, { 
                         currentWeightKg: newWeight,
                         currentStockUnits: newUnits,
@@ -711,3 +707,5 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
+
+  
