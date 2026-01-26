@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -82,7 +81,7 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
     }
 
     // If no search term is provided (e.g., called from article management page), fetch all
-    if (searchTerm === undefined) {
+    if (!searchTerm) {
         const snapshot = await getDocs(materialsCol);
         if (snapshot.empty) return [];
         const list = snapshot.docs.map(doc => {
@@ -562,7 +561,10 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
       const materialRef = doc(db, "rawMaterials", withdrawal.materialId);
       const materialSnap = await transaction.get(materialRef);
       if (!materialSnap.exists()) {
-        throw new Error("Materia prima associata allo scarico non trovata.");
+        // If material doesn't exist, we can't restore stock, but we can still delete the withdrawal.
+        // This prevents an error loop if a material was deleted but withdrawals remain.
+        transaction.delete(withdrawalRef);
+        return;
       }
       
       const jobSnaps = [];

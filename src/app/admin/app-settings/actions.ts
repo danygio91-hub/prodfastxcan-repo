@@ -168,6 +168,12 @@ export async function resetAllWithdrawals(uid: string): Promise<{ success: boole
 
           const newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
           let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+
+          // BUG FIX: If units were not recorded in withdrawal, calculate them back from weight.
+          if (updates.consumedUnits === 0 && materialData.unitOfMeasure !== 'kg' && materialData.conversionFactor && materialData.conversionFactor > 0) {
+            const unitsFromWeight = updates.consumedWeight / materialData.conversionFactor;
+            newUnits += unitsFromWeight;
+          }
           
           transaction.update(materialDoc.ref, { 
             currentWeightKg: newWeight,
