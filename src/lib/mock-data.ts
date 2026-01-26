@@ -87,6 +87,9 @@ export interface JobOrder {
   // New field for job chaining
   workGroupId?: string | null;
   forcedCompletion?: boolean; // New flag for forced closures
+  // --- Fields for synthetic group object ---
+  jobOrderIds?: string[];
+  jobOrderPFs?: string[];
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';
@@ -229,7 +232,7 @@ export interface ActiveMaterialSessionData {
     category: MaterialSessionCategory;
     packagingId?: string;
     tareWeight?: number;
-    lotto?: string;
+    lotto?: string | null;
 }
 
 export interface NonConformityReport {

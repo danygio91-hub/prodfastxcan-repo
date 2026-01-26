@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -336,9 +337,6 @@ export default function ScanJobPage() {
         if (activeJob.status === 'completed') {
           setStep('finished');
         } else {
-          if (activeSessions.length > 0 && !activeSessions.every(s => s.associatedJobs.some(j => j.jobId === activeJob.id))) {
-              activeSessions.forEach(s => addJobToSession(s.materialId, { jobId: activeJob.id, jobOrderPF: activeJob.ordinePF }));
-          }
           setStep('processing');
         }
       } else {
@@ -347,7 +345,7 @@ export default function ScanJobPage() {
     } else {
       setStep('loading');
     }
-  }, [isJobLoading, activeJob, activeSessions, addJobToSession]);
+  }, [isJobLoading, activeJob]);
 
   const handleUpdateAndPersistJob = useCallback(async (jobData: JobOrder | WorkGroup) => {
     if (!operator) return;
@@ -387,12 +385,22 @@ export default function ScanJobPage() {
     if ('error' in result) {
         toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
     } else {
-        // If the verified job is a group or a standalone job, just set it as active.
-        // The useEffect will handle the transition to the 'processing' step.
+        if (activeSessions.length > 0) {
+            const groupSession = activeSessions.find(s => s.originatorJobId.startsWith('group-'));
+            if (groupSession && result.workGroupId && result.workGroupId === groupSession.originatorJobId) {
+                addJobToSession(groupSession.materialId, { jobId: result.id, jobOrderPF: result.ordinePF });
+                toast({
+                    title: "Commessa Aggiunta alla Sessione",
+                    description: `${result.id} è stata aggiunta alla sessione materiale attiva.`
+                });
+                return;
+            }
+        }
+        
         toast({ title: "Commessa Verificata!", description: `Pronto per la lavorazione di ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
         setActiveJobId(result.id);
     }
-  }, [toast, stopCamera, setActiveJobId]);
+  }, [toast, stopCamera, setActiveJobId, activeSessions, addJobToSession]);
   
   const startCamera = useCallback(async () => {
     setHasCameraPermission(true);

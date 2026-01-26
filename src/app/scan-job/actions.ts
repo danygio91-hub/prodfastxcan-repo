@@ -125,6 +125,8 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
             status: group.status,
             workCycleId: group.workCycleId,
             workGroupId: group.id,
+            jobOrderIds: group.jobOrderIds,
+            jobOrderPFs: group.jobOrderPFs,
         };
     }
 
@@ -410,13 +412,16 @@ export async function closeMaterialSessionAndUpdateStock(
   operatorId: string,
 ): Promise<{ success: boolean; message: string }> {
   const materialRef = doc(db, "rawMaterials", sessionData.materialId);
-  const jobRefs = sessionData.associatedJobs.map(j => doc(db, "jobOrders", j.jobId));
   
   try {
     await runTransaction(db, async (transaction) => {
         // --- 1. ALL READS FIRST ---
         const materialDoc = await transaction.get(materialRef);
+        
+        const uniqueJobIds = [...new Set(sessionData.associatedJobs.map(j => j.jobId))];
+        const jobRefs = uniqueJobIds.map(id => doc(db, "jobOrders", id));
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+
         const operatorSnap = await getDoc(doc(db, "operators", operatorId));
         const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
 
@@ -457,8 +462,8 @@ export async function closeMaterialSessionAndUpdateStock(
         // 3b. Create a single withdrawal log for the entire session
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
-            jobIds: sessionData.associatedJobs.map(j => j.jobId),
-            jobOrderPFs: sessionData.associatedJobs.map(j => j.jobOrderPF),
+            jobIds: uniqueJobIds,
+            jobOrderPFs: [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))],
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
@@ -466,7 +471,7 @@ export async function closeMaterialSessionAndUpdateStock(
             operatorId: operatorId,
             operatorName: operatorName,
             withdrawalDate: Timestamp.now(),
-            lotto: sessionData.lotto,
+            lotto: sessionData.lotto || null,
         });
 
         // 3c. Update all associated job orders to record the closing weight for the correct consumption

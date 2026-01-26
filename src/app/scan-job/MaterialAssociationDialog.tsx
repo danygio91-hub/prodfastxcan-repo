@@ -168,17 +168,27 @@ export default function MaterialAssociationDialog({
 
   const onAvviaSessione = () => {
     if (!selectedMaterial || !job || !operator || openingStockInKg === null) return;
-    
-    const realOpeningWeightKg = openingStockInKg;
+
     const selectedPackaging = packagingItems.find(p => p.id === form.getValues('packagingId'));
-    
+
+    let associatedJobsForSession: { jobId: string; jobOrderPF: string }[] = [];
+
+    if (job.id.startsWith('group-') && job.jobOrderIds && job.jobOrderPFs) {
+        associatedJobsForSession = job.jobOrderIds.map((id, index) => ({
+            jobId: id,
+            jobOrderPF: job.jobOrderPFs![index]
+        }));
+    } else {
+        associatedJobsForSession = [{ jobId: job.id, jobOrderPF: job.ordinePF }];
+    }
+
     onSessionStart({
       materialId: selectedMaterial.id,
       materialCode: selectedMaterial.code,
-      grossOpeningWeight: realOpeningWeightKg + (selectedPackaging?.weightKg || 0),
-      netOpeningWeight: realOpeningWeightKg,
+      grossOpeningWeight: openingStockInKg! + (selectedPackaging?.weightKg || 0),
+      netOpeningWeight: openingStockInKg!,
       originatorJobId: job.id,
-      associatedJobs: [{ jobId: job.id, jobOrderPF: job.ordinePF }],
+      associatedJobs: associatedJobsForSession,
       packagingId: form.getValues('packagingId'),
       tareWeight: selectedPackaging?.weightKg || 0,
       lotto: form.getValues('lotto'),
@@ -278,13 +288,13 @@ export default function MaterialAssociationDialog({
               <FormField control={form.control} name="lotto" render={({field}) => (
                   <FormItem>
                       <FormLabel>Lotto</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} value={field.value ?? ''} /></FormControl>
                   </FormItem>
               )}/>
               <FormField control={form.control} name="ddt" render={({field}) => (
                   <FormItem>
                       <FormLabel>DDT / Origine</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
+                      <FormControl><Input {...field} value={field.value ?? ''} /></FormControl>
                   </FormItem>
               )}/>
 
