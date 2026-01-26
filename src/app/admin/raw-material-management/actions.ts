@@ -28,40 +28,6 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 
-function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): { currentStockUnits: number; currentWeightKg: number } {
-  let newTotalStockUnits = 0;
-  let newTotalWeightKg = 0;
-
-  for (const batch of batches) {
-    // For manual batches, netQuantity is the source of truth for units
-    if (!batch.inventoryRecordId) {
-        const batchNetQuantity = batch.netQuantity || 0;
-        newTotalStockUnits += batchNetQuantity;
-
-        if (material.unitOfMeasure === 'kg') {
-            newTotalWeightKg += batchNetQuantity;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-        }
-    } else { // It's from an inventory record
-        const netWeight = batch.grossWeight - batch.tareWeight;
-        newTotalWeightKg += netWeight;
-
-        if (material.unitOfMeasure === 'kg') {
-            newTotalStockUnits += netWeight;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalStockUnits += netWeight / material.conversionFactor;
-        }
-    }
-  }
-
-  return {
-    currentStockUnits: newTotalStockUnits,
-    currentWeightKg: newTotalWeightKg,
-  };
-}
-
-
 // --- Schemas ---
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
@@ -586,6 +552,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
   const withdrawalRef = doc(db, "materialWithdrawals", withdrawalId);
   try {
     await runTransaction(db, async (transaction) => {
+      // --- ALL READS MUST BE AT THE TOP ---
       const withdrawalSnap = await transaction.get(withdrawalRef);
       if (!withdrawalSnap.exists()) {
         throw new Error("Movimento di scarico non trovato.");
@@ -597,12 +564,20 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
       if (!materialSnap.exists()) {
         throw new Error("Materia prima associata allo scarico non trovata.");
       }
-      const material = materialSnap.data() as RawMaterial;
       
+      const jobSnaps = [];
+      if (withdrawal.jobIds && withdrawal.jobIds.length > 0) {
+        for (const jobId of withdrawal.jobIds) {
+          const jobRef = doc(db, 'jobOrders', jobId);
+          jobSnaps.push(await transaction.get(jobRef));
+        }
+      }
+      
+      // --- ALL WRITES/LOGIC AFTER READS ---
+      const material = materialSnap.data() as RawMaterial;
       const weightToRevert = withdrawal.consumedWeight || 0;
       let unitsToRevert = withdrawal.consumedUnits ?? 0;
 
-      // Ensure consistency if units were not logged but can be recalculated
       if (unitsToRevert === 0 && material.unitOfMeasure !== 'kg' && material.conversionFactor && material.conversionFactor > 0) {
         unitsToRevert = weightToRevert / material.conversionFactor;
       }
@@ -615,30 +590,24 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
         currentWeightKg: newWeightKg,
       });
 
-      // --- NEW LOGIC TO UPDATE JOB ---
-      if (withdrawal.jobIds && withdrawal.jobIds.length > 0) {
-        for (const jobId of withdrawal.jobIds) {
-          const jobRef = doc(db, 'jobOrders', jobId);
-          const jobSnap = await transaction.get(jobRef);
+      if (jobSnaps.length > 0) {
+        for (const jobSnap of jobSnaps) {
           if (jobSnap.exists()) {
             const jobData = jobSnap.data() as JobOrder;
             const updatedPhases = jobData.phases.map(phase => {
               const consumptions = phase.materialConsumptions || [];
-              // The withdrawalId is the document ID of the withdrawal record.
               const updatedConsumptions = consumptions.filter(
                 c => c.withdrawalId !== withdrawalId
               );
-              // if consumptions changed, return a new phase object
               if (updatedConsumptions.length < consumptions.length) {
                 return { ...phase, materialConsumptions: updatedConsumptions };
               }
               return phase;
             });
-            transaction.update(jobRef, { phases: updatedPhases });
+            transaction.update(jobSnap.ref, { phases: updatedPhases });
           }
         }
       }
-      // --- END NEW LOGIC ---
 
       transaction.delete(withdrawalRef);
     });
