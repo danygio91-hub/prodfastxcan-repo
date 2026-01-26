@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, Download, Loader2, List, Trash2, AlertTriangle, Send } from 'lucide-react';
-import { importStockFromFile } from './actions';
+import { Upload, Download, Loader2, List, Trash2, AlertTriangle, Send, ArrowLeft, FileUp, FileDown } from 'lucide-react';
+import { importCaricoFromFile, importScaricoFromFile } from './actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,22 +24,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Packaging } from '@/lib/mock-data';
 
+type Operation = 'carico' | 'scarico';
+
+interface ParsedRow {
+  [key: string]: string | number;
+  __rowNum__: number;
+}
+
 interface MaterialImportClientPageProps {
   packagingItems: Packaging[];
 }
 
-interface ParsedRow {
-  "Codice Materiale": string;
-  "Lotto": string;
-  "DDT": string;
-  "Quantita Netta": number;
-  "Data": string | number;
-  "Tara (Imballo)": string;
-  __rowNum__: number;
-}
-
-
 export default function MaterialImportClientPage({ packagingItems }: MaterialImportClientPageProps) {
+  const [operation, setOperation] = useState<Operation | null>(null);
   const [parsedData, setParsedData] = useState<ParsedRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -48,29 +45,43 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
   const { user } = useAuth();
   
   const handleDownloadTemplate = () => {
-    const packagingExamples = packagingItems.slice(0, 2).map(p => p.name);
-    const templateData = [
-      { 
-        "Codice Materiale": "CODICE-ESEMPIO-1",
-        "Lotto": "LOTTO-A1",
-        "DDT": "DDT-123",
-        "Quantita Netta": 100.5,
-        "Data": "2024-07-25",
-        "Tara (Imballo)": packagingExamples[0] || "Nome Tara Esistente",
-      },
-       { 
-        "Codice Materiale": "CODICE-ESEMPIO-2",
-        "Lotto": "LOTTO-B2",
-        "DDT": "DDT-124",
-        "Quantita Netta": 50,
-        "Data": 45497, // Excel date number for 2024-07-26
-        "Tara (Imballo)": packagingExamples[1] || "",
-      },
-    ];
+    let templateData: any[];
+    let fileName: string;
+    let sheetName: string;
+
+    if (operation === 'carico') {
+      const packagingExamples = packagingItems.slice(0, 2).map(p => p.name);
+      templateData = [
+        { 
+          "Codice Materiale": "CODICE-ESEMPIO-1", "Lotto": "LOTTO-A1", "DDT": "DDT-123",
+          "Quantita Netta": 100.5, "Data": "2024-07-25", "Tara (Imballo)": packagingExamples[0] || "Nome Tara Esistente",
+        },
+        { 
+          "Codice Materiale": "CODICE-ESEMPIO-2", "Lotto": "LOTTO-B2", "DDT": "DDT-124",
+          "Quantita Netta": 50, "Data": 45497, "Tara (Imballo)": packagingExamples[1] || "",
+        },
+      ];
+      fileName = "template_carico_magazzino.xlsx";
+      sheetName = "Carico Magazzino";
+    } else { // scarico
+      templateData = [
+        {
+          "Codice Materiale": "CODICE-ESEMPIO-1", "Lotto": "LOTTO-A1", "Quantita da Scaricare": 10.5,
+          "Unita": "kg", "Commessa Associata": "Comm-123/24", "Note": "Scarico per test",
+        },
+        {
+          "Codice Materiale": "CODICE-ESEMPIO-2", "Lotto": "LOTTO-B2", "Quantita da Scaricare": 25,
+          "Unita": "n", "Commessa Associata": "", "Note": "",
+        },
+      ];
+      fileName = "template_scarico_magazzino.xlsx";
+      sheetName = "Scarico Magazzino";
+    }
+
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Carico Magazzino");
-    XLSX.writeFile(wb, "template_carico_magazzino.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, fileName);
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,20 +99,14 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const json: ParsedRow[] = XLSX.utils.sheet_to_json(worksheet, {
-             header: [
-                "Codice Materiale",
-                "Lotto",
-                "DDT",
-                "Quantita Netta",
-                "Data",
-                "Tara (Imballo)",
-            ],
-            range: 1 // Skip header row in Excel file
-        });
         
-        // Filter out empty rows that might be parsed
-        const validData = json.filter(row => row['Codice Materiale'] && row['Lotto'] && row['Quantita Netta']);
+        const headers = operation === 'carico'
+          ? ["Codice Materiale", "Lotto", "DDT", "Quantita Netta", "Data", "Tara (Imballo)"]
+          : ["Codice Materiale", "Lotto", "Quantita da Scaricare", "Unita", "Commessa Associata", "Note"];
+          
+        const json: ParsedRow[] = XLSX.utils.sheet_to_json(worksheet, { header: headers, range: 1 });
+        
+        const validData = json.filter(row => row['Codice Materiale'] && (row['Quantita Netta'] || row['Quantita da Scaricare']));
         setParsedData(validData);
         toast({ title: 'File analizzato', description: `${validData.length} righe valide trovate.` });
       } catch (error) {
@@ -117,12 +122,15 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
   };
 
   const handleConfirmImport = async () => {
-    if (!user) {
-        toast({ variant: "destructive", title: "Errore", description: "Utente non autenticato."});
+    if (!user || !operation) {
+        toast({ variant: "destructive", title: "Errore", description: "Operazione o utente non validi."});
         return;
     }
     setIsProcessing(true);
-    const result = await importStockFromFile(parsedData, user.uid);
+    
+    const action = operation === 'carico' ? importCaricoFromFile : importScaricoFromFile;
+    const result = await action(parsedData, user.uid);
+
     toast({
         title: result.success ? 'Importazione Completata' : 'Importazione Fallita',
         description: result.message,
@@ -130,8 +138,7 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
         duration: 9000,
     });
     if (result.success) {
-      setParsedData([]);
-      setFileName('');
+      clearData();
     }
     setIsProcessing(false);
   };
@@ -141,111 +148,140 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
     setFileName('');
   }
 
+  const renderHeaderAndTable = () => {
+    if (operation === 'carico') {
+        return (
+            <>
+                <TableHeader className="sticky top-0 bg-muted"><TableRow>
+                    <TableHead>Codice Materiale</TableHead><TableHead>Lotto</TableHead><TableHead>DDT</TableHead>
+                    <TableHead>Q.tà Netta</TableHead><TableHead>Data</TableHead><TableHead>Tara</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                    {parsedData.map((row, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
+                            <TableCell>{row["DDT"]}</TableCell><TableCell>{row["Quantita Netta"]}</TableCell>
+                            <TableCell>{typeof row["Data"] === 'number' ? new Date(Date.UTC(1899, 11, 30 + (row["Data"] as number))).toLocaleDateString('it-IT') : new Date(row["Data"] as string).toLocaleDateString('it-IT')}</TableCell>
+                            <TableCell>{row["Tara (Imballo)"]}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </>
+        );
+    } else { // scarico
+         return (
+            <>
+                <TableHeader className="sticky top-0 bg-muted"><TableRow>
+                    <TableHead>Codice Materiale</TableHead><TableHead>Lotto</TableHead>
+                    <TableHead>Q.tà da Scaricare</TableHead><TableHead>Unità</TableHead>
+                    <TableHead>Commessa</TableHead><TableHead>Note</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                    {parsedData.map((row, index) => (
+                        <TableRow key={index}>
+                            <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
+                            <TableCell>{row["Quantita da Scaricare"]}</TableCell><TableCell>{row["Unita"]}</TableCell>
+                            <TableCell>{row["Commessa Associata"]}</TableCell><TableCell>{row["Note"]}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </>
+        );
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-          <Upload className="h-8 w-8 text-primary" />
-          Carico Merce da File Excel
-        </h1>
-        <p className="text-muted-foreground">
-          Importa massivamente i lotti di materie prime caricando un file Excel.
-        </p>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>1. Carica File</CardTitle>
-          <CardDescription>Scarica il template, compilalo e carica il file per avviare l'importazione.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-4">
-          <Button onClick={handleDownloadTemplate} variant="secondary">
-            <Download className="mr-2" />
-            Scarica Template
-          </Button>
-           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-           <Button onClick={() => fileInputRef.current?.click()} disabled={isProcessing}>
-            <Upload className="mr-2" />
-            Seleziona File Excel
-          </Button>
-          {fileName && <p className="text-sm text-muted-foreground">File selezionato: {fileName}</p>}
-        </CardContent>
-      </Card>
-
-      {parsedData.length > 0 && (
-        <Card>
-            <CardHeader>
-                <div className="flex justify-between items-center">
-                    <div className="space-y-1">
-                        <CardTitle className="flex items-center gap-2"><List className="h-6 w-6"/> 2. Anteprima Dati</CardTitle>
-                        <CardDescription>Controlla i dati letti dal file. Se sono corretti, procedi con l'importazione.</CardDescription>
-                    </div>
-                    <Button variant="destructive" size="sm" onClick={clearData}>
-                        <Trash2 className="mr-2"/>
-                        Annulla e Svuota
+        {!operation ? (
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-3"><Upload className="h-8 w-8 text-primary" />Carico/Scarico Merce da File</CardTitle>
+                    <CardDescription>Seleziona l'operazione che vuoi eseguire.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6">
+                    <Button onClick={() => setOperation('carico')} variant="outline" className="h-28 text-lg flex-col gap-2 border-green-500/50 hover:bg-green-500/10 hover:text-green-700 dark:hover:text-green-400">
+                        <FileUp className="h-8 w-8 text-green-500" />
+                        Carico Merce
                     </Button>
-                </div>
+                    <Button onClick={() => setOperation('scarico')} variant="outline" className="h-28 text-lg flex-col gap-2 border-red-500/50 hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-400">
+                        <FileDown className="h-8 w-8 text-red-500" />
+                        Scarico Merce
+                    </Button>
+                </CardContent>
+            </Card>
+        ) : (
+        <>
+          <Button variant="ghost" onClick={() => { setOperation(null); clearData(); }}>
+            <ArrowLeft className="mr-2"/>
+            Torna alla selezione
+          </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle className="capitalize">{operation} Merce da File</CardTitle>
+              <CardDescription>Scarica il template, compilalo e carica il file per avviare l'importazione.</CardDescription>
             </CardHeader>
-            <CardContent>
-                <div className="max-h-96 overflow-y-auto border rounded-lg">
-                    <Table>
-                        <TableHeader className="sticky top-0 bg-muted">
-                            <TableRow>
-                                <TableHead>Codice Materiale</TableHead>
-                                <TableHead>Lotto</TableHead>
-                                <TableHead>DDT</TableHead>
-                                <TableHead>Q.tà Netta</TableHead>
-                                <TableHead>Data</TableHead>
-                                <TableHead>Tara</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {parsedData.map((row, index) => (
-                                <TableRow key={index}>
-                                    <TableCell>{row["Codice Materiale"]}</TableCell>
-                                    <TableCell>{row["Lotto"]}</TableCell>
-                                    <TableCell>{row["DDT"]}</TableCell>
-                                    <TableCell>{row["Quantita Netta"]}</TableCell>
-                                     <TableCell>
-                                        {typeof row["Data"] === 'number'
-                                            ? new Date(Date.UTC(1899, 11, 30 + row["Data"])).toLocaleDateString('it-IT')
-                                            : new Date(row["Data"]).toLocaleDateString('it-IT')}
-                                    </TableCell>
-                                    <TableCell>{row["Tara (Imballo)"]}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
+            <CardContent className="flex flex-wrap items-center gap-4">
+              <Button onClick={handleDownloadTemplate} variant="secondary">
+                <Download className="mr-2" />
+                Scarica Template
+              </Button>
+               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+               <Button onClick={() => fileInputRef.current?.click()} disabled={isProcessing}>
+                <Upload className="mr-2" />
+                Seleziona File Excel
+              </Button>
+              {fileName && <p className="text-sm text-muted-foreground">File selezionato: {fileName}</p>}
             </CardContent>
-            <CardFooter>
-                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button className="w-full" disabled={isProcessing}>
-                        <Send className="mr-2" />
-                        Conferma e Importa {parsedData.length} lotti
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle/> Sei assolutamente sicuro?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                           Stai per aggiungere {parsedData.length} lotti al magazzino. L'operazione aggiornerà lo stock dei materiali corrispondenti. Questa azione non può essere annullata facilmente.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirmImport} disabled={isProcessing}>
-                            {isProcessing ? <Loader2 className="mr-2 animate-spin"/> : null}
-                            Sì, importa
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-            </CardFooter>
-        </Card>
-      )}
+          </Card>
 
+          {parsedData.length > 0 && (
+            <Card>
+                <CardHeader>
+                    <div className="flex justify-between items-center">
+                        <div className="space-y-1">
+                            <CardTitle className="flex items-center gap-2"><List className="h-6 w-6"/> Anteprima Dati</CardTitle>
+                            <CardDescription>Controlla i dati letti dal file. Se sono corretti, procedi con l'importazione.</CardDescription>
+                        </div>
+                        <Button variant="destructive" size="sm" onClick={clearData}>
+                            <Trash2 className="mr-2"/>
+                            Annulla e Svuota
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <div className="max-h-96 overflow-y-auto border rounded-lg">
+                        <Table>{renderHeaderAndTable()}</Table>
+                    </div>
+                </CardContent>
+                <CardFooter>
+                     <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button className="w-full" disabled={isProcessing}>
+                            <Send className="mr-2" />
+                            Conferma e Importa {parsedData.length} righe
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle/> Sei assolutamente sicuro?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                               Stai per eseguire un {operation} massivo per {parsedData.length} righe. L'operazione aggiornerà lo stock dei materiali. Questa azione non può essere annullata facilmente.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleConfirmImport} disabled={isProcessing}>
+                                {isProcessing ? <Loader2 className="mr-2 animate-spin"/> : null}
+                                Sì, importa
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                </CardFooter>
+            </Card>
+          )}
+        </>
+        )}
     </div>
   );
 }

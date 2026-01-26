@@ -11,7 +11,7 @@ import DashboardItem from '@/components/dashboard/DashboardItem';
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica delle materie prime.', icon: Boxes },
-  { href: '/admin/material-import', label: 'Carico Merce da File', description: 'Importa massivamente i carichi di materiale da un file Excel.', icon: Upload },
+  { href: '/admin/material-import', label: 'Carico/Scarico da File', description: 'Importa massivamente carichi o scarichi di materiale da un file Excel.', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', description: 'Visualizza e gestisci i lotti delle materie prime.', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', description: 'Crea e gestisci la distinta base degli articoli.', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },

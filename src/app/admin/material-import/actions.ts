@@ -1,10 +1,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, arrayUnion } from 'firebase/firestore';
+import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, arrayUnion, Timestamp, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
+import { getOperatorByUid } from '@/app/scan-job/actions';
+import { formatDisplayStock } from '@/lib/utils';
 
 
 export async function getPackagingItems(): Promise<Packaging[]> {
@@ -15,7 +17,7 @@ export async function getPackagingItems(): Promise<Packaging[]> {
 }
 
 
-export async function importStockFromFile(
+export async function importCaricoFromFile(
   data: any[],
   uid: string
 ): Promise<{ success: boolean; message: string; }> {
@@ -26,10 +28,10 @@ export async function importStockFromFile(
   }
 
   const materialsSnapshot = await getDocs(collection(db, 'rawMaterials'));
-  const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code, { id: doc.id, ...doc.data() } as RawMaterial]));
+  const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial]));
 
   const packagingSnapshot = await getDocs(collection(db, 'packaging'));
-  const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), doc.data().weightKg as number]));
+  const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), {id: doc.id, weight: doc.data().weightKg as number}]));
 
 
   let successCount = 0;
@@ -50,7 +52,7 @@ export async function importStockFromFile(
       continue;
     }
 
-    const material = materialsMap.get(materialCode);
+    const material = materialsMap.get(materialCode.toLowerCase());
     if (!material) {
       errorCount++;
       errors.push(`Riga ${index + 2}: Materiale con codice "${materialCode}" non trovato.`);
@@ -74,8 +76,11 @@ export async function importStockFromFile(
     }
 
     let tareWeight = 0;
+    let packagingId: string | undefined = undefined;
     if (packagingName && packagingMap.has(packagingName)) {
-        tareWeight = packagingMap.get(packagingName) ?? 0;
+        const pack = packagingMap.get(packagingName)!;
+        tareWeight = pack.weight;
+        packagingId = pack.id;
     }
 
     const materialRef = doc(db, 'rawMaterials', material.id);
@@ -105,10 +110,9 @@ export async function importStockFromFile(
                 netQuantity,
                 tareWeight,
                 grossWeight: netWeightForCalc + tareWeight,
+                packagingId: packagingId,
             };
             
-            const updatedBatches = [...(currentMaterial.batches || []), newBatch];
-
             const unitsToAdd = newBatch.netQuantity || 0;
             const weightToAdd = newBatch.grossWeight - newBatch.tareWeight;
 
@@ -116,7 +120,7 @@ export async function importStockFromFile(
             const newWeightKg = (currentMaterial.currentWeightKg || 0) + weightToAdd;
 
             transaction.update(materialRef, {
-                batches: updatedBatches,
+                batches: arrayUnion(newBatch),
                 currentStockUnits: newStockUnits,
                 currentWeightKg: newWeightKg
             });
@@ -131,10 +135,119 @@ export async function importStockFromFile(
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/admin/batch-management');
 
-  const message = `Importazione completata. ${successCount} lotti caricati, ${errorCount} errori.`;
+  let message = `Importazione completata. ${successCount} lotti caricati, ${errorCount} errori.`;
   if (errors.length > 0) {
-    return { success: errorCount === 0, message: `${message}\n\nDettagli errori:\n${errors.slice(0, 5).join('\n')}` };
+    message = `${message} Dettagli errori: ${errors.slice(0, 5).join('; ')}`;
   }
 
-  return { success: true, message };
+  return { success: errorCount === 0, message };
+}
+
+
+export async function importScaricoFromFile(data: any[], uid: string): Promise<{ success: boolean; message: string; }> {
+  await ensureAdmin(uid);
+  const admin = await getOperatorByUid(uid);
+
+  if (!data || data.length === 0) {
+    return { success: false, message: 'Nessun dato da importare.' };
+  }
+
+  const materialsSnapshot = await getDocs(collection(db, 'rawMaterials'));
+  const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial]));
+
+  let successCount = 0;
+  let errorCount = 0;
+  const errors: string[] = [];
+
+  for (const [index, row] of data.entries()) {
+    const materialCode = row['Codice Materiale'];
+    const lotto = row['Lotto'];
+    const quantity = parseFloat(row['Quantita da Scaricare']);
+    const unit = row['Unita']?.toLowerCase();
+    const jobOrderPF = row['Commessa Associata'];
+    const notes = row['Note'];
+    
+    if (!materialCode || isNaN(quantity) || quantity <= 0 || !['n', 'mt', 'kg'].includes(unit)) {
+      errorCount++;
+      errors.push(`Riga ${index + 2}: Dati mancanti o non validi (Codice, Quantità, Unità).`);
+      continue;
+    }
+
+    const material = materialsMap.get(materialCode.toLowerCase());
+    if (!material) {
+      errorCount++;
+      errors.push(`Riga ${index + 2}: Materiale con codice "${materialCode}" non trovato.`);
+      continue;
+    }
+
+    const materialRef = doc(db, "rawMaterials", material.id);
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const materialDoc = await transaction.get(materialRef);
+        if (!materialDoc.exists()) throw new Error("Materia prima non trovata durante la transazione.");
+        
+        const currentMaterial = materialDoc.data() as RawMaterial;
+        
+        let unitsConsumed = 0;
+        let consumedWeight = 0;
+
+        if (unit === 'kg') {
+          consumedWeight = quantity;
+          if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
+            unitsConsumed = quantity / currentMaterial.conversionFactor;
+          } else if (currentMaterial.unitOfMeasure === 'kg') {
+            unitsConsumed = quantity;
+          }
+        } else { // 'n' or 'mt'
+          if (unit !== currentMaterial.unitOfMeasure) {
+            throw new Error(`Unità di misura non corrispondente. Prevista: ${currentMaterial.unitOfMeasure}, fornita: ${unit}`);
+          }
+          unitsConsumed = quantity;
+          consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
+        }
+        
+        const currentStockUnits = currentMaterial.currentStockUnits ?? 0;
+        const currentWeightKg = currentMaterial.currentWeightKg ?? 0;
+
+        if (currentStockUnits < unitsConsumed || currentWeightKg < consumedWeight) {
+          throw new Error(`Stock insufficiente. Disponibile: ${formatDisplayStock(currentStockUnits, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure} / ${formatDisplayStock(currentWeightKg, 'kg')} kg.`);
+        }
+        
+        const newStockUnits = currentStockUnits - unitsConsumed;
+        const newWeightKg = currentWeightKg - consumedWeight;
+
+        transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
+        
+        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+        transaction.set(withdrawalRef, {
+            jobIds: [],
+            jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_DA_FILE'],
+            materialId: material.id,
+            materialCode: material.code,
+            consumedWeight,
+            consumedUnits: unitsConsumed,
+            operatorId: uid,
+            operatorName: admin?.nome || 'Admin Import',
+            withdrawalDate: Timestamp.now(),
+            notes: notes || `Scarico da file. Riga ${index + 2}`,
+            lotto: lotto || null,
+        });
+      });
+      successCount++;
+    } catch (e: any) {
+        errorCount++;
+        errors.push(`Riga ${index + 2} (${materialCode}): ${e.message}`);
+    }
+  }
+
+  revalidatePath('/admin/raw-material-management');
+  revalidatePath('/admin/reports');
+
+  let message = `Importazione completata. ${successCount} scarichi registrati, ${errorCount} errori.`;
+  if (errors.length > 0) {
+    message += ` Dettagli errori: ${errors.slice(0, 5).join('; ')}`;
+  }
+
+  return { success: errorCount === 0, message };
 }
