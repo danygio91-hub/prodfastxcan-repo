@@ -211,7 +211,7 @@ export interface MaterialWithdrawal {
   operatorName?: string;
   withdrawalDate: Date;
   notes?: string; // Optional field for manual withdrawals
-  lotto?: string;
+  lotto?: string | null;
 }
 
 export interface WorkCycle {

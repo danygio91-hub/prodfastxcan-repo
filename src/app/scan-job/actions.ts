@@ -528,33 +528,34 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
   }
   
   const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit } = validated.data;
+  
+  const isGroup = jobId.startsWith('group-');
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, jobId);
   const materialRef = doc(db, "rawMaterials", materialId);
-  const jobRef = doc(db, 'jobOrders', jobId);
   
   try {
     await runTransaction(db, async (transaction) => {
         const materialDoc = await transaction.get(materialRef);
-        const jobDoc = await transaction.get(jobRef);
+        const itemDoc = await transaction.get(itemRef);
         const operatorSnap = await getDoc(doc(db, "operators", operatorId));
         const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
 
         if (!materialDoc.exists()) throw new Error("Materia prima non trovata.");
-        if (!jobDoc.exists()) throw new Error("Commessa non trovata.");
+        if (!itemDoc.exists()) throw new Error("Commessa o Gruppo non trovato.");
         
         const material = materialDoc.data() as RawMaterial;
-        const job = jobDoc.data() as JobOrder;
+        const item = itemDoc.data() as JobOrder | WorkGroup;
         
         let unitsConsumed = 0;
         let consumedWeight = 0;
 
-        // This calculation determines how much to subtract from stock
         if (unit === 'kg') {
           consumedWeight = quantity;
-          // If a conversion factor exists, we can estimate the units consumed.
           if (material.conversionFactor && material.conversionFactor > 0) {
             unitsConsumed = quantity / material.conversionFactor;
           }
-        } else { // 'n' or 'mt'
+        } else {
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
         }
@@ -562,39 +563,37 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         const currentStockUnits = material.currentStockUnits ?? 0;
         const currentWeightKg = material.currentWeightKg ?? 0;
 
-        // Validation against available stock
         if (currentStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits.toFixed(2)}, Richiesto: ${unitsConsumed.toFixed(2)}.`);
+            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
         }
-         if (currentWeightKg < consumedWeight) {
-             throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
+        if (currentWeightKg < consumedWeight) {
+            throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
-        // Correctly calculate new stock values
         const newStockUnits = currentStockUnits - unitsConsumed;
         const newWeightKg = currentWeightKg - consumedWeight;
 
-        // Update material stock
         transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
         
-        // Create withdrawal log
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+        const jobIds = isGroup ? (item as WorkGroup).jobOrderIds : [jobId];
+        const jobOrderPFs = isGroup ? (item as WorkGroup).jobOrderPFs : [jobOrderPF];
+        
         transaction.set(withdrawalRef, {
-            jobIds: [jobId],
-            jobOrderPFs: [jobOrderPF],
+            jobIds: jobIds,
+            jobOrderPFs: jobOrderPFs,
             materialId,
             materialCode: material.code,
             consumedWeight,
             consumedUnits: unitsConsumed,
             operatorId,
-            operatorName, // Add operator name to the log
+            operatorName,
             withdrawalDate: Timestamp.now(),
         });
         
-        // Update JobOrder with consumption data
-        const phaseToUpdate = job.phases.find(p => p.id === phaseId);
+        const phaseToUpdate = item.phases.find(p => p.id === phaseId);
         if (!phaseToUpdate) {
-            throw new Error(`Fase con ID ${phaseId} non trovata nella commessa.`);
+            throw new Error(`Fase con ID ${phaseId} non trovata.`);
         }
         
         const newConsumption: MaterialConsumption = {
@@ -608,10 +607,18 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             phaseToUpdate.materialConsumptions = [];
         }
         phaseToUpdate.materialConsumptions.push(newConsumption);
-        phaseToUpdate.materialReady = true; // Mark phase as ready
         
-        const updatedPhases = job.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
-        transaction.update(jobRef, { phases: updatedPhases });
+        if (phaseToUpdate.type === 'preparation') {
+            phaseToUpdate.materialReady = true;
+        }
+        
+        const updatedPhases = item.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
+        transaction.update(itemRef, { phases: updatedPhases });
+
+        if (isGroup) {
+            const groupData = { ...item, phases: updatedPhases } as WorkGroup;
+            await propagateGroupUpdatesToJobs(transaction, groupData);
+        }
     });
 
     revalidatePath('/admin/raw-material-management');
@@ -622,7 +629,6 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
      return { success: false, message: errorMessage };
   }
 }
-
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string, isInitialLoad: boolean, material: RawMaterial | null} | null> {
     if (!lotto) return null;
@@ -1123,3 +1129,4 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
+
