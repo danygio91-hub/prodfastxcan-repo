@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useMemo, useTransition } from 'react';
@@ -46,6 +47,7 @@ type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
 type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 
+const allMaterialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'];
 
 function StatusBadge({ status }: { status: OverallStatus }) {
   return (
@@ -515,71 +517,71 @@ export default function ReportsClientPage({
                          <div className="flex items-center justify-center h-64">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                          </div>
-                       ) : withdrawalGroups.length > 0 ? (
-                            <Tabs defaultValue={withdrawalGroups[0]} className="w-full">
+                       ) : (
+                            <Tabs defaultValue={allMaterialTypes[0]} className="w-full">
                                 <TabsList>
-                                    {withdrawalGroups.map(type => (
+                                    {allMaterialTypes.map(type => (
                                         <TabsTrigger key={type} value={type}>
                                              <Package className="mr-2 h-4 w-4" />
                                             {type}
                                         </TabsTrigger>
                                     ))}
                                 </TabsList>
-                                {withdrawalGroups.map(type => {
+                                {allMaterialTypes.map(type => {
                                     const group = filteredAndGroupedWithdrawals[type] || [];
                                     const groupIds = group.map(w => w.id);
                                     const selectedInGroupCount = selectedWithdrawals.filter(id => groupIds.includes(id)).length;
                                     
                                     return (
                                      <TabsContent value={type} key={type}>
-                                        <div className="overflow-x-auto">
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead padding="checkbox">
-                                                            <Checkbox
-                                                            checked={selectedInGroupCount > 0 ? (selectedInGroupCount === group.length ? true : 'indeterminate') : false}
-                                                            onCheckedChange={(checked) => handleSelectAllForGroup(group, checked)}
-                                                            aria-label={`Seleziona tutti i prelievi per ${type}`}
-                                                            />
-                                                        </TableHead>
-                                                        <TableHead>Commessa/e</TableHead>
-                                                        <TableHead>Materiale</TableHead>
-                                                        <TableHead>Peso Consumato (Kg)</TableHead>
-                                                        <TableHead>Data Prelievo</TableHead>
-                                                        <TableHead>Operatore</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {group.map((w) => (
-                                                        <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
-                                                            <TableCell padding="checkbox">
+                                        {group.length > 0 ? (
+                                            <div className="overflow-x-auto">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead padding="checkbox">
                                                                 <Checkbox
-                                                                checked={selectedWithdrawals.includes(w.id)}
-                                                                onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
-                                                                aria-label={`Seleziona prelievo ${w.id}`}
+                                                                checked={selectedInGroupCount > 0 ? (selectedInGroupCount === group.length ? true : 'indeterminate') : false}
+                                                                onCheckedChange={(checked) => handleSelectAllForGroup(group, !!checked)}
+                                                                aria-label={`Seleziona tutti i prelievi per ${type}`}
                                                                 />
-                                                            </TableCell>
-                                                            <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
-                                                            <TableCell>{w.materialCode}</TableCell>
-                                                            <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
-                                                            <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                                            <TableCell>{w.operatorName}</TableCell>
+                                                            </TableHead>
+                                                            <TableHead>Commessa/e</TableHead>
+                                                            <TableHead>Materiale</TableHead>
+                                                            <TableHead>Peso Consumato (Kg)</TableHead>
+                                                            <TableHead>Data Prelievo</TableHead>
+                                                            <TableHead>Operatore</TableHead>
                                                         </TableRow>
-                                                    ))}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {group.map((w) => (
+                                                            <TableRow key={w.id} data-state={selectedWithdrawals.includes(w.id) ? "selected" : undefined}>
+                                                                <TableCell padding="checkbox">
+                                                                    <Checkbox
+                                                                    checked={selectedWithdrawals.includes(w.id)}
+                                                                    onCheckedChange={() => handleSelectWithdrawalRow(w.id)}
+                                                                    aria-label={`Seleziona prelievo ${w.id}`}
+                                                                    />
+                                                                </TableCell>
+                                                                <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
+                                                                <TableCell>{w.materialCode}</TableCell>
+                                                                <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
+                                                                <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                                                <TableCell>{w.operatorName}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        ) : (
+                                            <div className="py-12 text-center text-muted-foreground">
+                                                Nessun prelievo registrato per questa tipologia nel periodo selezionato.
+                                            </div>
+                                        )}
                                     </TabsContent>
                                     )
                                 })}
                             </Tabs>
-                       ) : (
-                        <div className="flex flex-col items-center justify-center h-48 text-center text-muted-foreground">
-                            <Boxes className="h-12 w-12 mb-4" />
-                            <p className="font-semibold">Nessun prelievo trovato.</p>
-                            <p className="text-sm">Non ci sono dati che corrispondono ai filtri di ricerca e al periodo selezionato.</p>
-                        </div>
                        )}
                   </CardContent>
                 </Card>
