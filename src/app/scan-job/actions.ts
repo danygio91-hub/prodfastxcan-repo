@@ -461,9 +461,11 @@ export async function closeMaterialSessionAndUpdateStock(
 
         // 3b. Create a single withdrawal log for the entire session
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+        const uniqueJobOrderPFs = [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))];
+
         transaction.set(withdrawalRef, {
             jobIds: uniqueJobIds,
-            jobOrderPFs: [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))],
+            jobOrderPFs: uniqueJobOrderPFs,
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight: consumedWeight,
@@ -1129,4 +1131,5 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 
     return null;
 }
+
 

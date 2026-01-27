@@ -28,7 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from '@/components/ui/switch';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -385,22 +385,10 @@ export default function ScanJobPage() {
     if ('error' in result) {
         toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
     } else {
-        if (activeSessions.length > 0) {
-            const groupSession = activeSessions.find(s => s.originatorJobId.startsWith('group-'));
-            if (groupSession && result.workGroupId && result.workGroupId === groupSession.originatorJobId) {
-                addJobToSession(groupSession.materialId, { jobId: result.id, jobOrderPF: result.ordinePF });
-                toast({
-                    title: "Commessa Aggiunta alla Sessione",
-                    description: `${result.id} è stata aggiunta alla sessione materiale attiva.`
-                });
-                return;
-            }
-        }
-        
         toast({ title: "Commessa Verificata!", description: `Pronto per la lavorazione di ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
         setActiveJobId(result.id);
     }
-  }, [toast, stopCamera, setActiveJobId, activeSessions, addJobToSession]);
+  }, [toast, stopCamera, setActiveJobId]);
   
   const startCamera = useCallback(async () => {
     setHasCameraPermission(true);
