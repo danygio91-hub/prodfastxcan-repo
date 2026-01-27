@@ -1,11 +1,11 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, arrayUnion, Timestamp, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, Packaging } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { getOperatorByUid } from '@/app/scan-job/actions';
 import { formatDisplayStock } from '@/lib/utils';
 
 
@@ -14,6 +14,23 @@ export async function getPackagingItems(): Promise<Packaging[]> {
   const q = query(packagingCol, orderBy("name"));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data() as Packaging);
+}
+
+// Helper to get operator by UID for logging purposes
+async function getOperatorByUid(uid: string): Promise<Operator | null> {
+    const q = query(collection(db, "operators"), where("uid", "==", uid));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+        const operatorDoc = querySnapshot.docs[0];
+        return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+    }
+    // Fallback to check by ID if UID is not set
+    const docRef = doc(db, "operators", uid);
+    const docSnap = await getDoc(docRef);
+    if(docSnap.exists()){
+        return { ...docSnap.data(), id: docSnap.id } as Operator;
+    }
+    return null;
 }
 
 
@@ -210,8 +227,11 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         const currentStockUnits = currentMaterial.currentStockUnits ?? 0;
         const currentWeightKg = currentMaterial.currentWeightKg ?? 0;
 
-        if (currentStockUnits < unitsConsumed || currentWeightKg < consumedWeight) {
-          throw new Error(`Stock insufficiente. Disponibile: ${formatDisplayStock(currentStockUnits, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure} / ${formatDisplayStock(currentWeightKg, 'kg')} kg.`);
+        if (currentStockUnits < unitsConsumed) {
+          throw new Error(`Stock insufficiente. Disponibile: ${formatDisplayStock(currentStockUnits, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure}, Richiesto: ${unitsConsumed}.`);
+        }
+         if (currentWeightKg < consumedWeight) {
+             throw new Error(`Stock a peso insufficiente. Disponibile: ${formatDisplayStock(currentWeightKg, 'kg')} kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
         const newStockUnits = currentStockUnits - unitsConsumed;

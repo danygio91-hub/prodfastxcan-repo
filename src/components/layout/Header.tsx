@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -30,7 +31,7 @@ const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
-  { href: '/admin/material-import', label: 'Carico Merce', icon: Upload },
+  { href: '/admin/material-import', label: 'Carico/Scarico da File', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },

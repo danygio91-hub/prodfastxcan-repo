@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef } from 'react';
@@ -257,7 +258,7 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
                      <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button className="w-full" disabled={isProcessing}>
-                            <Send className="mr-2" />
+                            {isProcessing ? <Loader2 className="mr-2 animate-spin"/> : <Send className="mr-2" />}
                             Conferma e Importa {parsedData.length} righe
                           </Button>
                         </AlertDialogTrigger>
