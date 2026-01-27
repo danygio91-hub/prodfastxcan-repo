@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy } from 'lucide-react';
-import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type getOperatorsReport } from './actions';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type getOperatorsReport } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
 import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
@@ -43,7 +43,6 @@ import {
 } from "@/components/ui/context-menu";
 import { useToast } from '@/hooks/use-toast';
 
-type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
 type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
 

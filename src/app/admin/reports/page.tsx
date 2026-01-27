@@ -4,13 +4,14 @@ import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
+import type { JobsReport } from './actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminReportsPage() {
   // Pass an empty array to avoid fetching data on initial load.
   // Data will be fetched on the client when a tab is clicked.
-  const jobsReport = [];
+  const jobsReport: JobsReport = [];
 
   return (
     <AdminAuthGuard>
