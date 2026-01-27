@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useMemo } from 'react';
@@ -33,9 +31,14 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     (phase.materialConsumptions || []).forEach(consumption => {
       const existing = additionalConsumptions.get(consumption.materialCode) || { quantity: 0, withdrawn: 0 };
       existing.quantity += consumption.pcs || 0; 
-      if (consumption.closingWeight !== undefined) {
-        existing.withdrawn += consumption.pcs || 0;
+      
+      const isSessionClosed = consumption.grossOpeningWeight !== undefined && consumption.closingWeight !== undefined;
+      const isImmediateWithdrawal = consumption.grossOpeningWeight === undefined;
+
+      if (isSessionClosed || isImmediateWithdrawal) {
+         existing.withdrawn += consumption.pcs || 0;
       }
+
       additionalConsumptions.set(consumption.materialCode, existing);
     });
   });
