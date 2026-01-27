@@ -11,6 +11,11 @@ export function formatDisplayStock(value: number | null | undefined, unit: 'n' |
   if (unit === 'n') {
     return String(Math.floor(value));
   }
+  
+  if (isNaN(value)) {
+    return '0.00';
+  }
+
   if (unit === 'mt') {
     // Arrotondamento per difetto al più vicino 0.05
     const rounded = Math.floor(value * 20) / 20;
