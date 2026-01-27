@@ -26,17 +26,22 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
   const baseBOM = job.billOfMaterials || [];
   const baseBOMComponentCodes = new Set(baseBOM.map(item => item.component));
   const additionalConsumptions = new Map<string, { quantity: number, withdrawn: number }>();
+  
+  const isAggregatedView = job.id.startsWith('group-');
 
   (job.phases || []).forEach(phase => {
     (phase.materialConsumptions || []).forEach(consumption => {
       const existing = additionalConsumptions.get(consumption.materialCode) || { quantity: 0, withdrawn: 0 };
-      existing.quantity += consumption.pcs || 0; 
       
       const isSessionClosed = consumption.grossOpeningWeight !== undefined && consumption.closingWeight !== undefined;
-      const isImmediateWithdrawal = consumption.grossOpeningWeight === undefined;
+      const isImmediateWithdrawal = consumption.grossOpeningWeight === undefined && consumption.pcs !== undefined;
 
+      const consumptionPcs = consumption.pcs || 0;
+      
+      existing.quantity += consumptionPcs;
+      
       if (isSessionClosed || isImmediateWithdrawal) {
-         existing.withdrawn += consumption.pcs || 0;
+         existing.withdrawn += consumptionPcs;
       }
 
       additionalConsumptions.set(consumption.materialCode, existing);
@@ -48,11 +53,12 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     if (!baseBOMComponentCodes.has(code)) {
         const material = materialsMap.get(code);
         if (data.quantity > 0) {
+            const isWithdrawn = data.withdrawn >= data.quantity;
             combinedBOM.push({
                 component: code,
                 quantity: data.quantity, // This is already the total
                 unit: material ? material.unitOfMeasure : 'n',
-                status: data.withdrawn >= data.quantity ? 'withdrawn' : 'committed',
+                status: isWithdrawn ? 'withdrawn' : 'committed',
                 isFromTemplate: false,
             });
         }
@@ -65,10 +71,13 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ClipboardList className="h-6 w-6 text-primary" />
-            Distinta Base per {job.ordinePF}
+            {isAggregatedView ? `Distinta Base Aggregata per Gruppo ${job.id}` : `Distinta Base per ${job.ordinePF}`}
           </DialogTitle>
           <DialogDescription>
-            Componenti necessari per la produzione di {job.qta} pz di <span className="font-semibold">{job.details}</span>.
+             {isAggregatedView 
+              ? `Componenti totali necessari per la produzione di ${job.qta} pz di ${job.details} (tutte le commesse).`
+              : `Componenti necessari per la produzione di ${job.qta} pz di ${job.details}.`
+            }
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-4">
@@ -76,7 +85,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
             <TableHeader>
               <TableRow>
                 <TableHead>Componente</TableHead>
-                <TableHead>Q.tà x Pz</TableHead>
+                {!isAggregatedView && <TableHead>Q.tà x Pz</TableHead>}
                 <TableHead>Fabbisogno Tot.</TableHead>
                 <TableHead>UM</TableHead>
                 <TableHead>Peso Stimato (KG)</TableHead>
@@ -127,9 +136,9 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                     <TableRow key={index}>
                         <TableCell className="font-medium">
                             {item.component}
-                            {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
+                            {!item.isFromTemplate && !isAggregatedView && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
                         </TableCell>
-                        <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>
+                        {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
                         <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
                         <TableCell>{displayUnit}</TableCell>
                         <TableCell>{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
@@ -175,3 +184,5 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     </Dialog>
   );
 }
+
+    

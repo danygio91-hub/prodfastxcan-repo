@@ -5,7 +5,7 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer, Loader2 } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, Timer, Loader2, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
@@ -40,6 +40,8 @@ import { Badge } from '@/components/ui/badge';
 import JobOrderCard from './JobOrderCard';
 import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
+import BOMDialog from './BOMDialog';
+import { JobBillOfMaterialsItem } from '@/lib/mock-data';
 
 
 interface ActivePhaseInfo {
@@ -96,8 +98,46 @@ export default function WorkGroupCard({
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
+  const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
   const [selectedOperatorsToPause, setSelectedOperatorsToPause] = useState<string[]>([]);
   const hasMaterialMissing = group.phases.some(p => p.materialStatus === 'missing');
+
+  const syntheticJobForBOM: JobOrder = useMemo(() => {
+    const componentMap = new Map<string, { item: JobBillOfMaterialsItem, totalRequired: number }>();
+    
+    jobsInGroup.forEach(job => {
+      (job.billOfMaterials || []).forEach(item => {
+        let totalRequiredForItemInJob = 0;
+        if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+           totalRequiredForItemInJob = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+        } else {
+           totalRequiredForItemInJob = item.quantity * job.qta;
+        }
+        
+        const existing = componentMap.get(item.component);
+        if (existing) {
+          existing.totalRequired += totalRequiredForItemInJob;
+        } else {
+          componentMap.set(item.component, {
+            item: item,
+            totalRequired: totalRequiredForItemInJob,
+          });
+        }
+      });
+    });
+
+    const aggregatedBOMItems = Array.from(componentMap.values()).map(entry => ({
+      ...entry.item,
+      quantity: entry.totalRequired, // The total required quantity for the whole group
+      isFromTemplate: false, // Mark as aggregated
+    }));
+
+    return {
+      ...group,
+      billOfMaterials: aggregatedBOMItems,
+      qta: 1, // Set qta to 1 because the BOM quantities are pre-calculated totals
+    };
+  }, [group, jobsInGroup]);
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
     const activePhasesMap = new Map<string, ActivePhaseInfo>();
@@ -223,6 +263,16 @@ export default function WorkGroupCard({
                         {group.cliente}
                     </CardDescription>
                     <div className="flex items-center gap-1">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={(e) => { e.stopPropagation(); setIsBOMDialogOpen(true); }}>
+                                        <ClipboardList className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Vedi Distinta Base Aggregata</p></TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
@@ -380,6 +430,15 @@ export default function WorkGroupCard({
         </CollapsibleContent>
       </Card>
       </Collapsible>
+      
+      {isBOMDialogOpen && (
+        <BOMDialog
+            isOpen={isBOMDialogOpen}
+            onOpenChange={setIsBOMDialogOpen}
+            job={syntheticJobForBOM}
+            allRawMaterials={allRawMaterials}
+        />
+      )}
 
       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
           <DialogContent>
@@ -462,3 +521,5 @@ export default function WorkGroupCard({
     </>
   );
 }
+
+    
