@@ -12,8 +12,8 @@ import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials } from './actions';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department } from '@/lib/mock-data';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials, getMaterialsStatus, MaterialStatus } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight, AlertTriangle, RefreshCw, BarChart3, Database } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
@@ -73,16 +74,19 @@ const batchFormSchema = z.object({
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
 interface RawMaterialManagementClientPageProps {
-  initialMaterials: RawMaterial[];
+  initialDepartments: Department[];
 }
 
-export default function RawMaterialManagementClientPage({ initialMaterials }: RawMaterialManagementClientPageProps) {
+export default function RawMaterialManagementClientPage({ initialDepartments }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 
-  const [materials, setMaterials] = useState<RawMaterial[]>(initialMaterials);
+  const [materials, setMaterials] = useState<RawMaterial[]>([]);
+  const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(false);
+  const [isStatusLoading, setIsStatusLoading] = useState(false);
+
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
@@ -160,6 +164,18 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
   }, []);
+
+  const handleFetchStatus = useCallback(async () => {
+    setIsStatusLoading(true);
+    try {
+        const statusData = await getMaterialsStatus();
+        setMaterialStatus(statusData);
+    } catch (error) {
+        toast({ variant: 'destructive', title: "Errore", description: "Impossibile caricare la situazione materiali." });
+    } finally {
+        setIsStatusLoading(false);
+    }
+  }, [toast]);
 
   // --- Dialog Handlers ---
 
@@ -498,7 +514,7 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
               Gestione Materie Prime
               </h1>
               <p className="text-muted-foreground mt-1">
-              Aggiungi, modifica o importa in blocco le materie prime.
+              Gestisci l'anagrafica e la situazione delle materie prime a magazzino.
               </p>
           </header>
           <div className="flex items-center gap-2 pt-2">
@@ -518,144 +534,216 @@ export default function RawMaterialManagementClientPage({ initialMaterials }: Ra
           </div>
         </div>
 
-        <Card>
-            <CardHeader>
-                <div className="flex justify-between items-center flex-wrap gap-4">
-                    <div>
-                    <CardTitle className="font-headline">Elenco Materie Prime</CardTitle>
-                    <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
-                    </div>
-                     <div className="flex items-center gap-2">
-                        {selectedRows.length > 0 && (
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive">
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Elimina ({selectedRows.length})
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Questa azione è irreversibile. Verranno eliminate definitivamente {selectedRows.length} materie prime e il loro storico.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        )}
-                        <div className="relative w-full sm:w-64">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Cerca per codice..."
-                                className="pl-9"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <div className="overflow-x-auto">
-                <Table>
-                    <TableHeader>
-                    <TableRow>
-                        <TableHead padding="checkbox">
-                          <Checkbox
-                            checked={selectedRows.length > 0 ? (selectedRows.length === materials.length ? true : 'indeterminate') : false}
-                            onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
-                            aria-label="Seleziona tutte"
-                            disabled={materials.length === 0}
-                          />
-                        </TableHead>
-                        <TableHead>Codice</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Descrizione</TableHead>
-                        <TableHead>Stock Unità</TableHead>
-                        <TableHead>Unità Misura</TableHead>
-                        <TableHead>Stock (KG)</TableHead>
-                        <TableHead className="text-right">Azioni</TableHead>
-                    </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                    {isDataLoading ? (
-                       <TableRow>
-                          <TableCell colSpan={8} className="h-24 text-center">
-                            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                                <Loader2 className="h-5 w-5 animate-spin" />
-                                <span>Caricamento...</span>
+        <Tabs defaultValue="list">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="list">
+                    <Search className="mr-2 h-4 w-4" /> Elenco Materie Prime
+                </TabsTrigger>
+                <TabsTrigger value="status">
+                    <BarChart3 className="mr-2 h-4 w-4" /> Situazione Materie Prime
+                </TabsTrigger>
+            </TabsList>
+            <TabsContent value="list">
+                 <Card>
+                    <CardHeader>
+                        <div className="flex justify-between items-center flex-wrap gap-4">
+                            <div>
+                            <CardTitle className="font-headline">Elenco Materie Prime</CardTitle>
+                            <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
                             </div>
-                          </TableCell>
-                       </TableRow>
-                    ) : materials.length > 0 ? (
-                        materials.map((material) => (
-                        <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
-                            <TableCell padding="checkbox">
-                              <Checkbox
-                                checked={selectedRows.includes(material.id)}
-                                onCheckedChange={() => handleSelectRow(material.id)}
-                                aria-label={`Seleziona materiale ${material.code}`}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{material.code}</TableCell>
-                            <TableCell>{material.type}</TableCell>
-                            <TableCell>{material.description}</TableCell>
-                            <TableCell>{formatDisplayStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
-                            <TableCell>{material.unitOfMeasure}</TableCell>
-                            <TableCell>{formatDisplayStock(material.currentWeightKg, 'kg')}</TableCell>
-                            <TableCell className="text-right">
-                                <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                    <MoreVertical className="h-4 w-4" />
-                                    <span className="sr-only">Apri menu per {material.code}</span>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        <span>Vedi Dettaglio Stock</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
-                                        <Edit className="mr-2 h-4 w-4" />
-                                        <span>Modifica Dettagli</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material, null)}>
-                                        <PackagePlus className="mr-2 h-4 w-4" />
-                                        <span>Aggiungi Lotto</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
-                                        <History className="mr-2 h-4 w-4" />
-                                        <span>Vedi Storico Movimenti</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => setMaterialToDelete(material)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                            <div className="flex items-center gap-2">
+                                {selectedRows.length > 0 && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                    <Button variant="destructive">
                                         <Trash2 className="mr-2 h-4 w-4" />
-                                        <span>Elimina</span>
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                        </TableRow>
-                        ))
-                    ) : (
-                        <TableRow>
-                        <TableCell colSpan={8} className="text-center h-24">
-                            {searchTerm.length < 2 ? "Digita almeno 2 caratteri per avviare la ricerca." : "Nessuna materia prima trovata per la tua ricerca."}
-                        </TableCell>
-                        </TableRow>
-                    )}
-                    </TableBody>
-                </Table>
-                </div>
-            </CardContent>
-            </Card>
-
+                                        Elimina ({selectedRows.length})
+                                    </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                        Questa azione è irreversibile. Verranno eliminate definitivamente {selectedRows.length} materie prime e il loro storico.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                                )}
+                                <div className="relative w-full sm:w-64">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Cerca per codice..."
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                            <TableRow>
+                                <TableHead padding="checkbox">
+                                <Checkbox
+                                    checked={selectedRows.length > 0 ? (selectedRows.length === materials.length ? true : 'indeterminate') : false}
+                                    onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
+                                    aria-label="Seleziona tutte"
+                                    disabled={materials.length === 0}
+                                />
+                                </TableHead>
+                                <TableHead>Codice</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Descrizione</TableHead>
+                                <TableHead>Stock Unità</TableHead>
+                                <TableHead>Unità Misura</TableHead>
+                                <TableHead>Stock (KG)</TableHead>
+                                <TableHead className="text-right">Azioni</TableHead>
+                            </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                            {isDataLoading ? (
+                            <TableRow>
+                                <TableCell colSpan={8} className="h-24 text-center">
+                                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                        <Loader2 className="h-5 w-5 animate-spin" />
+                                        <span>Caricamento...</span>
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                            ) : materials.length > 0 ? (
+                                materials.map((material) => (
+                                <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
+                                    <TableCell padding="checkbox">
+                                    <Checkbox
+                                        checked={selectedRows.includes(material.id)}
+                                        onCheckedChange={() => handleSelectRow(material.id)}
+                                        aria-label={`Seleziona materiale ${material.code}`}
+                                    />
+                                    </TableCell>
+                                    <TableCell className="font-medium">{material.code}</TableCell>
+                                    <TableCell>{material.type}</TableCell>
+                                    <TableCell>{material.description}</TableCell>
+                                    <TableCell>{formatDisplayStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
+                                    <TableCell>{material.unitOfMeasure}</TableCell>
+                                    <TableCell>{formatDisplayStock(material.currentWeightKg, 'kg')}</TableCell>
+                                    <TableCell className="text-right">
+                                        <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" size="icon">
+                                            <MoreVertical className="h-4 w-4" />
+                                            <span className="sr-only">Apri menu per {material.code}</span>
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onSelect={() => handleOpenDetailViewDialog(material)}>
+                                                <Eye className="mr-2 h-4 w-4" />
+                                                <span>Vedi Dettaglio Stock</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={() => handleOpenEditDialog(material)}>
+                                                <Edit className="mr-2 h-4 w-4" />
+                                                <span>Modifica Dettagli</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material, null)}>
+                                                <PackagePlus className="mr-2 h-4 w-4" />
+                                                <span>Aggiungi Lotto</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
+                                                <History className="mr-2 h-4 w-4" />
+                                                <span>Vedi Storico Movimenti</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem onSelect={() => setMaterialToDelete(material)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                <span>Elimina</span>
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TableCell>
+                                </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                <TableCell colSpan={8} className="text-center h-24">
+                                    {searchTerm.length < 2 ? "Digita almeno 2 caratteri per avviare la ricerca." : "Nessuna materia prima trovata per la tua ricerca."}
+                                </TableCell>
+                                </TableRow>
+                            )}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+             <TabsContent value="status">
+                <Card>
+                    <CardHeader>
+                        <div className="flex justify-between items-center flex-wrap gap-4">
+                            <div>
+                                <CardTitle className="font-headline">Situazione Materie Prime</CardTitle>
+                                <CardDescription>Analisi dello stock, degli impegni e della disponibilità.</CardDescription>
+                            </div>
+                             <Button onClick={handleFetchStatus} disabled={isStatusLoading}>
+                                {isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4" />}
+                                Carica/Aggiorna Dati
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead></TableHead>
+                                    <TableHead>Codice Materiale</TableHead>
+                                    <TableHead>Descrizione</TableHead>
+                                    <TableHead>Stock Attuale</TableHead>
+                                    <TableHead>Impegnato</TableHead>
+                                    <TableHead>Disponibile</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {isStatusLoading ? (
+                                    <TableRow><TableCell colSpan={6} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow>
+                                ) : materialStatus.length > 0 ? (
+                                    materialStatus.map(item => (
+                                        <TableRow key={item.id} className={item.disponibile < 0 ? 'bg-destructive/10' : ''}>
+                                            <TableCell>
+                                                {item.disponibile < 0 && <AlertTriangle className="h-5 w-5 text-amber-500" />}
+                                            </TableCell>
+                                            <TableCell className="font-medium">{item.code}</TableCell>
+                                            <TableCell>{item.description}</TableCell>
+                                            <TableCell>{formatDisplayStock(item.stock, item.unitOfMeasure)} {item.unitOfMeasure}</TableCell>
+                                            <TableCell>{formatDisplayStock(item.impegnato, item.unitOfMeasure)} {item.unitOfMeasure}</TableCell>
+                                            <TableCell className={cn("font-bold", item.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>
+                                                {formatDisplayStock(item.disponibile, item.unitOfMeasure)} {item.unitOfMeasure}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="text-center h-48 text-muted-foreground">
+                                             <div className="flex flex-col items-center gap-2">
+                                                <Database className="h-8 w-8" />
+                                                <span>Nessun dato da visualizzare.</span>
+                                                <p className="text-xs">Premi "Carica/Aggiorna Dati" per iniziare l'analisi.</p>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+        </Tabs>
+      
         {/* Edit/Add Material Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className="sm:max-w-xl" onInteractOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>

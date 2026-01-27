@@ -1,12 +1,14 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department } from '@/lib/mock-data';
 import { format } from 'date-fns';
+import { formatDisplayStock } from '@/lib/utils';
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -54,6 +56,15 @@ const batchFormSchema = z.object({
 
 
 // --- Actions ---
+
+export async function getDepartments(): Promise<Department[]> {
+  const col = collection(db, "departments");
+  const snapshot = await getDocs(col);
+  if (snapshot.empty) {
+      return [];
+  }
+  return snapshot.docs.map(d => d.data() as Department);
+}
 
 export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[]> {
     const materialsCol = collection(db, 'rawMaterials');
@@ -232,6 +243,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
+      revalidatePath('/admin/batch-management'); // Added revalidation for batch page
       return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
 
   } catch (error) {
@@ -622,4 +634,72 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
     return { success: false, message: errorMessage };
   }
+}
+
+export interface MaterialStatus {
+    id: string;
+    code: string;
+    description: string;
+    stock: number;
+    impegnato: number;
+    disponibile: number;
+    ordinato: number; // Placeholder for now
+    unitOfMeasure: 'n' | 'mt' | 'kg';
+}
+
+export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
+    const jobsQuery = firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]));
+    const materialsQuery = firestoreQuery(collection(db, "rawMaterials"));
+
+    const [jobsSnapshot, materialsSnapshot] = await Promise.all([
+        getDocs(jobsQuery),
+        getDocs(materialsQuery)
+    ]);
+
+    const materialsMap = new Map<string, RawMaterial>();
+    materialsSnapshot.forEach(doc => {
+        materialsMap.set(doc.data().code, { id: doc.id, ...doc.data() } as RawMaterial);
+    });
+
+    const impegniMap = new Map<string, number>();
+
+    jobsSnapshot.forEach(doc => {
+        const job = doc.data() as JobOrder;
+        (job.billOfMaterials || []).forEach(item => {
+            if (item.status !== 'withdrawn') { // Only count pending/committed items
+                const material = materialsMap.get(item.component);
+                let requiredQty = 0;
+                if (item.isFromTemplate) {
+                     if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                        requiredQty = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                    } else {
+                        requiredQty = item.quantity * job.qta;
+                    }
+                } else {
+                    requiredQty = item.quantity;
+                }
+               
+                const currentImpegno = impegniMap.get(item.component) || 0;
+                impegniMap.set(item.component, currentImpegno + requiredQty);
+            }
+        });
+    });
+
+    const statusList: MaterialStatus[] = [];
+    materialsMap.forEach((material, code) => {
+        const stock = material.currentStockUnits || 0;
+        const impegnato = impegniMap.get(code) || 0;
+        statusList.push({
+            id: material.id,
+            code: material.code,
+            description: material.description,
+            stock: stock,
+            impegnato: impegnato,
+            disponibile: stock - impegnato,
+            ordinato: 0, // Placeholder
+            unitOfMeasure: material.unitOfMeasure,
+        });
+    });
+
+    return statusList.sort((a, b) => a.code.localeCompare(b.code));
 }
