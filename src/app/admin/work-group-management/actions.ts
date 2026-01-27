@@ -42,28 +42,50 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         const groupData = groupSnap.data() as WorkGroup;
         const jobOrderIds = groupData.jobOrderIds || [];
         
+        if (jobOrderIds.length === 0) {
+            // If no jobs, just delete the group
+            transaction.delete(groupRef);
+            return;
+        }
+
+        // 1. READ all associated jobs to get their original data
+        const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
+        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+        
         // Determine the final state to be propagated based on the new `forceComplete` flag.
         const isGroupCompleted = forceComplete;
-        
-        if (jobOrderIds.length > 0) {
-            const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
-            
-            for (const jobRef of jobRefs) {
-                 // We don't need to read the job docs here, just update them based on the group's state.
-                 const finalStatus = isGroupCompleted ? 'completed' : 'paused';
-                    
-                 transaction.update(jobRef, { 
-                    workGroupId: deleteField(),
-                    phases: groupData.phases, // Inherit the exact phase progress from the group
-                    status: finalStatus,
-                    overallStartTime: groupData.overallStartTime || null,
-                    overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
-                    isProblemReported: groupData.isProblemReported || false,
-                    problemType: groupData.problemType || deleteField(),
-                    problemNotes: groupData.problemNotes || deleteField(),
-                    problemReportedBy: groupData.problemReportedBy || deleteField(),
-                });
-            }
+
+        // 2. Iterate through each job and build its new, proportional phase data
+        for (const jobDoc of jobDocs) {
+             if (!jobDoc.exists()) {
+                console.warn(`Commessa ${jobDoc.ref.id} del gruppo non trovata, verrà saltata.`);
+                continue;
+             }
+             
+             // Deep copy of the group's phase structure
+             const newPhasesForJob: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
+
+             // For each phase, CLEAR the materialConsumptions array.
+             // The history is preserved in the `materialWithdrawals` collection, which correctly
+             // references all job IDs from the group. This prevents data duplication and corruption
+             // on the individual jobs after dissolution.
+             for (const phase of newPhasesForJob) {
+                phase.materialConsumptions = [];
+             }
+
+             const finalStatus = isGroupCompleted ? 'completed' : 'paused';
+                
+             transaction.update(jobDoc.ref, { 
+                workGroupId: deleteField(),
+                phases: newPhasesForJob, // Inherit phase progress, but with cleared consumptions
+                status: finalStatus,
+                overallStartTime: groupData.overallStartTime || null,
+                overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
+                isProblemReported: groupData.isProblemReported || false,
+                problemType: groupData.problemType || deleteField(),
+                problemNotes: groupData.problemNotes || deleteField(),
+                problemReportedBy: groupData.problemReportedBy || deleteField(),
+            });
         }
         
         // After ensuring all jobs are updated, delete the group document.
@@ -85,3 +107,4 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     return { success: false, message: errorMessage };
   }
 }
+
