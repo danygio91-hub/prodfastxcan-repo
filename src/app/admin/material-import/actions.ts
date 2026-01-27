@@ -37,7 +37,7 @@ async function getOperatorByUid(uid: string): Promise<Operator | null> {
 export async function importCaricoFromFile(
   data: any[],
   uid: string
-): Promise<{ success: boolean; message: string; }> {
+): Promise<{ success: boolean; message: string; failedRows?: any[] }> {
   await ensureAdmin(uid);
 
   if (!data || data.length === 0) {
@@ -50,12 +50,11 @@ export async function importCaricoFromFile(
   const packagingSnapshot = await getDocs(collection(db, 'packaging'));
   const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), {id: doc.id, weight: doc.data().weightKg as number}]));
 
-
-  let successCount = 0;
-  let errorCount = 0;
+  const failedRows: any[] = [];
   const errors: string[] = [];
+  let successCount = 0;
 
-  for (const [index, row] of data.entries()) {
+  for (const row of data) {
     const materialCode = row['Codice Materiale'];
     const lotto = row['Lotto'];
     const ddt = row['DDT'];
@@ -64,15 +63,15 @@ export async function importCaricoFromFile(
     const packagingName = row['Tara (Imballo)']?.toLowerCase();
     
     if (!materialCode || !lotto || isNaN(netQuantity) || netQuantity <= 0) {
-      errorCount++;
-      errors.push(`Riga ${index + 2}: Dati mancanti o non validi (Codice, Lotto, Quantità).`);
+      errors.push(`Riga con codice "${materialCode || 'N/D'}": Dati mancanti o non validi (Codice, Lotto, Quantità).`);
+      failedRows.push(row);
       continue;
     }
 
     const material = materialsMap.get(materialCode.toLowerCase());
     if (!material) {
-      errorCount++;
-      errors.push(`Riga ${index + 2}: Materiale con codice "${materialCode}" non trovato.`);
+      errors.push(`Riga con codice "${materialCode}": Materiale non trovato.`);
+      failedRows.push(row);
       continue;
     }
 
@@ -87,8 +86,8 @@ export async function importCaricoFromFile(
     }
 
     if (isNaN(parsedDate.getTime())) {
-       errorCount++;
-       errors.push(`Riga ${index + 2}: Data non valida per il lotto ${lotto}.`);
+       errors.push(`Riga con lotto "${lotto}": Data non valida.`);
+       failedRows.push(row);
        continue;
     }
 
@@ -120,7 +119,7 @@ export async function importCaricoFromFile(
             }
 
             const newBatch: RawMaterialBatch = {
-                id: `batch-import-${Date.now()}-${index}`,
+                id: `batch-import-${Date.now()}-${data.indexOf(row)}`,
                 date: parsedDate.toISOString(),
                 ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
                 lotto,
@@ -144,24 +143,24 @@ export async function importCaricoFromFile(
         });
         successCount++;
     } catch (e: any) {
-        errorCount++;
-        errors.push(`Riga ${index + 2} (Lotto ${lotto}): ${e.message}`);
+        errors.push(`Riga con lotto "${lotto}": ${e.message}`);
+        failedRows.push(row);
     }
   }
 
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/admin/batch-management');
 
-  let message = `Importazione completata. ${successCount} lotti caricati, ${errorCount} errori.`;
+  let message = `Importazione completata. ${successCount} lotti caricati, ${failedRows.length} errori.`;
   if (errors.length > 0) {
     message = `${message} Dettagli errori: ${errors.slice(0, 5).join('; ')}`;
   }
 
-  return { success: errorCount === 0, message };
+  return { success: failedRows.length === 0, message, failedRows };
 }
 
 
-export async function importScaricoFromFile(data: any[], uid: string): Promise<{ success: boolean; message: string; }> {
+export async function importScaricoFromFile(data: any[], uid: string): Promise<{ success: boolean; message: string; failedRows?: any[] }> {
   await ensureAdmin(uid);
   const admin = await getOperatorByUid(uid);
 
@@ -173,10 +172,10 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
   const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial]));
 
   let successCount = 0;
-  let errorCount = 0;
+  const failedRows: any[] = [];
   const errors: string[] = [];
 
-  for (const [index, row] of data.entries()) {
+  for (const row of data) {
     const materialCode = row['Codice Materiale'];
     const lotto = row['Lotto'];
     const quantity = parseFloat(row['Quantita da Scaricare']);
@@ -185,15 +184,15 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     const notes = row['Note'];
     
     if (!materialCode || isNaN(quantity) || quantity <= 0 || !['n', 'mt', 'kg'].includes(unit)) {
-      errorCount++;
-      errors.push(`Riga ${index + 2}: Dati mancanti o non validi (Codice, Quantità, Unità).`);
+      errors.push(`Riga con codice "${materialCode || 'N/D'}": Dati mancanti o non validi (Codice, Quantità, Unità).`);
+      failedRows.push(row);
       continue;
     }
 
     const material = materialsMap.get(materialCode.toLowerCase());
     if (!material) {
-      errorCount++;
-      errors.push(`Riga ${index + 2}: Materiale con codice "${materialCode}" non trovato.`);
+      errors.push(`Riga con codice "${materialCode}": Materiale non trovato.`);
+      failedRows.push(row);
       continue;
     }
 
@@ -250,24 +249,24 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
             operatorId: uid,
             operatorName: admin?.nome || 'Admin Import',
             withdrawalDate: Timestamp.now(),
-            notes: notes || `Scarico da file. Riga ${index + 2}`,
+            notes: notes || 'Scarico da file',
             lotto: lotto || null,
         });
       });
       successCount++;
     } catch (e: any) {
-        errorCount++;
-        errors.push(`Riga ${index + 2} (${materialCode}): ${e.message}`);
+        errors.push(`Riga con codice "${materialCode}": ${e.message}`);
+        failedRows.push(row);
     }
   }
 
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/admin/reports');
 
-  let message = `Importazione completata. ${successCount} scarichi registrati, ${errorCount} errori.`;
+  let message = `Importazione completata. ${successCount} scarichi registrati, ${failedRows.length} errori.`;
   if (errors.length > 0) {
     message += ` Dettagli errori: ${errors.slice(0, 5).join('; ')}`;
   }
 
-  return { success: errorCount === 0, message };
+  return { success: failedRows.length === 0, message, failedRows };
 }

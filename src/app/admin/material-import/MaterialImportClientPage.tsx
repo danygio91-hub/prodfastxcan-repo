@@ -29,7 +29,7 @@ type Operation = 'carico' | 'scarico';
 
 interface ParsedRow {
   [key: string]: string | number;
-  __rowNum__: number;
+  __originalIndex?: number;
 }
 
 interface MaterialImportClientPageProps {
@@ -105,9 +105,12 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
           ? ["Codice Materiale", "Lotto", "DDT", "Quantita Netta", "Data", "Tara (Imballo)"]
           : ["Codice Materiale", "Lotto", "Quantita da Scaricare", "Unita", "Commessa Associata", "Note"];
           
-        const json: ParsedRow[] = XLSX.utils.sheet_to_json(worksheet, { header: headers, range: 1 });
+        const json: any[] = XLSX.utils.sheet_to_json(worksheet, { header: headers, range: 1 });
         
-        const validData = json.filter(row => row['Codice Materiale'] && (row['Quantita Netta'] || row['Quantita da Scaricare']));
+        const validData = json
+            .map((row, index) => ({...row, __originalIndex: index }))
+            .filter(row => row['Codice Materiale'] && (row['Quantita Netta'] || row['Quantita da Scaricare']));
+
         setParsedData(validData);
         toast({ title: 'File analizzato', description: `${validData.length} righe valide trovate.` });
       } catch (error) {
@@ -133,14 +136,18 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
     const result = await action(parsedData, user.uid);
 
     toast({
-        title: result.success ? 'Importazione Completata' : 'Importazione Fallita',
+        title: result.success ? 'Importazione Completata' : 'Importazione Parziale/Fallita',
         description: result.message,
         variant: result.success ? 'default' : 'destructive',
         duration: 9000,
     });
+    
     if (result.success) {
       clearData();
+    } else {
+      setParsedData(result.failedRows || []);
     }
+    
     setIsProcessing(false);
   };
   
@@ -159,7 +166,7 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
                 </TableRow></TableHeader>
                 <TableBody>
                     {parsedData.map((row, index) => (
-                        <TableRow key={index}>
+                        <TableRow key={row.__originalIndex ?? index}>
                             <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
                             <TableCell>{row["DDT"]}</TableCell><TableCell>{row["Quantita Netta"]}</TableCell>
                             <TableCell>{typeof row["Data"] === 'number' ? new Date(Date.UTC(1899, 11, 30 + (row["Data"] as number))).toLocaleDateString('it-IT') : new Date(row["Data"] as string).toLocaleDateString('it-IT')}</TableCell>
@@ -179,7 +186,7 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
                 </TableRow></TableHeader>
                 <TableBody>
                     {parsedData.map((row, index) => (
-                        <TableRow key={index}>
+                        <TableRow key={row.__originalIndex ?? index}>
                             <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
                             <TableCell>{row["Quantita da Scaricare"]}</TableCell><TableCell>{row["Unita"]}</TableCell>
                             <TableCell>{row["Commessa Associata"]}</TableCell><TableCell>{row["Note"]}</TableCell>
