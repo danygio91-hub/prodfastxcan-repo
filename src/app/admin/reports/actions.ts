@@ -54,6 +54,8 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
   }, 0);
 }
 
+export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
+
 export async function getJobsReport() {
     const jobsRef = collection(db, "jobOrders");
     const q = query(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
@@ -110,6 +112,8 @@ export async function getJobsReport() {
         };
     });
 }
+
+export type getOperatorsReport = typeof getOperatorsReport;
 
 export async function getOperatorsReport(targetDateString?: string) {
     const operatorsSnapshot = await getDocs(collection(db, "operators"));
@@ -356,7 +360,10 @@ export async function updateWorkPeriodsForPhase(
 }
 
 
-type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
+export type EnrichedMaterialWithdrawal = MaterialWithdrawal & { 
+  materialType?: RawMaterialType;
+  materialUnitOfMeasure?: 'n' | 'mt' | 'kg';
+};
 
 export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Date }): Promise<EnrichedMaterialWithdrawal[]> {
     const withdrawalsRef = collection(db, "materialWithdrawals");
@@ -411,10 +418,12 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
         }
     }
     withdrawals.forEach(w => {
-        w.materialType = materialsMap.get(w.materialId)?.type;
+        const material = materialsMap.get(w.materialId);
+        w.materialType = material?.type;
+        w.materialUnitOfMeasure = material?.unitOfMeasure;
     });
 
-    return withdrawals.sort((a, b) => b.withdrawalDate.getTime() - a.withdrawalDate.getTime());
+    return withdrawals.sort((a, b) => new Date(b.withdrawalDate).getTime() - new Date(a.withdrawalDate).getTime());
 }
 
 
@@ -729,6 +738,6 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
 
-
-export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
   
+
+    

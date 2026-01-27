@@ -30,10 +30,10 @@ import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { BarChart3, Users, Briefcase, ChevronRight, Download, Calendar as CalendarIcon, Boxes, Loader2, Trash2, Search, Package, Copy } from 'lucide-react';
-import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type getOperatorsReport } from './actions';
+import { getMaterialWithdrawals, deleteSelectedWithdrawals, deleteAllWithdrawals, getOperatorsReport as fetchOperatorsReport, getJobsReport, type JobsReport, type EnrichedMaterialWithdrawal } from './actions';
 import { cn } from '@/lib/utils';
 import type { OverallStatus } from '@/lib/types';
-import type { MaterialWithdrawal, RawMaterialType } from '@/lib/mock-data';
+import type { RawMaterialType } from '@/lib/mock-data';
 import { useRouter } from 'next/navigation';
 import {
   ContextMenu,
@@ -42,9 +42,10 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useToast } from '@/hooks/use-toast';
+import { formatDisplayStock } from '@/lib/utils';
 
-type OperatorsReport = Awaited<ReturnType<typeof getOperatorsReport>>;
-type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType };
+type OperatorsReport = Awaited<ReturnType<typeof fetchOperatorsReport>>;
+
 
 const allMaterialTypes: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'];
 
@@ -228,6 +229,7 @@ export default function ReportsClientPage({
       'Tipo Materiale': w.materialType || 'Sconosciuto',
       'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
+      'Consumo Unità': (w.consumedUnits && w.consumedUnits > 0 && w.materialUnitOfMeasure !== 'kg') ? `${formatDisplayStock(w.consumedUnits, w.materialUnitOfMeasure as 'n' | 'mt')} ${w.materialUnitOfMeasure}` : '-',
       'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
       'Data Prelievo': format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it }),
       'Operatore': w.operatorName,
@@ -574,6 +576,7 @@ export default function ReportsClientPage({
                                                             </TableHead>
                                                             <TableHead>Commessa/e</TableHead>
                                                             <TableHead>Materiale</TableHead>
+                                                            <TableHead>Consumo Unità</TableHead>
                                                             <TableHead>Peso Consumato (Kg)</TableHead>
                                                             <TableHead>Data Prelievo</TableHead>
                                                             <TableHead>Operatore</TableHead>
@@ -591,6 +594,11 @@ export default function ReportsClientPage({
                                                                 </TableCell>
                                                                 <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                                                 <TableCell>{w.materialCode}</TableCell>
+                                                                <TableCell>
+                                                                    {(w.consumedUnits && w.consumedUnits > 0 && w.materialUnitOfMeasure && w.materialUnitOfMeasure !== 'kg') 
+                                                                        ? `${formatDisplayStock(w.consumedUnits, w.materialUnitOfMeasure)} ${w.materialUnitOfMeasure}`
+                                                                        : '-'}
+                                                                </TableCell>
                                                                 <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
                                                                 <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                                                                 <TableCell>{w.operatorName}</TableCell>
@@ -617,3 +625,5 @@ export default function ReportsClientPage({
       </div>
   );
 }
+
+    
