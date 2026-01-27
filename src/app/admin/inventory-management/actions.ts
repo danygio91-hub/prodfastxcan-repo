@@ -190,11 +190,13 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
     const CHUNK_SIZE = 30;
     for (let i = 0; i < materialIds.length; i += CHUNK_SIZE) {
         const chunk = materialIds.slice(i, i + CHUNK_SIZE);
-        const materialsQuery = query(collection(db, 'rawMaterials'), where('__name__', 'in', chunk));
-        const materialsSnapshot = await getDocs(materialsQuery);
-        materialsSnapshot.forEach(doc => {
-            materialsMap.set(doc.id, doc.data() as RawMaterial);
-        });
+        if (chunk.length > 0) {
+            const materialsQuery = query(collection(db, 'rawMaterials'), where('__name__', 'in', chunk));
+            const materialsSnapshot = await getDocs(materialsQuery);
+            materialsSnapshot.forEach(doc => {
+                materialsMap.set(doc.id, doc.data() as RawMaterial);
+            });
+        }
     }
   }
   

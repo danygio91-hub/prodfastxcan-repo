@@ -2,7 +2,7 @@
 
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup, WorkPhaseTemplate } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
@@ -375,23 +375,44 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
     const materialIds = [...new Set(withdrawals.map(w => w.materialId))];
 
-    // Fetch operators to enrich the report
+    // Fetch operators to enrich the report (CHUNKED)
+    const operatorsMap = new Map<string, Operator>();
     if (operatorIds.length > 0) {
-        const operatorsSnapshot = await getDocs(query(collection(db, "operators"), where("id", "in", operatorIds)));
-        const operatorsMap = new Map(operatorsSnapshot.docs.map(doc => [doc.data().id, doc.data() as Operator]));
-        withdrawals.forEach(w => {
-            w.operatorName = operatorsMap.get(w.operatorId)?.nome || 'Sconosciuto';
-        });
+        const CHUNK_SIZE = 30;
+        for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
+            const chunk = operatorIds.slice(i, i + CHUNK_SIZE);
+            if (chunk.length > 0) {
+                const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
+                const operatorsSnapshot = await getDocs(operatorsQuery);
+                operatorsSnapshot.forEach(doc => {
+                    operatorsMap.set(doc.data().id, doc.data() as Operator);
+                });
+            }
+        }
     }
+    withdrawals.forEach(w => {
+        w.operatorName = operatorsMap.get(w.operatorId)?.nome || 'Sconosciuto';
+    });
 
-    // Fetch materials to get their type for grouping
+
+    // Fetch materials to get their type for grouping (CHUNKED)
+    const materialsMap = new Map<string, RawMaterial>();
     if (materialIds.length > 0) {
-        const materialsSnapshot = await getDocs(query(collection(db, "rawMaterials"), where("__name__", "in", materialIds)));
-        const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.id, doc.data() as RawMaterial]));
-        withdrawals.forEach(w => {
-            w.materialType = materialsMap.get(w.materialId)?.type;
-        });
+        const CHUNK_SIZE = 30;
+         for (let i = 0; i < materialIds.length; i += CHUNK_SIZE) {
+            const chunk = materialIds.slice(i, i + CHUNK_SIZE);
+             if (chunk.length > 0) {
+                const materialsQuery = query(collection(db, "rawMaterials"), where("__name__", "in", chunk));
+                const materialsSnapshot = await getDocs(materialsQuery);
+                materialsSnapshot.forEach(doc => {
+                    materialsMap.set(doc.id, doc.data() as RawMaterial);
+                });
+            }
+        }
     }
+    withdrawals.forEach(w => {
+        w.materialType = materialsMap.get(w.materialId)?.type;
+    });
 
     return withdrawals.sort((a, b) => b.withdrawalDate.getTime() - a.withdrawalDate.getTime());
 }
