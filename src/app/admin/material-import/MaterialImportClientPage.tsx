@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef } from 'react';
@@ -28,7 +27,7 @@ import type { Packaging } from '@/lib/mock-data';
 type Operation = 'carico' | 'scarico';
 
 interface ParsedRow {
-  [key: string]: string | number;
+  [key: string]: string | number | undefined;
   __originalIndex?: number;
 }
 
