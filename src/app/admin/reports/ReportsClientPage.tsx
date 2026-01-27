@@ -74,6 +74,11 @@ export default function ReportsClientPage({
   const [operatorsReport, setOperatorsReport] = useState<OperatorsReport>([]);
   const [withdrawalsReport, setWithdrawalsReport] = useState<EnrichedMaterialWithdrawal[]>([]);
   
+  const [jobsLoaded, setJobsLoaded] = useState(false);
+  const [operatorsLoaded, setOperatorsLoaded] = useState(false);
+  const [withdrawalsLoaded, setWithdrawalsLoaded] = useState(false);
+
+  const [isPendingJobs, setIsPendingJobs] = useState(false);
   const [isPendingWithdrawals, setIsPendingWithdrawals] = useState(false);
   const [isPendingOperators, setIsPendingOperators] = useState(false);
 
@@ -90,11 +95,19 @@ export default function ReportsClientPage({
   const router = useRouter();
   const { toast } = useToast();
 
+  const fetchJobs = React.useCallback(async () => {
+    setIsPendingJobs(true);
+    const data = await getJobsReport();
+    setJobsReport(data);
+    setJobsLoaded(true);
+    setIsPendingJobs(false);
+  }, []);
 
   const fetchWithdrawals = React.useCallback(async () => {
     setIsPendingWithdrawals(true);
     const data = await getMaterialWithdrawals({ from: withdrawalsDateRange?.from, to: withdrawalsDateRange?.to });
     setWithdrawalsReport(data);
+    setWithdrawalsLoaded(true);
     setIsPendingWithdrawals(false);
   }, [withdrawalsDateRange]);
   
@@ -107,12 +120,9 @@ export default function ReportsClientPage({
     
     const data = await fetchOperatorsReport(adjustedDate.toISOString());
     setOperatorsReport(data);
+    setOperatorsLoaded(true);
     setIsPendingOperators(false);
   }, [operatorDate]);
-
-  useEffect(() => {
-    // No initial fetch, will be triggered by tab change or date change
-  }, []);
   
   const filteredAndGroupedWithdrawals = useMemo(() => {
     const filtered = searchTerm
@@ -165,17 +175,21 @@ export default function ReportsClientPage({
     setIsDeleting(true);
     const result = await deleteSelectedWithdrawals(selectedWithdrawals);
     if (result.success) {
-      router.refresh();
+      toast({ title: "Eliminazione Completata", description: result.message });
       setSelectedWithdrawals([]);
+      fetchWithdrawals();
+    } else {
+       toast({ variant: "destructive", title: "Errore", description: result.message });
     }
     setIsDeleting(false);
   };
   
   const handleDeleteAll = async () => {
     setIsDeleting(true);
-    await deleteAllWithdrawals();
-    router.refresh();
+    const result = await deleteAllWithdrawals();
+    toast({ title: "Operazione Completata", description: result.message });
     setSelectedWithdrawals([]);
+    fetchWithdrawals();
     setIsDeleting(false);
   };
 
@@ -238,10 +252,13 @@ export default function ReportsClientPage({
   };
   
   const handleTabChange = (value: string) => {
-    if (value === 'operatori' && operatorsReport.length === 0) {
+    if (value === 'commesse' && !jobsLoaded) {
+      fetchJobs();
+    }
+    if (value === 'operatori' && !operatorsLoaded) {
       fetchOperators();
     }
-    if (value === 'prelievi' && withdrawalsReport.length === 0) {
+    if (value === 'prelievi' && !withdrawalsLoaded) {
       fetchWithdrawals();
     }
   };
@@ -255,7 +272,7 @@ export default function ReportsClientPage({
         </div>
       </TableCell>
     </TableRow>
-  )
+  );
 
   const withdrawalGroups = Object.keys(filteredAndGroupedWithdrawals);
   const reportMetadata = operatorsReport[0] || {};
@@ -272,7 +289,7 @@ export default function ReportsClientPage({
           </p>
         </header>
 
-        <Tabs defaultValue="commesse" onValueChange={handleTabChange}>
+        <Tabs onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="commesse">
               <Briefcase className="mr-2 h-4 w-4"/>
@@ -324,43 +341,45 @@ export default function ReportsClientPage({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                       {filteredJobsReport.length > 0 ? filteredJobsReport.map((job) => (
-                        <TableRow key={job.id}>
-                          <TableCell className="font-medium">{job.id}</TableCell>
-                          <TableCell>
-                            <ContextMenu>
-                                <ContextMenuTrigger className="hover:text-primary hover:underline cursor-pointer">
-                                  {job.details}
-                                </ContextMenuTrigger>
-                                <ContextMenuContent>
-                                  <ContextMenuItem onSelect={() => handleNavigateToAnalysis(job.details)}>
-                                    <BarChart3 className="mr-2 h-4 w-4"/>
-                                    Analisi Tempi Articolo
-                                  </ContextMenuItem>
-                                  <ContextMenuItem onSelect={() => handleCopy(job.details)}>
-                                    <Copy className="mr-2 h-4 w-4"/>
-                                    Copia Codice Articolo
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                            </ContextMenu>
-                          </TableCell>
-                          <TableCell><StatusBadge status={job.status as OverallStatus} /></TableCell>
-                          <TableCell>{job.timeElapsed}</TableCell>
-                          <TableCell className="max-w-[200px] truncate">{job.operators}</TableCell>
-                          <TableCell>
-                              <Button asChild variant="outline" size="sm">
-                              <Link href={`/admin/reports/${job.id}`}>
-                                  Vedi Dettagli
-                                  <ChevronRight className="ml-2 h-4 w-4" />
-                              </Link>
-                              </Button>
-                          </TableCell>
-                        </TableRow>
-                      )) : (
-                        <TableRow>
-                          <TableCell colSpan={6} className="text-center h-24">Nessun risultato per la ricerca.</TableCell>
-                        </TableRow>
-                      )}
+                        {isPendingJobs ? renderLoadingRow(6) : (
+                            filteredJobsReport.length > 0 ? filteredJobsReport.map((job) => (
+                                <TableRow key={job.id}>
+                                <TableCell className="font-medium">{job.id}</TableCell>
+                                <TableCell>
+                                    <ContextMenu>
+                                        <ContextMenuTrigger className="hover:text-primary hover:underline cursor-pointer">
+                                        {job.details}
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent>
+                                        <ContextMenuItem onSelect={() => handleNavigateToAnalysis(job.details)}>
+                                            <BarChart3 className="mr-2 h-4 w-4"/>
+                                            Analisi Tempi Articolo
+                                        </ContextMenuItem>
+                                        <ContextMenuItem onSelect={() => handleCopy(job.details)}>
+                                            <Copy className="mr-2 h-4 w-4"/>
+                                            Copia Codice Articolo
+                                        </ContextMenuItem>
+                                        </ContextMenuContent>
+                                    </ContextMenu>
+                                </TableCell>
+                                <TableCell><StatusBadge status={job.status as OverallStatus} /></TableCell>
+                                <TableCell>{job.timeElapsed}</TableCell>
+                                <TableCell className="max-w-[200px] truncate">{job.operators}</TableCell>
+                                <TableCell>
+                                    <Button asChild variant="outline" size="sm">
+                                    <Link href={`/admin/reports/${job.id}`}>
+                                        Vedi Dettagli
+                                        <ChevronRight className="ml-2 h-4 w-4" />
+                                    </Link>
+                                    </Button>
+                                </TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow>
+                                <TableCell colSpan={6} className="text-center h-24">{jobsLoaded ? "Nessuna commessa trovata." : "Seleziona una scheda per visualizzare il report."}</TableCell>
+                                </TableRow>
+                            )
+                        )}
                     </TableBody>
                   </Table>
                 </div>
@@ -385,6 +404,10 @@ export default function ReportsClientPage({
                                 <Calendar mode="single" selected={operatorDate} onSelect={setOperatorDate} initialFocus />
                             </PopoverContent>
                         </Popover>
+                         <Button onClick={fetchOperators} variant="secondary" size="sm" disabled={isPendingOperators}>
+                              {isPendingOperators ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Search className="mr-2 h-4 w-4"/>}
+                              Cerca
+                          </Button>
                         <Button onClick={handleExportOperators} variant="outline" size="sm" disabled={operatorsReport.length === 0}>
                             <Download className="mr-2 h-4 w-4" />
                             Esporta Excel
@@ -417,7 +440,7 @@ export default function ReportsClientPage({
                       </TableHeader>
                       <TableBody>
                          {isPendingOperators ? renderLoadingRow(7) : (
-                          operatorsReport.length > 0 ? operatorsReport.map((op) => (
+                          operatorsLoaded && operatorsReport.length > 0 ? operatorsReport.map((op) => (
                           <TableRow key={op.id}>
                               <TableCell className="font-medium">{op.name}</TableCell>
                               <TableCell>{op.department}</TableCell>
@@ -438,7 +461,7 @@ export default function ReportsClientPage({
                           </TableRow>
                           )) : (
                           <TableRow>
-                              <TableCell colSpan={7} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                              <TableCell colSpan={7} className="text-center h-24">{operatorsLoaded ? "Nessun dato per la data selezionata." : "Seleziona una data e premi Cerca per visualizzare il report."}</TableCell>
                           </TableRow>
                           )
                          )}
@@ -517,6 +540,10 @@ export default function ReportsClientPage({
                          <div className="flex items-center justify-center h-64">
                             <Loader2 className="h-8 w-8 animate-spin text-primary" />
                          </div>
+                       ) : !withdrawalsLoaded ? (
+                            <div className="text-center py-24 text-muted-foreground">
+                                Seleziona un intervallo di date e premi Cerca per visualizzare i prelievi.
+                            </div>
                        ) : (
                             <Tabs defaultValue={allMaterialTypes[0]} className="w-full">
                                 <TabsList>
