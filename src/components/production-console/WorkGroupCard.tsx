@@ -134,6 +134,7 @@ export default function WorkGroupCard({
 
     return {
       ...group,
+      postazioneLavoro: 'Multi-Commessa',
       billOfMaterials: aggregatedBOMItems,
       qta: 1, // Set qta to 1 because the BOM quantities are pre-calculated totals
     };
@@ -521,5 +522,3 @@ export default function WorkGroupCard({
     </>
   );
 }
-
-    
