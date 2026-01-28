@@ -135,9 +135,12 @@ export default function WorkGroupCard({
     return {
       ...group,
       postazioneLavoro: 'Multi-Commessa',
+      ordinePF: group.ordinePF || group.jobOrderPFs?.join(', ') || 'Gruppo',
+      numeroODL: group.numeroODL || 'N/D',
+      dataConsegnaFinale: group.dataConsegnaFinale || '',
       billOfMaterials: aggregatedBOMItems,
       qta: 1, // Set qta to 1 because the BOM quantities are pre-calculated totals
-    };
+    } as JobOrder;
   }, [group, jobsInGroup]);
 
   const activePhasesWithOperators = useMemo((): ActivePhaseInfo[] => {
