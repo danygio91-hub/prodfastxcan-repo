@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -133,6 +131,9 @@ const PhaseCard = ({ phase, job, handlers }: {
     const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
     const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
     const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
+    
+    const canAssociateMaterial = operatorHasPermissionForDepartment && phase.type === 'preparation' && ['pending', 'in-progress', 'paused'].includes(phase.status);
+
 
     const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
 
@@ -203,8 +204,8 @@ const PhaseCard = ({ phase, job, handlers }: {
           
         <div className="mt-3 flex items-start gap-2">
             <div className="flex-grow space-y-2">
-               {canStartPhase && phase.type === 'preparation' && (
-                  <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>
+                {canAssociateMaterial && (
+                  <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa/Preleva Materiale</Button>
                 )}
                 {canStartPhase && phase.type !== 'quality' && (
                     <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
@@ -1023,7 +1024,7 @@ export default function ScanJobPage() {
                 <QrCode className="mr-2 h-5 w-5" />
                 Avvia Scansione
             </Button>
-            <Button onClick={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
+            <Button onClick={()={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
                 <LinkIcon className="mr-2 h-5 w-5" />
                 Avvia Lavorazione Multi-Commessa
             </Button>
