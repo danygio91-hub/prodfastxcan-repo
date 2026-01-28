@@ -648,8 +648,8 @@ export interface MaterialStatus {
 }
 
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
-    const jobsQuery = firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]));
-    const materialsQuery = firestoreQuery(collection(db, "rawMaterials"));
+    const jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]));
+    const materialsQuery = query(collection(db, "rawMaterials"));
 
     const [jobsSnapshot, materialsSnapshot] = await Promise.all([
         getDocs(jobsQuery),
