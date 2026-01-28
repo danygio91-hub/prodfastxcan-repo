@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -1024,7 +1025,11 @@ export default function ScanJobPage() {
                 <QrCode className="mr-2 h-5 w-5" />
                 Avvia Scansione
             </Button>
-            <Button onClick={()={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
+            <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
+                <Keyboard className="mr-2 h-5 w-5" />
+                Inserisci Codice Manualmente
+            </Button>
+            <Button onClick={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
                 <LinkIcon className="mr-2 h-5 w-5" />
                 Avvia Lavorazione Multi-Commessa
             </Button>
