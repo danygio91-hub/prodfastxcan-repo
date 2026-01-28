@@ -368,7 +368,13 @@ export default function InventoryClientPage({ initialRecords }: InventoryClientP
                                 </Button>
                             </div>
                             <div className="space-y-6">
-                              {Object.entries(dailyRecordsByMaterial).sort(([codeA], [codeB]) => codeA.localeCompare(codeB)).map(([materialCode, recordsForMaterial]) => {
+                              {Object.entries(dailyRecordsByMaterial).sort(([codeA, recordsA], [codeB, recordsB]) => {
+                                const aHasPending = recordsA.some(r => r.status === 'pending');
+                                const bHasPending = recordsB.some(r => r.status === 'pending');
+                                if (aHasPending && !bHasPending) return -1;
+                                if (!aHasPending && bHasPending) return 1;
+                                return codeA.localeCompare(codeB);
+                              }).map(([materialCode, recordsForMaterial]) => {
                                 const sortedRecords = [...recordsForMaterial].sort((a,b) => statusOrder[a.status] - statusOrder[b.status]);
                                 const materialSample = recordsForMaterial[0]; // Use a sample record to get material info
                                 
