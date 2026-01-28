@@ -57,7 +57,7 @@ function StatusBadge({ status }: { status: OverallStatus }) {
         status === "In Lavorazione" && "bg-accent text-accent-foreground",
         status === "Completata" && "bg-primary text-primary-foreground",
         status === "Problema" && "bg-destructive text-destructive-foreground",
-        status === "Sospesa" && "bg-yellow-500 text-yellow-50"
+        status === "Sospesa" && "bg-yellow-500 text-white"
       )}
     >
       {status}
@@ -229,8 +229,9 @@ export default function ReportsClientPage({
       'Tipo Materiale': w.materialType || 'Sconosciuto',
       'Commessa/e': w.jobOrderPFs.join(', '),
       'Materiale': w.materialCode,
-      'Consumo Unità': (w.consumedUnits && w.consumedUnits > 0 && w.materialUnitOfMeasure !== 'kg') ? `${formatDisplayStock(w.consumedUnits, w.materialUnitOfMeasure as 'n' | 'mt')} ${w.materialUnitOfMeasure}` : '-',
-      'Peso Consumato (Kg)': w.consumedWeight.toFixed(2),
+      'Consumo (n)': w.materialUnitOfMeasure === 'n' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'n') : '',
+      'Consumo (mt)': w.materialUnitOfMeasure === 'mt' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'mt') : '',
+      'Peso Consumato (Kg)': formatDisplayStock(w.consumedWeight, 'kg'),
       'Data Prelievo': format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it }),
       'Operatore': w.operatorName,
     }));
@@ -576,7 +577,8 @@ export default function ReportsClientPage({
                                                             </TableHead>
                                                             <TableHead>Commessa/e</TableHead>
                                                             <TableHead>Materiale</TableHead>
-                                                            <TableHead>Consumo Unità</TableHead>
+                                                            <TableHead>Consumo (n)</TableHead>
+                                                            <TableHead>Consumo (mt)</TableHead>
                                                             <TableHead>Peso Consumato (Kg)</TableHead>
                                                             <TableHead>Data Prelievo</TableHead>
                                                             <TableHead>Operatore</TableHead>
@@ -595,11 +597,12 @@ export default function ReportsClientPage({
                                                                 <TableCell className="font-medium">{w.jobOrderPFs.join(', ')}</TableCell>
                                                                 <TableCell>{w.materialCode}</TableCell>
                                                                 <TableCell>
-                                                                    {(w.consumedUnits && w.consumedUnits > 0 && w.materialUnitOfMeasure && w.materialUnitOfMeasure !== 'kg') 
-                                                                        ? `${formatDisplayStock(w.consumedUnits, w.materialUnitOfMeasure)} ${w.materialUnitOfMeasure}`
-                                                                        : '-'}
+                                                                    {w.materialUnitOfMeasure === 'n' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'n') : '-'}
                                                                 </TableCell>
-                                                                <TableCell>{w.consumedWeight.toFixed(2)}</TableCell>
+                                                                <TableCell>
+                                                                    {w.materialUnitOfMeasure === 'mt' && w.consumedUnits ? formatDisplayStock(w.consumedUnits, 'mt') : '-'}
+                                                                </TableCell>
+                                                                <TableCell>{formatDisplayStock(w.consumedWeight, 'kg')}</TableCell>
                                                                 <TableCell>{format(new Date(w.withdrawalDate), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                                                                 <TableCell>{w.operatorName}</TableCell>
                                                             </TableRow>
@@ -625,5 +628,3 @@ export default function ReportsClientPage({
       </div>
   );
 }
-
-    
