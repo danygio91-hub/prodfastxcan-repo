@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -22,20 +23,23 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import type { Packaging } from '@/lib/mock-data';
+import type { Packaging, RawMaterial } from '@/lib/mock-data';
+import { Badge } from '@/components/ui/badge';
 
 type Operation = 'carico' | 'scarico';
 
 interface ParsedRow {
   [key: string]: string | number | undefined;
   __originalIndex?: number;
+  'Unita'?: 'n' | 'mt' | 'kg';
 }
 
 interface MaterialImportClientPageProps {
   packagingItems: Packaging[];
+  rawMaterials: RawMaterial[];
 }
 
-export default function MaterialImportClientPage({ packagingItems }: MaterialImportClientPageProps) {
+export default function MaterialImportClientPage({ packagingItems, rawMaterials }: MaterialImportClientPageProps) {
   const [operation, setOperation] = useState<Operation | null>(null);
   const [parsedData, setParsedData] = useState<ParsedRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -44,6 +48,8 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
   const { toast } = useToast();
   const { user } = useAuth();
   
+  const materialsMap = useMemo(() => new Map(rawMaterials.map(m => [m.code.toLowerCase(), m])), [rawMaterials]);
+
   const handleDownloadTemplate = () => {
     let templateData: any[];
     let fileName: string;
@@ -107,7 +113,16 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
         const json: any[] = XLSX.utils.sheet_to_json(worksheet, { header: headers, range: 1 });
         
         const validData = json
-            .map((row, index) => ({...row, __originalIndex: index }))
+            .map((row, index) => {
+              const materialCode = row['Codice Materiale']?.toString().trim().toLowerCase();
+              const material = materialCode ? materialsMap.get(materialCode) : undefined;
+
+              if (operation === 'carico' && material) {
+                row['Unita'] = material.unitOfMeasure;
+              }
+
+              return { ...row, __originalIndex: index };
+            })
             .filter(row => row['Codice Materiale'] && (row['Quantita Netta'] || row['Quantita da Scaricare']));
 
         setParsedData(validData);
@@ -161,13 +176,20 @@ export default function MaterialImportClientPage({ packagingItems }: MaterialImp
             <>
                 <TableHeader className="sticky top-0 bg-muted"><TableRow>
                     <TableHead>Codice Materiale</TableHead><TableHead>Lotto</TableHead><TableHead>DDT</TableHead>
-                    <TableHead>Q.tà Netta</TableHead><TableHead>Data</TableHead><TableHead>Tara</TableHead>
+                    <TableHead>Quantità Netta</TableHead>
+                    <TableHead>Unità</TableHead>
+                    <TableHead>Data</TableHead><TableHead>Tara</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
                     {parsedData.map((row, index) => (
                         <TableRow key={row.__originalIndex ?? index}>
                             <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
                             <TableCell>{row["DDT"]}</TableCell><TableCell>{row["Quantita Netta"]}</TableCell>
+                             <TableCell>
+                                <Badge variant={row['Unita'] ? 'secondary' : 'destructive'}>
+                                  {String(row['Unita'] || '???').toUpperCase()}
+                                </Badge>
+                             </TableCell>
                             <TableCell>{typeof row["Data"] === 'number' ? new Date(Date.UTC(1899, 11, 30 + (row["Data"] as number))).toLocaleDateString('it-IT') : new Date(row["Data"] as string).toLocaleDateString('it-IT')}</TableCell>
                             <TableCell>{row["Tara (Imballo)"]}</TableCell>
                         </TableRow>
