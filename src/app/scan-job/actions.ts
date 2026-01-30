@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -1133,3 +1132,23 @@ export async function getOperatorByUid(uid: string): Promise<Operator | null> {
 }
 
 
+
+export async function updateOperatorMaterialSessions(
+  operatorId: string,
+  sessions: ActiveMaterialSessionData[]
+): Promise<{ success: boolean; message: string }> {
+  if (!operatorId) {
+    return { success: false, message: "ID Operatore mancante." };
+  }
+  const operatorRef = doc(db, 'operators', operatorId);
+  try {
+    await updateDoc(operatorRef, {
+      activeMaterialSessions: sessions,
+    });
+    
+    return { success: true, message: 'Sessioni materiale sincronizzate.' };
+  } catch (error) {
+    console.error("Error updating operator material sessions:", error);
+    return { success: false, message: 'Impossibile sincronizzare le sessioni materiale.' };
+  }
+}

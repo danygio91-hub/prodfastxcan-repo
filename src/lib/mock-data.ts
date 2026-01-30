@@ -1,5 +1,4 @@
 
-
 // --- Type Definitions ---
 
 export interface Department {
@@ -114,6 +113,7 @@ export interface Operator {
   // Fields to track active state across devices
   activeJobId?: string | null;
   activePhaseName?: string | null;
+  activeMaterialSessions?: ActiveMaterialSessionData[];
 }
 
 export interface WorkPhaseTemplate {
@@ -357,7 +357,3 @@ export const initialDepartmentMap: Record<string, string> = {
     Officina: 'Officina',
     'N/D': 'Non Definito',
 };
-
-  
-
-    

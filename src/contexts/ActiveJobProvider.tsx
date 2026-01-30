@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
@@ -21,44 +20,19 @@ const ActiveJobContext = createContext<ActiveJobContextType | undefined>(undefin
 
 export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
   const [activeJob, setActiveJobState] = useState<JobOrder | null>(null);
-  const [activeJobId, setActiveJobIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
   const [isStatusBarHighlighted, setIsStatusBarHighlightedState] = useState(false);
-
-  // This effect listens for changes on the operator's document in Firestore.
-  // When activeJobId on the operator doc changes, it updates the local state.
-  useEffect(() => {
-    if (authLoading || !operator) {
-      setIsLoading(false);
-      setActiveJobIdState(null);
-      setActiveJobState(null);
-      return;
-    }
-
-    const operatorRef = doc(db, 'operators', operator.id);
-    const unsubscribe = onSnapshot(operatorRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const operatorData = docSnap.data() as Operator;
-        // The source of truth for the active job ID is now the operator document.
-        setActiveJobIdState(operatorData.activeJobId || null);
-      } else {
-        // If the operator doc is somehow deleted, clear the state.
-        setActiveJobIdState(null);
-      }
-    }, (error) => {
-      console.error("Error listening to operator document:", error);
-    });
-
-    return () => unsubscribe();
-  }, [operator, authLoading]);
+  
+  // The source of truth for the active job ID is now the operator context
+  const activeJobId = operator?.activeJobId || null;
 
   const setActiveJobId = useCallback(async (jobId: string | null) => {
     if (!operator) return;
     try {
         const operatorRef = doc(db, "operators", operator.id);
         await updateDoc(operatorRef, { activeJobId: jobId || null });
-        // The listener above will handle the state update.
+        // The onSnapshot listener in AuthProvider will handle the state update.
     } catch (error) {
         console.error("Failed to update active job ID on operator profile", error);
     }
@@ -67,6 +41,11 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
 
   // This effect listens for real-time updates on the active job
   useEffect(() => {
+    if (authLoading) {
+      setIsLoading(true);
+      return;
+    }
+
     if (!activeJobId) {
         setActiveJobState(null);
         setIsLoading(false);
@@ -136,7 +115,7 @@ export const ActiveJobProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [activeJobId, setActiveJobId]);
+  }, [activeJobId, setActiveJobId, authLoading]);
   
   const setActiveJob = useCallback((job: JobOrder | null) => {
     setActiveJobState(job);

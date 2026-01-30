@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
@@ -49,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
 
 
-  const fetchOperatorProfile = useCallback(async (firebaseUser: User) => {
+  const fetchOperatorProfile = useCallback(async (firebaseUser: User): Promise<Operator | null> => {
     // Strategy 1: Find by UID (most efficient and secure)
     const q_uid = query(collection(db, "operators"), where("uid", "==", firebaseUser.uid));
     const uidSnapshot = await getDocs(q_uid);
@@ -138,16 +137,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fullLogout]);
 
 
-  // Effect to handle fetching auth state from Firebase
+  // Effect to handle fetching auth state and listening for real-time operator updates
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let operatorUnsubscribe: (() => void) | null = null;
+    
+    const authUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Clean up previous operator listener if it exists
+      if (operatorUnsubscribe) {
+        operatorUnsubscribe();
+        operatorUnsubscribe = null;
+      }
+
       if (firebaseUser) {
         const operatorProfile = await fetchOperatorProfile(firebaseUser);
         if (operatorProfile) {
-          // No automatic status updates here. The status is managed by the work flow.
           setUser(firebaseUser);
-          setOperator(operatorProfile);
-          storeOperator(operatorProfile);
+
+          // Set up the real-time listener for the operator document
+          const operatorDocRef = doc(db, 'operators', operatorProfile.id);
+          operatorUnsubscribe = onSnapshot(operatorDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const updatedOperator = { ...docSnap.data(), id: docSnap.id } as Operator;
+                setOperator(updatedOperator);
+                storeOperator(updatedOperator);
+            } else {
+                // The operator document was deleted, force a logout.
+                console.error(`Operator document for ${operatorProfile.email} was deleted. Forcing logout.`);
+                fullLogout();
+            }
+          }, (error) => {
+             console.error("Error listening to operator document:", error);
+             fullLogout();
+          });
+
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());
 
           // Perform redirect after login
@@ -177,7 +199,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+        authUnsubscribe();
+        if (operatorUnsubscribe) {
+            operatorUnsubscribe();
+        }
+    };
   }, [fetchOperatorProfile, fullLogout, router]);
 
 

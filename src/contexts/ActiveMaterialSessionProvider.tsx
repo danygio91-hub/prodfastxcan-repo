@@ -1,14 +1,11 @@
 
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useCallback, ReactNode } from 'react';
 import type { ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { updateOperatorMaterialSessions } from '@/app/scan-job/actions';
 
-const ACTIVE_MATERIAL_SESSION_KEY_PREFIX = 'prodtime_tracker_active_material_sessions_';
-const BROADCAST_CHANNEL_NAME = 'material_session_channel';
-
-// Redefine MaterialSessionCategory locally as it's not exported from mock-data
 type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 
 interface ActiveMaterialSessionContextType {
@@ -31,151 +28,63 @@ function getMaterialCategory(type: RawMaterialType): MaterialSessionCategory {
 }
 
 export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNode }) => {
-  const [activeSessions, setActiveSessions] = useState<ActiveMaterialSessionData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const { operator, loading: authLoading } = useAuth();
-  
-  const operatorRef = useRef(operator);
-  operatorRef.current = operator;
 
-  const getStorageKey = useCallback(() => {
-    const currentOperator = operatorRef.current;
-    return currentOperator ? `${ACTIVE_MATERIAL_SESSION_KEY_PREFIX}${currentOperator.id}` : null;
-  }, []);
-  
-  const broadcastSessionsUpdate = useCallback((sessions: ActiveMaterialSessionData[]) => {
-    try {
-      const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-      channel.postMessage({ type: 'SESSIONS_UPDATED', payload: JSON.stringify(sessions) });
-      channel.close();
-    } catch (error) {
-      console.error("Failed to broadcast session update:", error);
-    }
-  }, []);
-
-  const persistSessions = useCallback((sessions: ActiveMaterialSessionData[]) => {
-    const storageKey = getStorageKey();
-    if (!storageKey) return;
-
-    try {
-      if (sessions.length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(sessions));
-      } else {
-        localStorage.removeItem(storageKey);
-      }
-      broadcastSessionsUpdate(sessions);
-    } catch (error) {
-      console.error("Failed to save active material sessions", error);
-    }
-  }, [getStorageKey, broadcastSessionsUpdate]);
-  
-  const loadSessionsFromStorage = useCallback(() => {
-    const storageKey = getStorageKey();
-    if (!storageKey) {
-        setActiveSessions([]);
-        return;
-    }
-    try {
-        const storedSessions = localStorage.getItem(storageKey);
-        if (storedSessions) {
-            setActiveSessions(JSON.parse(storedSessions));
-        } else {
-            setActiveSessions([]);
-        }
-    } catch (error) {
-        console.error("Failed to load material sessions from localStorage:", error);
-        setActiveSessions([]);
-    }
-  }, [getStorageKey]);
-
-
-  // Effect for initial loading and handling broadcast messages
-  useEffect(() => {
-    if (authLoading) {
-        setIsLoading(true);
-        return;
-    }
-
-    setIsLoading(true);
-    loadSessionsFromStorage();
-    setIsLoading(false);
-
-    const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
-    const handleMessage = (event: MessageEvent) => {
-        if (event.data?.type === 'SESSIONS_UPDATED' && event.data.payload) {
-             try {
-                setActiveSessions(JSON.parse(event.data.payload));
-            } catch (error) {
-                console.error("Failed to parse broadcasted sessions", error);
-            }
-        }
-    };
-    channel.addEventListener('message', handleMessage);
-
-    return () => {
-        channel.removeEventListener('message', handleMessage);
-        channel.close();
-    };
-  }, [operator, authLoading, loadSessionsFromStorage]);
-
-
-  const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
-    const category = getMaterialCategory(type);
-    
-    setActiveSessions(prevSessions => {
-        const newSession: ActiveMaterialSessionData = { ...sessionData, category };
-        
-        // Prevent adding a session for a material that already has one.
-        if (prevSessions.some(s => s.materialId === newSession.materialId)) {
-          console.warn(`Attempted to start a session for material ${newSession.materialId}, but one already exists.`);
-          return prevSessions;
-        }
-
-        const updatedSessions = [...prevSessions, newSession];
-        persistSessions(updatedSessions);
-        return updatedSessions;
-    });
-  }, [persistSessions]);
-
-  const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
-    setActiveSessions(prevSessions => {
-        let hasChanged = false;
-        const updatedSessions = prevSessions.map(session => {
-            if (session.materialId === materialId) {
-                if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
-                    return session; 
-                }
-                hasChanged = true;
-                return {
-                    ...session,
-                    associatedJobs: [...session.associatedJobs, job],
-                };
-            }
-            return session;
-        });
-
-        if (hasChanged) {
-          persistSessions(updatedSessions);
-        }
-        return hasChanged ? updatedSessions : prevSessions;
-    });
-  }, [persistSessions]);
-
-  const closeSession = useCallback((materialId: string) => {
-    setActiveSessions(prevSessions => {
-      const sessionToClose = prevSessions.find(s => s.materialId === materialId);
-      if (!sessionToClose) return prevSessions;
-
-      const updatedSessions = prevSessions.filter(s => s.materialId !== materialId);
-      persistSessions(updatedSessions);
-      return updatedSessions;
-    });
-  }, [persistSessions]);
-
+  // The source of truth for active sessions is now the operator object from AuthProvider
+  const activeSessions = operator?.activeMaterialSessions || [];
+  const isLoading = authLoading;
 
   const getSessionByMaterialId = useCallback((materialId: string): ActiveMaterialSessionData | undefined => {
     return activeSessions.find(s => s.materialId === materialId);
   }, [activeSessions]);
+  
+  const updateSessionsOnServer = useCallback(async (newSessions: ActiveMaterialSessionData[]) => {
+      if (!operator) return;
+      // Optimistically update the UI while the server call is in progress.
+      // The onSnapshot in AuthProvider will eventually sync the definitive state.
+      await updateOperatorMaterialSessions(operator.id, newSessions);
+  }, [operator]);
+
+  const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
+    const category = getMaterialCategory(type);
+    
+    const newSession: ActiveMaterialSessionData = { ...sessionData, category };
+
+    // Prevent adding a session for a material that already has one.
+    if (activeSessions.some(s => s.materialId === newSession.materialId)) {
+      console.warn(`Attempted to start a session for material ${newSession.materialId}, but one already exists.`);
+      return;
+    }
+
+    const updatedSessions = [...activeSessions, newSession];
+    updateSessionsOnServer(updatedSessions);
+  }, [activeSessions, updateSessionsOnServer]);
+
+  const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
+    let hasChanged = false;
+    const updatedSessions = activeSessions.map(session => {
+        if (session.materialId === materialId) {
+            if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
+                return session; 
+            }
+            hasChanged = true;
+            return {
+                ...session,
+                associatedJobs: [...session.associatedJobs, job],
+            };
+        }
+        return session;
+    });
+
+    if (hasChanged) {
+      updateSessionsOnServer(updatedSessions);
+    }
+  }, [activeSessions, updateSessionsOnServer]);
+
+  const closeSession = useCallback((materialId: string) => {
+    const updatedSessions = activeSessions.filter(s => s.materialId !== materialId);
+    updateSessionsOnServer(updatedSessions);
+  }, [activeSessions, updateSessionsOnServer]);
 
 
   return (
