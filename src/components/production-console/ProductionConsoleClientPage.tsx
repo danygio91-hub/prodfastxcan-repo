@@ -783,8 +783,8 @@ function ProductionConsoleView() {
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}
                   onNavigateToAnalysis={handleNavigateToAnalysis}
-                  onNavigateToArticleManagement={handleNavigateToArticleManagement}
                   onCopyArticleCode={handleCopy}
+                  onNavigateToArticleManagement={handleNavigateToArticleManagement}
                 />
             ))}
           </div>
