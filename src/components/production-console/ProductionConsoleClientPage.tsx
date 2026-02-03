@@ -522,7 +522,7 @@ function ProductionConsoleView() {
   const handleNavigateToAnalysis = (articleCode: string) => {
     router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
   };
-  
+
   const handleNavigateToArticleManagement = (articleCode: string) => {
     router.push(`/admin/article-management?code=${encodeURIComponent(articleCode)}`);
   };
