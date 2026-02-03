@@ -3,9 +3,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, query, where, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Article, BillOfMaterialsItem, JobOrder } from '@/lib/mock-data';
+import type { Article, BillOfMaterialsItem, JobOrder, JobBillOfMaterialsItem } from '@/lib/mock-data';
 import * as z from 'zod';
 
 const bomItemSchema = z.object({
@@ -77,22 +77,52 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
   // --- End Validation ---
   
   const docId = code;
-  const docRef = doc(db, 'articles', docId);
-  const existingArticleSnap = await getDoc(docRef);
+  const articleRef = doc(db, 'articles', docId);
+
+  const newBOM = (billOfMaterials || []).filter(item => item.component && item.component.trim() !== '' && item.quantity > 0);
 
   const articleData: Article = {
     id: docId,
     code,
-    // Filter out empty or invalid components that might come from the UI or import
-    billOfMaterials: (billOfMaterials || []).filter(item => item.component && item.component.trim() !== '' && item.quantity > 0),
+    billOfMaterials: newBOM,
   };
 
   try {
-    // setDoc without merge will create or completely overwrite the document.
-    // This is the desired behavior for BOM management: an import replaces the old BOM.
-    await setDoc(docRef, articleData);
+    const batch = writeBatch(db);
+    
+    // 1. Save the article itself
+    batch.set(articleRef, articleData);
+    
+    // 2. Find and update associated job orders
+    const jobsQuery = query(collection(db, "jobOrders"), where("details", "==", code));
+    const jobsSnapshot = await getDocs(jobsQuery);
+    
+    let updatedJobsCount = 0;
+    if (!jobsSnapshot.empty) {
+        const newJobBOM: JobBillOfMaterialsItem[] = newBOM.map(item => ({
+            ...item,
+            status: 'pending', // Reset status on update
+            isFromTemplate: true,
+        }));
+
+        jobsSnapshot.forEach(jobDoc => {
+            // Update all jobs, regardless of status, as per user's implicit request
+            batch.update(jobDoc.ref, { billOfMaterials: newJobBOM });
+            updatedJobsCount++;
+        });
+    }
+
+    await batch.commit();
+
     revalidatePath('/admin/article-management');
-    return { success: true, message: `Articolo ${existingArticleSnap.exists() ? 'aggiornato' : 'creato'} con successo.` };
+    revalidatePath('/admin/production-console'); // Revalidate console to reflect changes
+    
+    let message = `Articolo ${code} salvato con successo.`;
+    if (updatedJobsCount > 0) {
+        message += ` ${updatedJobsCount} commesse associate sono state aggiornate con la nuova distinta base.`;
+    }
+
+    return { success: true, message: message };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
     return { success: false, message: errorMessage };
