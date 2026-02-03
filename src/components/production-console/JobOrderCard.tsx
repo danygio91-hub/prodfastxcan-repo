@@ -492,7 +492,7 @@ export default function JobOrderCard({
                             </p>
                           </ContextMenuTrigger>
                            <ContextMenuContent>
-                               <ContextMenuItem onSelect={() => onNavigateToArticleManagement(jobOrder.details)}>
+                              <ContextMenuItem onSelect={() => onNavigateToArticleManagement(jobOrder.details)}>
                                   <ClipboardList className="mr-2 h-4 w-4" />
                                   Anagrafica Articolo
                               </ContextMenuItem>
