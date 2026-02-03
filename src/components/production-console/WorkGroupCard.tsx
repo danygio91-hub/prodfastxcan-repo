@@ -79,7 +79,6 @@ export default function WorkGroupCard({
     getOverallStatus,
     onNavigateToAnalysis,
     onCopyArticleCode,
-    onNavigateToArticleManagement,
 }: { 
     group: WorkGroup;
     jobsInGroup: JobOrder[];
@@ -99,7 +98,6 @@ export default function WorkGroupCard({
     getOverallStatus: (job: JobOrder) => OverallStatus;
     onNavigateToAnalysis: (articleCode: string) => void;
     onCopyArticleCode: (articleCode: string) => void;
-    onNavigateToArticleManagement: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -521,7 +519,6 @@ export default function WorkGroupCard({
                               overallStatus={getOverallStatus(job)}
                               onNavigateToAnalysis={onNavigateToAnalysis}
                               onCopyArticleCode={onCopyArticleCode}
-                              onNavigateToArticleManagement={onNavigateToArticleManagement}
                           />
                       ))}
                   </div>

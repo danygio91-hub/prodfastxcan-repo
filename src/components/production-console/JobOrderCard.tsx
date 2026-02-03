@@ -135,7 +135,6 @@ export default function JobOrderCard({
     overallStatus,
     onNavigateToAnalysis,
     onCopyArticleCode,
-    onNavigateToArticleManagement,
 }: { 
     jobOrder: JobOrder;
     allOperators: Operator[];
@@ -160,7 +159,6 @@ export default function JobOrderCard({
     overallStatus: OverallStatus;
     onNavigateToAnalysis: (articleCode: string) => void;
     onCopyArticleCode: (articleCode: string) => void;
-    onNavigateToArticleManagement: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isBOMDialogOpen, setIsBOMDialogOpen] = useState(false);
@@ -492,10 +490,6 @@ export default function JobOrderCard({
                             </p>
                           </ContextMenuTrigger>
                            <ContextMenuContent>
-                              <ContextMenuItem onSelect={() => onNavigateToArticleManagement(jobOrder.details)}>
-                                  <ClipboardList className="mr-2 h-4 w-4" />
-                                  Anagrafica Articolo
-                              </ContextMenuItem>
                               <ContextMenuItem onSelect={() => onNavigateToAnalysis(jobOrder.details)}>
                                   <BarChart3 className="mr-2 h-4 w-4"/>
                                   Analisi Tempi Articolo

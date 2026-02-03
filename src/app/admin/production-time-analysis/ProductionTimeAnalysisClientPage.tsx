@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -117,9 +116,6 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
     });
   }
   
-  const handleNavigateToArticle = (articleCode: string) => {
-    router.push(`/admin/article-management?code=${encodeURIComponent(articleCode)}`);
-  };
     
   return (
       <div className="space-y-6">
@@ -177,10 +173,6 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                             <span className="font-semibold text-lg hover:text-primary hover:underline cursor-pointer">{item.articleCode}</span>
                                         </ContextMenuTrigger>
                                         <ContextMenuContent>
-                                            <ContextMenuItem onSelect={() => handleNavigateToArticle(item.articleCode)}>
-                                                <ClipboardList className="mr-2 h-4 w-4" />
-                                                Anagrafica Articolo
-                                            </ContextMenuItem>
                                             <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
                                                 <Copy className="mr-2 h-4 w-4" />
                                                 Copia Codice Articolo

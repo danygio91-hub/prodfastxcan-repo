@@ -522,10 +522,6 @@ function ProductionConsoleView() {
     router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
   };
   
-  const handleNavigateToArticleManagement = (articleCode: string) => {
-    router.push(`/admin/article-management?code=${encodeURIComponent(articleCode)}`);
-  };
-  
   const filterOptions: { label: string; value: FilterStatus; icon: React.ElementType }[] = [
     { label: 'Tutte', value: 'all', icon: Briefcase },
     { label: 'Da Iniziare', value: 'Da Iniziare', icon: Circle },
@@ -755,7 +751,6 @@ function ProductionConsoleView() {
                    getOverallStatus={getOverallStatus}
                    onNavigateToAnalysis={handleNavigateToAnalysis}
                    onCopyArticleCode={handleCopy}
-                   onNavigateToArticleManagement={handleNavigateToArticleManagement}
               />
             ))}
             {filteredStandaloneJobs.map(job => (
@@ -783,7 +778,6 @@ function ProductionConsoleView() {
                   overallStatus={getOverallStatus(job)}
                   onNavigateToAnalysis={handleNavigateToAnalysis}
                   onCopyArticleCode={handleCopy}
-                  onNavigateToArticleManagement={handleNavigateToArticleManagement}
                 />
             ))}
           </div>
