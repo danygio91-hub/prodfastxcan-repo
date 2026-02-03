@@ -179,7 +179,7 @@ export default function ProductionTimeAnalysisClientPage({ report }: ProductionT
                                         <ContextMenuContent>
                                             <ContextMenuItem onSelect={() => handleNavigateToArticle(item.articleCode)}>
                                                 <ClipboardList className="mr-2 h-4 w-4" />
-                                                Gestisci Distinta Base
+                                                Anagrafica Articolo
                                             </ContextMenuItem>
                                             <ContextMenuItem onSelect={() => handleCopy(item.articleCode)}>
                                                 <Copy className="mr-2 h-4 w-4" />
