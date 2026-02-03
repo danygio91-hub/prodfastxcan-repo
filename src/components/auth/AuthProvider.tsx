@@ -151,9 +151,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         const operatorProfile = await fetchOperatorProfile(firebaseUser);
         if (operatorProfile) {
+          // Set user and operator state immediately to prevent race conditions
           setUser(firebaseUser);
+          setOperator(operatorProfile);
+          storeOperator(operatorProfile);
 
-          // Set up the real-time listener for the operator document
+          // Then, set up the real-time listener for subsequent updates
           const operatorDocRef = doc(db, 'operators', operatorProfile.id);
           operatorUnsubscribe = onSnapshot(operatorDocRef, (docSnap) => {
             if (docSnap.exists()) {
@@ -172,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           localStorage.setItem(LAST_LOGIN_TIMESTAMP_KEY, Date.now().toString());
 
-          // Perform redirect after login
+          // Perform redirect after login is confirmed and state is set
            const targetPath = localStorage.getItem('login_redirect_path');
            localStorage.removeItem('login_redirect_path'); // Clean up
 
