@@ -12,7 +12,7 @@ import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment, type ScrapRecord } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getMaterialsStatus, type MaterialStatus, getScrapsForMaterial } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getMaterialsStatus, type MaterialStatus, getScrapsForMaterial, getRawMaterials } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -141,6 +141,8 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(initialRawMaterials);
+  const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isStatusLoading, setIsStatusLoading] = useState(false);
 
@@ -185,6 +187,22 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
     }
   }, [codeFromUrl]);
 
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsLoadingMaterials(true);
+        getRawMaterials(searchTerm).then(results => {
+          setRawMaterials(results);
+          setIsLoadingMaterials(false);
+        });
+      } else {
+        setRawMaterials([]); // Clear results if search term is too short
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm]);
+
   const handleFetchStatus = useCallback(async () => {
     setIsStatusLoading(true);
     try {
@@ -201,22 +219,13 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
     handleFetchStatus();
   }, [handleFetchStatus]);
 
-  const filteredMaterials = useMemo(() => {
-    if (!searchTerm) {
-      return initialRawMaterials;
-    }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return initialRawMaterials.filter(material => 
-      (material.code_normalized || material.code.toLowerCase()).includes(lowercasedFilter) ||
-      material.description.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [initialRawMaterials, searchTerm]);
-
-
   const refreshData = useCallback(() => {
-    router.refresh(); // This will re-run the server component and fetch new initial data
-    handleFetchStatus(); // Also refetch status which is client-side
-  }, [router, handleFetchStatus]);
+    router.refresh();
+    handleFetchStatus();
+    if (searchTerm.length >= 2) {
+        getRawMaterials(searchTerm).then(setRawMaterials);
+    }
+  }, [router, handleFetchStatus, searchTerm]);
   
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
@@ -273,7 +282,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
     }
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.id);
-    const updatedMaterial = initialRawMaterials.find(m => m.id === material.id) || material;
+    const updatedMaterial = rawMaterials.find(m => m.id === material.id) || material;
     const batches = updatedMaterial.batches || [];
     
     const combinedMovements: Movement[] = [
@@ -522,7 +531,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
   };
   
   const handleExport = () => {
-    const dataToExport = filteredMaterials.map(m => ({
+    const dataToExport = rawMaterials.map(m => ({
         'Codice': m.code,
         'Tipo': m.type,
         'Descrizione': m.description,
@@ -543,7 +552,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedRows(filteredMaterials.map(m => m.id));
+      setSelectedRows(rawMaterials.map(m => m.id));
     } else {
       setSelectedRows([]);
     }
@@ -554,6 +563,17 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
       prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
     );
   };
+
+  const renderLoading = () => (
+      <TableRow>
+          <TableCell colSpan={9} className="h-24 text-center">
+              <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Caricamento materiali...</span>
+              </div>
+          </TableCell>
+      </TableRow>
+  );
 
   return (
       <div className="space-y-6">
@@ -569,7 +589,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
           </header>
           <div className="flex items-center gap-2 pt-2">
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-              <Button onClick={handleExport} variant="outline" disabled={filteredMaterials.length === 0}>
+              <Button onClick={handleExport} variant="outline" disabled={rawMaterials.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               Esporta Elenco
             </Button>
@@ -643,10 +663,10 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                             <TableRow>
                                 <TableHead padding="checkbox">
                                 <Checkbox
-                                    checked={selectedRows.length > 0 ? (selectedRows.length === filteredMaterials.length ? true : 'indeterminate') : false}
+                                    checked={selectedRows.length > 0 ? (selectedRows.length === rawMaterials.length && rawMaterials.length > 0 ? true : 'indeterminate') : false}
                                     onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                                     aria-label="Seleziona tutte"
-                                    disabled={filteredMaterials.length === 0}
+                                    disabled={rawMaterials.length === 0}
                                 />
                                 </TableHead>
                                 <TableHead>Codice</TableHead>
@@ -660,8 +680,8 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                             </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {(filteredMaterials.length > 0) ? (
-                                filteredMaterials.map((material) => {
+                            {isLoadingMaterials ? renderLoading() : (rawMaterials.length > 0) ? (
+                                rawMaterials.map((material) => {
                                   const status = materialStatus.find(s => s.id === material.id);
                                   return (
                                     <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
@@ -726,7 +746,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                             ) : (
                                 <TableRow>
                                 <TableCell colSpan={9} className="text-center h-24">
-                                    {searchTerm.length < 2 && initialRawMaterials.length > 0 ? "Digita almeno 2 caratteri per avviare la ricerca." : "Nessuna materia prima trovata."}
+                                    {searchTerm.length < 2 ? "Digita almeno 2 caratteri per avviare la ricerca." : "Nessuna materia prima trovata."}
                                 </TableCell>
                                 </TableRow>
                             )}
@@ -740,7 +760,6 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                 <CommitmentManagementClientPage 
                     initialCommitments={initialCommitments} 
                     initialArticles={initialArticles} 
-                    allRawMaterials={initialRawMaterials}
                 />
             </TabsContent>
         </Tabs>

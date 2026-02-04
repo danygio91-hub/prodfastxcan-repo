@@ -92,22 +92,6 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         return list;
     }
 
-    // If no search term is provided (e.g., called from article management page), fetch all
-    if (!searchTerm) {
-        const snapshot = await getDocs(materialsCol);
-        if (snapshot.empty) return [];
-        const list = snapshot.docs.map(doc => {
-            const data = doc.data() as RawMaterial;
-            return {
-                ...data,
-                id: doc.id,
-                currentStockUnits: data.currentStockUnits ?? 0,
-                currentWeightKg: data.currentWeightKg ?? 0,
-            };
-        });
-        return list;
-    }
-
     // If search term is too short or an empty string, return nothing
     return [];
 }
@@ -675,8 +659,9 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const articlesMap = new Map<string, Article>();
     articlesSnapshot.forEach(doc => {
         const data = doc.data();
-        if (data.code && typeof data.code === 'string') {
-             articlesMap.set(data.code.toLowerCase(), data as Article);
+        const articleCode = data.code;
+        if (articleCode && typeof articleCode === 'string') {
+             articlesMap.set(articleCode.toLowerCase(), data as Article);
         }
     });
 
@@ -687,19 +672,22 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const job = doc.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item && item.component && typeof item.component === 'string' && item.status !== 'withdrawn') {
-                let requiredQty = 0;
-                const material = materialsMap.get(item.component.toLowerCase());
+                const componentCode = item.component.toLowerCase();
+                const material = materialsMap.get(componentCode);
 
+                let requiredQty = 0;
+                const jobQty = job.qta || 0;
+                const itemQty = item.quantity || 0;
+                
                 if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                    requiredQty = (item.quantity || 0) * (job.qta || 0) * item.lunghezzaTaglioMm / 1000;
+                    requiredQty = (jobQty * itemQty * item.lunghezzaTaglioMm) / 1000;
                 } else {
-                    requiredQty = (item.quantity || 0) * (job.qta || 0);
+                    requiredQty = jobQty * itemQty;
                 }
                
                 if (!isNaN(requiredQty) && requiredQty > 0) {
-                    const normalizedComponent = item.component.toLowerCase();
-                    const currentImpegno = impegniMap.get(normalizedComponent) || 0;
-                    impegniMap.set(normalizedComponent, currentImpegno + requiredQty);
+                    const currentImpegno = impegniMap.get(componentCode) || 0;
+                    impegniMap.set(componentCode, currentImpegno + requiredQty);
                 }
             }
         });
@@ -708,24 +696,28 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     // Calculate commitments from manual entries
     manualCommitmentsSnapshot.forEach(doc => {
         const commitment = doc.data() as ManualCommitment;
-        const article = commitment.articleCode ? articlesMap.get(commitment.articleCode.toLowerCase()) : undefined;
+        const articleCode = commitment.articleCode?.toLowerCase();
+        const article = articleCode ? articlesMap.get(articleCode) : undefined;
         
         if (article && article.billOfMaterials) {
             article.billOfMaterials.forEach(bomItem => {
                 if (bomItem && bomItem.component && typeof bomItem.component === 'string') {
+                    const componentCode = bomItem.component.toLowerCase();
+                    const material = materialsMap.get(componentCode);
+
                     let totalRequired = 0;
-                    const material = materialsMap.get(bomItem.component.toLowerCase());
+                    const commitmentQty = commitment.quantity || 0;
+                    const bomItemQty = bomItem.quantity || 0;
                     
                     if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                         totalRequired = (commitment.quantity || 0) * (bomItem.quantity || 0) * (bomItem.lunghezzaTaglioMm / 1000);
+                         totalRequired = (commitmentQty * bomItemQty * (bomItem.lunghezzaTaglioMm / 1000));
                     } else {
-                         totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
+                         totalRequired = bomItemQty * commitmentQty;
                     }
 
                     if (!isNaN(totalRequired) && totalRequired > 0) {
-                        const normalizedComponent = bomItem.component.toLowerCase();
-                        const currentImpegno = impegniMap.get(normalizedComponent) || 0;
-                        impegniMap.set(normalizedComponent, currentImpegno + totalRequired);
+                        const currentImpegno = impegniMap.get(componentCode) || 0;
+                        impegniMap.set(componentCode, currentImpegno + totalRequired);
                     }
                 }
             });
@@ -1096,6 +1088,32 @@ export async function getScrapsForMaterial(materialId: string): Promise<ScrapRec
             declaredAt: (data.declaredAt as Timestamp).toDate().toISOString(),
         } as ScrapRecord;
     });
+}
+
+export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
+  if (!codes || codes.length === 0) {
+    return [];
+  }
+
+  const normalizedCodes = codes.map(c => c.toLowerCase());
+  
+  // Firestore 'in' query is limited to 30 elements per query.
+  const chunks: string[][] = [];
+  for (let i = 0; i < normalizedCodes.length; i += 30) {
+    chunks.push(normalizedCodes.slice(i, i + 30));
+  }
+  
+  const results: RawMaterial[] = [];
+  
+  for (const chunk of chunks) {
+    const q = query(collection(db, "rawMaterials"), where("code_normalized", "in", chunk));
+    const querySnapshot = await getDocs(q);
+    querySnapshot.forEach(doc => {
+      results.push({ id: doc.id, ...doc.data() } as RawMaterial);
+    });
+  }
+  
+  return JSON.parse(JSON.stringify(results));
 }
     
 
