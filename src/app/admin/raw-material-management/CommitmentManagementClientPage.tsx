@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -8,9 +8,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
+import * as XLSX from 'xlsx';
 
 import { type ManualCommitment, type Article } from '@/lib/mock-data';
-import { saveManualCommitment, deleteManualCommitment, fulfillManualCommitment } from './actions';
+import { saveManualCommitment, deleteManualCommitment, fulfillManualCommitment, importManualCommitments } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
-import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle } from 'lucide-react';
+import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -50,6 +51,9 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
   const { user } = useAuth();
   const router = useRouter();
   const [dateString, setDateString] = useState<string>('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const form = useForm<CommitmentFormValues>({
     resolver: zodResolver(commitmentFormSchema),
@@ -81,7 +85,7 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
     });
 
     if (result.success) {
-      router.refresh(); // This will re-fetch data on the server and pass down new initialCommitments
+      router.refresh(); 
       setIsDialogOpen(false);
       form.reset();
     }
@@ -116,113 +120,189 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
     }
     setIsPending(false);
   };
+  
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      { 
+        "Commessa": "COMM-001/24",
+        "Codice Articolo": "ART-001",
+        "Quantita": 100,
+        "Data Consegna": "25/07/2024",
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Impegni Manuali");
+    XLSX.writeFile(wb, "template_impegni_manuali.xlsx");
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsImporting(true);
+    toast({ title: 'Importazione in corso...', description: 'Lettura e validazione del file Excel in corso.' });
+
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (json.length === 0) {
+            toast({ variant: 'destructive', title: "File Vuoto", description: "Il file non contiene righe da importare." });
+            setIsImporting(false);
+            return;
+        }
+
+        const result = await importManualCommitments(json, user.uid);
+        
+        toast({
+            title: result.success ? "Importazione Completata" : "Errore di Importazione",
+            description: result.message,
+            variant: result.success ? "default" : "destructive",
+            duration: 9000,
+        });
+        
+        if (result.success) {
+            router.refresh();
+        }
+
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Errore Importazione",
+            description: error instanceof Error ? error.message : "Impossibile leggere o processare il file.",
+        });
+    } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
 
   return (
     <Card>
       <CardHeader>
         <div className="flex justify-between items-center">
             <CardTitle className="font-headline">Impegni Manuali su Commessa</CardTitle>
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                    <Button><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Impegno</Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-xl">
-                     <DialogHeader>
-                        <DialogTitle>Aggiungi Nuovo Impegno Manuale</DialogTitle>
-                        <DialogDescription>
-                            Inserisci i dettagli per creare un nuovo impegno di materiale su una commessa.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-                            <FormField control={form.control} name="jobOrderCode" render={({ field }) => ( <FormItem> <FormLabel>Commessa di Riferimento</FormLabel> <FormControl><Input placeholder="Es. Comm-1234/24" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="articleCode" render={({ field }) => (
-                                <FormItem className="flex flex-col">
-                                <FormLabel>Codice Articolo</FormLabel>
-                                <Popover><PopoverTrigger asChild><FormControl>
-                                    <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                                        {field.value ? initialArticles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </FormControl></PopoverTrigger>
-                                <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command>
-                                    <CommandInput placeholder="Cerca articolo..." />
-                                    <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
-                                    <CommandGroup>
-                                        {initialArticles.map((article) => (
-                                        <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); }}>
-                                            <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
-                                            {article.code}
-                                        </CommandItem>
-                                        ))}
-                                    </CommandGroup>
-                                </Command></PopoverContent></Popover>
-                                <FormMessage />
-                                </FormItem>
-                            )} />
-                            <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità da Produrre</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                            <FormField
-                              control={form.control}
-                              name="deliveryDate"
-                              render={({ field }) => (
-                                <FormItem className="flex flex-col">
-                                  <FormLabel>Data Consegna Prevista</FormLabel>
-                                  <Popover>
-                                    <div className="relative flex items-center">
-                                      <FormControl>
-                                        <Input
-                                          placeholder="gg/mm/aaaa"
-                                          value={dateString}
-                                          onChange={(e) => {
-                                            const value = e.target.value;
-                                            setDateString(value);
-                                            const parsedDate = parse(value, 'dd/MM/yyyy', new Date());
-                                            if (isValid(parsedDate)) {
-                                              field.onChange(parsedDate);
-                                            } else {
-                                              field.onChange(undefined);
-                                            }
-                                          }}
-                                        />
-                                      </FormControl>
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          variant={"ghost"}
-                                          className="absolute right-1 h-8 w-8 p-0"
-                                          aria-label="Apri calendario"
-                                        >
-                                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-2">
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+                <Button onClick={handleDownloadTemplate} variant="outline" size="sm">
+                    <Download className="mr-2 h-4 w-4" />
+                    Scarica Template
+                </Button>
+                <Button onClick={handleImportClick} variant="outline" size="sm" disabled={isImporting}>
+                    {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
+                    Carica da File
+                </Button>
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                    <DialogTrigger asChild>
+                        <Button><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Impegno</Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-xl">
+                        <DialogHeader>
+                            <DialogTitle>Aggiungi Nuovo Impegno Manuale</DialogTitle>
+                            <DialogDescription>
+                                Inserisci i dettagli per creare un nuovo impegno di materiale su una commessa.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+                                <FormField control={form.control} name="jobOrderCode" render={({ field }) => ( <FormItem> <FormLabel>Commessa di Riferimento</FormLabel> <FormControl><Input placeholder="Es. Comm-1234/24" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                <FormField control={form.control} name="articleCode" render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                    <FormLabel>Codice Articolo</FormLabel>
+                                    <Popover><PopoverTrigger asChild><FormControl>
+                                        <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
+                                            {field.value ? initialArticles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                         </Button>
-                                      </PopoverTrigger>
-                                    </div>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                      <Calendar
-                                        mode="single"
-                                        selected={field.value}
-                                        onSelect={(date) => {
-                                          field.onChange(date);
-                                          if (date && isValid(date)) {
-                                            setDateString(format(date, 'dd/MM/yyyy'));
-                                          } else {
-                                            setDateString('');
-                                          }
-                                        }}
-                                        initialFocus
-                                      />
-                                    </PopoverContent>
-                                  </Popover>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                             <DialogFooter>
-                                <DialogClose asChild><Button type="button" variant="outline" disabled={isPending}>Annulla</Button></DialogClose>
-                                <Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null} Salva Impegno</Button>
-                            </DialogFooter>
-                        </form>
-                    </Form>
-                </DialogContent>
-            </Dialog>
+                                    </FormControl></PopoverTrigger>
+                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command>
+                                        <CommandInput placeholder="Cerca articolo..." />
+                                        <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
+                                        <CommandGroup>
+                                            {initialArticles.map((article) => (
+                                            <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); }}>
+                                                <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
+                                                {article.code}
+                                            </CommandItem>
+                                            ))}
+                                        </CommandGroup>
+                                    </Command></PopoverContent></Popover>
+                                    <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità da Produrre</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
+                                <FormField
+                                  control={form.control}
+                                  name="deliveryDate"
+                                  render={({ field }) => (
+                                    <FormItem className="flex flex-col">
+                                      <FormLabel>Data Consegna Prevista</FormLabel>
+                                      <Popover>
+                                        <div className="relative flex items-center">
+                                          <FormControl>
+                                            <Input
+                                              placeholder="gg/mm/aaaa"
+                                              value={dateString}
+                                              onChange={(e) => {
+                                                const value = e.target.value;
+                                                setDateString(value);
+                                                const parsedDate = parse(value, 'dd/MM/yyyy', new Date());
+                                                if (isValid(parsedDate)) {
+                                                  field.onChange(parsedDate);
+                                                } else {
+                                                  field.onChange(undefined);
+                                                }
+                                              }}
+                                            />
+                                          </FormControl>
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              variant={"ghost"}
+                                              className="absolute right-1 h-8 w-8 p-0"
+                                              aria-label="Apri calendario"
+                                            >
+                                              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                            </Button>
+                                          </PopoverTrigger>
+                                        </div>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                          <Calendar
+                                            mode="single"
+                                            selected={field.value}
+                                            onSelect={(date) => {
+                                              field.onChange(date);
+                                              if (date && isValid(date)) {
+                                                setDateString(format(date, 'dd/MM/yyyy'));
+                                              } else {
+                                                setDateString('');
+                                              }
+                                            }}
+                                            initialFocus
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                                 <DialogFooter>
+                                    <DialogClose asChild><Button type="button" variant="outline" disabled={isPending}>Annulla</Button></DialogClose>
+                                    <Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null} Salva Impegno</Button>
+                                </DialogFooter>
+                            </form>
+                        </Form>
+                    </DialogContent>
+                </Dialog>
+            </div>
         </div>
       </CardHeader>
       <CardContent>

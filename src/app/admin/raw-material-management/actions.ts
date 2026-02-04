@@ -616,7 +616,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
                 c => c.withdrawalId !== withdrawalId
               );
               if (updatedConsumptions.length < consumptions.length) {
-                return { ...phase, materialConsumptions: updatedConsumptions };
+                   return { ...phase, materialConsumptions: updatedConsumptions };
               }
               return phase;
             });
@@ -657,7 +657,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
-        getDocs(materialsSnapshot),
+        getDocs(materialsQuery),
         getDocs(manualCommitmentsQuery),
         getDocs(articlesQuery),
     ]);
@@ -891,4 +891,94 @@ export async function fulfillManualCommitment(
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore durante l'evasione dell'impegno." };
   }
+}
+
+export async function importManualCommitments(
+  data: any[],
+  uid: string
+): Promise<{ success: boolean; message: string; }> {
+    await ensureAdmin(uid);
+
+    if (!data || data.length === 0) {
+        return { success: false, message: 'Nessun dato da importare.' };
+    }
+
+    const articlesSnap = await getDocs(collection(db, "articles"));
+    const articlesMap = new Map(articlesSnap.docs.map(d => [d.data().code, d.id]));
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    const commitmentSchema = z.object({
+        Commessa: z.string().min(1),
+        "Codice Articolo": z.string().min(1),
+        Quantita: z.coerce.number().positive(),
+        "Data Consegna": z.any(),
+    });
+
+    const batch = writeBatch(db);
+
+    for (const row of data) {
+        const validated = commitmentSchema.safeParse(row);
+        if (!validated.success) {
+            errorCount++;
+            errors.push(`Riga con dati non validi: ${JSON.stringify(row)}`);
+            continue;
+        }
+
+        const { Commessa, "Codice Articolo": articleCode, Quantita, "Data Consegna": rawDate } = validated.data;
+
+        if (!articlesMap.has(articleCode)) {
+            errorCount++;
+            errors.push(`Articolo "${articleCode}" non trovato in anagrafica.`);
+            continue;
+        }
+
+        let parsedDate: Date;
+        if (typeof rawDate === 'number') { // Excel date number
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            parsedDate = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000);
+        } else if (typeof rawDate === 'string') {
+            const dateParts = rawDate.split('/');
+            if (dateParts.length === 3) {
+                 parsedDate = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
+            } else {
+                 parsedDate = new Date(rawDate);
+            }
+        } else {
+            parsedDate = new Date(); // Fallback
+        }
+
+        if (isNaN(parsedDate.getTime())) {
+            errorCount++;
+            errors.push(`Data non valida per commessa "${Commessa}".`);
+            continue;
+        }
+
+        const docRef = doc(collection(db, "manualCommitments"));
+        const newCommitment: Omit<ManualCommitment, 'id'> = {
+            jobOrderCode: Commessa,
+            articleCode,
+            quantity: Quantita,
+            deliveryDate: parsedDate.toISOString(),
+            status: 'pending',
+            createdAt: Timestamp.now(),
+        };
+        batch.set(docRef, { ...newCommitment, id: docRef.id });
+        successCount++;
+    }
+    
+    if (successCount > 0) {
+        await batch.commit();
+    }
+    
+    let message = `${successCount} impegni importati.`;
+    if (errorCount > 0) {
+        message += ` ${errorCount} righe ignorate. Primo errore: ${errors[0]}`;
+    }
+
+    revalidatePath('/admin/raw-material-management');
+
+    return { success: errorCount === 0, message };
 }
