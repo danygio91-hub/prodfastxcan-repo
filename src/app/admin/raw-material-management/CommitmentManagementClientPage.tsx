@@ -37,7 +37,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 interface CommitmentManagementClientPageProps {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
-  initialRawMaterials: RawMaterial[];
 }
 
 const commitmentFormSchema = z.object({
@@ -62,14 +61,12 @@ function DeclarationDialog({
     onOpenChange, 
     commitment, 
     article,
-    allRawMaterials,
     onDeclare,
 }: { 
     isOpen: boolean; 
     onOpenChange: (open: boolean) => void;
     commitment: ManualCommitment;
     article: Article | undefined;
-    allRawMaterials: RawMaterial[];
     onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
 }) {
     const { toast } = useToast();
@@ -81,7 +78,7 @@ function DeclarationDialog({
         },
     });
     
-    const watchedValues = form.watch();
+    const { goodPieces, scrapPieces } = form.watch();
     
     const [selectedBatchIds, setSelectedBatchIds] = useState<Record<string, Set<string>>>({});
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
@@ -89,7 +86,7 @@ function DeclarationDialog({
     
     const bomWithConsumption = useMemo(() => {
         if (!article?.billOfMaterials) return [];
-        const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
+        const totalPieces = (Number(goodPieces) || 0) + (Number(scrapPieces) || 0);
         return article.billOfMaterials.map(item => {
             const material = componentMaterials.find(m => m.code === item.component);
             let totalRequired = 0;
@@ -102,7 +99,7 @@ function DeclarationDialog({
             }
             return { ...item, totalRequired, displayUnit };
         });
-    }, [article, watchedValues, componentMaterials]);
+    }, [article, goodPieces, scrapPieces, componentMaterials]);
 
     useEffect(() => {
         if (isOpen) {
@@ -128,10 +125,9 @@ function DeclarationDialog({
         }
     }, [isOpen, article, commitment.quantity, form]);
     
-     const handleLotSelection = useCallback((componentCode: string, batchId: string) => {
+    const handleLotSelection = useCallback((componentCode: string, batchId: string) => {
         setSelectedBatchIds(prev => {
-            const currentSelections = prev[componentCode] || new Set();
-            const newSelections = new Set(currentSelections);
+            const newSelections = new Set(prev[componentCode]);
             if (newSelections.has(batchId)) {
                 newSelections.delete(batchId);
             } else {
@@ -279,7 +275,8 @@ function DeclarationDialog({
                                                     </TableHeader>
                                                     <TableBody>
                                                         {availableBatches.length > 0 ? availableBatches.map(batch => {
-                                                            const isSelected = (lotSelections[item.component] || []).some(s => s.batchId === batch.id);
+                                                            const isSelected = !!selectedBatchIds[item.component]?.has(batch.id);
+                                                            const consumedValue = (lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0;
                                                             return (
                                                                 <TableRow 
                                                                     key={batch.id}
@@ -297,7 +294,7 @@ function DeclarationDialog({
                                                                     <TableCell>{batch.lotto || "N/D"}</TableCell>
                                                                     <TableCell>{formatDisplayStock(batch.netQuantity, item.displayUnit)} {item.displayUnit}</TableCell>
                                                                     <TableCell className="font-semibold text-primary">
-                                                                    {formatDisplayStock((lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0, item.displayUnit)} {item.displayUnit}
+                                                                        {formatDisplayStock(consumedValue, item.displayUnit)} {item.displayUnit}
                                                                     </TableCell>
                                                                 </TableRow>
                                                             )
@@ -331,7 +328,6 @@ function DeclarationDialog({
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
-  initialRawMaterials,
 }: CommitmentManagementClientPageProps) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -681,7 +677,6 @@ export default function CommitmentManagementClientPage({
             onOpenChange={(open) => !open && setDeclarationTarget(null)}
             commitment={declarationTarget}
             article={initialArticles.find(a => a.code === declarationTarget.articleCode)}
-            allRawMaterials={initialRawMaterials}
             onDeclare={handleDeclare}
         />
        )}
