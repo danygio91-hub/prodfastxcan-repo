@@ -1,12 +1,11 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp, deleteField, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department, ManualCommitment, Article } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department, ManualCommitment, Article, ScrapRecord } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { formatDisplayStock } from '@/lib/utils';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -658,7 +657,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
-        getDocs(manualCommitmentsQuery),
+        getDocs(manualCommitmentsSnapshot),
         getDocs(articlesQuery),
     ]);
 
@@ -820,106 +819,117 @@ export async function deleteManualCommitment(commitmentId: string): Promise<{ su
   }
 }
 
-export async function fulfillManualCommitment(
+export interface LotSelectionPayload {
+  materialId: string;
+  batchId: string;
+  consumed: number; // in primary UoM of the material
+}
+
+export async function declareCommitmentFulfillment(
   commitmentId: string,
+  goodPieces: number,
+  scrapPieces: number,
+  lotSelections: LotSelectionPayload[],
   uid: string
 ): Promise<{ success: boolean; message: string; }> {
-  await ensureAdmin(uid);
-  const commitmentRef = doc(db, "manualCommitments", commitmentId);
+    await ensureAdmin(uid);
+    const commitmentRef = doc(db, "manualCommitments", commitmentId);
 
-  try {
-    await runTransaction(db, async (transaction) => {
-        const commitmentSnap = await transaction.get(commitmentRef);
-        if (!commitmentSnap.exists() || commitmentSnap.data().status !== 'pending') {
-            throw new Error("Impegno non trovato o già evaso.");
-        }
-        const commitment = commitmentSnap.data() as ManualCommitment;
-
-        const articleRef = doc(db, 'articles', commitment.articleCode);
-        const articleSnap = await transaction.get(articleRef);
-        if (!articleSnap.exists() || !articleSnap.data().billOfMaterials) {
-            throw new Error(`Distinta Base non trovata per l'articolo ${commitment.articleCode}.`);
-        }
-        const article = articleSnap.data() as Article;
-        
-        const qOp = query(collection(db, 'operators'), where('uid', '==', uid));
-        const operatorSnaps = await getDocs(qOp);
-        const operatorName = !operatorSnaps.empty ? operatorSnaps.docs[0].data().nome : 'Admin';
-        
-        // Process withdrawals for each BOM item
-        for (const bomItem of article.billOfMaterials) {
-            const q = query(collection(db, 'rawMaterials'), where('code', '==', bomItem.component), limit(1));
-            const materialQuerySnap = await getDocs(q); // Use getDocs instead of transaction.get with a query
-            if (materialQuerySnap.empty) {
-                throw new Error(`Materiale ${bomItem.component} non trovato in anagrafica.`);
+    try {
+        await runTransaction(db, async (transaction) => {
+            const commitmentSnap = await transaction.get(commitmentRef);
+            if (!commitmentSnap.exists() || commitmentSnap.data().status !== 'pending') {
+                throw new Error("Impegno non trovato o già evaso.");
             }
-            const materialDoc = materialQuerySnap.docs[0];
-            const materialDocRef = materialDoc.ref;
-            const freshMaterialSnap = await transaction.get(materialDocRef); // Now get it inside the transaction
-            if (!freshMaterialSnap.exists()) throw new Error(`Materiale ${bomItem.component} non trovato durante transazione.`);
-            const freshMaterial = freshMaterialSnap.data() as RawMaterial;
+            const commitment = commitmentSnap.data() as ManualCommitment;
             
-            let unitsToWithdraw = 0;
-            if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && freshMaterial.unitOfMeasure === 'mt') {
-                unitsToWithdraw = (commitment.quantity || 0) * (bomItem.quantity || 1) * (bomItem.lunghezzaTaglioMm / 1000);
-            } else {
-                unitsToWithdraw = (bomItem.quantity || 0) * (commitment.quantity || 0);
+            const operatorSnap = await getDoc(doc(db, "operators", uid));
+            const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Admin';
+
+            for (const selection of lotSelections) {
+                const materialRef = doc(db, 'rawMaterials', selection.materialId);
+                const materialSnap = await transaction.get(materialRef);
+                if (!materialSnap.exists()) throw new Error(`Materiale ${selection.materialId} non trovato.`);
+                
+                const material = materialSnap.data() as RawMaterial;
+                const batches = material.batches || [];
+                const batchIndex = batches.findIndex(b => b.id === selection.batchId);
+                if (batchIndex === -1) throw new Error(`Lotto ${selection.batchId} non trovato per materiale ${material.code}.`);
+                
+                const batch = batches[batchIndex];
+                if (batch.netQuantity < selection.consumed) throw new Error(`Stock insufficiente per lotto ${batch.lotto}. Richiesti: ${selection.consumed}, disponibili: ${batch.netQuantity}`);
+
+                const unitsConsumed = selection.consumed;
+                let consumedWeight = 0;
+                if (material.unitOfMeasure === 'kg') {
+                    consumedWeight = unitsConsumed;
+                } else if (material.conversionFactor && material.conversionFactor > 0) {
+                    consumedWeight = unitsConsumed * material.conversionFactor;
+                }
+
+                // Update batch and material stock
+                batch.netQuantity -= unitsConsumed;
+                batch.grossWeight -= consumedWeight; // Assuming tare stays the same
+                material.currentStockUnits -= unitsConsumed;
+                material.currentWeightKg -= consumedWeight;
+
+                batches[batchIndex] = batch;
+                transaction.update(materialRef, { 
+                    batches,
+                    currentStockUnits: material.currentStockUnits,
+                    currentWeightKg: material.currentWeightKg,
+                });
+                
+                // Log withdrawal
+                const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+                transaction.set(withdrawalRef, {
+                    jobOrderPFs: [commitment.jobOrderCode],
+                    materialId: material.id,
+                    materialCode: material.code,
+                    consumedWeight,
+                    consumedUnits: unitsConsumed,
+                    operatorId: uid,
+                    operatorName,
+                    withdrawalDate: Timestamp.now(),
+                    notes: `Scarico da impegno manuale: ${commitment.id}`,
+                    lotto: batch.lotto || null,
+                    commitmentId: commitmentId,
+                });
             }
 
-            let consumedWeight = 0;
-            if (freshMaterial.unitOfMeasure === 'kg') {
-                consumedWeight = unitsToWithdraw;
-            } else if (freshMaterial.conversionFactor && freshMaterial.conversionFactor > 0) {
-                consumedWeight = unitsToWithdraw * freshMaterial.conversionFactor;
+            if (scrapPieces > 0) {
+              const scrapRef = doc(collection(db, 'scrapRecords'));
+              transaction.set(scrapRef, {
+                  commitmentId: commitment.id,
+                  jobOrderCode: commitment.jobOrderCode,
+                  articleCode: commitment.articleCode,
+                  scrappedQuantity: scrapPieces,
+                  declaredAt: Timestamp.now(),
+                  operatorId: uid,
+                  operatorName: operatorName,
+              });
             }
-            
-            const currentStockUnits = freshMaterial.currentStockUnits ?? 0;
-            const currentWeightKg = freshMaterial.currentWeightKg ?? 0;
 
-            if (currentStockUnits < unitsToWithdraw) {
-                throw new Error(`Stock insufficiente per ${freshMaterial.code}: Richiesti ${formatDisplayStock(unitsToWithdraw, freshMaterial.unitOfMeasure)} ${freshMaterial.unitOfMeasure}, disponibili ${formatDisplayStock(currentStockUnits, freshMaterial.unitOfMeasure)}.`);
-            }
-            
-            const newStockUnits = currentStockUnits - unitsToWithdraw;
-            const newWeightKg = currentWeightKg - consumedWeight;
-
-            transaction.update(materialDocRef, {
-                currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
-                currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
+            transaction.update(commitmentRef, {
+                status: 'fulfilled',
+                fulfilledAt: Timestamp.now(),
+                fulfilledBy: uid,
+                declaredGoodPieces: goodPieces,
+                declaredScrapPieces: scrapPieces,
             });
-
-            const withdrawalRef = doc(collection(db, "materialWithdrawals"));
-            transaction.set(withdrawalRef, {
-                jobIds: [],
-                jobOrderPFs: [commitment.jobOrderCode],
-                materialId: materialDoc.id,
-                materialCode: freshMaterial.code,
-                consumedWeight: consumedWeight,
-                consumedUnits: unitsToWithdraw,
-                operatorId: uid,
-                operatorName: operatorName,
-                withdrawalDate: Timestamp.now(),
-                notes: `Scarico da impegno manuale: ${commitment.id}`,
-                commitmentId: commitmentId, // Link withdrawal to commitment
-            });
-        }
-        
-        // Mark commitment as fulfilled
-        transaction.update(commitmentRef, {
-            status: 'fulfilled',
-            fulfilledAt: Timestamp.now(),
-            fulfilledBy: uid,
         });
-    });
-    
-    revalidatePath('/admin/raw-material-management');
-    revalidatePath('/admin/reports');
+        
+        revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/reports');
 
-    return { success: true, message: `Impegno ${commitmentId} evaso con successo. Stock aggiornato.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'evasione dell'impegno." };
-  }
+        return { success: true, message: `Dichiarazione per impegno ${commitmentId} registrata con successo. Stock aggiornato.` };
+
+    } catch (error) {
+         const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la dichiarazione.";
+         return { success: false, message: errorMessage };
+    }
 }
+
 
 export async function importManualCommitments(
   data: any[],
@@ -1035,6 +1045,8 @@ export async function revertManualCommitmentFulfillment(
           status: 'pending',
           fulfilledAt: deleteField(),
           fulfilledBy: deleteField(),
+          declaredGoodPieces: deleteField(),
+          declaredScrapPieces: deleteField(),
       });
       revalidatePath('/admin/raw-material-management');
       return { success: true, message: "Evasione annullata. Attenzione: impossibile trovare il movimento di scarico associato per ripristinare lo stock."};
@@ -1053,6 +1065,8 @@ export async function revertManualCommitmentFulfillment(
         status: 'pending',
         fulfilledAt: deleteField(),
         fulfilledBy: deleteField(),
+        declaredGoodPieces: deleteField(),
+        declaredScrapPieces: deleteField(),
     });
 
     revalidatePath('/admin/raw-material-management');
@@ -1063,4 +1077,20 @@ export async function revertManualCommitmentFulfillment(
   }
 }
 
+export async function getScrapsForMaterial(materialId: string): Promise<ScrapRecord[]> {
+    const scrapsRef = collection(db, "scrapRecords");
+    const q = query(scrapsRef, where("materialId", "==", materialId), orderBy("declaredAt", "desc"));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return [];
     
+    return snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            ...data,
+            id: doc.id,
+            declaredAt: (data.declaredAt as Timestamp).toDate().toISOString(),
+        } as ScrapRecord;
+    });
+}
+    
+

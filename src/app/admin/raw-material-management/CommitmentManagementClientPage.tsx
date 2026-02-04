@@ -10,8 +10,8 @@ import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 
-import { type ManualCommitment, type Article, type RawMaterial } from '@/lib/mock-data';
-import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment } from './actions';
+import { type ManualCommitment, type Article, type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
+import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment, type LotSelectionPayload } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,8 @@ import { Badge } from '@/components/ui/badge';
 import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2, TestTube, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
+import { formatDisplayStock } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 interface CommitmentManagementClientPageProps {
@@ -66,8 +68,9 @@ function DeclarationDialog({
     commitment: ManualCommitment;
     article: Article | undefined;
     allRawMaterials: RawMaterial[];
-    onDeclare: (values: DeclarationFormValues) => void;
+    onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
 }) {
+    const { toast } = useToast();
     const form = useForm<DeclarationFormValues>({
         resolver: zodResolver(declarationSchema),
         defaultValues: {
@@ -77,6 +80,15 @@ function DeclarationDialog({
     });
     
     const watchedValues = form.watch();
+    
+    const [lotSelections, setLotSelections] = useState<Record<string, { batchId: string; lotto: string; consumed: number }[]>>({});
+
+    useEffect(() => {
+        if (isOpen) {
+            form.reset({ goodPieces: commitment.quantity, scrapPieces: 0 });
+            setLotSelections({});
+        }
+    }, [isOpen, commitment, form]);
 
     const bomWithConsumption = React.useMemo(() => {
         if (!article?.billOfMaterials) return [];
@@ -86,9 +98,9 @@ function DeclarationDialog({
         return article.billOfMaterials.map(item => {
             const material = allRawMaterials.find(m => m.code === item.component);
             let totalRequired = 0;
-            let displayUnit = item.unit;
+            let displayUnit: 'n' | 'mt' | 'kg' = item.unit;
             
-            if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+            if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material?.unitOfMeasure === 'mt') {
                 totalRequired = (totalPieces * item.quantity * item.lunghezzaTaglioMm) / 1000;
                 displayUnit = 'mt';
             } else {
@@ -102,18 +114,100 @@ function DeclarationDialog({
             };
         });
     }, [article, watchedValues, allRawMaterials]);
+    
+    const consumptionStatus = useMemo(() => {
+        const status: Record<string, { required: number, fulfilled: number }> = {};
+        bomWithConsumption.forEach(item => {
+            const fulfilled = (lotSelections[item.component] || []).reduce((sum, sel) => sum + sel.consumed, 0);
+            status[item.component] = {
+                required: item.totalRequired,
+                fulfilled,
+            };
+        });
+        return status;
+    }, [bomWithConsumption, lotSelections]);
+    
+    const handleLotSelection = (componentCode: string, batch: RawMaterialBatch, isChecked: boolean) => {
+        const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
+        if (!componentConsumption) return;
+
+        setLotSelections(prev => {
+            const newSelections = { ...prev };
+            let currentSelectionsForComp = newSelections[componentCode] || [];
+            const alreadySelected = currentSelectionsForComp.find(s => s.batchId === batch.id);
+
+            if (isChecked && !alreadySelected) {
+                const totalFulfilled = currentSelectionsForComp.reduce((sum, s) => sum + s.consumed, 0);
+                const remainingToFulfill = componentConsumption.totalRequired - totalFulfilled;
+                
+                if (remainingToFulfill <= 0) {
+                     toast({ variant: 'destructive', title: 'Fabbisogno già soddisfatto' });
+                     return prev;
+                }
+                const quantityToConsumeFromThisBatch = Math.min(remainingToFulfill, batch.netQuantity);
+                currentSelectionsForComp.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed: quantityToConsumeFromThisBatch });
+
+            } else if (!isChecked && alreadySelected) {
+                currentSelectionsForComp = currentSelectionsForComp.filter(s => s.batchId !== batch.id);
+            }
+            
+            // Recalculate consumption distribution
+            let remainingToFulfill = componentConsumption.totalRequired;
+            const updatedSelections: { batchId: string; lotto: string; consumed: number }[] = [];
+            const selectedBatches = currentSelectionsForComp.map(sel => allRawMaterials.find(m => m.code === componentCode)?.batches.find(b => b.id === sel.batchId)).filter(Boolean) as RawMaterialBatch[];
+
+            for (const b of selectedBatches) {
+                if (remainingToFulfill <= 0) break;
+                const toConsume = Math.min(remainingToFulfill, b.netQuantity);
+                updatedSelections.push({ batchId: b.id, lotto: b.lotto || 'N/D', consumed: toConsume });
+                remainingToFulfill -= toConsume;
+            }
+
+            newSelections[componentCode] = updatedSelections;
+            return newSelections;
+        });
+    };
+    
+    const isPlanComplete = useMemo(() => {
+        if (bomWithConsumption.length === 0) return true; // No BOM means nothing to fulfill
+        return bomWithConsumption.every(item => {
+            const status = consumptionStatus[item.component];
+            return !status || status.fulfilled >= status.required - 0.001; // Tolerance for float precision
+        });
+    }, [bomWithConsumption, consumptionStatus]);
+    
+    const handleDeclareSubmit = (values: DeclarationFormValues) => {
+        if (!isPlanComplete) {
+            toast({ variant: "destructive", title: "Selezione Lotti Incompleta", description: "Selezionare abbastanza lotti per soddisfare il fabbisogno di tutti i componenti." });
+            return;
+        }
+
+        const selectionsPayload: LotSelectionPayload[] = Object.entries(lotSelections).flatMap(([componentCode, selections]) => {
+             const materialId = allRawMaterials.find(m => m.code === componentCode)?.id;
+             if (!materialId) return [];
+             return selections.map(selection => ({
+                materialId: materialId,
+                componentCode,
+                batchId: selection.batchId,
+                lotto: selection.lotto,
+                consumed: selection.consumed
+             }));
+        });
+        
+        onDeclare(values, selectionsPayload);
+    };
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>Dichiarazione di Produzione</DialogTitle>
                     <DialogDescription>
-                        Conferma la quantità prodotta ed eventuali scarti per la commessa <span className="font-bold">{commitment.jobOrderCode}</span>.
+                        Conferma la quantità prodotta, eventuali scarti e seleziona i lotti da cui scaricare il materiale per la commessa <span className="font-bold">{commitment.jobOrderCode}</span>.
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onDeclare)} className="space-y-4 py-4">
+                    <form onSubmit={form.handleSubmit(handleDeclareSubmit)} className="space-y-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <FormField control={form.control} name="goodPieces" render={({ field }) => (
                                 <FormItem>
@@ -130,26 +224,58 @@ function DeclarationDialog({
                                 </FormItem>
                             )} />
                         </div>
+                        <ScrollArea className="max-h-[40vh] pr-4">
+                        <div className="space-y-4">
+                            <Label>Selezione Lotti per Scarico</Label>
+                            {bomWithConsumption.map(item => {
+                                const material = allRawMaterials.find(m => m.code === item.component);
+                                const availableBatches = (material?.batches || []).filter(b => b.netQuantity > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                                const status = consumptionStatus[item.component];
 
-                         <div className="space-y-2">
-                            <Label>Consumo Materiali Stimato</Label>
-                            <div className="p-2 border rounded-md max-h-40 overflow-y-auto">
-                                {bomWithConsumption.length > 0 ? (
-                                    bomWithConsumption.map(item => (
-                                        <div key={item.component} className="flex justify-between items-center text-sm p-1">
-                                            <span className="font-semibold">{item.component}:</span>
-                                            <span className="font-mono">{item.totalRequired.toFixed(2)} {item.displayUnit}</span>
+                                return (
+                                    <div key={item.component} className="p-4 border rounded-lg">
+                                        <h4 className="font-semibold">{item.component}</h4>
+                                        <div className="flex justify-between text-sm text-muted-foreground">
+                                            <span>Fabbisogno: {formatDisplayStock(status.required, item.displayUnit)} {item.displayUnit}</span>
+                                            <span className={cn(status.fulfilled < status.required && 'text-destructive')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</span>
                                         </div>
-                                    ))
-                                ) : (
-                                    <p className="text-xs text-muted-foreground text-center">Nessuna distinta base trovata per calcolare il consumo.</p>
-                                )}
-                            </div>
+                                         <Table className="mt-2">
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="w-[50px]"></TableHead>
+                                                    <TableHead>Lotto</TableHead>
+                                                    <TableHead>Disponibile</TableHead>
+                                                    <TableHead>Da Usare</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                 {availableBatches.length > 0 ? availableBatches.map(batch => (
+                                                    <TableRow key={batch.id}>
+                                                        <TableCell>
+                                                            <Checkbox
+                                                                checked={(lotSelections[item.component] || []).some(s => s.batchId === batch.id)}
+                                                                onCheckedChange={(checked) => handleLotSelection(item.component, batch, !!checked)}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell>{batch.lotto || "N/D"}</TableCell>
+                                                        <TableCell>{formatDisplayStock(batch.netQuantity, item.displayUnit)} {item.displayUnit}</TableCell>
+                                                        <TableCell className="font-semibold text-primary">
+                                                          {formatDisplayStock((lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0, item.displayUnit)} {item.displayUnit}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                 )) : (
+                                                    <TableRow><TableCell colSpan={4} className="text-center h-16">Nessun lotto con stock disponibile.</TableCell></TableRow>
+                                                 )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                );
+                            })}
                         </div>
-
+                        </ScrollArea>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-                            <Button type="submit" disabled={form.formState.isSubmitting}>
+                            <Button type="submit" disabled={form.formState.isSubmitting || !isPlanComplete}>
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
                                 Dichiara e Scarica Stock
                             </Button>
@@ -226,7 +352,7 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
     setIsPending(false);
   };
 
-  const handleDeclare = async (values: DeclarationFormValues) => {
+  const handleDeclare = async (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => {
     if (!user || !declarationTarget) return;
     setIsPending(true);
 
@@ -234,6 +360,7 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
       declarationTarget.id,
       values.goodPieces,
       values.scrapPieces,
+      lotSelections,
       user.uid
     );
     
@@ -241,6 +368,7 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
       title: result.success ? "Successo" : "Errore",
       description: result.message,
       variant: result.success ? "default" : "destructive",
+      duration: 9000
     });
 
     if (result.success) {
