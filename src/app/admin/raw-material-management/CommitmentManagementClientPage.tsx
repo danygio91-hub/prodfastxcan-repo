@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -32,7 +33,6 @@ import { Label } from '@/components/ui/label';
 import { formatDisplayStock } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Checkbox } from '@/components/ui/checkbox';
 
 
 interface CommitmentManagementClientPageProps {
@@ -128,71 +128,64 @@ function DeclarationDialog({
 
     const handleLotSelection = (componentCode: string, batchId: string) => {
         setSelectedBatchIds(prev => {
-          // Create a shallow copy of the previous state object to avoid direct mutation.
-          const newState = { ...prev };
-          
-          // Get the set for the specific component, creating a new one if it doesn't exist.
-          // Importantly, create a *copy* of the existing set to modify.
-          const newSet = new Set(newState[componentCode]);
+            const currentSelection = prev[componentCode] || new Set<string>();
+            const newSelection = new Set(currentSelection);
     
-          // Toggle the presence of the batchId in the new set.
-          if (newSet.has(batchId)) {
-            newSet.delete(batchId);
-          } else {
-            newSet.add(batchId);
-          }
-    
-          // Update the new state object with the modified set.
-          newState[componentCode] = newSet;
-          
-          // Return the new state object.
-          return newState;
+            if (newSelection.has(batchId)) {
+                newSelection.delete(batchId);
+            } else {
+                newSelection.add(batchId);
+            }
+            
+            return {
+                ...prev,
+                [componentCode]: newSelection,
+            };
         });
-      };
+    };
     
-    const lotSelections = useMemo(() => {
-        const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
+    const displayConsumptionMap = useMemo(() => {
+        const consumptionMap = new Map<string, number>();
 
         for (const component of bomWithConsumption) {
             const componentCode = component.component;
             const material = componentMaterials.find(m => m.code === componentCode);
             const selectedIds = selectedBatchIds[componentCode] || new Set();
 
-            const consumptionMap = new Map<string, number>();
-            
             if (material && selectedIds.size > 0) {
                 const fifoSelectedBatches = (material.batches || [])
-                    .filter(b => selectedIds.has(b.id) && (b.netQuantity || 0) > 0)
+                    .filter(b => selectedIds.has(b.id))
                     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                 
                 let remainingRequirement = component.totalRequired;
 
                 for (const batch of fifoSelectedBatches) {
-                    if (remainingRequirement > 0.001) {
-                        const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
-                        consumptionMap.set(batch.id, consumedFromThisBatch);
-                        remainingRequirement -= consumedFromThisBatch;
+                    if (remainingRequirement <= 0.001) {
+                        consumptionMap.set(batch.id, 0);
+                        continue;
                     }
+                    const availableInBatch = batch.netQuantity || 0;
+                    const consumedFromThisBatch = Math.min(remainingRequirement, availableInBatch);
+                    consumptionMap.set(batch.id, consumedFromThisBatch);
+                    remainingRequirement -= consumedFromThisBatch;
                 }
             }
-
-            newLotSelections[componentCode] = (material?.batches || []).map(batch => ({
-                batchId: batch.id,
-                lotto: batch.lotto || 'N/D',
-                consumed: consumptionMap.get(batch.id) || 0,
-            }));
         }
-        return newLotSelections;
+        return consumptionMap;
     }, [selectedBatchIds, bomWithConsumption, componentMaterials]);
     
     const consumptionStatus = useMemo(() => {
         const status: Record<string, { required: number, fulfilled: number }> = {};
         bomWithConsumption.forEach(item => {
-            const fulfilled = (lotSelections[item.component] || []).reduce((sum, sel) => sum + sel.consumed, 0);
+            const selectedIds = selectedBatchIds[item.component] || new Set();
+            let fulfilled = 0;
+            selectedIds.forEach(batchId => {
+                fulfilled += displayConsumptionMap.get(batchId) || 0;
+            });
             status[item.component] = { required: item.totalRequired, fulfilled };
         });
         return status;
-    }, [bomWithConsumption, lotSelections]);
+    }, [bomWithConsumption, selectedBatchIds, displayConsumptionMap]);
     
     const isPlanComplete = useMemo(() => {
         if (bomWithConsumption.length === 0) return true;
@@ -207,19 +200,27 @@ function DeclarationDialog({
             toast({ variant: "destructive", title: "Selezione Lotti Incompleta", description: "Selezionare abbastanza lotti per soddisfare il fabbisogno di tutti i componenti." });
             return;
         }
-        const selectionsPayload: LotSelectionPayload[] = Object.entries(lotSelections).flatMap(([componentCode, selections]) => {
-             const materialId = componentMaterials.find(m => m.code === componentCode)?.id;
-             if (!materialId) return [];
-             return selections
-                .filter(selection => selection.consumed > 0)
-                .map(selection => ({
-                    materialId: materialId,
-                    componentCode,
-                    batchId: selection.batchId,
-                    lotto: selection.lotto,
-                    consumed: selection.consumed
-                }));
+        
+        const selectionsPayload: LotSelectionPayload[] = [];
+        displayConsumptionMap.forEach((consumed, batchId) => {
+            if (consumed > 0) {
+                 for (const component of bomWithConsumption) {
+                    const material = componentMaterials.find(m => m.code === component.component);
+                    const batch = material?.batches?.find(b => b.id === batchId);
+                    if (batch) {
+                        selectionsPayload.push({
+                            materialId: material.id,
+                            componentCode: component.component,
+                            batchId: batch.id,
+                            lotto: batch.lotto || 'N/D',
+                            consumed: consumed
+                        });
+                        break; 
+                    }
+                }
+            }
         });
+        
         onDeclare(values, selectionsPayload);
     };
 
@@ -289,7 +290,7 @@ function DeclarationDialog({
                                                     <TableBody>
                                                         {availableBatches.length > 0 ? availableBatches.map(batch => {
                                                             const isSelected = !!selectedBatchIds[item.component]?.has(batch.id);
-                                                            const consumedValue = (lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0;
+                                                            const consumedValue = displayConsumptionMap.get(batch.id) || 0;
                                                             return (
                                                                 <TableRow 
                                                                     key={batch.id}
@@ -696,5 +697,3 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
-
-    
