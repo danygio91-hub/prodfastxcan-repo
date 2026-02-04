@@ -127,14 +127,14 @@ function DeclarationDialog({
     
     const handleLotSelection = useCallback((componentCode: string, batchId: string) => {
         setSelectedBatchIds(prev => {
-            const newSelections = new Set(prev[componentCode]);
+            const newSelections = new Set(prev[componentCode]); // Create a copy
             if (newSelections.has(batchId)) {
                 newSelections.delete(batchId);
             } else {
                 newSelections.add(batchId);
             }
             return {
-                ...prev,
+                ...prev, // Return a new object for the outer state
                 [componentCode]: newSelections,
             };
         });
@@ -142,6 +142,7 @@ function DeclarationDialog({
     
     const lotSelections = useMemo(() => {
         const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
+
         for (const component of bomWithConsumption) {
             const componentCode = component.component;
             const material = componentMaterials.find(m => m.code === componentCode);
@@ -161,7 +162,9 @@ function DeclarationDialog({
 
             for (const batch of fifoSelectedBatches) {
                 if (remainingRequirement <= 0.001) break;
+                
                 const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
+                
                 selectionsForComponent.push({
                     batchId: batch.id,
                     lotto: batch.lotto || 'N/D',
@@ -212,8 +215,8 @@ function DeclarationDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
-                <DialogHeader>
+            <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+                <DialogHeader className="p-6 pb-2">
                     <DialogTitle>Dichiarazione di Produzione</DialogTitle>
                     <DialogDescription>
                         Conferma la quantità prodotta, eventuali scarti e seleziona i lotti da cui scaricare il materiale per la commessa <span className="font-bold">{commitment.jobOrderCode}</span>.
@@ -221,7 +224,7 @@ function DeclarationDialog({
                 </DialogHeader>
                 <Form {...form}>
                     <form onSubmit={form.handleSubmit(handleDeclareSubmit)} className="flex-1 flex flex-col overflow-hidden">
-                        <div className="px-4 pt-4">
+                        <div className="px-6 pt-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <FormField control={form.control} name="goodPieces" render={({ field }) => (
                                     <FormItem>
@@ -239,8 +242,8 @@ function DeclarationDialog({
                                 )} />
                             </div>
                         </div>
-                        <div className="flex-1 px-4 py-4 min-h-0">
-                          <ScrollArea className="h-full">
+                        <div className="flex-1 px-6 py-4 min-h-0">
+                          <ScrollArea className="h-full pr-6">
                             {isLoadingMaterials ? (
                                 <div className="space-y-4">
                                     <Skeleton className="h-24 w-full" />
@@ -311,7 +314,7 @@ function DeclarationDialog({
                             )}
                           </ScrollArea>
                         </div>
-                        <DialogFooter className="p-4 border-t sticky bottom-0 bg-background">
+                        <DialogFooter className="p-6 pt-4 border-t sticky bottom-0 bg-background">
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
                             <Button type="submit" disabled={form.formState.isSubmitting || !isPlanComplete || isLoadingMaterials}>
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
@@ -683,5 +686,3 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
-
-    
