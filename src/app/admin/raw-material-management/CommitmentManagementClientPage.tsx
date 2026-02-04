@@ -64,12 +64,14 @@ function DeclarationDialog({
     onOpenChange, 
     commitment, 
     article,
+    allRawMaterials,
     onDeclare,
 }: { 
     isOpen: boolean; 
     onOpenChange: (open: boolean) => void;
     commitment: ManualCommitment;
     article: Article | undefined;
+    allRawMaterials: RawMaterial[];
     onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
 }) {
     const { toast } = useToast();
@@ -84,113 +86,110 @@ function DeclarationDialog({
     const watchedValues = form.watch();
     
     const [lotSelections, setLotSelections] = useState<Record<string, { batchId: string; lotto: string; consumed: number }[]>>({});
+    const [selectedBatchIds, setSelectedBatchIds] = useState<Record<string, Set<string>>>({});
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
 
     useEffect(() => {
-        if (isOpen && article?.billOfMaterials) {
-            const fetchComponentMaterials = async () => {
-                setIsLoadingMaterials(true);
-                const componentCodes = article.billOfMaterials.map(item => item.component);
-                if (componentCodes.length > 0) {
-                    const materials = await getMaterialsByCodes(componentCodes);
-                    setComponentMaterials(materials);
-                } else {
-                    setComponentMaterials([]);
-                }
-                setIsLoadingMaterials(false);
-            };
-            
-            fetchComponentMaterials();
+        if (isOpen) {
+            setLotSelections({});
+            setSelectedBatchIds({});
+            if (article?.billOfMaterials) {
+                 const fetchComponentMaterials = async () => {
+                    setIsLoadingMaterials(true);
+                    const componentCodes = article.billOfMaterials.map(item => item.component);
+                    if (componentCodes.length > 0) {
+                        const materials = await getMaterialsByCodes(componentCodes);
+                        setComponentMaterials(materials);
+                    } else {
+                        setComponentMaterials([]);
+                    }
+                    setIsLoadingMaterials(false);
+                };
+                fetchComponentMaterials();
+            }
         }
     }, [isOpen, article]);
 
     const bomWithConsumption = useMemo(() => {
         if (!article?.billOfMaterials) return [];
-        
         const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
-
         return article.billOfMaterials.map(item => {
             const material = componentMaterials.find(m => m.code === item.component);
             let totalRequired = 0;
             let displayUnit: 'n' | 'mt' | 'kg' = item.unit;
-            
             if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material?.unitOfMeasure === 'mt') {
                 totalRequired = (totalPieces * item.quantity * item.lunghezzaTaglioMm) / 1000;
                 displayUnit = 'mt';
             } else {
                 totalRequired = totalPieces * item.quantity;
             }
-
-            return {
-                ...item,
-                totalRequired,
-                displayUnit,
-            };
+            return { ...item, totalRequired, displayUnit };
         });
     }, [article, watchedValues, componentMaterials]);
+
+    const handleCheckboxChange = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
+        setSelectedBatchIds(prev => {
+            const newSet = new Set(prev[componentCode]);
+            if (isChecked) {
+                newSet.add(batchId);
+            } else {
+                newSet.delete(batchId);
+            }
+            return { ...prev, [componentCode]: newSet };
+        });
+    }, []);
+    
+    useEffect(() => {
+        const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
+        for (const component of bomWithConsumption) {
+            const componentCode = component.component;
+            const material = componentMaterials.find(m => m.code === componentCode);
+            const ids = selectedBatchIds[componentCode];
+
+            if (!material || !ids || ids.size === 0) {
+                newLotSelections[componentCode] = [];
+                continue;
+            }
+
+            const fifoSelectedBatches = (material.batches || [])
+                .filter(b => ids.has(b.id))
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            
+            let remainingRequirement = component.totalRequired;
+            const selectionsForComponent: { batchId: string; lotto: string; consumed: number }[] = [];
+
+            for (const batch of fifoSelectedBatches) {
+                const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
+                selectionsForComponent.push({
+                    batchId: batch.id,
+                    lotto: batch.lotto || 'N/D',
+                    consumed: consumedFromThisBatch > 0 ? consumedFromThisBatch : 0,
+                });
+                remainingRequirement -= consumedFromThisBatch;
+                if (remainingRequirement <= 0.001) {
+                    remainingRequirement = 0;
+                }
+            }
+            newLotSelections[componentCode] = selectionsForComponent;
+        }
+        setLotSelections(newLotSelections);
+    }, [selectedBatchIds, bomWithConsumption, componentMaterials]);
     
     const consumptionStatus = useMemo(() => {
         const status: Record<string, { required: number, fulfilled: number }> = {};
         bomWithConsumption.forEach(item => {
             const fulfilled = (lotSelections[item.component] || []).reduce((sum, sel) => sum + sel.consumed, 0);
-            status[item.component] = {
-                required: item.totalRequired,
-                fulfilled,
-            };
+            status[item.component] = { required: item.totalRequired, fulfilled };
         });
         return status;
     }, [bomWithConsumption, lotSelections]);
     
-    const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
-        const material = componentMaterials.find(m => m.code === componentCode);
-        const bomItem = bomWithConsumption.find(c => c.component === componentCode);
-        
-        if (!material || !bomItem) return;
-
-        setLotSelections(prevState => {
-            const prevSelections = prevState[componentCode] || [];
-            const prevSelectedIds = prevSelections.map(s => s.batchId);
-
-            let nextSelectedIds: string[];
-            if (isChecked) {
-                nextSelectedIds = [...new Set([...prevSelectedIds, batchId])];
-            } else {
-                nextSelectedIds = prevSelectedIds.filter(id => id !== batchId);
-            }
-
-            const selectedBatches = (material.batches || [])
-                .filter(b => nextSelectedIds.includes(b.id))
-                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-            let remainingRequirement = bomItem.totalRequired;
-            const newSelections: { batchId: string; lotto: string; consumed: number }[] = [];
-
-            for (const batch of selectedBatches) {
-                const consumed = Math.min(remainingRequirement, batch.netQuantity);
-                newSelections.push({
-                    batchId: batch.id,
-                    lotto: batch.lotto || 'N/D',
-                    consumed: consumed > 0 ? consumed : 0,
-                });
-                remainingRequirement -= consumed;
-                if (remainingRequirement <= 0.001) { // Use tolerance
-                    remainingRequirement = 0;
-                }
-            }
-            
-            return {
-                ...prevState,
-                [componentCode]: newSelections,
-            };
-        });
-    }, [componentMaterials, bomWithConsumption]);
-    
     const isPlanComplete = useMemo(() => {
-        if (bomWithConsumption.length === 0) return true; // No BOM means nothing to fulfill
+        if (bomWithConsumption.length === 0) return true;
         return bomWithConsumption.every(item => {
             const status = consumptionStatus[item.component];
-            return !status || status.fulfilled >= status.required - 0.001; // Tolerance for float precision
+            return !status || status.fulfilled >= status.required - 0.001;
         });
     }, [bomWithConsumption, consumptionStatus]);
     
@@ -199,7 +198,6 @@ function DeclarationDialog({
             toast({ variant: "destructive", title: "Selezione Lotti Incompleta", description: "Selezionare abbastanza lotti per soddisfare il fabbisogno di tutti i componenti." });
             return;
         }
-
         const selectionsPayload: LotSelectionPayload[] = Object.entries(lotSelections).flatMap(([componentCode, selections]) => {
              const materialId = componentMaterials.find(m => m.code === componentCode)?.id;
              if (!materialId) return [];
@@ -211,13 +209,12 @@ function DeclarationDialog({
                 consumed: selection.consumed
              }));
         });
-        
         onDeclare(values, selectionsPayload);
     };
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl">
+            <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Dichiarazione di Produzione</DialogTitle>
                     <DialogDescription>
@@ -225,24 +222,26 @@ function DeclarationDialog({
                     </DialogDescription>
                 </DialogHeader>
                 <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleDeclareSubmit)} className="space-y-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <FormField control={form.control} name="goodPieces" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Pezzi Prodotti</FormLabel>
-                                    <FormControl><Input type="number" {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
-                             <FormField control={form.control} name="scrapPieces" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel className="flex items-center gap-2"><TestTube className="h-4 w-4 text-destructive"/> Pezzi di Scarto</FormLabel>
-                                    <FormControl><Input type="number" {...field} /></FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
+                    <form onSubmit={form.handleSubmit(handleDeclareSubmit)} className="flex-1 flex flex-col overflow-hidden">
+                        <div className="px-4 pt-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <FormField control={form.control} name="goodPieces" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Pezzi Prodotti</FormLabel>
+                                        <FormControl><Input type="number" {...field} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="scrapPieces" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center gap-2"><TestTube className="h-4 w-4 text-destructive"/> Pezzi di Scarto</FormLabel>
+                                        <FormControl><Input type="number" {...field} /></FormControl>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                            </div>
                         </div>
-                        <ScrollArea className="max-h-[40vh] pr-4">
+                        <ScrollArea className="flex-1 px-4 py-4">
                         {isLoadingMaterials ? (
                              <div className="space-y-4">
                                 <Skeleton className="h-24 w-full" />
@@ -277,8 +276,8 @@ function DeclarationDialog({
                                                         <TableRow key={batch.id}>
                                                             <TableCell>
                                                                 <Checkbox
-                                                                    checked={(lotSelections[item.component] || []).some(s => s.batchId === batch.id)}
-                                                                    onCheckedChange={(checked) => handleLotSelection(item.component, batch.id, !!checked)}
+                                                                    checked={(selectedBatchIds[item.component] || new Set()).has(batch.id)}
+                                                                    onCheckedChange={(checked) => handleCheckboxChange(item.component, batch.id, !!checked)}
                                                                 />
                                                             </TableCell>
                                                             <TableCell>{batch.lotto || "N/D"}</TableCell>
@@ -298,7 +297,7 @@ function DeclarationDialog({
                             </div>
                         )}
                         </ScrollArea>
-                        <DialogFooter>
+                        <DialogFooter className="p-4 border-t sticky bottom-0 bg-background">
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
                             <Button type="submit" disabled={form.formState.isSubmitting || !isPlanComplete || isLoadingMaterials}>
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
@@ -315,10 +314,8 @@ function DeclarationDialog({
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
-}: {
-  initialCommitments: ManualCommitment[];
-  initialArticles: Article[];
-}) {
+  rawMaterials,
+}: CommitmentManagementClientPageProps) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
@@ -667,9 +664,11 @@ export default function CommitmentManagementClientPage({
             onOpenChange={(open) => !open && setDeclarationTarget(null)}
             commitment={declarationTarget}
             article={initialArticles.find(a => a.code === declarationTarget.articleCode)}
+            allRawMaterials={rawMaterials}
             onDeclare={handleDeclare}
         />
        )}
     </>
   );
 }
+
