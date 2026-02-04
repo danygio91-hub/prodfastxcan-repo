@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -657,8 +656,8 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
-        getDocs(materialsSnapshot),
-        getDocs(manualCommitmentsSnapshot),
+        getDocs(materialsQuery),
+        getDocs(manualCommitmentsQuery),
         getDocs(articlesQuery),
     ]);
 
@@ -1098,4 +1097,6 @@ export async function getScrapsForMaterial(materialId: string): Promise<ScrapRec
         } as ScrapRecord;
     });
 }
+    
+
     
