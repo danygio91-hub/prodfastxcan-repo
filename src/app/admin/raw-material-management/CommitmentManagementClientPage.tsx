@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -140,46 +140,56 @@ function DeclarationDialog({
         return status;
     }, [bomWithConsumption, lotSelections]);
     
-    const handleLotSelection = (componentCode: string, batch: RawMaterialBatch, isChecked: boolean) => {
-        const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
-        if (!componentConsumption) return;
-
-        setLotSelections(prev => {
-            const prevSelectionsForComp = prev[componentCode] || [];
-            
-            let nextSelections: { batchId: string; lotto: string; consumed: number }[];
-            const isAlreadySelected = prevSelectionsForComp.some(s => s.batchId === batch.id);
-
-            if (isChecked && !isAlreadySelected) {
-                nextSelections = [...prevSelectionsForComp, { batchId: batch.id, lotto: batch.lotto || 'N/D', consumed: 0 }];
-            } else if (!isChecked && isAlreadySelected) {
-                nextSelections = prevSelectionsForComp.filter(s => s.batchId !== batch.id);
-            } else {
-                return prev;
-            }
-
-            // Recalculate consumption based on the new list of selected batches
-            let remainingToFulfill = componentConsumption.totalRequired;
+     const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
+        setLotSelections(prevSelections => {
+            // Create a deep copy to avoid direct state mutation
+            const newSelections = JSON.parse(JSON.stringify(prevSelections));
+            const componentSelections = newSelections[componentCode] || [];
             const materialOfComponent = componentMaterials.find(m => m.code === componentCode);
+            const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
+
+            if (!materialOfComponent || !componentConsumption) return prevSelections;
+
+            let updatedComponentSelections;
+            if (isChecked) {
+                // Add if not present
+                if (!componentSelections.some((s: any) => s.batchId === batchId)) {
+                    const batch = (materialOfComponent.batches || []).find(b => b.id === batchId);
+                    updatedComponentSelections = [...componentSelections, { batchId, lotto: batch?.lotto || 'N/D', consumed: 0 }];
+                } else {
+                    updatedComponentSelections = componentSelections;
+                }
+            } else {
+                // Remove if present
+                updatedComponentSelections = componentSelections.filter((s: any) => s.batchId !== batchId);
+            }
             
-            const finalSelections = nextSelections.map(selection => {
-                if (remainingToFulfill <= 0) {
+            // Sort selected batches by date (FIFO)
+            updatedComponentSelections.sort((a: any, b: any) => {
+                const batchA = (materialOfComponent.batches || []).find(bt => bt.id === a.batchId);
+                const batchB = (materialOfComponent.batches || []).find(bt => bt.id === b.batchId);
+                return new Date(batchA?.date || 0).getTime() - new Date(batchB?.date || 0).getTime();
+            });
+
+            // Recalculate consumption across the now-sorted, selected batches
+            let remainingToFulfill = componentConsumption.totalRequired;
+            const finalSelections = updatedComponentSelections.map((selection: any) => {
+                const batch = (materialOfComponent.batches || []).find(b => b.id === selection.batchId);
+                if (!batch || remainingToFulfill <= 0) {
                     return { ...selection, consumed: 0 };
                 }
-                const selectedBatchData = (materialOfComponent?.batches || []).find(b => b.id === selection.batchId);
-                if (!selectedBatchData) return { ...selection, consumed: 0 }; // Should not happen
+                
+                const availableInBatch = batch.netQuantity - ((prevSelections[componentCode] || []).find((s:any) => s.batchId === batch.id)?.consumed || 0);
 
-                const toConsume = Math.min(remainingToFulfill, selectedBatchData.netQuantity);
+                const toConsume = Math.min(remainingToFulfill, batch.netQuantity);
                 remainingToFulfill -= toConsume;
                 return { ...selection, consumed: toConsume };
             });
 
-            return {
-                ...prev,
-                [componentCode]: finalSelections,
-            };
+            newSelections[componentCode] = finalSelections;
+            return newSelections;
         });
-    };
+    }, [bomWithConsumption, componentMaterials]);
     
     const isPlanComplete = useMemo(() => {
         if (bomWithConsumption.length === 0) return true; // No BOM means nothing to fulfill
@@ -273,7 +283,7 @@ function DeclarationDialog({
                                                             <TableCell>
                                                                 <Checkbox
                                                                     checked={(lotSelections[item.component] || []).some(s => s.batchId === batch.id)}
-                                                                    onCheckedChange={(checked) => handleLotSelection(item.component, batch, !!checked)}
+                                                                    onCheckedChange={(checked) => handleLotSelection(item.component, batch.id, !!checked)}
                                                                 />
                                                             </TableCell>
                                                             <TableCell>{batch.lotto || "N/D"}</TableCell>
