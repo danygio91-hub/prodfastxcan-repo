@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -656,7 +657,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
-        getDocs(materialsQuery),
+        getDocs(materialsSnapshot),
         getDocs(manualCommitmentsSnapshot),
         getDocs(articlesQuery),
     ]);
@@ -676,7 +677,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     articlesSnapshot.forEach(doc => {
         const data = doc.data();
         if (data.code && typeof data.code === 'string') {
-             articlesMap.set(data.code, data as Article);
+             articlesMap.set(data.code.toLowerCase(), data as Article);
         }
     });
 
@@ -686,17 +687,17 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     jobsSnapshot.forEach(doc => {
         const job = doc.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
-            if (item.status !== 'withdrawn') {
+            if (item && item.component && typeof item.component === 'string' && item.status !== 'withdrawn') {
                 let requiredQty = 0;
                 const material = materialsMap.get(item.component.toLowerCase());
 
                 if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                    requiredQty = (item.quantity * (job.qta || 0) * item.lunghezzaTaglioMm) / 1000;
+                    requiredQty = (item.quantity || 0) * (job.qta || 0) * item.lunghezzaTaglioMm / 1000;
                 } else {
                     requiredQty = (item.quantity || 0) * (job.qta || 0);
                 }
                
-                if (item.component && !isNaN(requiredQty)) {
+                if (!isNaN(requiredQty) && requiredQty > 0) {
                     const normalizedComponent = item.component.toLowerCase();
                     const currentImpegno = impegniMap.get(normalizedComponent) || 0;
                     impegniMap.set(normalizedComponent, currentImpegno + requiredQty);
@@ -708,22 +709,25 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     // Calculate commitments from manual entries
     manualCommitmentsSnapshot.forEach(doc => {
         const commitment = doc.data() as ManualCommitment;
-        const article = articlesMap.get(commitment.articleCode);
+        const article = commitment.articleCode ? articlesMap.get(commitment.articleCode.toLowerCase()) : undefined;
+        
         if (article && article.billOfMaterials) {
             article.billOfMaterials.forEach(bomItem => {
-                let totalRequired = 0;
-                const material = materialsMap.get(bomItem.component.toLowerCase());
-                
-                if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                     totalRequired = (commitment.quantity || 0) * bomItem.quantity * (bomItem.lunghezzaTaglioMm / 1000);
-                } else {
-                     totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
-                }
+                if (bomItem && bomItem.component && typeof bomItem.component === 'string') {
+                    let totalRequired = 0;
+                    const material = materialsMap.get(bomItem.component.toLowerCase());
+                    
+                    if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
+                         totalRequired = (commitment.quantity || 0) * (bomItem.quantity || 0) * (bomItem.lunghezzaTaglioMm / 1000);
+                    } else {
+                         totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
+                    }
 
-                if (bomItem.component && !isNaN(totalRequired)) {
-                    const normalizedComponent = bomItem.component.toLowerCase();
-                    const currentImpegno = impegniMap.get(normalizedComponent) || 0;
-                    impegniMap.set(normalizedComponent, currentImpegno + totalRequired);
+                    if (!isNaN(totalRequired) && totalRequired > 0) {
+                        const normalizedComponent = bomItem.component.toLowerCase();
+                        const currentImpegno = impegniMap.get(normalizedComponent) || 0;
+                        impegniMap.set(normalizedComponent, currentImpegno + totalRequired);
+                    }
                 }
             });
         }
@@ -1095,4 +1099,3 @@ export async function getScrapsForMaterial(materialId: string): Promise<ScrapRec
     });
 }
     
-
