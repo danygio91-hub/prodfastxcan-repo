@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -542,15 +541,12 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
         </div>
 
         <Tabs defaultValue="list">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="list">
-                    <Search className="mr-2 h-4 w-4" /> Elenco Materie Prime
+                    <Search className="mr-2 h-4 w-4" /> Elenco e Situazione Materie Prime
                 </TabsTrigger>
                  <TabsTrigger value="commitments">
                     <FileCheck2 className="mr-2 h-4 w-4" /> Impegni Manuali
-                </TabsTrigger>
-                <TabsTrigger value="status">
-                    <BarChart3 className="mr-2 h-4 w-4" /> Situazione Materie Prime
                 </TabsTrigger>
             </TabsList>
             <TabsContent value="list">
@@ -703,66 +699,6 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
             </TabsContent>
              <TabsContent value="commitments">
                 <CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} />
-            </TabsContent>
-             <TabsContent value="status">
-                <Card>
-                    <CardHeader>
-                        <div className="flex justify-between items-center flex-wrap gap-4">
-                            <div>
-                                <CardTitle className="font-headline">Situazione Materie Prime</CardTitle>
-                                <CardDescription>Analisi dello stock, degli impegni e della disponibilità.</CardDescription>
-                            </div>
-                             <Button onClick={handleFetchStatus} disabled={isStatusLoading}>
-                                {isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4" />}
-                                Carica/Aggiorna Dati
-                            </Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead></TableHead>
-                                    <TableHead>Codice Materiale</TableHead>
-                                    <TableHead>Descrizione</TableHead>
-                                    <TableHead>Stock Attuale</TableHead>
-                                    <TableHead>Impegnato</TableHead>
-                                    <TableHead>Disponibile</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {isStatusLoading ? (
-                                    <TableRow><TableCell colSpan={6} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow>
-                                ) : materialStatus.length > 0 ? (
-                                    materialStatus.map(item => (
-                                        <TableRow key={item.id} className={item.disponibile < 0 ? 'bg-destructive/10' : ''}>
-                                            <TableCell>
-                                                {item.disponibile < 0 && <AlertTriangle className="h-5 w-5 text-amber-500" />}
-                                            </TableCell>
-                                            <TableCell className="font-medium">{item.code}</TableCell>
-                                            <TableCell>{item.description}</TableCell>
-                                            <TableCell>{formatDisplayStock(item.stock, item.unitOfMeasure)} {item.unitOfMeasure}</TableCell>
-                                            <TableCell>{formatDisplayStock(item.impegnato, item.unitOfMeasure)} {item.unitOfMeasure}</TableCell>
-                                            <TableCell className={cn("font-bold", item.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>
-                                                {formatDisplayStock(item.disponibile, item.unitOfMeasure)} {item.unitOfMeasure}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="text-center h-48 text-muted-foreground">
-                                             <div className="flex flex-col items-center gap-2">
-                                                <Database className="h-8 w-8" />
-                                                <span>Nessun dato da visualizzare.</span>
-                                                <p className="text-xs">Premi "Carica/Aggiorna Dati" per iniziare l'analisi.</p>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
             </TabsContent>
         </Tabs>
       
