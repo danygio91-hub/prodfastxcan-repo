@@ -142,48 +142,46 @@ function DeclarationDialog({
         return status;
     }, [bomWithConsumption, lotSelections]);
     
-     const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
-        const materialOfComponent = componentMaterials.find(m => m.code === componentCode);
-        const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
+    const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
+        const material = componentMaterials.find(m => m.code === componentCode);
+        const bomItem = bomWithConsumption.find(c => c.component === componentCode);
         
-        if (!materialOfComponent || !componentConsumption) return;
+        if (!material || !bomItem) return;
 
-        setLotSelections(prev => {
-            const prevSelectionsForComponent = prev[componentCode] || [];
-            
-            // 1. Determine the new list of selected batch IDs for the current component
-            const prevSelectedBatchIds = prevSelectionsForComponent.map(s => s.batchId);
-            let newSelectedBatchIds: string[];
+        setLotSelections(prevState => {
+            const prevSelections = prevState[componentCode] || [];
+            const prevSelectedIds = prevSelections.map(s => s.batchId);
+
+            let nextSelectedIds: string[];
             if (isChecked) {
-                newSelectedBatchIds = [...new Set([...prevSelectedBatchIds, batchId])];
+                nextSelectedIds = [...new Set([...prevSelectedIds, batchId])];
             } else {
-                newSelectedBatchIds = prevSelectedBatchIds.filter(id => id !== batchId);
+                nextSelectedIds = prevSelectedIds.filter(id => id !== batchId);
             }
 
-            // 2. Get the full batch objects for the selected IDs, in chronological order
-            const selectedBatches = (materialOfComponent.batches || [])
-                .filter(b => newSelectedBatchIds.includes(b.id))
+            const selectedBatches = (material.batches || [])
+                .filter(b => nextSelectedIds.includes(b.id))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            
-            // 3. Recalculate consumption across the newly selected set of batches
-            let remainingToFulfill = componentConsumption.totalRequired;
-            const newFinalSelections: { batchId: string; lotto: string; consumed: number }[] = [];
+
+            let remainingRequirement = bomItem.totalRequired;
+            const newSelections: { batchId: string; lotto: string; consumed: number }[] = [];
 
             for (const batch of selectedBatches) {
-                let consumed = 0;
-                if (remainingToFulfill > 0.001) { // Tolerance for float precision
-                    const stockInBatch = batch.netQuantity;
-                    const toConsume = Math.min(remainingToFulfill, stockInBatch);
-                    consumed = toConsume;
-                    remainingToFulfill -= toConsume;
+                const consumed = Math.min(remainingRequirement, batch.netQuantity);
+                newSelections.push({
+                    batchId: batch.id,
+                    lotto: batch.lotto || 'N/D',
+                    consumed: consumed > 0 ? consumed : 0,
+                });
+                remainingRequirement -= consumed;
+                if (remainingRequirement <= 0.001) { // Use tolerance
+                    remainingRequirement = 0;
                 }
-                newFinalSelections.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed });
             }
-
-            // 4. Return the new state object
+            
             return {
-                ...prev,
-                [componentCode]: newFinalSelections,
+                ...prevState,
+                [componentCode]: newSelections,
             };
         });
     }, [componentMaterials, bomWithConsumption]);
@@ -317,11 +315,9 @@ function DeclarationDialog({
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
-  rawMaterials,
 }: {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
-  rawMaterials: RawMaterial[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -677,4 +673,3 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
-
