@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -148,24 +149,25 @@ function DeclarationDialog({
         if (!materialOfComponent || !componentConsumption) return;
 
         setLotSelections(prev => {
-            const newSelectionsForAllComponents = JSON.parse(JSON.stringify(prev));
-            const currentSelections = newSelectionsForAllComponents[componentCode] || [];
-
-            let nextSelectedBatchIds;
-            const currentIds = currentSelections.map((s:any) => s.batchId);
+            const prevSelectionsForComponent = prev[componentCode] || [];
             
+            // 1. Determine the new list of selected batch IDs for the current component
+            const prevSelectedBatchIds = prevSelectionsForComponent.map(s => s.batchId);
+            let newSelectedBatchIds: string[];
             if (isChecked) {
-                nextSelectedBatchIds = [...new Set([...currentIds, batchId])];
+                newSelectedBatchIds = [...new Set([...prevSelectedBatchIds, batchId])];
             } else {
-                nextSelectedBatchIds = currentIds.filter((id: string) => id !== batchId);
+                newSelectedBatchIds = prevSelectedBatchIds.filter(id => id !== batchId);
             }
 
+            // 2. Get the full batch objects for the selected IDs, in chronological order
             const selectedBatches = (materialOfComponent.batches || [])
-                .filter(b => nextSelectedBatchIds.includes(b.id))
+                .filter(b => newSelectedBatchIds.includes(b.id))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             
+            // 3. Recalculate consumption across the newly selected set of batches
             let remainingToFulfill = componentConsumption.totalRequired;
-            const finalSelections: { batchId: string; lotto: string; consumed: number }[] = [];
+            const newFinalSelections: { batchId: string; lotto: string; consumed: number }[] = [];
 
             for (const batch of selectedBatches) {
                 let consumed = 0;
@@ -175,11 +177,14 @@ function DeclarationDialog({
                     consumed = toConsume;
                     remainingToFulfill -= toConsume;
                 }
-                finalSelections.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed });
+                newFinalSelections.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed });
             }
-            
-            newSelectionsForAllComponents[componentCode] = finalSelections;
-            return newSelectionsForAllComponents;
+
+            // 4. Return the new state object
+            return {
+                ...prev,
+                [componentCode]: newFinalSelections,
+            };
         });
     }, [componentMaterials, bomWithConsumption]);
     
@@ -672,3 +677,4 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
+
