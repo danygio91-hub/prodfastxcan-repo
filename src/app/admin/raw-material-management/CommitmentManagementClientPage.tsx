@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { formatDisplayStock } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 
 
 interface CommitmentManagementClientPageProps {
@@ -125,24 +126,29 @@ function DeclarationDialog({
         }
     }, [isOpen, article, commitment.quantity, form]);
 
-    const handleLotSelection = useCallback((componentCode: string, batchId: string) => {
-      setSelectedBatchIds(prev => {
-          const oldSet = prev[componentCode] || new Set();
-          const newSet = new Set(oldSet); // Clone the set
-
+    const handleLotSelection = (componentCode: string, batchId: string) => {
+        setSelectedBatchIds(prev => {
+          // Create a shallow copy of the previous state object to avoid direct mutation.
+          const newState = { ...prev };
+          
+          // Get the set for the specific component, creating a new one if it doesn't exist.
+          // Importantly, create a *copy* of the existing set to modify.
+          const newSet = new Set(newState[componentCode]);
+    
+          // Toggle the presence of the batchId in the new set.
           if (newSet.has(batchId)) {
-              newSet.delete(batchId);
+            newSet.delete(batchId);
           } else {
-              newSet.add(batchId);
+            newSet.add(batchId);
           }
-
-          // Return a new object for the entire state
-          return {
-              ...prev,
-              [componentCode]: newSet,
-          };
-      });
-    }, []);
+    
+          // Update the new state object with the modified set.
+          newState[componentCode] = newSet;
+          
+          // Return the new state object.
+          return newState;
+        });
+      };
     
     const lotSelections = useMemo(() => {
         const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
@@ -152,37 +158,29 @@ function DeclarationDialog({
             const material = componentMaterials.find(m => m.code === componentCode);
             const selectedIds = selectedBatchIds[componentCode] || new Set();
 
-            if (!material || selectedIds.size === 0) {
-                newLotSelections[componentCode] = [];
-                continue;
-            }
-
-            const fifoSelectedBatches = (material.batches || [])
-                .filter(b => selectedIds.has(b.id) && (b.netQuantity || 0) > 0)
-                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            
-            let remainingRequirement = component.totalRequired;
-            const selectionsForComponent: { batchId: string; lotto: string; consumed: number }[] = [];
-            
             const consumptionMap = new Map<string, number>();
+            
+            if (material && selectedIds.size > 0) {
+                const fifoSelectedBatches = (material.batches || [])
+                    .filter(b => selectedIds.has(b.id) && (b.netQuantity || 0) > 0)
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                
+                let remainingRequirement = component.totalRequired;
 
-            for (const batch of fifoSelectedBatches) {
-                if (remainingRequirement > 0.001) {
-                    const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
-                    consumptionMap.set(batch.id, consumedFromThisBatch);
-                    remainingRequirement -= consumedFromThisBatch;
+                for (const batch of fifoSelectedBatches) {
+                    if (remainingRequirement > 0.001) {
+                        const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
+                        consumptionMap.set(batch.id, consumedFromThisBatch);
+                        remainingRequirement -= consumedFromThisBatch;
+                    }
                 }
             }
-            
-            fifoSelectedBatches.forEach(batch => {
-                 selectionsForComponent.push({
-                    batchId: batch.id,
-                    lotto: batch.lotto || 'N/D',
-                    consumed: consumptionMap.get(batch.id) || 0,
-                });
-            });
 
-            newLotSelections[componentCode] = selectionsForComponent;
+            newLotSelections[componentCode] = (material?.batches || []).map(batch => ({
+                batchId: batch.id,
+                lotto: batch.lotto || 'N/D',
+                consumed: consumptionMap.get(batch.id) || 0,
+            }));
         }
         return newLotSelections;
     }, [selectedBatchIds, bomWithConsumption, componentMaterials]);
@@ -212,13 +210,15 @@ function DeclarationDialog({
         const selectionsPayload: LotSelectionPayload[] = Object.entries(lotSelections).flatMap(([componentCode, selections]) => {
              const materialId = componentMaterials.find(m => m.code === componentCode)?.id;
              if (!materialId) return [];
-             return selections.map(selection => ({
-                materialId: materialId,
-                componentCode,
-                batchId: selection.batchId,
-                lotto: selection.lotto,
-                consumed: selection.consumed
-             }));
+             return selections
+                .filter(selection => selection.consumed > 0)
+                .map(selection => ({
+                    materialId: materialId,
+                    componentCode,
+                    batchId: selection.batchId,
+                    lotto: selection.lotto,
+                    consumed: selection.consumed
+                }));
         });
         onDeclare(values, selectionsPayload);
     };
@@ -273,7 +273,7 @@ function DeclarationDialog({
                                                     <h4 className="font-semibold">{item.component}</h4>
                                                     <div className="text-right">
                                                         <p className="text-sm">Fabbisogno: {formatDisplayStock(status.required, item.displayUnit)} {item.displayUnit}</p>
-                                                        <p className={cn("text-sm", status.fulfilled < status.required ? 'text-destructive' : 'text-green-600')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</p>
+                                                        <p className={cn("text-sm font-semibold", status.fulfilled < status.required ? 'text-destructive' : 'text-green-600')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</p>
                                                     </div>
                                                 </div>
                                                 <div className="mt-2">
@@ -696,3 +696,5 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
+
+    
