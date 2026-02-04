@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -663,7 +662,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => handleOpenBatchDialog(material, null)}>
                                                     <PackagePlus className="mr-2 h-4 w-4" />
-                                                    <span>Gestisci Lotti/Carichi</span>
+                                                    <span>Aggiungi Lotto</span>
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}>
                                                     <History className="mr-2 h-4 w-4" />
@@ -1027,3 +1026,5 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
       </div>
   );
 }
+
+    
