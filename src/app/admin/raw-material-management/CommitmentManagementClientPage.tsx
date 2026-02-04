@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -84,10 +85,26 @@ function DeclarationDialog({
     const [selectedBatchIds, setSelectedBatchIds] = useState<Record<string, Set<string>>>({});
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
+    
+    const bomWithConsumption = useMemo(() => {
+        if (!article?.billOfMaterials) return [];
+        const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
+        return article.billOfMaterials.map(item => {
+            const material = componentMaterials.find(m => m.code === item.component);
+            let totalRequired = 0;
+            let displayUnit: 'n' | 'mt' | 'kg' = item.unit;
+            if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material?.unitOfMeasure === 'mt') {
+                totalRequired = (totalPieces * item.quantity * item.lunghezzaTaglioMm) / 1000;
+                displayUnit = 'mt';
+            } else {
+                totalRequired = totalPieces * item.quantity;
+            }
+            return { ...item, totalRequired, displayUnit };
+        });
+    }, [article, watchedValues, componentMaterials]);
 
     useEffect(() => {
         if (isOpen) {
-            setSelectedBatchIds({});
             form.reset({
               goodPieces: commitment.quantity,
               scrapPieces: 0,
@@ -109,42 +126,23 @@ function DeclarationDialog({
         }
     }, [isOpen, article, commitment.quantity, form]);
     
-    const bomWithConsumption = useMemo(() => {
-        if (!article?.billOfMaterials) return [];
-        const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
-        return article.billOfMaterials.map(item => {
-            const material = componentMaterials.find(m => m.code === item.component);
-            let totalRequired = 0;
-            let displayUnit: 'n' | 'mt' | 'kg' = item.unit;
-            if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material?.unitOfMeasure === 'mt') {
-                totalRequired = (totalPieces * item.quantity * item.lunghezzaTaglioMm) / 1000;
-                displayUnit = 'mt';
-            } else {
-                totalRequired = totalPieces * item.quantity;
-            }
-            return { ...item, totalRequired, displayUnit };
-        });
-    }, [article, watchedValues, componentMaterials]);
-    
     const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
         setSelectedBatchIds(prev => {
-            const newSelection = { ...prev };
-            if (!newSelection[componentCode]) {
-                newSelection[componentCode] = new Set();
-            }
-            
-            const newSet = new Set(newSelection[componentCode]);
+            const currentSet = prev[componentCode] || new Set<string>();
+            const newSet = new Set(currentSet);
             if (isChecked) {
                 newSet.add(batchId);
             } else {
                 newSet.delete(batchId);
             }
-            newSelection[componentCode] = newSet;
 
-            return newSelection;
+            return {
+                ...prev,
+                [componentCode]: newSet,
+            };
         });
     }, []);
-
+    
     const lotSelections = useMemo(() => {
         const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
         for (const component of bomWithConsumption) {
@@ -158,23 +156,21 @@ function DeclarationDialog({
             }
 
             const fifoSelectedBatches = (material.batches || [])
-                .filter(b => ids.has(b.id))
+                .filter(b => ids.has(b.id) && b.netQuantity > 0)
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             
             let remainingRequirement = component.totalRequired;
             const selectionsForComponent: { batchId: string; lotto: string; consumed: number }[] = [];
 
             for (const batch of fifoSelectedBatches) {
+                if (remainingRequirement <= 0.001) break;
                 const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
                 selectionsForComponent.push({
                     batchId: batch.id,
                     lotto: batch.lotto || 'N/D',
-                    consumed: consumedFromThisBatch > 0 ? consumedFromThisBatch : 0,
+                    consumed: consumedFromThisBatch,
                 });
                 remainingRequirement -= consumedFromThisBatch;
-                if (remainingRequirement <= 0.001) {
-                    remainingRequirement = 0;
-                }
             }
             newLotSelections[componentCode] = selectionsForComponent;
         }
@@ -259,7 +255,6 @@ function DeclarationDialog({
                                     const material = componentMaterials.find(m => m.code === item.component);
                                     const availableBatches = (material?.batches || []).filter(b => b.netQuantity > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                                     const status = consumptionStatus[item.component];
-                                    const componentIsSelected = (selectedBatchIds[item.component] || new Set()).size > 0;
 
                                     return (
                                         <div key={item.component} className="p-4 border rounded-lg">
@@ -270,7 +265,7 @@ function DeclarationDialog({
                                                     <p className={cn("text-sm", status.fulfilled < status.required ? 'text-destructive' : 'text-green-600')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</p>
                                                 </div>
                                             </div>
-                                            <div className="max-h-48 overflow-y-auto mt-2">
+                                            <div className="mt-2">
                                               <Table>
                                                   <TableHeader>
                                                       <TableRow>
@@ -285,8 +280,8 @@ function DeclarationDialog({
                                                           <TableRow key={batch.id}>
                                                               <TableCell>
                                                                   <Checkbox
-                                                                      checked={(selectedBatchIds[item.component] || new Set()).has(batch.id)}
-                                                                      onCheckedChange={(checked) => handleLotSelection(item.component, batch, !!checked)}
+                                                                      checked={(lotSelections[item.component] || []).some(s => s.batchId === batch.id)}
+                                                                      onCheckedChange={(checked) => handleLotSelection(item.component, batch.id, !!checked)}
                                                                   />
                                                               </TableCell>
                                                               <TableCell>{batch.lotto || "N/D"}</TableCell>
