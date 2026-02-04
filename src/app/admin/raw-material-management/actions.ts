@@ -1,10 +1,9 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp, deleteField } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp, deleteField, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department, ManualCommitment, Article } from '@/lib/mock-data';
 import { format } from 'date-fns';
@@ -658,7 +657,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
-        getDocs(manualCommitmentsQuery),
+        getDocs(manualCommitmentsSnapshot),
         getDocs(articlesQuery),
     ]);
 
@@ -1037,3 +1036,5 @@ export async function revertManualCommitmentFulfillment(
      return { success: false, message: errorMessage };
   }
 }
+
+    
