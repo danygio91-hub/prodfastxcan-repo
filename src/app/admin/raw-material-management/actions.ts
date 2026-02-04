@@ -664,8 +664,9 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const materialsMap = new Map<string, RawMaterial>();
     materialsSnapshot.forEach(doc => {
         const data = doc.data();
-        if (data.code && typeof data.code === 'string') {
-            materialsMap.set(data.code, { id: doc.id, ...data } as RawMaterial);
+        const normalizedCode = data.code_normalized || (data.code ? data.code.toLowerCase() : null);
+        if (normalizedCode) {
+            materialsMap.set(normalizedCode, { id: doc.id, ...data } as RawMaterial);
         } else {
             console.warn(`Raw material document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
         }
@@ -676,8 +677,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const data = doc.data();
         if (data.code && typeof data.code === 'string') {
              articlesMap.set(data.code, data as Article);
-        } else {
-            console.warn(`Article document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
         }
     });
 
@@ -689,17 +688,18 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         (job.billOfMaterials || []).forEach(item => {
             if (item.status !== 'withdrawn') {
                 let requiredQty = 0;
-                const material = materialsMap.get(item.component);
+                const material = materialsMap.get(item.component.toLowerCase());
 
                 if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                    requiredQty = ((item.quantity || 1) * (job.qta || 0) * item.lunghezzaTaglioMm) / 1000;
+                    requiredQty = (item.quantity * (job.qta || 0) * item.lunghezzaTaglioMm) / 1000;
                 } else {
                     requiredQty = (item.quantity || 0) * (job.qta || 0);
                 }
                
                 if (item.component && !isNaN(requiredQty)) {
-                    const currentImpegno = impegniMap.get(item.component) || 0;
-                    impegniMap.set(item.component, currentImpegno + requiredQty);
+                    const normalizedComponent = item.component.toLowerCase();
+                    const currentImpegno = impegniMap.get(normalizedComponent) || 0;
+                    impegniMap.set(normalizedComponent, currentImpegno + requiredQty);
                 }
             }
         });
@@ -712,26 +712,27 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         if (article && article.billOfMaterials) {
             article.billOfMaterials.forEach(bomItem => {
                 let totalRequired = 0;
-                const material = materialsMap.get(bomItem.component);
+                const material = materialsMap.get(bomItem.component.toLowerCase());
                 
                 if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
-                     totalRequired = (commitment.quantity || 0) * (bomItem.quantity || 1) * (bomItem.lunghezzaTaglioMm / 1000);
+                     totalRequired = (commitment.quantity || 0) * bomItem.quantity * (bomItem.lunghezzaTaglioMm / 1000);
                 } else {
                      totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
                 }
 
                 if (bomItem.component && !isNaN(totalRequired)) {
-                    const currentImpegno = impegniMap.get(bomItem.component) || 0;
-                    impegniMap.set(bomItem.component, currentImpegno + totalRequired);
+                    const normalizedComponent = bomItem.component.toLowerCase();
+                    const currentImpegno = impegniMap.get(normalizedComponent) || 0;
+                    impegniMap.set(normalizedComponent, currentImpegno + totalRequired);
                 }
             });
         }
     });
 
     const statusList: MaterialStatus[] = [];
-    materialsMap.forEach((material, code) => {
+    materialsMap.forEach((material, normalizedCode) => {
         const stock = material.currentStockUnits || 0;
-        const impegnato = impegniMap.get(code) || 0;
+        const impegnato = impegniMap.get(normalizedCode) || 0;
         statusList.push({
             id: material.id,
             code: material.code,
@@ -822,6 +823,7 @@ export async function deleteManualCommitment(commitmentId: string): Promise<{ su
 export interface LotSelectionPayload {
   materialId: string;
   batchId: string;
+  lotto: string;
   consumed: number; // in primary UoM of the material
 }
 
