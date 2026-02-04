@@ -38,6 +38,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 interface CommitmentManagementClientPageProps {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
+  rawMaterials: RawMaterial[];
 }
 
 const commitmentFormSchema = z.object({
@@ -141,55 +142,46 @@ function DeclarationDialog({
     }, [bomWithConsumption, lotSelections]);
     
      const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
-        setLotSelections(prevSelections => {
-            // Create a deep copy to avoid direct state mutation
-            const newSelections = JSON.parse(JSON.stringify(prevSelections));
-            const componentSelections = newSelections[componentCode] || [];
-            const materialOfComponent = componentMaterials.find(m => m.code === componentCode);
-            const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
+        const materialOfComponent = componentMaterials.find(m => m.code === componentCode);
+        const componentConsumption = bomWithConsumption.find(c => c.component === componentCode);
+        
+        if (!materialOfComponent || !componentConsumption) return;
 
-            if (!materialOfComponent || !componentConsumption) return prevSelections;
+        setLotSelections(prev => {
+            const newSelectionsForAllComponents = JSON.parse(JSON.stringify(prev));
+            const currentSelections = newSelectionsForAllComponents[componentCode] || [];
 
-            let updatedComponentSelections;
+            let nextSelectedBatchIds;
+            const currentIds = currentSelections.map((s:any) => s.batchId);
+            
             if (isChecked) {
-                // Add if not present
-                if (!componentSelections.some((s: any) => s.batchId === batchId)) {
-                    const batch = (materialOfComponent.batches || []).find(b => b.id === batchId);
-                    updatedComponentSelections = [...componentSelections, { batchId, lotto: batch?.lotto || 'N/D', consumed: 0 }];
-                } else {
-                    updatedComponentSelections = componentSelections;
-                }
+                nextSelectedBatchIds = [...new Set([...currentIds, batchId])];
             } else {
-                // Remove if present
-                updatedComponentSelections = componentSelections.filter((s: any) => s.batchId !== batchId);
+                nextSelectedBatchIds = currentIds.filter((id: string) => id !== batchId);
+            }
+
+            const selectedBatches = (materialOfComponent.batches || [])
+                .filter(b => nextSelectedBatchIds.includes(b.id))
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            
+            let remainingToFulfill = componentConsumption.totalRequired;
+            const finalSelections: { batchId: string; lotto: string; consumed: number }[] = [];
+
+            for (const batch of selectedBatches) {
+                let consumed = 0;
+                if (remainingToFulfill > 0.001) { // Tolerance for float precision
+                    const stockInBatch = batch.netQuantity;
+                    const toConsume = Math.min(remainingToFulfill, stockInBatch);
+                    consumed = toConsume;
+                    remainingToFulfill -= toConsume;
+                }
+                finalSelections.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed });
             }
             
-            // Sort selected batches by date (FIFO)
-            updatedComponentSelections.sort((a: any, b: any) => {
-                const batchA = (materialOfComponent.batches || []).find(bt => bt.id === a.batchId);
-                const batchB = (materialOfComponent.batches || []).find(bt => bt.id === b.batchId);
-                return new Date(batchA?.date || 0).getTime() - new Date(batchB?.date || 0).getTime();
-            });
-
-            // Recalculate consumption across the now-sorted, selected batches
-            let remainingToFulfill = componentConsumption.totalRequired;
-            const finalSelections = updatedComponentSelections.map((selection: any) => {
-                const batch = (materialOfComponent.batches || []).find(b => b.id === selection.batchId);
-                if (!batch || remainingToFulfill <= 0) {
-                    return { ...selection, consumed: 0 };
-                }
-                
-                const availableInBatch = batch.netQuantity - ((prevSelections[componentCode] || []).find((s:any) => s.batchId === batch.id)?.consumed || 0);
-
-                const toConsume = Math.min(remainingToFulfill, batch.netQuantity);
-                remainingToFulfill -= toConsume;
-                return { ...selection, consumed: toConsume };
-            });
-
-            newSelections[componentCode] = finalSelections;
-            return newSelections;
+            newSelectionsForAllComponents[componentCode] = finalSelections;
+            return newSelectionsForAllComponents;
         });
-    }, [bomWithConsumption, componentMaterials]);
+    }, [componentMaterials, bomWithConsumption]);
     
     const isPlanComplete = useMemo(() => {
         if (bomWithConsumption.length === 0) return true; // No BOM means nothing to fulfill
@@ -320,9 +312,11 @@ function DeclarationDialog({
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
+  rawMaterials,
 }: {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
+  rawMaterials: RawMaterial[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
