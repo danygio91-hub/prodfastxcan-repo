@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -657,18 +658,28 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
-        getDocs(manualCommitmentsSnapshot),
+        getDocs(manualCommitmentsQuery),
         getDocs(articlesQuery),
     ]);
 
     const materialsMap = new Map<string, RawMaterial>();
     materialsSnapshot.forEach(doc => {
-        materialsMap.set(doc.data().code, { id: doc.id, ...doc.data() } as RawMaterial);
+        const data = doc.data();
+        if (data.code && typeof data.code === 'string') {
+            materialsMap.set(data.code, { id: doc.id, ...data } as RawMaterial);
+        } else {
+            console.warn(`Raw material document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
+        }
     });
 
     const articlesMap = new Map<string, Article>();
     articlesSnapshot.forEach(doc => {
-        articlesMap.set(doc.data().code, doc.data() as Article);
+        const data = doc.data();
+        if (data.code && typeof data.code === 'string') {
+             articlesMap.set(data.code, data as Article);
+        } else {
+            console.warn(`Article document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
+        }
     });
 
     const impegniMap = new Map<string, number>();
@@ -677,21 +688,22 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     jobsSnapshot.forEach(doc => {
         const job = doc.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
-            if (item.status !== 'withdrawn') { // Only count pending/committed items
-                const material = materialsMap.get(item.component);
+            if (item.status !== 'withdrawn') {
                 let requiredQty = 0;
                 if (item.isFromTemplate) {
                      if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                        requiredQty = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                        requiredQty = ((item.quantity || 0) * (job.qta || 0) * (item.lunghezzaTaglioMm || 0)) / 1000;
                     } else {
-                        requiredQty = item.quantity * job.qta;
+                        requiredQty = (item.quantity || 0) * (job.qta || 0);
                     }
                 } else {
-                    requiredQty = item.quantity;
+                    requiredQty = item.quantity || 0;
                 }
                
-                const currentImpegno = impegniMap.get(item.component) || 0;
-                impegniMap.set(item.component, currentImpegno + requiredQty);
+                if (item.component && !isNaN(requiredQty)) {
+                    const currentImpegno = impegniMap.get(item.component) || 0;
+                    impegniMap.set(item.component, currentImpegno + requiredQty);
+                }
             }
         });
     });
@@ -702,9 +714,11 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const article = articlesMap.get(commitment.articleCode);
         if (article && article.billOfMaterials) {
             article.billOfMaterials.forEach(bomItem => {
-                const totalRequired = bomItem.quantity * commitment.quantity;
-                const currentImpegno = impegniMap.get(bomItem.component) || 0;
-                impegniMap.set(bomItem.component, currentImpegno + totalRequired);
+                const totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
+                if (bomItem.component && !isNaN(totalRequired)) {
+                    const currentImpegno = impegniMap.get(bomItem.component) || 0;
+                    impegniMap.set(bomItem.component, currentImpegno + totalRequired);
+                }
             });
         }
     });
