@@ -1,4 +1,5 @@
 
+
 // --- Type Definitions ---
 
 export interface Department {
@@ -314,6 +315,18 @@ export interface InventoryRecord {
     inputQuantity: number;
     conversionFactor?: number;
     materialUnitOfMeasure?: 'n' | 'mt' | 'kg';
+}
+
+export interface ManualCommitment {
+  id: string;
+  jobOrderCode: string;
+  articleCode: string;
+  quantity: number;
+  deliveryDate: string; // ISO Date String
+  status: 'pending' | 'fulfilled';
+  createdAt: any; // Firestore Timestamp
+  fulfilledAt?: any; // Firestore Timestamp
+  fulfilledBy?: string; // Operator UID
 }
 
 

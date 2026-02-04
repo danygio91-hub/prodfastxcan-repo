@@ -4,12 +4,17 @@ import AppShell from '@/components/layout/AppShell';
 import RawMaterialManagementClientPage from './RawMaterialManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getDepartments } from './actions';
+import { getDepartments, getManualCommitments } from './actions';
+import { getArticles } from '../article-management/actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
-  const departments = await getDepartments();
+  const [departments, articles, manualCommitments] = await Promise.all([
+    getDepartments(),
+    getArticles(),
+    getManualCommitments(),
+  ]);
 
   return (
     <AdminAuthGuard>
@@ -20,7 +25,11 @@ export default async function AdminRawMaterialManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento gestione materiali...</p>
           </div>
         }>
-          <RawMaterialManagementClientPage initialDepartments={departments} />
+          <RawMaterialManagementClientPage 
+            initialDepartments={departments}
+            initialArticles={articles}
+            initialCommitments={manualCommitments}
+          />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

@@ -12,7 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department } from '@/lib/mock-data';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials, getMaterialsStatus, MaterialStatus } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
@@ -30,10 +30,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight, AlertTriangle, RefreshCw, BarChart3, Database } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Download, Loader2, MoreVertical, History, PackagePlus, Search, Eye, ArrowUpCircle, ArrowDownCircle, TestTube, Archive, Weight, AlertTriangle, RefreshCw, BarChart3, Database, FileCheck2 } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
+import CommitmentManagementClientPage from './CommitmentManagementClientPage';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -75,9 +76,11 @@ type BatchFormValues = z.infer<typeof batchFormSchema>;
 
 interface RawMaterialManagementClientPageProps {
   initialDepartments: Department[];
+  initialArticles: Article[];
+  initialCommitments: ManualCommitment[];
 }
 
-export default function RawMaterialManagementClientPage({ initialDepartments }: RawMaterialManagementClientPageProps) {
+export default function RawMaterialManagementClientPage({ initialDepartments, initialArticles, initialCommitments }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
@@ -535,9 +538,12 @@ export default function RawMaterialManagementClientPage({ initialDepartments }: 
         </div>
 
         <Tabs defaultValue="list">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="list">
                     <Search className="mr-2 h-4 w-4" /> Elenco Materie Prime
+                </TabsTrigger>
+                 <TabsTrigger value="commitments">
+                    <FileCheck2 className="mr-2 h-4 w-4" /> Impegni Manuali
                 </TabsTrigger>
                 <TabsTrigger value="status">
                     <BarChart3 className="mr-2 h-4 w-4" /> Situazione Materie Prime
@@ -681,6 +687,9 @@ export default function RawMaterialManagementClientPage({ initialDepartments }: 
                         </div>
                     </CardContent>
                 </Card>
+            </TabsContent>
+             <TabsContent value="commitments">
+                <CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} />
             </TabsContent>
              <TabsContent value="status">
                 <Card>
