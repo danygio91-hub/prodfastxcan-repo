@@ -690,14 +690,12 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         (job.billOfMaterials || []).forEach(item => {
             if (item.status !== 'withdrawn') {
                 let requiredQty = 0;
-                if (item.isFromTemplate) {
-                     if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                        requiredQty = ((item.quantity || 0) * (job.qta || 0) * (item.lunghezzaTaglioMm || 0)) / 1000;
-                    } else {
-                        requiredQty = (item.quantity || 0) * (job.qta || 0);
-                    }
+                const material = materialsMap.get(item.component);
+
+                if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
+                    requiredQty = ((item.quantity || 1) * (job.qta || 0) * item.lunghezzaTaglioMm) / 1000;
                 } else {
-                    requiredQty = item.quantity || 0;
+                    requiredQty = (item.quantity || 0) * (job.qta || 0);
                 }
                
                 if (item.component && !isNaN(requiredQty)) {
@@ -714,7 +712,15 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const article = articlesMap.get(commitment.articleCode);
         if (article && article.billOfMaterials) {
             article.billOfMaterials.forEach(bomItem => {
-                const totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
+                let totalRequired = 0;
+                const material = materialsMap.get(bomItem.component);
+                
+                if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && material && material.unitOfMeasure === 'mt') {
+                     totalRequired = (commitment.quantity || 0) * (bomItem.quantity || 1) * (bomItem.lunghezzaTaglioMm / 1000);
+                } else {
+                     totalRequired = (bomItem.quantity || 0) * (commitment.quantity || 0);
+                }
+
                 if (bomItem.component && !isNaN(totalRequired)) {
                     const currentImpegno = impegniMap.get(bomItem.component) || 0;
                     impegniMap.set(bomItem.component, currentImpegno + totalRequired);
@@ -848,30 +854,38 @@ export async function fulfillManualCommitment(
                 throw new Error(`Materiale ${bomItem.component} non trovato in anagrafica.`);
             }
             const materialDoc = materialQuerySnap.docs[0];
-            const material = materialDoc.data() as RawMaterial;
             const materialDocRef = materialDoc.ref;
             const freshMaterialSnap = await transaction.get(materialDocRef); // Now get it inside the transaction
+            if (!freshMaterialSnap.exists()) throw new Error(`Materiale ${bomItem.component} non trovato durante transazione.`);
             const freshMaterial = freshMaterialSnap.data() as RawMaterial;
             
-            const totalRequired = bomItem.quantity * commitment.quantity;
+            let unitsToWithdraw = 0;
+            if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 && freshMaterial.unitOfMeasure === 'mt') {
+                unitsToWithdraw = (commitment.quantity || 0) * (bomItem.quantity || 1) * (bomItem.lunghezzaTaglioMm / 1000);
+            } else {
+                unitsToWithdraw = (bomItem.quantity || 0) * (commitment.quantity || 0);
+            }
+
             let consumedWeight = 0;
-
             if (freshMaterial.unitOfMeasure === 'kg') {
-                consumedWeight = totalRequired;
+                consumedWeight = unitsToWithdraw;
             } else if (freshMaterial.conversionFactor && freshMaterial.conversionFactor > 0) {
-                consumedWeight = totalRequired * freshMaterial.conversionFactor;
+                consumedWeight = unitsToWithdraw * freshMaterial.conversionFactor;
             }
             
-            const currentStockKg = freshMaterial.currentWeightKg || 0;
-            const currentStockUnits = freshMaterial.currentStockUnits || 0;
+            const currentStockUnits = freshMaterial.currentStockUnits ?? 0;
+            const currentWeightKg = freshMaterial.currentWeightKg ?? 0;
 
-            if (currentStockUnits < totalRequired) {
-                throw new Error(`Stock insufficiente per ${freshMaterial.code}: Richiesti ${totalRequired} ${freshMaterial.unitOfMeasure}, disponibili ${currentStockUnits}.`);
+            if (currentStockUnits < unitsToWithdraw) {
+                throw new Error(`Stock insufficiente per ${freshMaterial.code}: Richiesti ${formatDisplayStock(unitsToWithdraw, freshMaterial.unitOfMeasure)} ${freshMaterial.unitOfMeasure}, disponibili ${formatDisplayStock(currentStockUnits, freshMaterial.unitOfMeasure)}.`);
             }
             
+            const newStockUnits = currentStockUnits - unitsToWithdraw;
+            const newWeightKg = currentWeightKg - consumedWeight;
+
             transaction.update(materialDocRef, {
-                currentStockUnits: currentStockUnits - totalRequired,
-                currentWeightKg: currentStockKg - consumedWeight,
+                currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
+                currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
             });
 
             const withdrawalRef = doc(collection(db, "materialWithdrawals"));
@@ -881,7 +895,7 @@ export async function fulfillManualCommitment(
                 materialId: materialDoc.id,
                 materialCode: freshMaterial.code,
                 consumedWeight: consumedWeight,
-                consumedUnits: totalRequired,
+                consumedUnits: unitsToWithdraw,
                 operatorId: uid,
                 operatorName: operatorName,
                 withdrawalDate: Timestamp.now(),
@@ -1012,7 +1026,7 @@ export async function revertManualCommitmentFulfillment(
     }
     
     // Find the withdrawal associated with this commitment
-    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("commitmentId", "==", commitmentId), limit(1));
+    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("commitmentId", "==", commitmentId));
     const withdrawalSnapshot = await getDocs(withdrawalsQuery);
 
     if (withdrawalSnapshot.empty) {
@@ -1026,14 +1040,12 @@ export async function revertManualCommitmentFulfillment(
       return { success: true, message: "Evasione annullata. Attenzione: impossibile trovare il movimento di scarico associato per ripristinare lo stock."};
     }
     
-    const withdrawalDoc = withdrawalSnapshot.docs[0];
-    const withdrawalId = withdrawalDoc.id;
-
-    // Use the existing logic to delete the withdrawal and restore stock
-    const result = await deleteSingleWithdrawalAndRestoreStock(withdrawalId);
-    
-    if (!result.success) {
-      throw new Error(result.message);
+    const withdrawalIds = withdrawalSnapshot.docs.map(doc => doc.id);
+    for (const withdrawalId of withdrawalIds) {
+       const result = await deleteSingleWithdrawalAndRestoreStock(withdrawalId);
+       if (!result.success) {
+         throw new Error(`Errore durante l'annullamento dello scarico ${withdrawalId}: ${result.message}`);
+       }
     }
 
     // Now, also update the commitment status

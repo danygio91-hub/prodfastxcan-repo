@@ -343,9 +343,9 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
                             <TableCell className="text-right space-x-2">
                                 {c.status === 'pending' ? (
                                     <AlertDialog>
-                                        <AlertDialogTrigger asChild><Button size="sm" disabled={isPending}><FileCheck2 className="mr-2 h-4 w-4"/>Evadi Impegno</Button></AlertDialogTrigger>
+                                        <AlertDialogTrigger asChild><Button size="sm" disabled={isPending}><FileCheck2 className="mr-2 h-4 w-4"/>Evadi</Button></AlertDialogTrigger>
                                         <AlertDialogContent>
-                                            <AlertDialogHeader><AlertDialogTitle>Confermi l'evasione?</AlertDialogTitle><AlertDialogDescription>Questa azione scalerà i materiali necessari dallo stock a magazzino. L'operazione non è reversibile da questa schermata.</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogHeader><AlertDialogTitle>Confermi l'evasione?</AlertDialogTitle><AlertDialogDescription>Questa azione scalerà i materiali necessari dallo stock in base alla distinta base dell'articolo. L'operazione non è reversibile da questa schermata.</AlertDialogDescription></AlertDialogHeader>
                                             <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleFulfill(c.id)}>Sì, Evadi</AlertDialogAction></AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
