@@ -11,7 +11,7 @@ import { it } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 
 import { type ManualCommitment, type Article } from '@/lib/mock-data';
-import { saveManualCommitment, deleteManualCommitment, fulfillManualCommitment, importManualCommitments } from './actions';
+import { saveManualCommitment, deleteManualCommitment, fulfillManualCommitment, importManualCommitments, revertManualCommitmentFulfillment } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
-import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download } from 'lucide-react';
+import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -117,6 +117,21 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
     });
     if (result.success) {
       router.refresh();
+    }
+    setIsPending(false);
+  };
+  
+  const handleRevertFulfillment = async (commitmentId: string) => {
+    if (!user) return;
+    setIsPending(true);
+    const result = await revertManualCommitmentFulfillment(commitmentId, user.uid);
+    toast({
+        title: result.success ? "Operazione Annullata" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) {
+        router.refresh();
     }
     setIsPending(false);
   };
@@ -326,19 +341,27 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
                             <TableCell>{c.quantity}</TableCell>
                             <TableCell>{format(parseISO(c.deliveryDate as any), "dd/MM/yyyy")}</TableCell>
                             <TableCell className="text-right space-x-2">
-                                {c.status === 'pending' && (
+                                {c.status === 'pending' ? (
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild><Button size="sm" disabled={isPending}><FileCheck2 className="mr-2 h-4 w-4"/>Evadi Impegno</Button></AlertDialogTrigger>
                                         <AlertDialogContent>
-                                            <AlertDialogHeader><AlertDialogTitle>Confermi l'evasione?</AlertDialogTitle><AlertDialogDescription>Questa azione scalerà i materiali necessari dallo stock a magazzino. L'operazione non è reversibile.</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogHeader><AlertDialogTitle>Confermi l'evasione?</AlertDialogTitle><AlertDialogDescription>Questa azione scalerà i materiali necessari dallo stock a magazzino. L'operazione non è reversibile da questa schermata.</AlertDialogDescription></AlertDialogHeader>
                                             <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleFulfill(c.id)}>Sì, Evadi</AlertDialogAction></AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                ) : (
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild><Button size="sm" variant="secondary" disabled={isPending}><Undo2 className="mr-2 h-4 w-4"/>Annulla Evasione</Button></AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader><AlertDialogTitle>Annullare l'evasione?</AlertDialogTitle><AlertDialogDescription>Questa azione riporterà l'impegno allo stato 'In Attesa' e ripristinerà lo stock dei materiali precedentemente scaricati. Sei sicuro?</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleRevertFulfillment(c.id)}>Sì, Annulla Evasione</AlertDialogAction></AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
                                 )}
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild><Button size="icon" variant="destructive" disabled={isPending}><Trash2 className="h-4 w-4"/></Button></AlertDialogTrigger>
                                      <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Questa azione eliminerà l'impegno. Se era in attesa, lo stock impegnato verrà liberato.</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Questa azione eliminerà l'impegno. Se è stato evaso, lo stock NON verrà ripristinato. Per ripristinare lo stock, usa "Annulla Evasione".</AlertDialogDescription></AlertDialogHeader>
                                         <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(c.id)}>Sì, Elimina</AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>

@@ -4,7 +4,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department, ManualCommitment, Article } from '@/lib/mock-data';
 import { format } from 'date-fns';
@@ -873,6 +873,7 @@ export async function fulfillManualCommitment(
                 operatorName: operatorName,
                 withdrawalDate: Timestamp.now(),
                 notes: `Scarico da impegno manuale: ${commitment.id}`,
+                commitmentId: commitmentId, // Link withdrawal to commitment
             });
         }
         
@@ -981,4 +982,58 @@ export async function importManualCommitments(
     revalidatePath('/admin/raw-material-management');
 
     return { success: errorCount === 0, message };
+}
+
+
+export async function revertManualCommitmentFulfillment(
+  commitmentId: string,
+  uid: string
+): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const commitmentRef = doc(db, "manualCommitments", commitmentId);
+
+  try {
+    const commitmentSnap = await getDoc(commitmentRef);
+    if (!commitmentSnap.exists() || commitmentSnap.data().status !== 'fulfilled') {
+      throw new Error("Impegno non trovato o non è in stato 'Evaso'.");
+    }
+    
+    // Find the withdrawal associated with this commitment
+    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("commitmentId", "==", commitmentId), limit(1));
+    const withdrawalSnapshot = await getDocs(withdrawalsQuery);
+
+    if (withdrawalSnapshot.empty) {
+      // If no withdrawal is found, we can't revert stock, but we can reset the status.
+      await updateDoc(commitmentRef, {
+          status: 'pending',
+          fulfilledAt: deleteField(),
+          fulfilledBy: deleteField(),
+      });
+      revalidatePath('/admin/raw-material-management');
+      return { success: true, message: "Evasione annullata. Attenzione: impossibile trovare il movimento di scarico associato per ripristinare lo stock."};
+    }
+    
+    const withdrawalDoc = withdrawalSnapshot.docs[0];
+    const withdrawalId = withdrawalDoc.id;
+
+    // Use the existing logic to delete the withdrawal and restore stock
+    const result = await deleteSingleWithdrawalAndRestoreStock(withdrawalId);
+    
+    if (!result.success) {
+      throw new Error(result.message);
+    }
+
+    // Now, also update the commitment status
+    await updateDoc(commitmentRef, {
+        status: 'pending',
+        fulfilledAt: deleteField(),
+        fulfilledBy: deleteField(),
+    });
+
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: "Evasione annullata con successo. Lo stock è stato ripristinato." };
+  } catch (error) {
+     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
+     return { success: false, message: errorMessage };
+  }
 }
