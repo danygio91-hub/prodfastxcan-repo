@@ -124,20 +124,24 @@ function DeclarationDialog({
             }
         }
     }, [isOpen, article, commitment.quantity, form]);
-    
+
     const handleLotSelection = useCallback((componentCode: string, batchId: string) => {
-        setSelectedBatchIds(prev => {
-            const newSelections = new Set(prev[componentCode]); // Create a copy
-            if (newSelections.has(batchId)) {
-                newSelections.delete(batchId);
-            } else {
-                newSelections.add(batchId);
-            }
-            return {
-                ...prev, // Return a new object for the outer state
-                [componentCode]: newSelections,
-            };
-        });
+      setSelectedBatchIds(prev => {
+          const oldSet = prev[componentCode] || new Set();
+          const newSet = new Set(oldSet); // Clone the set
+
+          if (newSet.has(batchId)) {
+              newSet.delete(batchId);
+          } else {
+              newSet.add(batchId);
+          }
+
+          // Return a new object for the entire state
+          return {
+              ...prev,
+              [componentCode]: newSet,
+          };
+      });
     }, []);
     
     const lotSelections = useMemo(() => {
@@ -146,32 +150,38 @@ function DeclarationDialog({
         for (const component of bomWithConsumption) {
             const componentCode = component.component;
             const material = componentMaterials.find(m => m.code === componentCode);
-            const ids = selectedBatchIds[componentCode];
+            const selectedIds = selectedBatchIds[componentCode] || new Set();
 
-            if (!material || !ids || ids.size === 0) {
+            if (!material || selectedIds.size === 0) {
                 newLotSelections[componentCode] = [];
                 continue;
             }
 
             const fifoSelectedBatches = (material.batches || [])
-                .filter(b => ids.has(b.id) && b.netQuantity > 0)
+                .filter(b => selectedIds.has(b.id) && (b.netQuantity || 0) > 0)
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
             
             let remainingRequirement = component.totalRequired;
             const selectionsForComponent: { batchId: string; lotto: string; consumed: number }[] = [];
+            
+            const consumptionMap = new Map<string, number>();
 
             for (const batch of fifoSelectedBatches) {
-                if (remainingRequirement <= 0.001) break;
-                
-                const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
-                
-                selectionsForComponent.push({
+                if (remainingRequirement > 0.001) {
+                    const consumedFromThisBatch = Math.min(remainingRequirement, batch.netQuantity);
+                    consumptionMap.set(batch.id, consumedFromThisBatch);
+                    remainingRequirement -= consumedFromThisBatch;
+                }
+            }
+            
+            fifoSelectedBatches.forEach(batch => {
+                 selectionsForComponent.push({
                     batchId: batch.id,
                     lotto: batch.lotto || 'N/D',
-                    consumed: consumedFromThisBatch,
+                    consumed: consumptionMap.get(batch.id) || 0,
                 });
-                remainingRequirement -= consumedFromThisBatch;
-            }
+            });
+
             newLotSelections[componentCode] = selectionsForComponent;
         }
         return newLotSelections;
@@ -254,7 +264,7 @@ function DeclarationDialog({
                                     <Label>Selezione Lotti per Scarico</Label>
                                     {bomWithConsumption.map(item => {
                                         const material = componentMaterials.find(m => m.code === item.component);
-                                        const availableBatches = (material?.batches || []).filter(b => b.netQuantity > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                                        const availableBatches = (material?.batches || []).filter(b => (b.netQuantity || 0) > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                                         const status = consumptionStatus[item.component];
 
                                         return (
