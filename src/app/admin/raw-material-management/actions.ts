@@ -4,11 +4,13 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, arrayRemove, limit, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Packaging, JobOrder, Department, ManualCommitment, Article } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { formatDisplayStock } from '@/lib/utils';
+import { ensureAdmin } from '@/lib/server-auth';
+
 
 // Helper to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
@@ -650,10 +652,14 @@ export interface MaterialStatus {
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]));
     const materialsQuery = query(collection(db, "rawMaterials"));
+    const manualCommitmentsQuery = query(collection(db, 'manualCommitments'), where('status', '==', 'pending'));
+    const articlesQuery = query(collection(db, 'articles'));
 
-    const [jobsSnapshot, materialsSnapshot] = await Promise.all([
+    const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
-        getDocs(materialsQuery)
+        getDocs(materialsSnapshot),
+        getDocs(manualCommitmentsQuery),
+        getDocs(articlesQuery),
     ]);
 
     const materialsMap = new Map<string, RawMaterial>();
@@ -661,8 +667,14 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         materialsMap.set(doc.data().code, { id: doc.id, ...doc.data() } as RawMaterial);
     });
 
+    const articlesMap = new Map<string, Article>();
+    articlesSnapshot.forEach(doc => {
+        articlesMap.set(doc.data().code, doc.data() as Article);
+    });
+
     const impegniMap = new Map<string, number>();
 
+    // Calculate commitments from production jobs
     jobsSnapshot.forEach(doc => {
         const job = doc.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
@@ -685,6 +697,19 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         });
     });
 
+    // Calculate commitments from manual entries
+    manualCommitmentsSnapshot.forEach(doc => {
+        const commitment = doc.data() as ManualCommitment;
+        const article = articlesMap.get(commitment.articleCode);
+        if (article && article.billOfMaterials) {
+            article.billOfMaterials.forEach(bomItem => {
+                const totalRequired = bomItem.quantity * commitment.quantity;
+                const currentImpegno = impegniMap.get(bomItem.component) || 0;
+                impegniMap.set(bomItem.component, currentImpegno + totalRequired);
+            });
+        }
+    });
+
     const statusList: MaterialStatus[] = [];
     materialsMap.forEach((material, code) => {
         const stock = material.currentStockUnits || 0;
@@ -702,4 +727,168 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     });
 
     return statusList.sort((a, b) => a.code.localeCompare(b.code));
+}
+
+// --- MANUAL COMMITMENTS ---
+
+export async function getManualCommitments(): Promise<ManualCommitment[]> {
+  const commitmentsRef = collection(db, "manualCommitments");
+  const q = query(commitmentsRef, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return [];
+  
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    // Ensure date fields are ISO strings for serialization
+    return {
+      ...data,
+      id: doc.id,
+      createdAt: data.createdAt.toDate().toISOString(),
+      deliveryDate: data.deliveryDate instanceof Timestamp ? data.deliveryDate.toDate().toISOString() : data.deliveryDate,
+      fulfilledAt: data.fulfilledAt ? data.fulfilledAt.toDate().toISOString() : undefined,
+    }
+  }) as ManualCommitment[];
+}
+
+const commitmentFormSchema = z.object({
+  id: z.string().optional(),
+  jobOrderCode: z.string().min(1, "Il codice commessa è obbligatorio."),
+  articleCode: z.string().min(1, "Selezionare un articolo."),
+  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  deliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
+});
+
+export async function saveManualCommitment(
+  values: z.infer<typeof commitmentFormSchema>,
+  uid: string
+): Promise<{ success: boolean; message: string; }> {
+  await ensureAdmin(uid);
+  const validated = commitmentFormSchema.safeParse(values);
+  if (!validated.success) {
+    return { success: false, message: "Dati non validi." };
+  }
+  const { id, ...data } = validated.data;
+  
+  const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
+  
+  try {
+    const dataToSave: Omit<ManualCommitment, 'id'> = {
+      ...data,
+      status: 'pending',
+      createdAt: id ? undefined : Timestamp.now(), // Keep original createdAt on edit
+    } as Omit<ManualCommitment, 'id'>;
+
+    await setDoc(docRef, {
+      ...dataToSave,
+      id: docRef.id
+    }, { merge: true });
+    
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: `Impegno ${id ? 'aggiornato' : 'creato'} con successo.` };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore nel salvataggio." };
+  }
+}
+
+export async function deleteManualCommitment(commitmentId: string): Promise<{ success: boolean; message: string; }> {
+  try {
+    const commitmentRef = doc(db, "manualCommitments", commitmentId);
+    await deleteDoc(commitmentRef);
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: "Impegno eliminato." };
+  } catch (error) {
+    return { success: false, message: "Errore durante l'eliminazione." };
+  }
+}
+
+export async function fulfillManualCommitment(
+  commitmentId: string,
+  uid: string
+): Promise<{ success: boolean; message: string; }> {
+  await ensureAdmin(uid);
+  const commitmentRef = doc(db, "manualCommitments", commitmentId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+        const commitmentSnap = await transaction.get(commitmentRef);
+        if (!commitmentSnap.exists() || commitmentSnap.data().status !== 'pending') {
+            throw new Error("Impegno non trovato o già evaso.");
+        }
+        const commitment = commitmentSnap.data() as ManualCommitment;
+
+        const articleRef = doc(db, 'articles', commitment.articleCode);
+        const articleSnap = await transaction.get(articleRef);
+        if (!articleSnap.exists() || !articleSnap.data().billOfMaterials) {
+            throw new Error(`Distinta Base non trovata per l'articolo ${commitment.articleCode}.`);
+        }
+        const article = articleSnap.data() as Article;
+        
+        const qOp = query(collection(db, 'operators'), where('uid', '==', uid));
+        const operatorSnaps = await getDocs(qOp);
+        const operatorName = !operatorSnaps.empty ? operatorSnaps.docs[0].data().nome : 'Admin';
+        
+        // Process withdrawals for each BOM item
+        for (const bomItem of article.billOfMaterials) {
+            const q = query(collection(db, 'rawMaterials'), where('code', '==', bomItem.component), limit(1));
+            const materialQuerySnap = await getDocs(q); // Use getDocs instead of transaction.get with a query
+            if (materialQuerySnap.empty) {
+                throw new Error(`Materiale ${bomItem.component} non trovato in anagrafica.`);
+            }
+            const materialDoc = materialQuerySnap.docs[0];
+            const material = materialDoc.data() as RawMaterial;
+            const materialDocRef = materialDoc.ref;
+            const freshMaterialSnap = await transaction.get(materialDocRef); // Now get it inside the transaction
+            const freshMaterial = freshMaterialSnap.data() as RawMaterial;
+            
+            const totalRequired = bomItem.quantity * commitment.quantity;
+            let consumedWeight = 0;
+
+            if (freshMaterial.unitOfMeasure === 'kg') {
+                consumedWeight = totalRequired;
+            } else if (freshMaterial.conversionFactor && freshMaterial.conversionFactor > 0) {
+                consumedWeight = totalRequired * freshMaterial.conversionFactor;
+            }
+            
+            const currentStockKg = freshMaterial.currentWeightKg || 0;
+            const currentStockUnits = freshMaterial.currentStockUnits || 0;
+
+            if (currentStockUnits < totalRequired) {
+                throw new Error(`Stock insufficiente per ${freshMaterial.code}: Richiesti ${totalRequired} ${freshMaterial.unitOfMeasure}, disponibili ${currentStockUnits}.`);
+            }
+            
+            transaction.update(materialDocRef, {
+                currentStockUnits: currentStockUnits - totalRequired,
+                currentWeightKg: currentStockKg - consumedWeight,
+            });
+
+            const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+            transaction.set(withdrawalRef, {
+                jobIds: [],
+                jobOrderPFs: [commitment.jobOrderCode],
+                materialId: materialDoc.id,
+                materialCode: freshMaterial.code,
+                consumedWeight: consumedWeight,
+                consumedUnits: totalRequired,
+                operatorId: uid,
+                operatorName: operatorName,
+                withdrawalDate: Timestamp.now(),
+                notes: `Scarico da impegno manuale: ${commitment.id}`,
+            });
+        }
+        
+        // Mark commitment as fulfilled
+        transaction.update(commitmentRef, {
+            status: 'fulfilled',
+            fulfilledAt: Timestamp.now(),
+            fulfilledBy: uid,
+        });
+    });
+    
+    revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/reports');
+
+    return { success: true, message: `Impegno ${commitmentId} evaso con successo. Stock aggiornato.` };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'evasione dell'impegno." };
+  }
 }
