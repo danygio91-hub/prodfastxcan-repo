@@ -10,8 +10,8 @@ import { format, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials, getMaterialsStatus, type MaterialStatus } from './actions';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment, type ScrapRecord } from '@/lib/mock-data';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getRawMaterials as searchRawMaterials, getMaterialsStatus, type MaterialStatus, getScrapsForMaterial } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -78,6 +78,62 @@ interface RawMaterialManagementClientPageProps {
   initialCommitments: ManualCommitment[];
 }
 
+function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null }) {
+    const [scraps, setScraps] = useState<ScrapRecord[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        if (isOpen && material) {
+            setIsLoading(true);
+            getScrapsForMaterial(material.id)
+                .then(setScraps)
+                .finally(() => setIsLoading(false));
+        }
+    }, [isOpen, material]);
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle>Storico Scarti per: {material?.code}</DialogTitle>
+                    <DialogDescription>Elenco di tutti gli scarti registrati per questo materiale.</DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="max-h-[60vh] mt-4">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Data</TableHead>
+                                <TableHead>Commessa</TableHead>
+                                <TableHead>Q.tà Scartata</TableHead>
+                                <TableHead>Operatore</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {isLoading ? (
+                                <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
+                            ) : scraps.length > 0 ? (
+                                scraps.map(scrap => (
+                                    <TableRow key={scrap.id}>
+                                        <TableCell>{format(parseISO(scrap.declaredAt), 'dd/MM/yyyy HH:mm')}</TableCell>
+                                        <TableCell>{scrap.jobOrderCode}</TableCell>
+                                        <TableCell className="font-mono">{scrap.scrappedQuantity} pz</TableCell>
+                                        <TableCell>{scrap.operatorName}</TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow><TableCell colSpan={4} className="text-center h-24">Nessuno scarto registrato per questo materiale.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </ScrollArea>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => onOpenChange(false)}>Chiudi</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
 export default function RawMaterialManagementClientPage({ initialDepartments, initialArticles, initialCommitments }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -92,6 +148,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
+  const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
 
@@ -294,6 +351,11 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
   const handleOpenDetailViewDialog = (material: RawMaterial) => {
     setSelectedMaterial(material);
     setIsDetailViewOpen(true);
+  };
+
+  const handleOpenScrapsDialog = (material: RawMaterial) => {
+    setSelectedMaterial(material);
+    setIsScrapsDialogOpen(true);
   };
 
 
@@ -553,7 +615,7 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                     <CardHeader>
                         <div className="flex justify-between items-center flex-wrap gap-4">
                             <div>
-                            <CardTitle className="font-headline">Elenco Materie Prime</CardTitle>
+                            <CardTitle className="font-headline">Elenco e Situazione Materie Prime</CardTitle>
                             <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
                             </div>
                             <div className="flex items-center gap-2">
@@ -668,6 +730,10 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                                                     <History className="mr-2 h-4 w-4" />
                                                     <span>Storico Movimenti</span>
                                                 </DropdownMenuItem>
+                                                <DropdownMenuItem onSelect={() => handleOpenScrapsDialog(material)}>
+                                                    <TestTube className="mr-2 h-4 w-4" />
+                                                    <span>Visualizza Scarti</span>
+                                                </DropdownMenuItem>
                                                 <DropdownMenuItem disabled>
                                                     <ShoppingCart className="mr-2 h-4 w-4" />
                                                     <span>Ordini a Fornitore</span>
@@ -697,7 +763,11 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                 </Card>
             </TabsContent>
              <TabsContent value="commitments">
-                <CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} />
+                <CommitmentManagementClientPage 
+                    initialCommitments={initialCommitments} 
+                    initialArticles={initialArticles} 
+                    allRawMaterials={materials}
+                />
             </TabsContent>
         </Tabs>
       
@@ -1023,8 +1093,12 @@ export default function RawMaterialManagementClientPage({ initialDepartments, in
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+        
+         <ScrapsDialog 
+            isOpen={isScrapsDialogOpen}
+            onOpenChange={setIsScrapsDialogOpen}
+            material={selectedMaterial}
+        />
       </div>
   );
 }
-
-    

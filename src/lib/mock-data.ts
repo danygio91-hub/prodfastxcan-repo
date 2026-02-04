@@ -213,7 +213,9 @@ export interface MaterialWithdrawal {
   withdrawalDate: Date;
   notes?: string; // Optional field for manual withdrawals
   lotto?: string | null;
+  commitmentId?: string; // Link to the manual commitment if applicable
 }
+
 
 export interface WorkCycle {
     id: string;
@@ -327,6 +329,20 @@ export interface ManualCommitment {
   createdAt: any; // Firestore Timestamp
   fulfilledAt?: any; // Firestore Timestamp
   fulfilledBy?: string; // Operator UID
+}
+
+export interface ScrapRecord {
+  id: string;
+  commitmentId: string;
+  jobOrderCode: string;
+  articleCode: string;
+  materialId: string;
+  materialCode: string;
+  scrappedQuantity: number; // in pieces of the article component
+  scrappedWeightKg: number; // total weight of raw material scrapped for these pieces
+  declaredAt: any; // Timestamp
+  operatorId: string;
+  operatorName: string;
 }
 
 
