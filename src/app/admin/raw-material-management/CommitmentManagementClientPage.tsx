@@ -81,7 +81,7 @@ function DeclarationDialog({
     
     const { goodPieces, scrapPieces } = form.watch();
     
-    const [selectedBatchIds, setSelectedBatchIds] = useState<Record<string, Set<string>>>({});
+    const [selectedLotEntries, setSelectedLotEntries] = useState<{ componentCode: string; batchId: string }[]>([]);
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
     
@@ -108,7 +108,7 @@ function DeclarationDialog({
               goodPieces: commitment.quantity,
               scrapPieces: 0,
             });
-            setSelectedBatchIds({});
+            setSelectedLotEntries([]);
             if (article?.billOfMaterials) {
                  const fetchComponentMaterials = async () => {
                     setIsLoadingMaterials(true);
@@ -125,59 +125,76 @@ function DeclarationDialog({
             }
         }
     }, [isOpen, article, commitment.quantity, form]);
-
-    const handleLotSelection = (componentCode: string, batchId: string) => {
-        setSelectedBatchIds(prev => {
-            const currentSelection = prev[componentCode] || new Set<string>();
-            const newSelection = new Set(currentSelection);
     
-            if (newSelection.has(batchId)) {
-                newSelection.delete(batchId);
+    const handleLotSelection = (componentCode: string, batchId: string) => {
+        setSelectedLotEntries(prevEntries => {
+            const entryIndex = prevEntries.findIndex(
+                e => e.componentCode === componentCode && e.batchId === batchId
+            );
+
+            if (entryIndex > -1) {
+                // Entry exists, remove it by creating a new filtered array
+                return prevEntries.filter((_, index) => index !== entryIndex);
             } else {
-                newSelection.add(batchId);
+                // Entry does not exist, add it by creating a new array
+                return [...prevEntries, { componentCode, batchId }];
             }
-            
-            return {
-                ...prev,
-                [componentCode]: newSelection,
-            };
         });
     };
     
     const displayConsumptionMap = useMemo(() => {
         const consumptionMap = new Map<string, number>();
 
-        for (const component of bomWithConsumption) {
+        // Group selected batch IDs by their component code
+        const selectionsByComponent = selectedLotEntries.reduce((acc, entry) => {
+            if (!acc[entry.componentCode]) {
+                acc[entry.componentCode] = [];
+            }
+            acc[entry.componentCode].push(entry.batchId);
+            return acc;
+        }, {} as Record<string, string[]>);
+
+        // Iterate over each component in the Bill of Materials
+        bomWithConsumption.forEach(component => {
             const componentCode = component.component;
             const material = componentMaterials.find(m => m.code === componentCode);
-            const selectedIds = selectedBatchIds[componentCode] || new Set();
+            const selectedIdsForComponent = selectionsByComponent[componentCode] || [];
 
-            if (material && selectedIds.size > 0) {
+            if (material && selectedIdsForComponent.length > 0) {
+                // Filter and sort the selected batches according to FIFO
                 const fifoSelectedBatches = (material.batches || [])
-                    .filter(b => selectedIds.has(b.id))
+                    .filter(b => selectedIdsForComponent.includes(b.id))
                     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                 
                 let remainingRequirement = component.totalRequired;
 
+                // Distribute the requirement over the selected batches
                 for (const batch of fifoSelectedBatches) {
-                    if (remainingRequirement <= 0.001) {
-                        consumptionMap.set(batch.id, 0);
-                        continue;
-                    }
+                    if (remainingRequirement <= 0.001) break; // Requirement met
+
                     const availableInBatch = batch.netQuantity || 0;
                     const consumedFromThisBatch = Math.min(remainingRequirement, availableInBatch);
+                    
                     consumptionMap.set(batch.id, consumedFromThisBatch);
                     remainingRequirement -= consumedFromThisBatch;
                 }
             }
-        }
+        });
         return consumptionMap;
-    }, [selectedBatchIds, bomWithConsumption, componentMaterials]);
+    }, [selectedLotEntries, bomWithConsumption, componentMaterials]);
     
     const consumptionStatus = useMemo(() => {
         const status: Record<string, { required: number, fulfilled: number }> = {};
+         const selectionsByComponent = selectedLotEntries.reduce((acc, entry) => {
+            if (!acc[entry.componentCode]) {
+                acc[entry.componentCode] = [];
+            }
+            acc[entry.componentCode].push(entry.batchId);
+            return acc;
+        }, {} as Record<string, string[]>);
+        
         bomWithConsumption.forEach(item => {
-            const selectedIds = selectedBatchIds[item.component] || new Set();
+            const selectedIds = selectionsByComponent[item.component] || [];
             let fulfilled = 0;
             selectedIds.forEach(batchId => {
                 fulfilled += displayConsumptionMap.get(batchId) || 0;
@@ -185,7 +202,7 @@ function DeclarationDialog({
             status[item.component] = { required: item.totalRequired, fulfilled };
         });
         return status;
-    }, [bomWithConsumption, selectedBatchIds, displayConsumptionMap]);
+    }, [bomWithConsumption, selectedLotEntries, displayConsumptionMap]);
     
     const isPlanComplete = useMemo(() => {
         if (bomWithConsumption.length === 0) return true;
@@ -289,7 +306,7 @@ function DeclarationDialog({
                                                     </TableHeader>
                                                     <TableBody>
                                                         {availableBatches.length > 0 ? availableBatches.map(batch => {
-                                                            const isSelected = !!selectedBatchIds[item.component]?.has(batch.id);
+                                                            const isSelected = selectedLotEntries.some(e => e.componentCode === item.component && e.batchId === batch.id);
                                                             const consumedValue = displayConsumptionMap.get(batch.id) || 0;
                                                             return (
                                                                 <TableRow 
