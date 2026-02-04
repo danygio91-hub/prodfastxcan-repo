@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -39,7 +38,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 interface CommitmentManagementClientPageProps {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
-  rawMaterials: RawMaterial[];
 }
 
 const commitmentFormSchema = z.object({
@@ -64,14 +62,12 @@ function DeclarationDialog({
     onOpenChange, 
     commitment, 
     article,
-    allRawMaterials,
     onDeclare,
 }: { 
     isOpen: boolean; 
     onOpenChange: (open: boolean) => void;
     commitment: ManualCommitment;
     article: Article | undefined;
-    allRawMaterials: RawMaterial[];
     onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
 }) {
     const { toast } = useToast();
@@ -85,15 +81,17 @@ function DeclarationDialog({
     
     const watchedValues = form.watch();
     
-    const [lotSelections, setLotSelections] = useState<Record<string, { batchId: string; lotto: string; consumed: number }[]>>({});
     const [selectedBatchIds, setSelectedBatchIds] = useState<Record<string, Set<string>>>({});
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
-            setLotSelections({});
             setSelectedBatchIds({});
+            form.reset({
+              goodPieces: commitment.quantity,
+              scrapPieces: 0,
+            });
             if (article?.billOfMaterials) {
                  const fetchComponentMaterials = async () => {
                     setIsLoadingMaterials(true);
@@ -109,8 +107,8 @@ function DeclarationDialog({
                 fetchComponentMaterials();
             }
         }
-    }, [isOpen, article]);
-
+    }, [isOpen, article, commitment.quantity, form]);
+    
     const bomWithConsumption = useMemo(() => {
         if (!article?.billOfMaterials) return [];
         const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
@@ -127,20 +125,27 @@ function DeclarationDialog({
             return { ...item, totalRequired, displayUnit };
         });
     }, [article, watchedValues, componentMaterials]);
-
-    const handleCheckboxChange = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
+    
+    const handleLotSelection = useCallback((componentCode: string, batchId: string, isChecked: boolean) => {
         setSelectedBatchIds(prev => {
-            const newSet = new Set(prev[componentCode]);
+            const newSelection = { ...prev };
+            if (!newSelection[componentCode]) {
+                newSelection[componentCode] = new Set();
+            }
+            
+            const newSet = new Set(newSelection[componentCode]);
             if (isChecked) {
                 newSet.add(batchId);
             } else {
                 newSet.delete(batchId);
             }
-            return { ...prev, [componentCode]: newSet };
+            newSelection[componentCode] = newSet;
+
+            return newSelection;
         });
     }, []);
-    
-    useEffect(() => {
+
+    const lotSelections = useMemo(() => {
         const newLotSelections: Record<string, { batchId: string; lotto: string; consumed: number }[]> = {};
         for (const component of bomWithConsumption) {
             const componentCode = component.component;
@@ -173,7 +178,7 @@ function DeclarationDialog({
             }
             newLotSelections[componentCode] = selectionsForComponent;
         }
-        setLotSelections(newLotSelections);
+        return newLotSelections;
     }, [selectedBatchIds, bomWithConsumption, componentMaterials]);
     
     const consumptionStatus = useMemo(() => {
@@ -254,43 +259,48 @@ function DeclarationDialog({
                                     const material = componentMaterials.find(m => m.code === item.component);
                                     const availableBatches = (material?.batches || []).filter(b => b.netQuantity > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
                                     const status = consumptionStatus[item.component];
+                                    const componentIsSelected = (selectedBatchIds[item.component] || new Set()).size > 0;
 
                                     return (
                                         <div key={item.component} className="p-4 border rounded-lg">
-                                            <h4 className="font-semibold">{item.component}</h4>
-                                            <div className="flex justify-between text-sm text-muted-foreground">
-                                                <span>Fabbisogno: {formatDisplayStock(status.required, item.displayUnit)} {item.displayUnit}</span>
-                                                <span className={cn(status.fulfilled < status.required && 'text-destructive')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</span>
+                                            <div className="flex justify-between items-center">
+                                                <h4 className="font-semibold">{item.component}</h4>
+                                                <div className="text-right">
+                                                    <p className="text-sm">Fabbisogno: {formatDisplayStock(status.required, item.displayUnit)} {item.displayUnit}</p>
+                                                    <p className={cn("text-sm", status.fulfilled < status.required ? 'text-destructive' : 'text-green-600')}>Selezionato: {formatDisplayStock(status.fulfilled, item.displayUnit)} {item.displayUnit}</p>
+                                                </div>
                                             </div>
-                                            <Table className="mt-2">
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead className="w-[50px]"></TableHead>
-                                                        <TableHead>Lotto</TableHead>
-                                                        <TableHead>Disponibile</TableHead>
-                                                        <TableHead>Da Usare</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {availableBatches.length > 0 ? availableBatches.map(batch => (
-                                                        <TableRow key={batch.id}>
-                                                            <TableCell>
-                                                                <Checkbox
-                                                                    checked={(selectedBatchIds[item.component] || new Set()).has(batch.id)}
-                                                                    onCheckedChange={(checked) => handleCheckboxChange(item.component, batch.id, !!checked)}
-                                                                />
-                                                            </TableCell>
-                                                            <TableCell>{batch.lotto || "N/D"}</TableCell>
-                                                            <TableCell>{formatDisplayStock(batch.netQuantity, item.displayUnit)} {item.displayUnit}</TableCell>
-                                                            <TableCell className="font-semibold text-primary">
-                                                            {formatDisplayStock((lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0, item.displayUnit)} {item.displayUnit}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )) : (
-                                                        <TableRow><TableCell colSpan={4} className="text-center h-16">Nessun lotto con stock disponibile.</TableCell></TableRow>
-                                                    )}
-                                                </TableBody>
-                                            </Table>
+                                            <div className="max-h-48 overflow-y-auto mt-2">
+                                              <Table>
+                                                  <TableHeader>
+                                                      <TableRow>
+                                                          <TableHead className="w-[50px]"></TableHead>
+                                                          <TableHead>Lotto</TableHead>
+                                                          <TableHead>Disponibile</TableHead>
+                                                          <TableHead>Da Usare</TableHead>
+                                                      </TableRow>
+                                                  </TableHeader>
+                                                  <TableBody>
+                                                      {availableBatches.length > 0 ? availableBatches.map(batch => (
+                                                          <TableRow key={batch.id}>
+                                                              <TableCell>
+                                                                  <Checkbox
+                                                                      checked={(selectedBatchIds[item.component] || new Set()).has(batch.id)}
+                                                                      onCheckedChange={(checked) => handleLotSelection(item.component, batch, !!checked)}
+                                                                  />
+                                                              </TableCell>
+                                                              <TableCell>{batch.lotto || "N/D"}</TableCell>
+                                                              <TableCell>{formatDisplayStock(batch.netQuantity, item.displayUnit)} {item.displayUnit}</TableCell>
+                                                              <TableCell className="font-semibold text-primary">
+                                                              {formatDisplayStock((lotSelections[item.component] || []).find(s => s.batchId === batch.id)?.consumed || 0, item.displayUnit)} {item.displayUnit}
+                                                              </TableCell>
+                                                          </TableRow>
+                                                      )) : (
+                                                          <TableRow><TableCell colSpan={4} className="text-center h-16">Nessun lotto con stock disponibile.</TableCell></TableRow>
+                                                      )}
+                                                  </TableBody>
+                                              </Table>
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -314,7 +324,6 @@ function DeclarationDialog({
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
-  rawMaterials,
 }: CommitmentManagementClientPageProps) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -664,11 +673,9 @@ export default function CommitmentManagementClientPage({
             onOpenChange={(open) => !open && setDeclarationTarget(null)}
             commitment={declarationTarget}
             article={initialArticles.find(a => a.code === declarationTarget.articleCode)}
-            allRawMaterials={rawMaterials}
             onDeclare={handleDeclare}
         />
        )}
     </>
   );
 }
-
