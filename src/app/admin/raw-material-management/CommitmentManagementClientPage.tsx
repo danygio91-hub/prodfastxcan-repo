@@ -81,7 +81,7 @@ function DeclarationDialog({
     const bomWithConsumption = React.useMemo(() => {
         if (!article?.billOfMaterials) return [];
         
-        const totalPieces = (watchedValues.goodPieces || 0) + (watchedValues.scrapPieces || 0);
+        const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
 
         return article.billOfMaterials.map(item => {
             const material = allRawMaterials.find(m => m.code === item.component);
