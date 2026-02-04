@@ -38,7 +38,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 interface CommitmentManagementClientPageProps {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
-  initialRawMaterials: RawMaterial[];
 }
 
 const commitmentFormSchema = z.object({
@@ -146,39 +145,39 @@ function DeclarationDialog({
         if (!componentConsumption) return;
 
         setLotSelections(prev => {
-            const newSelections = { ...prev };
-            let currentSelectionsForComp = newSelections[componentCode] || [];
-            const alreadySelected = currentSelectionsForComp.find(s => s.batchId === batch.id);
-
-            if (isChecked && !alreadySelected) {
-                const totalFulfilled = currentSelectionsForComp.reduce((sum, s) => sum + s.consumed, 0);
-                const remainingToFulfill = componentConsumption.totalRequired - totalFulfilled;
-                
-                if (remainingToFulfill <= 0) {
-                     toast({ variant: 'destructive', title: 'Fabbisogno già soddisfatto' });
-                     return prev;
-                }
-                const quantityToConsumeFromThisBatch = Math.min(remainingToFulfill, batch.netQuantity);
-                currentSelectionsForComp.push({ batchId: batch.id, lotto: batch.lotto || 'N/D', consumed: quantityToConsumeFromThisBatch });
-
-            } else if (!isChecked && alreadySelected) {
-                currentSelectionsForComp = currentSelectionsForComp.filter(s => s.batchId !== batch.id);
-            }
+            const prevSelectionsForComp = prev[componentCode] || [];
             
-            // Recalculate consumption distribution
-            let remainingToFulfill = componentConsumption.totalRequired;
-            const updatedSelections: { batchId: string; lotto: string; consumed: number }[] = [];
-            const selectedBatches = currentSelectionsForComp.map(sel => componentMaterials.find(m => m.code === componentCode)?.batches.find(b => b.id === sel.batchId)).filter(Boolean) as RawMaterialBatch[];
+            let nextSelections: { batchId: string; lotto: string; consumed: number }[];
+            const isAlreadySelected = prevSelectionsForComp.some(s => s.batchId === batch.id);
 
-            for (const b of selectedBatches) {
-                if (remainingToFulfill <= 0) break;
-                const toConsume = Math.min(remainingToFulfill, b.netQuantity);
-                updatedSelections.push({ batchId: b.id, lotto: b.lotto || 'N/D', consumed: toConsume });
-                remainingToFulfill -= toConsume;
+            if (isChecked && !isAlreadySelected) {
+                nextSelections = [...prevSelectionsForComp, { batchId: batch.id, lotto: batch.lotto || 'N/D', consumed: 0 }];
+            } else if (!isChecked && isAlreadySelected) {
+                nextSelections = prevSelectionsForComp.filter(s => s.batchId !== batch.id);
+            } else {
+                return prev;
             }
 
-            newSelections[componentCode] = updatedSelections;
-            return newSelections;
+            // Recalculate consumption based on the new list of selected batches
+            let remainingToFulfill = componentConsumption.totalRequired;
+            const materialOfComponent = componentMaterials.find(m => m.code === componentCode);
+            
+            const finalSelections = nextSelections.map(selection => {
+                if (remainingToFulfill <= 0) {
+                    return { ...selection, consumed: 0 };
+                }
+                const selectedBatchData = (materialOfComponent?.batches || []).find(b => b.id === selection.batchId);
+                if (!selectedBatchData) return { ...selection, consumed: 0 }; // Should not happen
+
+                const toConsume = Math.min(remainingToFulfill, selectedBatchData.netQuantity);
+                remainingToFulfill -= toConsume;
+                return { ...selection, consumed: toConsume };
+            });
+
+            return {
+                ...prev,
+                [componentCode]: finalSelections,
+            };
         });
     };
     
@@ -308,10 +307,12 @@ function DeclarationDialog({
     );
 }
 
-export default function CommitmentManagementClientPage({ initialCommitments, initialArticles, initialRawMaterials }: {
+export default function CommitmentManagementClientPage({
+  initialCommitments,
+  initialArticles,
+}: {
   initialCommitments: ManualCommitment[];
   initialArticles: Article[];
-  initialRawMaterials: RawMaterial[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
