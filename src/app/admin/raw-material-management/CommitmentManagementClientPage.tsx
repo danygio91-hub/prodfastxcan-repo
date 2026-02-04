@@ -6,7 +6,7 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { type ManualCommitment, type Article } from '@/lib/mock-data';
@@ -49,6 +49,7 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
   const { toast } = useToast();
   const { user } = useAuth();
   const router = useRouter();
+  const [dateString, setDateString] = useState<string>('');
 
   const form = useForm<CommitmentFormValues>({
     resolver: zodResolver(commitmentFormSchema),
@@ -57,6 +58,17 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
   useEffect(() => {
     setCommitments(initialCommitments);
   }, [initialCommitments]);
+  
+  useEffect(() => {
+    if (isDialogOpen) {
+        const deliveryDate = form.getValues('deliveryDate');
+        if (deliveryDate && isValid(deliveryDate)) {
+            setDateString(format(deliveryDate, 'dd/MM/yyyy'));
+        } else {
+            setDateString('');
+        }
+    }
+  }, [isDialogOpen, form]);
 
   const onSubmit = async (values: CommitmentFormValues) => {
     if (!user) return;
@@ -149,19 +161,60 @@ export default function CommitmentManagementClientPage({ initialCommitments, ini
                                 </FormItem>
                             )} />
                             <FormField control={form.control} name="quantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità da Produrre</FormLabel> <FormControl><Input type="number" {...field} /></FormControl> <FormMessage /> </FormItem> )} />
-                            <FormField control={form.control} name="deliveryDate" render={({ field }) => (
+                            <FormField
+                              control={form.control}
+                              name="deliveryDate"
+                              render={({ field }) => (
                                 <FormItem className="flex flex-col">
-                                <FormLabel>Data Consegna Prevista</FormLabel>
-                                <Popover><PopoverTrigger asChild><FormControl>
-                                    <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                                        {field.value ? format(field.value, "PPP", { locale: it }) : <span>Scegli una data</span>}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                </FormControl></PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start"><Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus /></PopoverContent></Popover>
-                                <FormMessage />
+                                  <FormLabel>Data Consegna Prevista</FormLabel>
+                                  <Popover>
+                                    <div className="relative flex items-center">
+                                      <FormControl>
+                                        <Input
+                                          placeholder="gg/mm/aaaa"
+                                          value={dateString}
+                                          onChange={(e) => {
+                                            const value = e.target.value;
+                                            setDateString(value);
+                                            const parsedDate = parse(value, 'dd/MM/yyyy', new Date());
+                                            if (isValid(parsedDate)) {
+                                              field.onChange(parsedDate);
+                                            } else {
+                                              field.onChange(undefined);
+                                            }
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                          variant={"ghost"}
+                                          className="absolute right-1 h-8 w-8 p-0"
+                                          aria-label="Apri calendario"
+                                        >
+                                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                                        </Button>
+                                      </PopoverTrigger>
+                                    </div>
+                                    <PopoverContent className="w-auto p-0" align="start">
+                                      <Calendar
+                                        mode="single"
+                                        selected={field.value}
+                                        onSelect={(date) => {
+                                          field.onChange(date);
+                                          if (date && isValid(date)) {
+                                            setDateString(format(date, 'dd/MM/yyyy'));
+                                          } else {
+                                            setDateString('');
+                                          }
+                                        }}
+                                        initialFocus
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                  <FormMessage />
                                 </FormItem>
-                            )} />
+                              )}
+                            />
                              <DialogFooter>
                                 <DialogClose asChild><Button type="button" variant="outline" disabled={isPending}>Annulla</Button></DialogClose>
                                 <Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null} Salva Impegno</Button>
