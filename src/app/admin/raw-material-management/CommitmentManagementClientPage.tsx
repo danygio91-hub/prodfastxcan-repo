@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
@@ -90,7 +90,7 @@ function DeclarationDialog({
         }
     }, [isOpen, commitment, form]);
 
-    const bomWithConsumption = React.useMemo(() => {
+    const bomWithConsumption = useMemo(() => {
         if (!article?.billOfMaterials) return [];
         
         const totalPieces = (Number(watchedValues.goodPieces) || 0) + (Number(watchedValues.scrapPieces) || 0);
