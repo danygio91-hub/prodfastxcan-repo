@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -32,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { formatDisplayStock } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 
 interface CommitmentManagementClientPageProps {
@@ -75,33 +75,17 @@ function DeclarationDialog({
         defaultValues: { goodPieces: commitment.quantity, scrapPieces: 0 },
     });
     
-    const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
-    
+    const [lotSelectionRows, setLotSelectionRows] = useState<{ key: number; selectedBatchId: string | null }[]>([]);
+
     const { goodPieces, scrapPieces } = form.watch();
-    
-    const bomWithConsumption = useMemo(() => {
-        if (!article?.billOfMaterials) return [];
-        const totalPieces = (Number(goodPieces) || 0) + (Number(scrapPieces) || 0);
-        return article.billOfMaterials.map(item => {
-            const material = componentMaterials.find(m => m.code === item.component);
-            let totalRequired = 0;
-            let displayUnit: 'n' | 'mt' | 'kg' = item.unit;
-            if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0 && material?.unitOfMeasure === 'mt') {
-                totalRequired = (totalPieces * item.quantity * item.lunghezzaTaglioMm) / 1000;
-                displayUnit = 'mt';
-            } else {
-                totalRequired = totalPieces * item.quantity;
-            }
-            return { ...item, totalRequired, displayUnit };
-        });
-    }, [article, goodPieces, scrapPieces, componentMaterials]);
 
     useEffect(() => {
         if (isOpen) {
             form.reset({ goodPieces: commitment.quantity, scrapPieces: 0 });
-            setSelectedBatchIds(new Set());
+            setLotSelectionRows([{ key: Date.now(), selectedBatchId: null }]); // Start with one empty row
+
             if (article?.billOfMaterials) {
                  const fetchComponentMaterials = async () => {
                     setIsLoadingMaterials(true);
@@ -119,89 +103,102 @@ function DeclarationDialog({
         }
     }, [isOpen, article, commitment.quantity, form]);
 
-    const handleLotSelection = (batchId: string) => {
-        setSelectedBatchIds(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(batchId)) {
-                newSet.delete(batchId);
-            } else {
-                newSet.add(batchId);
-            }
-            return newSet;
+    const bomItem = useMemo(() => article?.billOfMaterials?.[0], [article]);
+    const displayUnit = useMemo(() => bomItem?.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 ? 'mt' : bomItem?.unit || 'n', [bomItem]);
+
+    const totalRequirement = useMemo(() => {
+        if (!bomItem) return 0;
+        const totalPieces = (Number(goodPieces) || 0) + (Number(scrapPieces) || 0);
+        
+        if (displayUnit === 'mt') {
+            return (totalPieces * bomItem.quantity * bomItem.lunghezzaTaglioMm!) / 1000;
+        }
+        return totalPieces * bomItem.quantity;
+    }, [bomItem, goodPieces, scrapPieces, displayUnit]);
+
+    const allAvailableBatches = useMemo(() => {
+        if (!componentMaterials[0]) return [];
+        return [...(componentMaterials[0].batches || [])]
+            .filter(b => (b.netQuantity || 0) > 0)
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }, [componentMaterials]);
+
+    const handleLotSelectionChange = (rowIndex: number, newBatchId: string | null) => {
+        setLotSelectionRows(currentRows => {
+            const newRows = [...currentRows];
+            newRows[rowIndex].selectedBatchId = newBatchId;
+            return newRows;
         });
     };
 
-    const displayConsumptionMap = useMemo(() => {
-        const consumptionMap = new Map<string, number>();
-        if (!article || !componentMaterials.length || bomWithConsumption.length === 0) {
-            return consumptionMap;
-        }
+    const addLotSelectionRow = () => {
+        setLotSelectionRows(currentRows => [...currentRows, { key: Date.now(), selectedBatchId: null }]);
+    };
     
-        const component = bomWithConsumption[0];
-        if (!component) return consumptionMap;
-    
-        const material = componentMaterials.find(m => m.code === component.component);
-        if (!material || !material.batches) return consumptionMap;
-    
-        const allAvailableBatches = [...material.batches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        const fifoSelectedBatches = allAvailableBatches.filter(b => selectedBatchIds.has(b.id));
-    
-        let remainingRequirement = component.totalRequired;
-    
-        for (const batch of fifoSelectedBatches) {
-            if (remainingRequirement <= 0.001) break;
-    
+    const removeLotSelectionRow = (rowIndex: number) => {
+        setLotSelectionRows(currentRows => currentRows.filter((_, index) => index !== rowIndex));
+    };
+
+    const { consumptionMap, totalSelected, isRequirementMet } = useMemo(() => {
+        const newConsumptionMap = new Map<string, number>();
+        let remainingRequirement = totalRequirement;
+        let totalSelectedAmount = 0;
+
+        const selectedBatchIdsInOrder = lotSelectionRows
+            .map(row => row.selectedBatchId)
+            .filter((batchId): batchId is string => batchId !== null);
+        
+        const uniqueSelectedBatchIds = [...new Set(selectedBatchIdsInOrder)];
+
+        const selectedBatches = uniqueSelectedBatchIds
+            .map(id => allAvailableBatches.find(b => b.id === id))
+            .filter((b): b is RawMaterialBatch => !!b);
+
+        for (const batch of selectedBatches) {
+            if (remainingRequirement <= 0.001) {
+                newConsumptionMap.set(batch.id, 0);
+                continue;
+            }
             const availableInBatch = batch.netQuantity || 0;
             const consumedFromThisBatch = Math.min(remainingRequirement, availableInBatch);
-    
-            consumptionMap.set(batch.id, consumedFromThisBatch);
+            
+            newConsumptionMap.set(batch.id, consumedFromThisBatch);
+            totalSelectedAmount += consumedFromThisBatch;
             remainingRequirement -= consumedFromThisBatch;
         }
-    
-        return consumptionMap;
-    }, [selectedBatchIds, bomWithConsumption, componentMaterials, article]);
-    
-    const totalSelectedAmount = useMemo(() => {
-        let total = 0;
-        displayConsumptionMap.forEach(value => (total += value));
-        return total;
-    }, [displayConsumptionMap]);
 
-    const isPlanComplete = useMemo(() => {
-        if (bomWithConsumption.length === 0) return true;
-        const totalRequirement = bomWithConsumption.reduce((sum, item) => sum + item.totalRequired, 0);
-        return totalSelectedAmount >= totalRequirement - 0.001;
-    }, [bomWithConsumption, totalSelectedAmount]);
-    
+        return {
+            consumptionMap: newConsumptionMap,
+            totalSelected: totalSelectedAmount,
+            isRequirementMet: totalRequirement === 0 || totalSelectedAmount >= totalRequirement - 0.001,
+        };
+    }, [lotSelectionRows, totalRequirement, allAvailableBatches]);
+
     const handleDeclareSubmit = (values: DeclarationFormValues) => {
-        if (!isPlanComplete) {
-            toast({ variant: "destructive", title: "Selezione Lotti Incompleta", description: "Selezionare abbastanza lotti per soddisfare il fabbisogno." });
+        if (!isRequirementMet) {
+            toast({ variant: "destructive", title: "Fabbisogno non soddisfatto", description: "Aggiungere o selezionare altri lotti per coprire il fabbisogno." });
             return;
         }
         
         const selectionsPayload: LotSelectionPayload[] = [];
-        displayConsumptionMap.forEach((consumed, batchId) => {
+        consumptionMap.forEach((consumed, batchId) => {
             if (consumed > 0) {
-                for (const material of componentMaterials) {
-                    const batch = material.batches?.find(b => b.id === batchId);
-                    if (batch) {
-                        selectionsPayload.push({
-                            materialId: material.id,
-                            componentCode: material.code,
-                            batchId: batch.id,
-                            lotto: batch.lotto || 'N/D',
-                            consumed: consumed
-                        });
-                        break;
-                    }
+                const material = componentMaterials[0];
+                const batch = material.batches?.find(b => b.id === batchId);
+                if (batch) {
+                    selectionsPayload.push({
+                        materialId: material.id,
+                        componentCode: material.code,
+                        batchId: batch.id,
+                        lotto: batch.lotto || 'N/D',
+                        consumed: consumed
+                    });
                 }
             }
         });
         
         onDeclare(values, selectionsPayload);
     };
-
-    const firstBomItem = bomWithConsumption[0];
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -239,69 +236,67 @@ function DeclarationDialog({
                                     <Skeleton className="h-24 w-full" />
                                     <Skeleton className="h-24 w-full" />
                                 </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {bomWithConsumption.map(item => {
-                                        const material = componentMaterials.find(m => m.code === item.component);
-                                        const availableBatches = (material?.batches || []).filter(b => (b.netQuantity || 0) > 0).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                            ) : bomItem ? (
+                                <div className="p-4 border rounded-lg">
+                                  <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                                      <h4 className="font-semibold">{bomItem.component}</h4>
+                                      <div className="text-right text-sm">
+                                        <p>Fabbisogno: <span className="font-bold">{formatDisplayStock(totalRequirement, displayUnit)} {displayUnit}</span></p>
+                                        <p>Selezionato: <span className={cn("font-bold", !isRequirementMet && totalRequirement > 0 ? 'text-destructive' : 'text-green-600')}>{formatDisplayStock(totalSelected, displayUnit)} {displayUnit}</span></p>
+                                      </div>
+                                  </div>
+                                  <div className="space-y-3">
+                                    {lotSelectionRows.map((row, index) => {
+                                        const selectedBatchId = row.selectedBatchId;
+                                        const selectedBatch = allAvailableBatches.find(b => b.id === selectedBatchId);
+                                        const consumed = selectedBatchId ? consumptionMap.get(selectedBatchId) || 0 : 0;
                                         
+                                        const availableOptions = allAvailableBatches.filter(
+                                            batch => !lotSelectionRows.some(r => r.key !== row.key && r.selectedBatchId === batch.id)
+                                        );
+
                                         return (
-                                            <div key={item.component} className="p-4 border rounded-lg">
-                                                <div className="flex justify-between items-center flex-wrap gap-2">
-                                                    <h4 className="font-semibold">{item.component}</h4>
-                                                    <div className="text-right text-sm">
-                                                      <p>Fabbisogno: <span className="font-bold">{formatDisplayStock(item.totalRequired, item.displayUnit)} {item.displayUnit}</span></p>
-                                                      <p>Selezionato: <span className={cn("font-bold", totalSelectedAmount < item.totalRequired ? 'text-destructive' : 'text-green-600')}>{formatDisplayStock(totalSelectedAmount, item.displayUnit)} {item.displayUnit}</span></p>
-                                                    </div>
+                                            <div key={row.key} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 p-2 border rounded-md">
+                                                <Select onValueChange={(val) => handleLotSelectionChange(index, val)} value={selectedBatchId || undefined}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Seleziona un lotto..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value={undefined as any} disabled>Seleziona un lotto...</SelectItem>
+                                                        {availableOptions.map(batch => (
+                                                            <SelectItem key={batch.id} value={batch.id}>
+                                                                {batch.lotto || 'N/D'} ({formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit} disp.)
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <div className="text-sm font-mono text-center px-2">
+                                                    <Label className="text-xs text-muted-foreground">Disponibile</Label>
+                                                    <p>{selectedBatch ? `${formatDisplayStock(selectedBatch.netQuantity, displayUnit)} ${displayUnit}` : '-'}</p>
                                                 </div>
-                                                <div className="mt-2">
-                                                <Table>
-                                                    <TableHeader>
-                                                        <TableRow>
-                                                            <TableHead>Lotto</TableHead>
-                                                            <TableHead>Disponibile</TableHead>
-                                                            <TableHead>Da Usare</TableHead>
-                                                        </TableRow>
-                                                    </TableHeader>
-                                                    <TableBody>
-                                                        {availableBatches.length > 0 ? availableBatches.map(batch => {
-                                                            const isSelected = selectedBatchIds.has(batch.id);
-                                                            const consumedValue = displayConsumptionMap.get(batch.id) || 0;
-                                                            return (
-                                                                <TableRow 
-                                                                    key={batch.id}
-                                                                    onClick={() => handleLotSelection(batch.id)}
-                                                                    className={cn("cursor-pointer", isSelected && "bg-primary/10")}
-                                                                    data-state={isSelected ? "selected" : "unselected"}
-                                                                >
-                                                                    <TableCell className="font-mono">
-                                                                      <div className="flex items-center gap-2">
-                                                                        {isSelected ? <CheckCircle2 className="h-5 w-5 text-primary" /> : <Circle className="h-5 w-5 text-muted-foreground" />}
-                                                                        {batch.lotto || "N/D"}
-                                                                      </div>
-                                                                    </TableCell>
-                                                                    <TableCell>{formatDisplayStock(batch.netQuantity, item.displayUnit)} {item.displayUnit}</TableCell>
-                                                                    <TableCell className="font-semibold text-primary">
-                                                                        {formatDisplayStock(consumedValue, item.displayUnit)} {item.displayUnit}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            )
-                                                        }) : (
-                                                            <TableRow><TableCell colSpan={3} className="text-center h-16">Nessun lotto con stock disponibile.</TableCell></TableRow>
-                                                        )}
-                                                    </TableBody>
-                                                </Table>
+                                                 <div className="text-sm font-mono text-center px-2">
+                                                    <Label className="text-xs text-muted-foreground">Da Usare</Label>
+                                                    <p className="font-semibold text-primary">{`${formatDisplayStock(consumed, displayUnit)} ${displayUnit}`}</p>
                                                 </div>
+                                                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeLotSelectionRow(index)}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
                                             </div>
                                         );
                                     })}
+                                    {!isRequirementMet && totalRequirement > 0 && (
+                                        <Button type="button" variant="outline" className="w-full mt-2" onClick={addLotSelectionRow}>
+                                            <PlusCircle className="mr-2 h-4 w-4"/> Aggiungi Lotto
+                                        </Button>
+                                    )}
+                                  </div>
                                 </div>
-                            )}
+                            ) : null}
                           </ScrollArea>
                         </div>
                         <DialogFooter className="p-6 pt-4 border-t sticky bottom-0 bg-background">
                             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Annulla</Button>
-                            <Button type="submit" disabled={form.formState.isSubmitting || !isPlanComplete || isLoadingMaterials}>
+                            <Button type="submit" disabled={form.formState.isSubmitting || !isRequirementMet || isLoadingMaterials}>
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
                                 Dichiara e Scarica Stock
                             </Button>
@@ -671,5 +666,3 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
-
-    
