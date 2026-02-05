@@ -4,18 +4,19 @@ import AppShell from '@/components/layout/AppShell';
 import RawMaterialManagementClientPage from './RawMaterialManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getDepartments, getManualCommitments, getRawMaterials } from './actions';
+import { getDepartments, getManualCommitments, getRawMaterials, getMaterialsStatus } from './actions';
 import { getArticles } from '../article-management/actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
   // Fetch all data required by the client component and its dialogs
-  const [departments, articles, manualCommitments, rawMaterials] = await Promise.all([
+  const [departments, articles, manualCommitments, rawMaterials, materialStatus] = await Promise.all([
     getDepartments(),
     getArticles(),
     getManualCommitments(),
-    getRawMaterials(), // Fetch all materials
+    getRawMaterials(""), // Fetch all materials initially
+    getMaterialsStatus(),
   ]);
 
   return (
@@ -31,7 +32,8 @@ export default async function AdminRawMaterialManagementPage() {
             initialDepartments={departments}
             initialArticles={articles}
             initialCommitments={manualCommitments}
-            initialRawMaterials={rawMaterials} // Pass all materials
+            initialRawMaterials={rawMaterials}
+            initialMaterialStatus={materialStatus}
           />
         </Suspense>
       </AppShell>
