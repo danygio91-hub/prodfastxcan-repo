@@ -70,31 +70,35 @@ export async function getDepartments(): Promise<Department[]> {
 
 export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[]> {
     const materialsCol = collection(db, 'rawMaterials');
-    
-    // If a search term is provided and is long enough, perform a search
-    if (searchTerm && searchTerm.length >= 2) {
+    let snapshot;
+
+    if (searchTerm && searchTerm.length > 0) {
         const lowercasedTerm = searchTerm.toLowerCase();
         const q = query(materialsCol, 
             where('code_normalized', '>=', lowercasedTerm), 
             where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), 
             limit(50)
         );
-        const snapshot = await getDocs(q);
-        if (snapshot.empty) return [];
-        const list = snapshot.docs.map(doc => {
-            const data = doc.data() as RawMaterial;
-            return {
-            ...data,
-            id: doc.id,
-            currentStockUnits: data.currentStockUnits ?? 0,
-            currentWeightKg: data.currentWeightKg ?? 0,
-            };
-        });
-        return list;
+        snapshot = await getDocs(q);
+    } else {
+        // If no search term or empty string, get all materials
+        snapshot = await getDocs(materialsCol);
     }
 
-    // If search term is too short or an empty string, return nothing
-    return [];
+    if (snapshot.empty) {
+        return [];
+    }
+    
+    const list = snapshot.docs.map(doc => {
+        const data = doc.data() as RawMaterial;
+        return {
+        ...data,
+        id: doc.id,
+        currentStockUnits: data.currentStockUnits ?? 0,
+        currentWeightKg: data.currentWeightKg ?? 0,
+        };
+    });
+    return list;
 }
 
 export async function saveRawMaterial(formData: FormData): Promise<{

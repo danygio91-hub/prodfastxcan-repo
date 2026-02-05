@@ -1,4 +1,5 @@
 
+
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import RawMaterialManagementClientPage from './RawMaterialManagementClientPage';
@@ -15,7 +16,7 @@ export default async function AdminRawMaterialManagementPage() {
     getDepartments(),
     getArticles(),
     getManualCommitments(),
-    getRawMaterials(""), // Fetch all materials initially
+    getRawMaterials(), // Fetch all materials initially
     getMaterialsStatus(),
   ]);
 
