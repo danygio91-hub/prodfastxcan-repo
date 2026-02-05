@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -33,28 +34,17 @@ import { formatDisplayStock } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 
 
-interface CommitmentManagementClientPageProps {
-  initialCommitments: ManualCommitment[];
-  initialArticles: Article[];
-}
-
-const commitmentFormSchema = z.object({
-  id: z.string().optional(),
-  jobOrderCode: z.string().min(1, "Il codice commessa è obbligatorio."),
-  articleCode: z.string().min(1, "Selezionare un articolo."),
-  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  deliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
-});
-type CommitmentFormValues = z.infer<typeof commitmentFormSchema>;
-
+// Schemas at top level
 const declarationSchema = z.object({
   goodPieces: z.coerce.number().min(0, "La quantità non può essere negativa."),
   scrapPieces: z.coerce.number().min(0, "La quantità non può essere negativa.").default(0),
 });
 type DeclarationFormValues = z.infer<typeof declarationSchema>;
 
+type EnrichedBatch = RawMaterialBatch & { _tempId: string };
 
 // Declaration Dialog Component
 function DeclarationDialog({ 
@@ -73,21 +63,19 @@ function DeclarationDialog({
     const { toast } = useToast();
     const form = useForm<DeclarationFormValues>({
         resolver: zodResolver(declarationSchema),
-        defaultValues: { goodPieces: commitment.quantity, scrapPieces: 0 },
     });
     
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
-    const [lotSelectionRows, setLotSelectionRows] = useState<{ key: number; selectedBatchId: string | null }[]>([]);
-    const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
+    const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
 
     const { goodPieces, scrapPieces } = form.watch();
 
     useEffect(() => {
         if (isOpen) {
             form.reset({ goodPieces: commitment.quantity, scrapPieces: 0 });
-            setLotSelectionRows([{ key: Date.now(), selectedBatchId: null }]); // Start with one empty row
-
+            setSelectedBatchIds(new Set()); // Reset selections
+            
             if (article?.billOfMaterials) {
                  const fetchComponentMaterials = async () => {
                     setIsLoadingMaterials(true);
@@ -112,80 +100,60 @@ function DeclarationDialog({
         if (!bomItem) return 0;
         const totalPieces = (Number(goodPieces) || 0) + (Number(scrapPieces) || 0);
         
-        if (displayUnit === 'mt') {
-            return (totalPieces * bomItem.quantity * bomItem.lunghezzaTaglioMm!) / 1000;
+        if (displayUnit === 'mt' && bomItem.lunghezzaTaglioMm) {
+            return (totalPieces * bomItem.quantity * bomItem.lunghezzaTaglioMm) / 1000;
         }
         return totalPieces * bomItem.quantity;
     }, [bomItem, goodPieces, scrapPieces, displayUnit]);
 
-    const allAvailableBatches = useMemo(() => {
+    const enrichedBatches: EnrichedBatch[] = useMemo(() => {
         if (!componentMaterials[0]) return [];
-        return [...(componentMaterials[0].batches || [])]
-            .filter(b => (b.netQuantity || 0) > 0)
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        return (componentMaterials[0].batches || [])
+            .filter(b => (b.netQuantity || 0) > 0.001)
+            .map((b, index) => ({
+                ...b,
+                _tempId: b.id || `temp-id-${index}` // Fallback for corrupted data
+            }));
     }, [componentMaterials]);
 
-    const handleLotSelectionChange = (rowIndex: number, newBatchId: string | null) => {
-        setLotSelectionRows(currentRows => {
-            const newRows = [...currentRows];
-            newRows[rowIndex].selectedBatchId = newBatchId;
-            return newRows;
-        });
-    };
-
-    const addLotSelectionRow = () => {
-        setLotSelectionRows(currentRows => [...currentRows, { key: Date.now(), selectedBatchId: null }]);
-    };
-    
-    const removeLotSelectionRow = (rowIndex: number) => {
-        setLotSelectionRows(currentRows => currentRows.filter((_, index) => index !== rowIndex));
-    };
+    const sortedSelectedBatches = useMemo(() => {
+        return enrichedBatches
+            .filter(b => selectedBatchIds.has(b._tempId))
+            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }, [enrichedBatches, selectedBatchIds]);
 
     const { consumptionMap, totalSelected, isRequirementMet } = useMemo(() => {
         const newConsumptionMap = new Map<string, number>();
         let remainingRequirement = totalRequirement;
-        let totalSelectedAmount = 0;
-
-        const selectedBatchIdsInOrder = lotSelectionRows
-            .map(row => row.selectedBatchId)
-            .filter((batchId): batchId is string => batchId !== null);
         
-        const uniqueSelectedBatches = [...new Set(selectedBatchIdsInOrder)]
-             .map(id => allAvailableBatches.find(b => b.id === id))
-            .filter((b): b is RawMaterialBatch => !!b)
-            .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-        for (const batch of uniqueSelectedBatches) {
-            if (remainingRequirement <= 0.001) {
-                newConsumptionMap.set(batch.id, 0);
-                continue;
-            }
+        for (const batch of sortedSelectedBatches) {
+            if (remainingRequirement <= 0.001) break;
             const availableInBatch = batch.netQuantity || 0;
             const consumedFromThisBatch = Math.min(remainingRequirement, availableInBatch);
-            
-            newConsumptionMap.set(batch.id, consumedFromThisBatch);
-            totalSelectedAmount += consumedFromThisBatch;
+            newConsumptionMap.set(batch._tempId, consumedFromThisBatch);
             remainingRequirement -= consumedFromThisBatch;
         }
+
+        const totalSelectedAmount = Array.from(newConsumptionMap.values()).reduce((sum, val) => sum + val, 0);
 
         return {
             consumptionMap: newConsumptionMap,
             totalSelected: totalSelectedAmount,
             isRequirementMet: totalRequirement === 0 || totalSelectedAmount >= totalRequirement - 0.001,
         };
-    }, [lotSelectionRows, totalRequirement, allAvailableBatches]);
+    }, [sortedSelectedBatches, totalRequirement]);
 
     const handleDeclareSubmit = (values: DeclarationFormValues) => {
         if (!isRequirementMet) {
-            toast({ variant: "destructive", title: "Fabbisogno non soddisfatto", description: "Aggiungere o selezionare altri lotti per coprire il fabbisogno." });
+            toast({ variant: "destructive", title: "Fabbisogno non soddisfatto", description: "Selezionare lotti sufficienti a coprire il fabbisogno." });
             return;
         }
         
         const selectionsPayload: LotSelectionPayload[] = [];
-        consumptionMap.forEach((consumed, batchId) => {
+        consumptionMap.forEach((consumed, tempId) => {
             if (consumed > 0) {
                 const material = componentMaterials[0];
-                const batch = material.batches?.find(b => b.id === batchId);
+                const batch = enrichedBatches.find(b => b._tempId === tempId);
                 if (batch) {
                     selectionsPayload.push({
                         materialId: material.id,
@@ -233,10 +201,7 @@ function DeclarationDialog({
                         <div className="flex-1 px-6 py-4 min-h-0">
                           <ScrollArea className="h-full pr-6">
                             {isLoadingMaterials ? (
-                                <div className="space-y-4">
-                                    <Skeleton className="h-24 w-full" />
-                                    <Skeleton className="h-24 w-full" />
-                                </div>
+                                <div className="space-y-4"> <Skeleton className="h-24 w-full" /> <Skeleton className="h-24 w-full" /> </div>
                             ) : bomItem ? (
                                 <div className="p-4 border rounded-lg">
                                   <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
@@ -246,69 +211,43 @@ function DeclarationDialog({
                                         <p>Selezionato: <span className={cn("font-bold", !isRequirementMet && totalRequirement > 0 ? 'text-destructive' : 'text-green-600')}>{formatDisplayStock(totalSelected, displayUnit)} {displayUnit}</span></p>
                                       </div>
                                   </div>
-                                  <div className="space-y-3">
-                                    {lotSelectionRows.map((row, index) => {
-                                        const selectedBatchId = row.selectedBatchId;
-                                        const selectedBatch = allAvailableBatches.find(b => b.id === selectedBatchId);
-                                        const consumed = selectedBatchId ? consumptionMap.get(selectedBatchId) || 0 : 0;
-                                        
-                                        const availableOptions = allAvailableBatches.filter(
-                                            batch => !lotSelectionRows.some(r => r.key !== row.key && r.selectedBatchId === batch.id)
-                                        );
-
-                                        return (
-                                            <div key={row.key} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 p-2 border rounded-md">
-                                                <Popover open={openComboboxIndex === index} onOpenChange={(isOpen) => setOpenComboboxIndex(isOpen ? index : null)}>
-                                                    <PopoverTrigger asChild>
-                                                        <Button variant="outline" role="combobox" className={cn("w-full justify-between", !selectedBatchId && "text-muted-foreground")}>
-                                                            {selectedBatchId ? (selectedBatch?.lotto || 'Lotto non valido') : "Seleziona un lotto..."}
-                                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                        </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                                                        <Command>
-                                                            <CommandInput placeholder="Cerca lotto..." />
-                                                            <CommandEmpty>Nessun lotto trovato.</CommandEmpty>
-                                                            <CommandGroup>
-                                                                <ScrollArea className="h-48">
-                                                                {availableOptions.map((batch) => (
-                                                                    <CommandItem
-                                                                        value={batch.lotto || batch.id}
-                                                                        key={batch.id}
-                                                                        onSelect={() => {
-                                                                            handleLotSelectionChange(index, batch.id);
-                                                                            setOpenComboboxIndex(null);
-                                                                        }}
-                                                                    >
-                                                                        <Check className={cn("mr-2 h-4 w-4", batch.id === selectedBatchId ? "opacity-100" : "opacity-0")} />
-                                                                        {batch.lotto || 'N/D'} ({formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit})
-                                                                    </CommandItem>
-                                                                ))}
-                                                                </ScrollArea>
-                                                            </CommandGroup>
-                                                        </Command>
-                                                    </PopoverContent>
-                                                </Popover>
-                                                <div className="text-sm font-mono text-center px-2">
-                                                    <Label className="text-xs text-muted-foreground">Disponibile</Label>
-                                                    <p>{selectedBatch ? `${formatDisplayStock(selectedBatch.netQuantity, displayUnit)} ${displayUnit}` : '-'}</p>
-                                                </div>
-                                                 <div className="text-sm font-mono text-center px-2">
-                                                    <Label className="text-xs text-muted-foreground">Da Usare</Label>
-                                                    <p className="font-semibold text-primary">{`${formatDisplayStock(consumed, displayUnit)} ${displayUnit}`}</p>
-                                                </div>
-                                                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeLotSelectionRow(index)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        );
-                                    })}
-                                    {!isRequirementMet && totalRequirement > 0 && (
-                                        <Button type="button" variant="outline" className="w-full mt-2" onClick={addLotSelectionRow}>
-                                            <PlusCircle className="mr-2 h-4 w-4"/> Aggiungi Lotto
-                                        </Button>
-                                    )}
-                                  </div>
+                                  <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-[50px]">Sel.</TableHead>
+                                            <TableHead>Lotto</TableHead>
+                                            <TableHead>Disponibile</TableHead>
+                                            <TableHead className="text-right">Da Usare</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {enrichedBatches.map(batch => {
+                                            const consumed = consumptionMap.get(batch._tempId) || 0;
+                                            return (
+                                            <TableRow key={batch._tempId} data-state={selectedBatchIds.has(batch._tempId) && "selected"}>
+                                                <TableCell>
+                                                    <Checkbox 
+                                                        checked={selectedBatchIds.has(batch._tempId)}
+                                                        onCheckedChange={(checked) => {
+                                                            setSelectedBatchIds(prev => {
+                                                                const newSet = new Set(prev);
+                                                                if (checked) {
+                                                                    newSet.add(batch._tempId);
+                                                                } else {
+                                                                    newSet.delete(batch._tempId);
+                                                                }
+                                                                return newSet;
+                                                            })
+                                                        }}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>{batch.lotto}</TableCell>
+                                                <TableCell>{formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit}</TableCell>
+                                                <TableCell className="text-right font-mono font-semibold text-primary">{formatDisplayStock(consumed, displayUnit)} {displayUnit}</TableCell>
+                                            </TableRow>
+                                        )})}
+                                    </TableBody>
+                                  </Table>
                                 </div>
                             ) : null}
                           </ScrollArea>
@@ -327,6 +266,7 @@ function DeclarationDialog({
     );
 }
 
+
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
@@ -343,6 +283,15 @@ export default function CommitmentManagementClientPage({
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
+
+  const commitmentFormSchema = z.object({
+    id: z.string().optional(),
+    jobOrderCode: z.string().min(1, "Il codice commessa è obbligatorio."),
+    articleCode: z.string().min(1, "Selezionare un articolo."),
+    quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+    deliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
+  });
+  type CommitmentFormValues = z.infer<typeof commitmentFormSchema>;
 
   const form = useForm<CommitmentFormValues>({
     resolver: zodResolver(commitmentFormSchema),

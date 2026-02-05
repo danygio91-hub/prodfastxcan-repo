@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -119,7 +120,7 @@ export async function importCaricoFromFile(
             }
 
             const newBatch: RawMaterialBatch = {
-                id: `batch-import-${Date.now()}-${data.indexOf(row)}`,
+                id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 date: parsedDate.toISOString(),
                 ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
                 lotto,

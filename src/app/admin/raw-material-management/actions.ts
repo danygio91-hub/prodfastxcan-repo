@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -204,7 +205,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const grossWeight = netWeightForCalc + tareWeight;
           
           const newBatch: RawMaterialBatch = {
-            id: `batch-${Date.now()}`,
+            id: `batch-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_MANUALE',
             netQuantity: netQuantity,
@@ -817,6 +818,7 @@ export async function deleteManualCommitment(commitmentId: string): Promise<{ su
 
 export interface LotSelectionPayload {
   materialId: string;
+  componentCode: string;
   batchId: string;
   lotto: string;
   consumed: number; // in primary UoM of the material
@@ -1118,3 +1120,4 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
     
 
     
+
