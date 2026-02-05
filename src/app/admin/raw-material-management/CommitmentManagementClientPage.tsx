@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -36,8 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 
-
-// Schemas at top level
+// Schemas and types at top level
 const declarationSchema = z.object({
   goodPieces: z.coerce.number().min(0, "La quantità non può essere negativa."),
   scrapPieces: z.coerce.number().min(0, "La quantità non può essere negativa.").default(0),
@@ -46,7 +44,7 @@ type DeclarationFormValues = z.infer<typeof declarationSchema>;
 
 type EnrichedBatch = RawMaterialBatch & { _tempId: string };
 
-// Declaration Dialog Component
+// Declaration Dialog Component moved to top level
 function DeclarationDialog({ 
     isOpen, 
     onOpenChange, 
@@ -112,7 +110,7 @@ function DeclarationDialog({
             .filter(b => (b.netQuantity || 0) > 0.001)
             .map((b, index) => ({
                 ...b,
-                _tempId: b.id || `temp-id-${index}` // Fallback for corrupted data
+                _tempId: `${b.lotto}-${b.ddt}-${index}`
             }));
     }, [componentMaterials]);
 
@@ -266,11 +264,14 @@ function DeclarationDialog({
     );
 }
 
-
+// Main Component
 export default function CommitmentManagementClientPage({
   initialCommitments,
   initialArticles,
-}: CommitmentManagementClientPageProps) {
+}: {
+  initialCommitments: ManualCommitment[];
+  initialArticles: Article[];
+}) {
   const [commitments, setCommitments] = useState(initialCommitments);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
@@ -448,7 +449,6 @@ export default function CommitmentManagementClientPage({
         if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
-
 
   return (
     <>
@@ -634,3 +634,4 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
+

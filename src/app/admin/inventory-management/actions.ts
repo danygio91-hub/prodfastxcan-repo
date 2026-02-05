@@ -43,7 +43,6 @@ function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): {
   };
 }
 
-
 // Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {
     if (obj instanceof Date) {
@@ -60,7 +59,6 @@ function convertTimestamps(obj: any): any {
     return obj;
 }
 
-
 // This function is now also used by the inventory page
 export async function getPackagingItems(): Promise<Packaging[]> {
   const packagingCol = collection(db, 'packaging');
@@ -75,7 +73,6 @@ const inventoryBatchSchema = z.object({
   grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
   packagingId: z.string().optional(),
 });
-
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
@@ -142,7 +139,6 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           }
           grossWeight = netWeight + tareWeight;
       }
-
 
       if (netWeight < 0) {
           throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
@@ -294,7 +290,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 id: `batch-inv-${record.id}`,
                 inventoryRecordId: recordId,
                 date: recordDate.toISOString(),
-                ddt: `INVENTARIO`,
+                ddt: `Inventario (${recordId.slice(-6)})`,
                 netQuantity: unitsToAdd, 
                 grossWeight: record.grossWeight,
                 tareWeight: record.tareWeight,
@@ -473,7 +469,6 @@ export async function updateInventoryRecord(
     }
 }
 
-
 export async function deleteInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean, message: string }> {
   if (!recordIds || recordIds.length === 0) {
     return { success: false, message: 'Nessuna registrazione selezionata.' };
@@ -545,7 +540,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
 
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
     const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(materialRef);
+    const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
         return docSnap.data() as RawMaterial;
     }
@@ -600,7 +595,7 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
     }
 }
 
-
     
 
     
+
