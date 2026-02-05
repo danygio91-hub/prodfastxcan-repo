@@ -642,7 +642,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
-        getDocs(manualCommitmentsQuery),
+        getDocs(manualCommitmentsSnapshot),
         getDocs(articlesQuery),
     ]);
 
@@ -746,6 +746,63 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
 // --- MANUAL COMMITMENTS ---
 
+export type LotInfo = {
+    lotto: string;
+    totalLoaded: number;
+    totalWithdrawn: number;
+    available: number;
+    batches: RawMaterialBatch[];
+};
+
+export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
+    const materialRef = doc(db, 'rawMaterials', materialId);
+    const materialSnap = await getDoc(materialRef);
+
+    if (!materialSnap.exists()) {
+        return [];
+    }
+    const material = { id: materialSnap.id, ...materialSnap.data() } as RawMaterial;
+    
+    const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("materialId", "==", materialId));
+    const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+    const allWithdrawals = withdrawalsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as MaterialWithdrawal);
+
+    const withdrawalsByLotto = allWithdrawals.reduce((acc, w) => {
+        const lottoKey = w.lotto || 'SENZA_LOTTO';
+        if (!acc[lottoKey]) acc[lottoKey] = 0;
+        
+        let withdrawnUnits = w.consumedUnits || 0;
+        if (withdrawnUnits === 0 && w.consumedWeight > 0 && material.conversionFactor && material.conversionFactor > 0) {
+            withdrawnUnits = w.consumedWeight / material.conversionFactor;
+        }
+        acc[lottoKey] += withdrawnUnits;
+        return acc;
+    }, {} as Record<string, number>);
+
+    const batchesByLotto = (material.batches || []).reduce((acc, batch) => {
+        const lottoKey = batch.lotto || 'SENZA_LOTTO';
+        if (!acc[lottoKey]) acc[lottoKey] = [];
+        acc[lottoKey].push(batch);
+        return acc;
+    }, {} as Record<string, RawMaterialBatch[]>);
+    
+    const lotInfos: LotInfo[] = Object.entries(batchesByLotto).map(([lotto, batchesInLot]) => {
+        const totalLoaded = batchesInLot.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+        const totalWithdrawn = withdrawalsByLotto[lotto] || 0;
+        const available = totalLoaded - totalWithdrawn;
+        
+        return {
+            lotto,
+            totalLoaded,
+            totalWithdrawn,
+            available,
+            batches: batchesInLot.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+        };
+    });
+
+    return lotInfos.filter(lot => lot.available > 0.001);
+}
+
 export async function getManualCommitments(): Promise<ManualCommitment[]> {
   const commitmentsRef = collection(db, "manualCommitments");
   const q = query(commitmentsRef, orderBy("createdAt", "desc"));
@@ -819,7 +876,6 @@ export async function deleteManualCommitment(commitmentId: string): Promise<{ su
 export interface LotSelectionPayload {
   materialId: string;
   componentCode: string;
-  batchId: string;
   lotto: string;
   consumed: number; // in primary UoM of the material
 }
@@ -851,32 +907,56 @@ export async function declareCommitmentFulfillment(
                 if (!materialSnap.exists()) throw new Error(`Materiale ${selection.materialId} non trovato.`);
                 
                 const material = materialSnap.data() as RawMaterial;
-                const batches = material.batches || [];
-                const batchIndex = batches.findIndex(b => b.id === selection.batchId);
-                if (batchIndex === -1) throw new Error(`Lotto ${selection.batchId} non trovato per materiale ${material.code}.`);
-                
-                const batch = batches[batchIndex];
-                if (batch.netQuantity < selection.consumed) throw new Error(`Stock insufficiente per lotto ${batch.lotto}. Richiesti: ${selection.consumed}, disponibili: ${batch.netQuantity}`);
+                const originalBatches = [...(material.batches || [])];
 
-                const unitsConsumed = selection.consumed;
-                let consumedWeight = 0;
-                if (material.unitOfMeasure === 'kg') {
-                    consumedWeight = unitsConsumed;
-                } else if (material.conversionFactor && material.conversionFactor > 0) {
-                    consumedWeight = unitsConsumed * material.conversionFactor;
+                let remainingToConsume = selection.consumed;
+
+                // Sort batches by date to consume from oldest first (FIFO)
+                const lotBatches = originalBatches
+                    .filter(b => (b.lotto || '').toLowerCase() === (selection.lotto || '').toLowerCase())
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+                for (const batch of lotBatches) {
+                    if (remainingToConsume <= 0.001) break;
+                    
+                    const availableInBatch = batch.netQuantity || 0;
+                    if (availableInBatch <= 0) continue;
+
+                    const consumedFromThisBatch = Math.min(remainingToConsume, availableInBatch);
+                    
+                    const batchInOriginalArray = originalBatches.find(b => b.id === batch.id);
+                    if(batchInOriginalArray) {
+                        batchInOriginalArray.netQuantity -= consumedFromThisBatch;
+                        let weightConsumedFromThisBatch = 0;
+                         if (material.unitOfMeasure === 'kg') {
+                            weightConsumedFromThisBatch = consumedFromThisBatch;
+                        } else if (material.conversionFactor && material.conversionFactor > 0) {
+                            weightConsumedFromThisBatch = consumedFromThisBatch * material.conversionFactor;
+                        }
+                        batchInOriginalArray.grossWeight = (batchInOriginalArray.grossWeight || 0) - weightConsumedFromThisBatch;
+                    }
+
+                    remainingToConsume -= consumedFromThisBatch;
                 }
 
-                // Update batch and material stock
-                batch.netQuantity -= unitsConsumed;
-                batch.grossWeight -= consumedWeight; // Assuming tare stays the same
-                material.currentStockUnits -= unitsConsumed;
-                material.currentWeightKg -= consumedWeight;
+                if (remainingToConsume > 0.001) {
+                  throw new Error(`Stock insufficiente per il lotto '${selection.lotto}'. Non è stato possibile scaricare ${remainingToConsume.toFixed(2)} ${material.unitOfMeasure}.`);
+                }
+                
+                let consumedWeight = 0;
+                if (material.unitOfMeasure === 'kg') {
+                    consumedWeight = selection.consumed;
+                } else if (material.conversionFactor && material.conversionFactor > 0) {
+                    consumedWeight = selection.consumed * material.conversionFactor;
+                }
+                
+                const newStockUnits = (material.currentStockUnits || 0) - selection.consumed;
+                const newWeightKg = (material.currentWeightKg || 0) - consumedWeight;
 
-                batches[batchIndex] = batch;
                 transaction.update(materialRef, { 
-                    batches,
-                    currentStockUnits: material.currentStockUnits,
-                    currentWeightKg: material.currentWeightKg,
+                    batches: originalBatches,
+                    currentStockUnits: newStockUnits,
+                    currentWeightKg: newWeightKg,
                 });
                 
                 // Log withdrawal
@@ -886,12 +966,12 @@ export async function declareCommitmentFulfillment(
                     materialId: material.id,
                     materialCode: material.code,
                     consumedWeight,
-                    consumedUnits: unitsConsumed,
+                    consumedUnits: selection.consumed,
                     operatorId: uid,
                     operatorName,
                     withdrawalDate: Timestamp.now(),
                     notes: `Scarico da impegno manuale: ${commitment.id}`,
-                    lotto: batch.lotto || null,
+                    lotto: selection.lotto || null,
                     commitmentId: commitmentId,
                 });
             }
@@ -1117,7 +1197,3 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
   
   return JSON.parse(JSON.stringify(results));
 }
-    
-
-    
-

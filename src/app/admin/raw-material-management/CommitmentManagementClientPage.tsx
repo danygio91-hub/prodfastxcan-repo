@@ -12,7 +12,7 @@ import { it } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 
 import { type ManualCommitment, type Article, type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
-import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment, type LotSelectionPayload, getMaterialsByCodes } from './actions';
+import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment, type LotSelectionPayload, getMaterialsByCodes, getLotInfoForMaterial, type LotInfo } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,6 @@ const declarationSchema = z.object({
 });
 type DeclarationFormValues = z.infer<typeof declarationSchema>;
 
-type EnrichedBatch = RawMaterialBatch & { _tempId: string };
 
 // Declaration Dialog Component moved to top level
 function DeclarationDialog({ 
@@ -64,29 +63,39 @@ function DeclarationDialog({
     });
     
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
+    const [lotInfo, setLotInfo] = useState<LotInfo[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
-    const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
+    const [selectedLottos, setSelectedLottos] = useState<Set<string>>(new Set());
 
     const { goodPieces, scrapPieces } = form.watch();
 
     useEffect(() => {
         if (isOpen) {
             form.reset({ goodPieces: commitment.quantity, scrapPieces: 0 });
-            setSelectedBatchIds(new Set()); // Reset selections
+            setSelectedLottos(new Set()); // Reset selections
             
             if (article?.billOfMaterials) {
-                 const fetchComponentMaterials = async () => {
+                const fetchComponentMaterialsAndLots = async () => {
                     setIsLoadingMaterials(true);
-                    const componentCodes = article.billOfMaterials.map(item => item.component).filter(Boolean);
-                    if (componentCodes.length > 0) {
-                        const materials = await getMaterialsByCodes(componentCodes);
-                        setComponentMaterials(materials);
+                    const componentCode = article.billOfMaterials[0]?.component;
+                    if (componentCode) {
+                        const materials = await getMaterialsByCodes([componentCode]);
+                        const material = materials[0];
+                        if (material) {
+                            setComponentMaterials([material]);
+                            const lotData = await getLotInfoForMaterial(material.id);
+                            setLotInfo(lotData);
+                        } else {
+                            setComponentMaterials([]);
+                            setLotInfo([]);
+                        }
                     } else {
                         setComponentMaterials([]);
+                        setLotInfo([]);
                     }
                     setIsLoadingMaterials(false);
                 };
-                fetchComponentMaterials();
+                fetchComponentMaterialsAndLots();
             }
         }
     }, [isOpen, article, commitment.quantity, form]);
@@ -103,33 +112,22 @@ function DeclarationDialog({
         }
         return totalPieces * bomItem.quantity;
     }, [bomItem, goodPieces, scrapPieces, displayUnit]);
-
-    const enrichedBatches: EnrichedBatch[] = useMemo(() => {
-        if (!componentMaterials[0]) return [];
-        return (componentMaterials[0].batches || [])
-            .filter(b => (b.netQuantity || 0) > 0.001) // Filter out depleted batches
-            .map((b, index) => ({
-                ...b,
-                _tempId: `${b.lotto}-${b.ddt}-${index}`
-            }));
-    }, [componentMaterials]);
-
-    const sortedSelectedBatches = useMemo(() => {
-        return enrichedBatches
-            .filter(b => selectedBatchIds.has(b._tempId))
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    }, [enrichedBatches, selectedBatchIds]);
+    
+    const sortedSelectedLottos = useMemo(() => {
+        return lotInfo
+            .filter(l => selectedLottos.has(l.lotto))
+            .sort((a, b) => new Date(a.batches[0].date).getTime() - new Date(b.batches[0].date).getTime());
+    }, [lotInfo, selectedLottos]);
 
     const { consumptionMap, totalSelected, isRequirementMet } = useMemo(() => {
         const newConsumptionMap = new Map<string, number>();
         let remainingRequirement = totalRequirement;
         
-        for (const batch of sortedSelectedBatches) {
+        for (const lot of sortedSelectedLottos) {
             if (remainingRequirement <= 0.001) break;
-            const availableInBatch = batch.netQuantity || 0;
-            const consumedFromThisBatch = Math.min(remainingRequirement, availableInBatch);
-            newConsumptionMap.set(batch._tempId, consumedFromThisBatch);
-            remainingRequirement -= consumedFromThisBatch;
+            const consumedFromThisLot = Math.min(remainingRequirement, lot.available);
+            newConsumptionMap.set(lot.lotto, consumedFromThisLot);
+            remainingRequirement -= consumedFromThisLot;
         }
 
         const totalSelectedAmount = Array.from(newConsumptionMap.values()).reduce((sum, val) => sum + val, 0);
@@ -139,7 +137,7 @@ function DeclarationDialog({
             totalSelected: totalSelectedAmount,
             isRequirementMet: totalRequirement === 0 || totalSelectedAmount >= totalRequirement - 0.001,
         };
-    }, [sortedSelectedBatches, totalRequirement]);
+    }, [sortedSelectedLottos, totalRequirement]);
 
     const handleDeclareSubmit = (values: DeclarationFormValues) => {
         if (!isRequirementMet) {
@@ -148,16 +146,14 @@ function DeclarationDialog({
         }
         
         const selectionsPayload: LotSelectionPayload[] = [];
-        consumptionMap.forEach((consumed, tempId) => {
+        consumptionMap.forEach((consumed, lotto) => {
             if (consumed > 0) {
                 const material = componentMaterials[0];
-                const batch = enrichedBatches.find(b => b._tempId === tempId);
-                if (batch) {
+                if (material) {
                     selectionsPayload.push({
                         materialId: material.id,
                         componentCode: material.code,
-                        batchId: batch.id,
-                        lotto: batch.lotto || 'N/D',
+                        lotto: lotto,
                         consumed: consumed
                     });
                 }
@@ -219,28 +215,28 @@ function DeclarationDialog({
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {enrichedBatches.map(batch => {
-                                            const consumed = consumptionMap.get(batch._tempId) || 0;
+                                        {lotInfo.map(lot => {
+                                            const consumed = consumptionMap.get(lot.lotto) || 0;
                                             return (
-                                            <TableRow key={batch._tempId} data-state={selectedBatchIds.has(batch._tempId) && "selected"}>
+                                            <TableRow key={lot.lotto} data-state={selectedLottos.has(lot.lotto) && "selected"}>
                                                 <TableCell>
                                                     <Checkbox 
-                                                        checked={selectedBatchIds.has(batch._tempId)}
+                                                        checked={selectedLottos.has(lot.lotto)}
                                                         onCheckedChange={(checked) => {
-                                                            setSelectedBatchIds(prev => {
+                                                            setSelectedLottos(prev => {
                                                                 const newSet = new Set(prev);
                                                                 if (checked) {
-                                                                    newSet.add(batch._tempId);
+                                                                    newSet.add(lot.lotto);
                                                                 } else {
-                                                                    newSet.delete(batch._tempId);
+                                                                    newSet.delete(lot.lotto);
                                                                 }
                                                                 return newSet;
                                                             })
                                                         }}
                                                     />
                                                 </TableCell>
-                                                <TableCell>{batch.lotto}</TableCell>
-                                                <TableCell>{formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit}</TableCell>
+                                                <TableCell>{lot.lotto}</TableCell>
+                                                <TableCell>{formatDisplayStock(lot.available, displayUnit)} {displayUnit}</TableCell>
                                                 <TableCell className="text-right font-mono font-semibold text-primary">{formatDisplayStock(consumed, displayUnit)} {displayUnit}</TableCell>
                                             </TableRow>
                                         )})}
@@ -634,5 +630,3 @@ export default function CommitmentManagementClientPage({
     </>
   );
 }
-
-    
