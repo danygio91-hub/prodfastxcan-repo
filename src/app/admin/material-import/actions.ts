@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -224,50 +223,34 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
           consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
         }
 
-        // --- Start of new logic ---
-        let remainingToConsume = unitsConsumed;
         const updatedBatches = [...(currentMaterial.batches || [])];
         
-        const candidateBatches = updatedBatches
-            .map((batch, index) => ({ batch, index }))
-            .filter(({ batch }) => batch.lotto === lotto && (batch.netQuantity || 0) > 0.001)
-            .sort((a, b) => new Date(a.batch.date).getTime() - new Date(b.batch.date).getTime());
+        const batchIndex = updatedBatches.findIndex(
+          b => (b.lotto || '').toLowerCase() === (lotto || '').toLowerCase() && (b.netQuantity || 0) > 0.001
+        );
 
-        if (candidateBatches.length === 0) {
-            throw new Error(`Nessun lotto '${lotto}' con stock disponibile trovato.`);
+        if (batchIndex === -1) {
+          throw new Error(`Nessun lotto '${lotto}' con stock disponibile trovato.`);
         }
 
-        const totalAvailableInLot = candidateBatches.reduce((sum, { batch }) => sum + (batch.netQuantity || 0), 0);
-        if (totalAvailableInLot < remainingToConsume) {
-            throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(totalAvailableInLot, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure}, Richiesto: ${formatDisplayStock(remainingToConsume, currentMaterial.unitOfMeasure)}.`);
+        const batchToUpdate = updatedBatches[batchIndex];
+
+        if ((batchToUpdate.netQuantity || 0) < unitsConsumed) {
+            throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(batchToUpdate.netQuantity, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
         }
 
-        for (const { batch, index } of candidateBatches) {
-            if (remainingToConsume <= 0.001) break;
-            const consumptionFromThisBatch = Math.min(batch.netQuantity || 0, remainingToConsume);
-            updatedBatches[index].netQuantity -= consumptionFromThisBatch;
-            remainingToConsume -= consumptionFromThisBatch;
-        }
+        // Directly decrease the quantity of the specific batch
+        batchToUpdate.netQuantity -= unitsConsumed;
 
-        // Recalculate totals for data integrity
-        let newTotalStockUnits = 0;
-        let newTotalWeightKg = 0;
-        updatedBatches.forEach(b => {
-            const batchUnits = b.netQuantity || 0;
-            newTotalStockUnits += batchUnits;
-            if (currentMaterial.unitOfMeasure === 'kg') {
-                newTotalWeightKg += batchUnits;
-            } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
-                newTotalWeightKg += batchUnits * currentMaterial.conversionFactor;
-            }
-        });
+        // Also decrease the total stock on the material document
+        const newTotalStockUnits = (currentMaterial.currentStockUnits || 0) - unitsConsumed;
+        const newTotalWeightKg = (currentMaterial.currentWeightKg || 0) - consumedWeight;
         
         transaction.update(materialRef, { 
             batches: updatedBatches,
             currentStockUnits: newTotalStockUnits, 
             currentWeightKg: newTotalWeightKg 
         });
-        // --- End of new logic ---
         
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
