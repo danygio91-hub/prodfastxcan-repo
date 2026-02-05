@@ -642,7 +642,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
-        getDocs(manualCommitmentsSnapshot),
+        getDocs(manualCommitmentsQuery),
         getDocs(articlesQuery),
     ]);
 
