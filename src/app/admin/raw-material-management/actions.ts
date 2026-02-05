@@ -659,10 +659,9 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     const articlesMap = new Map<string, Article>();
     articlesSnapshot.forEach(doc => {
-        const data = doc.data();
-        const articleCode = data.code;
-        if (articleCode && typeof articleCode === 'string') {
-             articlesMap.set(articleCode.toLowerCase(), data as Article);
+        const data = doc.data() as Article;
+        if (data.code) {
+            articlesMap.set(data.code.toLowerCase(), data);
         }
     });
 

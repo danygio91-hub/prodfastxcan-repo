@@ -110,7 +110,8 @@ service cloud.firestore {
     // Any authenticated user can create a report (write).
     // Reading/deleting is for admin/supervisors.
     match /materialWithdrawals/{withdrawalId} {
-        allow create, read, list: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow read, list: if true;
         allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
     
