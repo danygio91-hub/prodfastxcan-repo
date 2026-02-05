@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -78,6 +79,7 @@ function DeclarationDialog({
     const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
     const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
     const [lotSelectionRows, setLotSelectionRows] = useState<{ key: number; selectedBatchId: string | null }[]>([]);
+    const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
 
     const { goodPieces, scrapPieces } = form.watch();
 
@@ -148,13 +150,12 @@ function DeclarationDialog({
             .map(row => row.selectedBatchId)
             .filter((batchId): batchId is string => batchId !== null);
         
-        const uniqueSelectedBatchIds = [...new Set(selectedBatchIdsInOrder)];
+        const uniqueSelectedBatches = [...new Set(selectedBatchIdsInOrder)]
+             .map(id => allAvailableBatches.find(b => b.id === id))
+            .filter((b): b is RawMaterialBatch => !!b)
+            .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        const selectedBatches = uniqueSelectedBatchIds
-            .map(id => allAvailableBatches.find(b => b.id === id))
-            .filter((b): b is RawMaterialBatch => !!b);
-
-        for (const batch of selectedBatches) {
+        for (const batch of uniqueSelectedBatches) {
             if (remainingRequirement <= 0.001) {
                 newConsumptionMap.set(batch.id, 0);
                 continue;
@@ -257,19 +258,37 @@ function DeclarationDialog({
 
                                         return (
                                             <div key={row.key} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 p-2 border rounded-md">
-                                                <Select onValueChange={(val) => handleLotSelectionChange(index, val)} value={selectedBatchId || undefined}>
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Seleziona un lotto..." />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value={undefined as any} disabled>Seleziona un lotto...</SelectItem>
-                                                        {availableOptions.map(batch => (
-                                                            <SelectItem key={batch.id} value={batch.id}>
-                                                                {batch.lotto || 'N/D'} ({formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit} disp.)
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
+                                                <Popover open={openComboboxIndex === index} onOpenChange={(isOpen) => setOpenComboboxIndex(isOpen ? index : null)}>
+                                                    <PopoverTrigger asChild>
+                                                        <Button variant="outline" role="combobox" className={cn("w-full justify-between", !selectedBatchId && "text-muted-foreground")}>
+                                                            {selectedBatchId ? (selectedBatch?.lotto || 'Lotto non valido') : "Seleziona un lotto..."}
+                                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                                        <Command>
+                                                            <CommandInput placeholder="Cerca lotto..." />
+                                                            <CommandEmpty>Nessun lotto trovato.</CommandEmpty>
+                                                            <CommandGroup>
+                                                                <ScrollArea className="h-48">
+                                                                {availableOptions.map((batch) => (
+                                                                    <CommandItem
+                                                                        value={batch.lotto || batch.id}
+                                                                        key={batch.id}
+                                                                        onSelect={() => {
+                                                                            handleLotSelectionChange(index, batch.id);
+                                                                            setOpenComboboxIndex(null);
+                                                                        }}
+                                                                    >
+                                                                        <Check className={cn("mr-2 h-4 w-4", batch.id === selectedBatchId ? "opacity-100" : "opacity-0")} />
+                                                                        {batch.lotto || 'N/D'} ({formatDisplayStock(batch.netQuantity, displayUnit)} {displayUnit})
+                                                                    </CommandItem>
+                                                                ))}
+                                                                </ScrollArea>
+                                                            </CommandGroup>
+                                                        </Command>
+                                                    </PopoverContent>
+                                                </Popover>
                                                 <div className="text-sm font-mono text-center px-2">
                                                     <Label className="text-xs text-muted-foreground">Disponibile</Label>
                                                     <p>{selectedBatch ? `${formatDisplayStock(selectedBatch.netQuantity, displayUnit)} ${displayUnit}` : '-'}</p>
