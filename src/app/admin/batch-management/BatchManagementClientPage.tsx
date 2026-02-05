@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Package, Search, Edit, History, AlertTriangle, Trash2, ArrowDownCircle, ArrowUpCircle, Loader2, ChevronRight, LinkIcon } from 'lucide-react';
-import { type GroupedBatches, type EnrichedBatch, getMaterialWithdrawalsForMaterial, getAllGroupedBatches } from './actions';
+import { type GroupedBatches, type EnrichedBatch, type LotInfo, getMaterialWithdrawalsForMaterial, getAllGroupedBatches } from './actions';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -65,15 +65,11 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
 
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.materialId, lotto);
     
-    // Fetch the latest material state to ensure batches are up to date
     const currentMaterialStateResponse = await getAllGroupedBatches(material.materialCode);
     const currentMaterialState = currentMaterialStateResponse.find(g => g.materialId === material.materialId) || material;
-    const batches = currentMaterialState.batches || [];
     
-    // Filter batches for the specific lot
-    const lotBatches = lotto 
-      ? (lotto === 'SENZA_LOTTO' ? batches.filter(b => !b.lotto) : batches.filter(b => b.lotto === lotto))
-      : [];
+    const lotInfo = currentMaterialState.lots.find(l => l.lotto === lotto);
+    const lotBatches = lotInfo ? lotInfo.batches : [];
 
     const combinedMovements: Movement[] = [
       ...lotBatches.map((b): Movement => ({
@@ -213,13 +209,6 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                 </div>
              ) : groupedBatches.length > 0 ? (
               groupedBatches.map((group) => {
-                const batchesByLotto = group.batches.reduce((acc, batch) => {
-                  const lottoKey = batch.lotto || 'SENZA_LOTTO';
-                  if (!acc[lottoKey]) acc[lottoKey] = [];
-                  acc[lottoKey].push(batch);
-                  return acc;
-                }, {} as Record<string, EnrichedBatch[]>);
-                
                 return (
                 <AccordionItem value={group.materialId} key={group.materialId} className="border rounded-lg bg-card shadow-sm">
                   <AccordionTrigger className="p-4 hover:no-underline">
@@ -229,7 +218,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                 {group.materialCode}
                            </Link>
                            <LinkIcon className="h-4 w-4 text-muted-foreground" />
-                           <Badge variant="secondary">{Object.keys(batchesByLotto).length} Lotti</Badge>
+                           <Badge variant="secondary">{group.lots.length} Lotti</Badge>
                        </div>
                       <p className="text-sm text-muted-foreground">{group.materialDescription}</p>
                     </div>
@@ -240,9 +229,8 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                   </AccordionTrigger>
                   <AccordionContent className="p-0 border-t">
                      <div className="space-y-2 p-4 bg-muted/50">
-                        {Object.entries(batchesByLotto).map(([lotto, lottoBatches]) => {
-                           const totalQuantityInLotto = lottoBatches.reduce((acc, b) => acc + b.netQuantity, 0);
-                           const firstLoadDate = lottoBatches.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
+                        {group.lots.map((lotInfo) => {
+                          const { lotto, available, totalLoaded, totalWithdrawn, batches, firstLoadDate } = lotInfo;
                           return (
                             <Collapsible key={lotto} className="border rounded-md bg-card shadow-sm">
                                 <CollapsibleTrigger className="p-3 flex justify-between items-center w-full group hover:bg-accent/50">
@@ -256,8 +244,11 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                       </div>
                                     </div>
                                     <div className="text-right">
-                                      <p className="font-bold">{formatDisplayStock(totalQuantityInLotto, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</p>
-                                      <p className="text-xs text-muted-foreground">{lottoBatches.length} carichi</p>
+                                      <p className={cn("font-bold", available < 0 && "text-destructive")}>{formatDisplayStock(available, group.unitOfMeasure)} {group.unitOfMeasure.toUpperCase()}</p>
+                                       <p className="text-xs text-muted-foreground">
+                                          Carico: {formatDisplayStock(totalLoaded, group.unitOfMeasure)}
+                                          {' '}| Scarico: {formatDisplayStock(totalWithdrawn, group.unitOfMeasure)}
+                                      </p>
                                     </div>
                                 </CollapsibleTrigger>
                                 <CollapsibleContent>
@@ -278,7 +269,7 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                 {lottoBatches.map(batch => (
+                                                 {batches.map(batch => (
                                                   <TableRow key={batch.id}>
                                                     <TableCell>{format(parseISO(batch.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
                                                     <TableCell>{batch.ddt}</TableCell>

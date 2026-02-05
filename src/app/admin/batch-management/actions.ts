@@ -9,6 +9,15 @@ export type EnrichedBatch = RawMaterialBatch & {
     materialId: string;
 };
 
+export type LotInfo = {
+    lotto: string;
+    totalLoaded: number;
+    totalWithdrawn: number;
+    available: number;
+    batches: EnrichedBatch[]; // The individual loads for this lot
+    firstLoadDate: string;
+};
+
 export type GroupedBatches = {
     materialId: string;
     materialCode: string;
@@ -16,8 +25,9 @@ export type GroupedBatches = {
     unitOfMeasure: 'n' | 'mt' | 'kg';
     currentStockUnits: number;
     currentWeightKg: number;
-    batches: EnrichedBatch[];
-}
+    lots: LotInfo[];
+};
+
 
 export async function getAllGroupedBatches(searchTerm?: string): Promise<GroupedBatches[]> {
     const materialsCol = collection(db, 'rawMaterials');
@@ -25,7 +35,6 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
 
     if (searchTerm && searchTerm.length >= 2) {
         const lowercasedTerm = searchTerm.toLowerCase();
-        // This query performs a "starts with" search on the material code.
         const q = query(
             materialsCol, 
             where("code_normalized", ">=", lowercasedTerm), 
@@ -34,7 +43,6 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
         );
         materialsSnapshot = await getDocs(q);
     } else {
-        // If no search term, return empty to avoid loading all documents.
         return [];
     }
 
@@ -42,32 +50,82 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
         return [];
     }
 
+    const materialIds = materialsSnapshot.docs.map(doc => doc.id);
+    const allWithdrawals: MaterialWithdrawal[] = [];
+    if (materialIds.length > 0) {
+        const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("materialId", "in", materialIds));
+        const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+        withdrawalsSnapshot.forEach(doc => {
+            allWithdrawals.push({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as MaterialWithdrawal);
+        });
+    }
+
+    const withdrawalsByMaterial = allWithdrawals.reduce((acc, w) => {
+        if (!acc[w.materialId]) {
+            acc[w.materialId] = [];
+        }
+        acc[w.materialId].push(w);
+        return acc;
+    }, {} as Record<string, MaterialWithdrawal[]>);
+
+
     const allGroupedBatches: GroupedBatches[] = [];
 
     materialsSnapshot.docs.forEach(doc => {
         const material = { id: doc.id, ...doc.data() } as RawMaterial;
-        const batches = material.batches || [];
         
-        // We only show materials that actually have batches
-        if (batches.length > 0) {
-            const enrichedBatches = batches.map(batch => ({
-                ...batch,
-                materialId: material.id,
-            })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const materialWithdrawals = withdrawalsByMaterial[material.id] || [];
 
-            allGroupedBatches.push({
-                materialId: material.id,
-                materialCode: material.code,
-                materialDescription: material.description,
-                unitOfMeasure: material.unitOfMeasure,
-                currentStockUnits: material.currentStockUnits,
-                currentWeightKg: material.currentWeightKg,
-                batches: enrichedBatches
-            });
+        const batchesByLotto = (material.batches || []).reduce((acc, batch) => {
+            const lottoKey = batch.lotto || 'SENZA_LOTTO';
+            if (!acc[lottoKey]) acc[lottoKey] = [];
+            acc[lottoKey].push({ ...batch, materialId: material.id });
+            return acc;
+        }, {} as Record<string, EnrichedBatch[]>);
+
+        const lotWithdrawalsMap = materialWithdrawals.reduce((acc, w) => {
+            const lottoKey = w.lotto || 'SENZA_LOTTO';
+            if (!acc[lottoKey])  acc[lottoKey] = 0;
+            acc[lottoKey] += w.consumedUnits || 0;
+            return acc;
+        }, {} as Record<string, number>);
+
+        const lots: LotInfo[] = Object.entries(batchesByLotto).map(([lotto, batchesInLot]) => {
+            const totalLoaded = batchesInLot.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+            const totalWithdrawn = lotWithdrawalsMap[lotto] || 0;
+            const available = totalLoaded - totalWithdrawn;
+            
+            const firstLoadDate = batchesInLot.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]?.date;
+
+            return {
+                lotto,
+                totalLoaded,
+                totalWithdrawn,
+                available,
+                batches: batchesInLot,
+                firstLoadDate
+            };
+        });
+        
+        const totalStockUnits = lots.reduce((sum, lot) => sum + lot.available, 0);
+        let totalWeightKg = 0;
+        if (material.unitOfMeasure === 'kg') {
+            totalWeightKg = totalStockUnits;
+        } else if (material.conversionFactor && material.conversionFactor > 0) {
+            totalWeightKg = totalStockUnits * material.conversionFactor;
         }
+
+        allGroupedBatches.push({
+            materialId: material.id,
+            materialCode: material.code,
+            materialDescription: material.description,
+            unitOfMeasure: material.unitOfMeasure,
+            currentStockUnits: totalStockUnits,
+            currentWeightKg: totalWeightKg,
+            lots: lots.sort((a, b) => new Date(b.firstLoadDate).getTime() - new Date(a.firstLoadDate).getTime()),
+        });
     });
 
-    // Sort by material code
     allGroupedBatches.sort((a, b) => a.materialCode.localeCompare(b.materialCode));
 
     return JSON.parse(JSON.stringify(allGroupedBatches));
