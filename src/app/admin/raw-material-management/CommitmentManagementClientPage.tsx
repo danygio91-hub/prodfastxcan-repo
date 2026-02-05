@@ -107,7 +107,7 @@ function DeclarationDialog({
     const enrichedBatches: EnrichedBatch[] = useMemo(() => {
         if (!componentMaterials[0]) return [];
         return (componentMaterials[0].batches || [])
-            .filter(b => (b.netQuantity || 0) > 0.001)
+            .filter(b => (b.netQuantity || 0) > 0.001) // Filter out depleted batches
             .map((b, index) => ({
                 ...b,
                 _tempId: `${b.lotto}-${b.ddt}-${index}`
@@ -635,3 +635,4 @@ export default function CommitmentManagementClientPage({
   );
 }
 
+    
