@@ -204,7 +204,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         if (!materialDoc.exists()) throw new Error("Materia prima non trovata durante la transazione.");
         
         const currentMaterial = materialDoc.data() as RawMaterial;
-        const originalBatches = [...(currentMaterial.batches || [])];
+        const originalBatches = [...(currentMaterial.batches || [])].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
         let unitsConsumed = 0;
         let consumedWeight = 0;
@@ -224,24 +224,31 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
           consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
         }
 
-        let lottoConsumed = false;
+        let remainingToConsume = unitsConsumed;
+        const totalAvailableInLot = originalBatches
+            .filter(b => (b.lotto || '').toLowerCase() === (lotto || '').toLowerCase())
+            .reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+
+        if (totalAvailableInLot < unitsConsumed) {
+            throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(totalAvailableInLot, currentMaterial.unitOfMeasure)}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
+        }
+
         const updatedBatches = originalBatches.map(batch => {
-          if (!lottoConsumed && (batch.lotto || '').toLowerCase() === (lotto || '').toLowerCase() && (batch.netQuantity || 0) > 0.001) {
-             if ((batch.netQuantity || 0) < unitsConsumed) {
-                throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(batch.netQuantity, currentMaterial.unitOfMeasure)}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
-             }
-             lottoConsumed = true;
-             return {
-                ...batch,
-                netQuantity: batch.netQuantity - unitsConsumed
-             };
-          }
-          return batch;
+            if (remainingToConsume > 0.001 && (batch.lotto || '').toLowerCase() === (lotto || '').toLowerCase()) {
+                const availableInBatch = batch.netQuantity || 0;
+                if (availableInBatch <= 0) return batch;
+
+                const consumedFromThisBatch = Math.min(remainingToConsume, availableInBatch);
+                remainingToConsume -= consumedFromThisBatch;
+
+                return {
+                    ...batch,
+                    netQuantity: availableInBatch - consumedFromThisBatch,
+                };
+            }
+            return batch;
         });
 
-        if (!lottoConsumed) {
-           throw new Error(`Nessun lotto '${lotto}' con stock disponibile trovato.`);
-        }
         
         const newTotalStockUnits = (currentMaterial.currentStockUnits || 0) - unitsConsumed;
         const newTotalWeightKg = (currentMaterial.currentWeightKg || 0) - consumedWeight;
