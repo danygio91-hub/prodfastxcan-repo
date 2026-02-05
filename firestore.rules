@@ -62,6 +62,20 @@ service cloud.firestore {
       allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
       allow update: if isAuthenticated(); // Allow granular updates based on role
     }
+    
+    // Articles Collection:
+    // Needed for BOM calculations in material status
+    match /articles/{articleId} {
+      allow read, list: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    }
+    
+    // Manual Commitments Collection:
+    // Needed for material status calculations
+    match /manualCommitments/{commitmentId} {
+       allow read, list: if isAuthenticated();
+       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    }
 
     // RawMaterials, Packaging, Workstations, WorkCycles, WorkPhaseTemplates, Departments
     // Only Admin/Supervisors can manage these configuration-like collections.
@@ -93,7 +107,7 @@ service cloud.firestore {
 
     match /departments/{departmentId} {
        allow read, list: if isAuthenticated();
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.authuid);
+       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
 
     // MaterialWithdrawals and NonConformityReports
