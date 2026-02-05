@@ -1,23 +1,20 @@
 
-
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import RawMaterialManagementClientPage from './RawMaterialManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getDepartments, getManualCommitments, getRawMaterials, getMaterialsStatus } from './actions';
+import { getDepartments, getManualCommitments } from './actions';
 import { getArticles } from '../article-management/actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
-  // Fetch all data required by the client component and its dialogs
-  const [departments, articles, manualCommitments, rawMaterials, materialStatus] = await Promise.all([
+  // Fetch only the data needed for dialogs and other tabs, not the main list.
+  const [departments, articles, manualCommitments] = await Promise.all([
     getDepartments(),
     getArticles(),
     getManualCommitments(),
-    getRawMaterials(), // Fetch all materials initially
-    getMaterialsStatus(),
   ]);
 
   return (
@@ -33,8 +30,9 @@ export default async function AdminRawMaterialManagementPage() {
             initialDepartments={departments}
             initialArticles={articles}
             initialCommitments={manualCommitments}
-            initialRawMaterials={rawMaterials}
-            initialMaterialStatus={materialStatus}
+            // Pass empty arrays for the main list data. The client will fetch on search.
+            initialRawMaterials={[]}
+            initialMaterialStatus={[]}
           />
         </Suspense>
       </AppShell>

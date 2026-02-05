@@ -8,11 +8,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment, type ScrapRecord } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getMaterialsStatus, type MaterialStatus, getScrapsForMaterial, getRawMaterials } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
 import { getPackagingItems } from '@/app/inventory/actions';
 
 import { Button } from '@/components/ui/button';
@@ -150,7 +150,7 @@ export default function RawMaterialManagementClientPage({
 
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(initialRawMaterials);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>(initialMaterialStatus);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
@@ -192,28 +192,36 @@ export default function RawMaterialManagementClientPage({
       setSearchTerm(codeFromUrl);
     }
   }, [codeFromUrl]);
-
-  useEffect(() => {
-    setRawMaterials(initialRawMaterials);
-    setMaterialStatus(initialMaterialStatus);
-  }, [initialRawMaterials, initialMaterialStatus]);
   
   const refreshData = useCallback(() => {
-    setIsLoading(true);
-    router.refresh();
-    // setIsLoading(false) will be handled by the useEffect watching the props.
-  }, [router]);
+    // This function will now trigger a search if a search term exists
+    const currentSearchTerm = searchTerm;
+    setSearchTerm(''); // Clear to reset state
+    setTimeout(() => setSearchTerm(currentSearchTerm), 10); // Re-trigger search
+  }, [searchTerm]);
 
-  const filteredRawMaterials = useMemo(() => {
-    if (!searchTerm) {
-      return rawMaterials;
-    }
-    const lowercasedTerm = searchTerm.toLowerCase();
-    return rawMaterials.filter(material => 
-      material.code.toLowerCase().includes(lowercasedTerm) || 
-      material.description.toLowerCase().includes(lowercasedTerm)
-    );
-  }, [searchTerm, rawMaterials]);
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (searchTerm.length >= 2) {
+        setIsSearching(true);
+        searchMaterialsAndGetStatus(searchTerm).then(result => {
+          setRawMaterials(result.materials);
+          setMaterialStatus(result.status);
+        }).catch(error => {
+          toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile caricare i dati delle materie prime.' });
+          console.error(error);
+        }).finally(() => {
+          setIsSearching(false);
+        });
+      } else {
+        setRawMaterials([]);
+        setMaterialStatus([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm, toast]);
+
 
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
@@ -540,7 +548,7 @@ export default function RawMaterialManagementClientPage({
 
   const handleSelectAll = (checked: boolean | 'indeterminate') => {
     if (checked === true) {
-      setSelectedRows(filteredRawMaterials.map(m => m.id));
+      setSelectedRows(rawMaterials.map(m => m.id));
     } else {
       setSelectedRows([]);
     }
@@ -651,10 +659,10 @@ export default function RawMaterialManagementClientPage({
                             <TableRow>
                                 <TableHead padding="checkbox">
                                 <Checkbox
-                                    checked={selectedRows.length > 0 ? (selectedRows.length === filteredRawMaterials.length && filteredRawMaterials.length > 0 ? true : 'indeterminate') : false}
+                                    checked={selectedRows.length > 0 ? (selectedRows.length === rawMaterials.length && rawMaterials.length > 0 ? true : 'indeterminate') : false}
                                     onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
                                     aria-label="Seleziona tutte"
-                                    disabled={filteredRawMaterials.length === 0}
+                                    disabled={rawMaterials.length === 0}
                                 />
                                 </TableHead>
                                 <TableHead>Codice</TableHead>
@@ -668,8 +676,8 @@ export default function RawMaterialManagementClientPage({
                             </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {isLoading ? renderLoading() : (filteredRawMaterials.length > 0) ? (
-                                filteredRawMaterials.map((material) => {
+                            {isSearching ? renderLoading() : (rawMaterials.length > 0) ? (
+                                rawMaterials.map((material) => {
                                   const status = materialStatus.find(s => s.id === material.id);
                                   return (
                                     <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>

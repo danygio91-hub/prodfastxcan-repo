@@ -747,6 +747,25 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     return statusList.sort((a, b) => a.code.localeCompare(b.code));
 }
 
+export async function searchMaterialsAndGetStatus(searchTerm: string): Promise<{materials: RawMaterial[], status: MaterialStatus[]}> {
+  if (!searchTerm || searchTerm.length < 2) {
+    return { materials: [], status: [] };
+  }
+
+  const materials = await getRawMaterials(searchTerm);
+  
+  if (materials.length === 0) {
+      return { materials: [], status: [] };
+  }
+  
+  const allStatus = await getMaterialsStatus(); // Still expensive, but deferred.
+
+  const materialIds = new Set(materials.map(m => m.id));
+  const filteredStatus = allStatus.filter(s => materialIds.has(s.id));
+
+  return { materials, status: filteredStatus };
+}
+
 // --- MANUAL COMMITMENTS ---
 
 export type LotInfo = {
