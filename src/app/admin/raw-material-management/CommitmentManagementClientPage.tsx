@@ -137,16 +137,14 @@ function DeclarationDialog({
             return consumptionMap;
         }
     
-        // This assumes a single component for now, but can be extended
         const component = bomWithConsumption[0];
         if (!component) return consumptionMap;
     
         const material = componentMaterials.find(m => m.code === component.component);
-        if (!material) return consumptionMap;
+        if (!material || !material.batches) return consumptionMap;
     
-        const fifoSelectedBatches = (material.batches || [])
-            .filter(b => selectedBatchIds.has(b.id))
-            .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const allAvailableBatches = [...material.batches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const fifoSelectedBatches = allAvailableBatches.filter(b => selectedBatchIds.has(b.id));
     
         let remainingRequirement = component.totalRequired;
     
@@ -184,7 +182,6 @@ function DeclarationDialog({
         const selectionsPayload: LotSelectionPayload[] = [];
         displayConsumptionMap.forEach((consumed, batchId) => {
             if (consumed > 0) {
-                // Find which material this batch belongs to
                 for (const material of componentMaterials) {
                     const batch = material.batches?.find(b => b.id === batchId);
                     if (batch) {
