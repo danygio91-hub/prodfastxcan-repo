@@ -76,28 +76,14 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       : [];
 
     const combinedMovements: Movement[] = [
-      ...lotBatches.map((b): Movement => {
-        if (b.inventoryRecordId) {
-          const netWeight = b.grossWeight - b.tareWeight;
-          return {
+      ...lotBatches.map((b): Movement => ({
             type: 'Carico' as const,
             date: b.date,
-            description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
-            quantity: netWeight,
-            unit: 'KG',
-            id: b.id,
-          };
-        } else {
-          return {
-            type: 'Carico' as const,
-            date: b.date,
-            description: `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
+            description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
             quantity: b.netQuantity,
             unit: material.unitOfMeasure.toUpperCase(),
             id: b.id,
-          };
-        }
-      }),
+      })),
       ...withdrawals.map((w): Movement => {
             const hasUnits = w.consumedUnits !== null && w.consumedUnits !== undefined && w.consumedUnits !== 0;
             const quantity = hasUnits ? w.consumedUnits : w.consumedWeight;
@@ -472,5 +458,3 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
     </div>
   );
 }
-
-    

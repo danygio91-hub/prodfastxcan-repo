@@ -183,8 +183,8 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     const jobOrderPF = row['Commessa Associata'];
     const notes = row['Note'];
     
-    if (!materialCode || isNaN(quantity) || quantity <= 0 || !['n', 'mt', 'kg'].includes(unit)) {
-      errors.push(`Riga con codice "${materialCode || 'N/D'}": Dati mancanti o non validi (Codice, Quantità, Unità).`);
+    if (!materialCode || !lotto || isNaN(quantity) || quantity <= 0 || !['n', 'mt', 'kg'].includes(unit)) {
+      errors.push(`Riga con codice "${materialCode || 'N/D'}": Dati mancanti o non validi (Codice, Lotto, Quantità, Unità).`);
       failedRows.push(row);
       continue;
     }
@@ -204,6 +204,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         if (!materialDoc.exists()) throw new Error("Materia prima non trovata durante la transazione.");
         
         const currentMaterial = materialDoc.data() as RawMaterial;
+        const originalBatches = [...(currentMaterial.batches || [])];
         
         let unitsConsumed = 0;
         let consumedWeight = 0;
@@ -223,26 +224,25 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
           consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
         }
 
-        const updatedBatches = [...(currentMaterial.batches || [])];
+        let lottoConsumed = false;
+        const updatedBatches = originalBatches.map(batch => {
+          if (!lottoConsumed && (batch.lotto || '').toLowerCase() === (lotto || '').toLowerCase() && (batch.netQuantity || 0) > 0.001) {
+             if ((batch.netQuantity || 0) < unitsConsumed) {
+                throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(batch.netQuantity, currentMaterial.unitOfMeasure)}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
+             }
+             lottoConsumed = true;
+             return {
+                ...batch,
+                netQuantity: batch.netQuantity - unitsConsumed
+             };
+          }
+          return batch;
+        });
+
+        if (!lottoConsumed) {
+           throw new Error(`Nessun lotto '${lotto}' con stock disponibile trovato.`);
+        }
         
-        const batchIndex = updatedBatches.findIndex(
-          b => (b.lotto || '').toLowerCase() === (lotto || '').toLowerCase() && (b.netQuantity || 0) > 0.001
-        );
-
-        if (batchIndex === -1) {
-          throw new Error(`Nessun lotto '${lotto}' con stock disponibile trovato.`);
-        }
-
-        const batchToUpdate = updatedBatches[batchIndex];
-
-        if ((batchToUpdate.netQuantity || 0) < unitsConsumed) {
-            throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(batchToUpdate.netQuantity, currentMaterial.unitOfMeasure)} ${currentMaterial.unitOfMeasure}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
-        }
-
-        // Directly decrease the quantity of the specific batch
-        batchToUpdate.netQuantity -= unitsConsumed;
-
-        // Also decrease the total stock on the material document
         const newTotalStockUnits = (currentMaterial.currentStockUnits || 0) - unitsConsumed;
         const newTotalWeightKg = (currentMaterial.currentWeightKg || 0) - consumedWeight;
         
@@ -269,17 +269,18 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
       });
       successCount++;
     } catch (e: any) {
-        errors.push(`Riga con codice "${materialCode}": ${e.message}`);
+        errors.push(`Riga con codice "${materialCode}" e lotto "${lotto}": ${e.message}`);
         failedRows.push(row);
     }
   }
 
   revalidatePath('/admin/raw-material-management');
+  revalidatePath('/admin/batch-management');
   revalidatePath('/admin/reports');
 
   let message = `Importazione completata. ${successCount} scarichi registrati, ${failedRows.length} errori.`;
   if (errors.length > 0) {
-    message += ` Dettagli errori: ${errors.slice(0, 5).join('; ')}`;
+    message += ` Dettagli errori: ${errors.slice(0, 3).join('; ')}`;
   }
 
   return { success: failedRows.length === 0, message, failedRows };
