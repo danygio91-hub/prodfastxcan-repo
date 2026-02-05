@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -54,34 +53,31 @@ service cloud.firestore {
     }
     
     // JobOrders Collection:
-    // Any authenticated user can read/list.
-    // Only Admin/Supervisor can create/delete or modify critical fields.
-    // Operators can only update the phases they are working on.
+    // Public read needed for server-side material status calculation
     match /jobOrders/{jobId} {
-      allow read, list: if isAuthenticated();
+      allow read, list: if true;
       allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
       allow update: if isAuthenticated(); // Allow granular updates based on role
     }
     
     // Articles Collection:
-    // Needed for BOM calculations in material status
+    // Public read needed for server-side material status calculation
     match /articles/{articleId} {
-      allow read, list: if isAuthenticated();
+      allow read, list: if true;
       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
     
     // Manual Commitments Collection:
-    // Needed for material status calculations
+    // Public read needed for server-side material status calculation
     match /manualCommitments/{commitmentId} {
-       allow read, list: if isAuthenticated();
+       allow read, list: if true;
        allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
 
     // RawMaterials, Packaging, Workstations, WorkCycles, WorkPhaseTemplates, Departments
-    // Only Admin/Supervisors can manage these configuration-like collections.
-    // Authenticated users can read them.
+    // Public read needed for server-side material status calculation
     match /rawMaterials/{materialId} {
-      allow read, list: if isAuthenticated();
+      allow read, list: if true;
       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
     
