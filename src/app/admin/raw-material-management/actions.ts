@@ -81,8 +81,7 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         );
         snapshot = await getDocs(q);
     } else {
-        // If no search term or empty string, get all materials
-        snapshot = await getDocs(materialsCol);
+        return []; // Return empty if no search term, to optimize reads
     }
 
     if (snapshot.empty) {
@@ -642,12 +641,14 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const materialsQuery = query(collection(db, "rawMaterials"));
     const manualCommitmentsQuery = query(collection(db, 'manualCommitments'), where('status', '==', 'pending'));
     const articlesQuery = query(collection(db, 'articles'));
+    const withdrawalsQuery = query(collection(db, 'materialWithdrawals'));
 
-    const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot] = await Promise.all([
+    const [jobsSnapshot, materialsSnapshot, manualCommitmentsSnapshot, articlesSnapshot, withdrawalsSnapshot] = await Promise.all([
         getDocs(jobsQuery),
         getDocs(materialsQuery),
         getDocs(manualCommitmentsQuery),
         getDocs(articlesQuery),
+        getDocs(withdrawalsQuery)
     ]);
 
     const materialsMap = new Map<string, RawMaterial>();
@@ -660,6 +661,17 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
             console.warn(`Raw material document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
         }
     });
+    
+    // Recalculate current stock from batches and withdrawals
+    const withdrawals = withdrawalsSnapshot.docs.map(d => d.data() as MaterialWithdrawal);
+    materialsMap.forEach(material => {
+        const totalLoaded = (material.batches || []).reduce((sum, batch) => sum + (batch.netQuantity || 0), 0);
+        const totalWithdrawn = withdrawals
+            .filter(w => w.materialId === material.id)
+            .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
+        material.currentStockUnits = totalLoaded - totalWithdrawn;
+    });
+
 
     const articlesMap = new Map<string, Article>();
     articlesSnapshot.forEach(doc => {
@@ -985,7 +997,7 @@ export async function declareCommitmentFulfillment(
                 const withdrawalRef = doc(collection(db, "materialWithdrawals"));
                 transaction.set(withdrawalRef, {
                     jobOrderPFs: [commitment.jobOrderCode],
-                    materialId: material.id,
+                    materialId: selection.materialId,
                     materialCode: material.code,
                     consumedWeight,
                     consumedUnits: selection.consumed,
