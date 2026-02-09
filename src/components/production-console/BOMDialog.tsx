@@ -11,6 +11,7 @@ import { ClipboardList, Check } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { formatDisplayStock } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface BOMDialogProps {
   isOpen: boolean;
@@ -23,47 +24,70 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
   if (!job) return null;
 
   const materialsMap = useMemo(() => new Map(allRawMaterials.map(m => [m.code, m])), [allRawMaterials]);
-  const baseBOM = job.billOfMaterials || [];
-  const baseBOMComponentCodes = new Set(baseBOM.map(item => item.component));
-  const additionalConsumptions = new Map<string, { quantity: number, withdrawn: number }>();
+  
+  const withdrawnByComponent = useMemo(() => {
+    const map = new Map<string, number>();
+    (job.phases || []).forEach(phase => {
+      (phase.materialConsumptions || []).forEach(consumption => {
+        const materialCode = consumption.materialCode;
+        const material = materialsMap.get(materialCode);
+        let unitsConsumed = 0;
+
+        const isSessionClosed = consumption.grossOpeningWeight !== undefined && consumption.closingWeight !== undefined;
+        const isImmediateWithdrawal = consumption.grossOpeningWeight === undefined && consumption.pcs !== undefined;
+
+        if (isSessionClosed) {
+          const consumedWeight = (consumption.grossOpeningWeight || 0) - (consumption.closingWeight || 0);
+          if (material) {
+            if (material.unitOfMeasure === 'kg') {
+              unitsConsumed = consumedWeight;
+            } else if (material.conversionFactor && material.conversionFactor > 0) {
+              unitsConsumed = consumedWeight / material.conversionFactor;
+            }
+          }
+        } else if (isImmediateWithdrawal) {
+          unitsConsumed = consumption.pcs || 0;
+        }
+        
+        const current = map.get(materialCode) || 0;
+        map.set(materialCode, current + unitsConsumed);
+      });
+    });
+    return map;
+  }, [job.phases, materialsMap]);
+
+  const combinedBOM = useMemo(() => {
+    const bom = job.billOfMaterials || [];
+    const bomMap = new Map<string, JobBillOfMaterialsItem>();
+    
+    // Add items from the template first
+    bom.forEach(item => {
+      bomMap.set(item.component, { ...item, isFromTemplate: true });
+    });
+
+    // Add/update with consumed items that might not be in the template
+    (job.phases || []).forEach(phase => {
+      (phase.materialConsumptions || []).forEach(consumption => {
+        const material = materialsMap.get(consumption.materialCode);
+        const withdrawnQty = withdrawnByComponent.get(consumption.materialCode) || 0;
+        const isWithdrawn = withdrawnQty > 0;
+
+        if (!bomMap.has(consumption.materialCode)) {
+          bomMap.set(consumption.materialCode, {
+            component: consumption.materialCode,
+            quantity: 0, // This is an added item, quantity is derived from consumption
+            unit: material?.unitOfMeasure || 'n',
+            status: isWithdrawn ? 'withdrawn' : 'committed',
+            isFromTemplate: false,
+          });
+        }
+      });
+    });
+
+    return Array.from(bomMap.values());
+  }, [job.billOfMaterials, job.phases, materialsMap, withdrawnByComponent]);
   
   const isAggregatedView = job.id.startsWith('group-');
-
-  (job.phases || []).forEach(phase => {
-    (phase.materialConsumptions || []).forEach(consumption => {
-      const existing = additionalConsumptions.get(consumption.materialCode) || { quantity: 0, withdrawn: 0 };
-      
-      const isSessionClosed = consumption.grossOpeningWeight !== undefined && consumption.closingWeight !== undefined;
-      const isImmediateWithdrawal = consumption.grossOpeningWeight === undefined && consumption.pcs !== undefined;
-
-      const consumptionPcs = consumption.pcs || 0;
-      
-      existing.quantity += consumptionPcs;
-      
-      if (isSessionClosed || isImmediateWithdrawal) {
-         existing.withdrawn += consumptionPcs;
-      }
-
-      additionalConsumptions.set(consumption.materialCode, existing);
-    });
-  });
-      
-  const combinedBOM = [...baseBOM];
-  additionalConsumptions.forEach((data, code) => {
-    if (!baseBOMComponentCodes.has(code)) {
-        const material = materialsMap.get(code);
-        if (data.quantity > 0) {
-            const isWithdrawn = data.withdrawn >= data.quantity;
-            combinedBOM.push({
-                component: code,
-                quantity: data.quantity, // This is already the total
-                unit: material ? material.unitOfMeasure : 'n',
-                status: isWithdrawn ? 'withdrawn' : 'committed',
-                isFromTemplate: false,
-            });
-        }
-    }
-  });
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -89,7 +113,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                 <TableHead>Fabbisogno Tot.</TableHead>
                 <TableHead>UM</TableHead>
                 <TableHead>Peso Stimato (KG)</TableHead>
-                <TableHead>Impegnato</TableHead>
+                <TableHead>Disponibilità</TableHead>
                 <TableHead>Prelevato</TableHead>
               </TableRow>
             </TableHeader>
@@ -101,36 +125,34 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   let estimatedWeight = 0;
                   let displayUnit = item.unit;
 
-                  if (item.isFromTemplate) {
-                    if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                  if (isAggregatedView || !item.isFromTemplate) {
+                     // For groups or added items, the quantity is already the total
+                     totalRequirement = item.quantity;
+                  } else {
+                     if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
                         totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
                         displayUnit = 'mt';
-                        if (material && material.rapportoKgMt && material.rapportoKgMt > 0) {
-                            estimatedWeight = totalRequirement * material.rapportoKgMt;
-                        }
                     } else {
                         totalRequirement = item.quantity * job.qta;
                         displayUnit = item.unit;
-                        if (material) {
-                            if (material.unitOfMeasure === 'kg') {
-                                estimatedWeight = totalRequirement;
-                            } else if (material.conversionFactor && material.conversionFactor > 0) {
-                                estimatedWeight = totalRequirement * material.conversionFactor;
-                            }
-                        }
                     }
-                  } else {
-                     totalRequirement = item.quantity;
-                     displayUnit = item.unit;
-                     if(material) {
-                        if (material.unitOfMeasure === 'kg') {
-                            estimatedWeight = totalRequirement;
-                        } else if (material.conversionFactor && material.conversionFactor > 0) {
-                            estimatedWeight = totalRequirement * material.conversionFactor;
-                        }
-                     }
                   }
 
+                   if (material) {
+                      if (displayUnit === 'mt' && material.rapportoKgMt && material.rapportoKgMt > 0) {
+                          estimatedWeight = totalRequirement * material.rapportoKgMt;
+                      } else if (material.unitOfMeasure === 'kg') {
+                          estimatedWeight = totalRequirement;
+                      } else if (material.conversionFactor && material.conversionFactor > 0) {
+                          estimatedWeight = totalRequirement * material.conversionFactor;
+                      }
+                  }
+
+                  const withdrawnQty = withdrawnByComponent.get(item.component) || 0;
+                  const isFullyWithdrawn = totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001;
+                  const stockAvailable = material?.currentStockUnits || 0;
+                  const remainingRequirement = totalRequirement - withdrawnQty;
+                  const isAvailable = stockAvailable >= remainingRequirement;
 
                   return (
                     <TableRow key={index}>
@@ -146,9 +168,20 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <Checkbox checked={item.status === 'committed' || item.status === 'withdrawn'} disabled />
+                                        <div className="flex items-center justify-center">
+                                            {isFullyWithdrawn ? (
+                                                <Check className="h-5 w-5 text-muted-foreground" />
+                                            ) : (
+                                                <Check className={cn("h-5 w-5", isAvailable ? "text-green-500" : "text-destructive")} />
+                                            )}
+                                        </div>
                                     </TooltipTrigger>
-                                    <TooltipContent>{item.status === 'committed' || item.status === 'withdrawn' ? 'Materiale impegnato' : 'Materiale non ancora impegnato'}</TooltipContent>
+                                    <TooltipContent>
+                                        {isFullyWithdrawn ? "Materiale completamente prelevato." :
+                                        isAvailable ? `Disponibile a magazzino.` :
+                                        `Stock insufficiente! Disponibile: ${formatDisplayStock(stockAvailable, displayUnit as 'n'|'mt'|'kg')}, Richiesto ancora: ${formatDisplayStock(remainingRequirement, displayUnit as 'n'|'mt'|'kg')}`
+                                        }
+                                    </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </TableCell>
@@ -156,9 +189,14 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                              <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <Checkbox checked={item.status === 'withdrawn'} disabled />
+                                        <Checkbox checked={isFullyWithdrawn} disabled />
                                     </TooltipTrigger>
-                                    <TooltipContent>{item.status === 'withdrawn' ? 'Materiale prelevato' : 'Materiale non ancora prelevato'}</TooltipContent>
+                                    <TooltipContent>
+                                        {isFullyWithdrawn ?
+                                            `Completamente prelevato (${formatDisplayStock(withdrawnQty, displayUnit as 'n'|'mt'|'kg')})` :
+                                            `Parzialmente/Non prelevato (Prelevato: ${formatDisplayStock(withdrawnQty, displayUnit as 'n'|'mt'|'kg')})`
+                                        }
+                                    </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </TableCell>
@@ -167,7 +205,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center h-24">
+                  <TableCell colSpan={7} className="text-center h-24">
                     Nessuna distinta base definita per questo articolo.
                   </TableCell>
                 </TableRow>
@@ -184,5 +222,3 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     </Dialog>
   );
 }
-
-    

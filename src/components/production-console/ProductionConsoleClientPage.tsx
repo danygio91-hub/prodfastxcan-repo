@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -514,7 +513,7 @@ function ProductionConsoleView() {
     navigator.clipboard.writeText(text);
     toast({
         title: "Copiato!",
-        description: `Il codice "${text}" è stato copiato negli appunti.`,
+        description: `"${text}" è stato copiato negli appunti.`,
     });
   }
 
