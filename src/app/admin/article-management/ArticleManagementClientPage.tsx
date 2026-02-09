@@ -94,24 +94,24 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     const templateData = [
       { 
         "Codice Articolo": "ART-001",
-        "Componente": "COMP-A",
+        "Componente": "COMP-A (es. vite)",
         "Unità di Misura": "n",
-        "Quantità": 2,
-        "Numero/Misura": "Misure opzionali"
-      },
-       { 
-        "Codice Articolo": "ART-001",
-        "Componente": "COMP-B",
-        "Unità di Misura": "mt",
-        "Quantità": 1.5,
-        "Numero/Misura": ""
+        "Quantità per Pz": 2,
+        "Lunghezza Taglio (mm)": ""
       },
        { 
         "Codice Articolo": "ART-002",
-        "Componente": "COMP-C",
-        "Unità di Misura": "kg",
-        "Quantità": 0.5,
-        "Numero/Misura": ""
+        "Componente": "COMP-B (es. tubo)",
+        "Unità di Misura": "n",
+        "Quantità per Pz": 1,
+        "Lunghezza Taglio (mm)": 1260
+      },
+       { 
+        "Codice Articolo": "ART-002",
+        "Componente": "COMP-C (es. profilo)",
+        "Unità di Misura": "mt",
+        "Quantità per Pz": 0.5,
+        "Lunghezza Taglio (mm)": ""
       }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -145,13 +145,15 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
       for (const row of json) {
         const articleCode = row['Codice Articolo'] || row['codice articolo'];
         const component = row['Componente'] || row['componente'];
-        const quantity = row['Quantità'] || row['quantità'];
+        const quantity = row['Quantità per Pz'] || row['Quantità'] || row['quantità']; // Support old and new names
         
         if (!articleCode || !component || !quantity) {
           continue; 
         }
 
-        if (!validMaterialCodes.has(String(component))) {
+        const cleanComponentCode = String(component).split(' ')[0];
+
+        if (!validMaterialCodes.has(cleanComponentCode)) {
           errors.push(`Articolo "${articleCode}": Componente non valido "${component}".`);
           continue;
         }
@@ -164,20 +166,20 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         }
         
         const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase() as 'n' | 'mt' | 'kg';
-        const numeroMisura = row['Numero/Misura'] || row['numero/misura'];
+        const lunghezzaTaglio = row['Lunghezza Taglio (mm)'] || row['lunghezza taglio (mm)'] || row['Numero/Misura'] || row['numero/misura'];
 
         const bomItem: any = {
-          component: String(component),
+          component: cleanComponentCode,
           unit,
           quantity: Number(quantity),
         };
         
-        if (numeroMisura) {
-          const parsedLength = parseFloat(String(numeroMisura));
-          if ((unit === 'mt' || unit === 'kg') && !isNaN(parsedLength)) {
+        if (lunghezzaTaglio) {
+          const parsedLength = parseFloat(String(lunghezzaTaglio));
+          if (!isNaN(parsedLength) && parsedLength > 0) { // If it's a number, it's a length
             bomItem.lunghezzaTaglioMm = parsedLength;
-          } else {
-            bomItem.note = String(numeroMisura);
+          } else if (typeof lunghezzaTaglio === 'string' && lunghezzaTaglio.trim() !== '') { // Otherwise it's a note
+            bomItem.note = String(lunghezzaTaglio);
           }
         }
 
