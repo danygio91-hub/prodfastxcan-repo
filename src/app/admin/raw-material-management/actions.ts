@@ -879,21 +879,29 @@ export async function saveManualCommitment(
     return { success: false, message: "Dati non validi." };
   }
   const { id, ...data } = validated.data;
-  
-  const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
-  
-  try {
-    const dataToSave: Omit<ManualCommitment, 'id'> = {
-      ...data,
-      status: 'pending',
-      createdAt: id ? undefined : Timestamp.now(), // Keep original createdAt on edit
-    } as Omit<ManualCommitment, 'id'>;
 
-    await setDoc(docRef, {
-      ...dataToSave,
-      id: docRef.id
-    }, { merge: true });
-    
+  const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
+
+  try {
+    // Firestore handles JavaScript Date objects correctly, converting them to Timestamps.
+    // The previous error was a TypeScript type mismatch, not a Firestore runtime error.
+    const dataToSave = {
+      ...data,
+      status: 'pending' as const,
+    };
+
+    if (id) {
+      // Update existing document, `createdAt` is preserved by `setDoc` with `merge`.
+      await setDoc(docRef, dataToSave, { merge: true });
+    } else {
+      // Create new document, adding `id` and `createdAt`.
+      await setDoc(docRef, {
+        ...dataToSave,
+        id: docRef.id,
+        createdAt: Timestamp.now(),
+      });
+    }
+
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: `Impegno ${id ? 'aggiornato' : 'creato'} con successo.` };
   } catch (error) {
