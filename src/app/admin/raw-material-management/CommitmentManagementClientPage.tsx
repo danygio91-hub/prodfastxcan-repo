@@ -25,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
-import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2, TestTube, Send } from 'lucide-react';
+import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2, TestTube, Send, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
 import { formatDisplayStock } from '@/lib/utils';
@@ -268,6 +268,7 @@ export default function CommitmentManagementClientPage({
   initialArticles: Article[];
 }) {
   const [commitments, setCommitments] = useState(initialCommitments);
+  const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [declarationTarget, setDeclarationTarget] = useState<ManualCommitment | null>(null);
@@ -310,6 +311,17 @@ export default function CommitmentManagementClientPage({
         }
     }
   }, [isFormOpen, form]);
+
+  const filteredCommitments = useMemo(() => {
+    if (!searchTerm) {
+      return commitments;
+    }
+    const lowercasedFilter = searchTerm.toLowerCase();
+    return commitments.filter(c => 
+      c.jobOrderCode.toLowerCase().includes(lowercasedFilter) ||
+      c.articleCode.toLowerCase().includes(lowercasedFilter)
+    );
+  }, [commitments, searchTerm]);
 
   const onSubmit = async (values: CommitmentFormValues) => {
     if (!user) return;
@@ -455,6 +467,15 @@ export default function CommitmentManagementClientPage({
           <div className="flex justify-between items-center">
               <CardTitle className="font-headline">Impegni Manuali su Commessa</CardTitle>
               <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Cerca..."
+                      className="pl-9"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
                   <Button onClick={handleDownloadTemplate} variant="outline" size="sm">
                       <Download className="mr-2 h-4 w-4" />
@@ -522,7 +543,7 @@ export default function CommitmentManagementClientPage({
                                                   }
                                                   let formattedValue = value;
                                                   if (value.length > 4) {
-                                                    formattedValue = `${value.slice(0, 2)}/${value.slice(2, 4)}/${value.slice(4)}`;
+                                                    formattedValue = `${value.slice(0, 2)}/${value.slice(2, 4)}/${value.slice(4, 8)}`;
                                                   } else if (value.length > 2) {
                                                     formattedValue = `${value.slice(0, 2)}/${value.slice(2)}`;
                                                   }
@@ -591,7 +612,7 @@ export default function CommitmentManagementClientPage({
                       <TableHead className="text-right">Azioni</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
-                      {commitments.length > 0 ? commitments.map(c => (
+                      {filteredCommitments.length > 0 ? filteredCommitments.map(c => (
                           <TableRow key={c.id}>
                               <TableCell>
                                   <Badge variant={c.status === 'fulfilled' ? 'default' : 'secondary'}>
@@ -626,7 +647,7 @@ export default function CommitmentManagementClientPage({
                               </TableCell>
                           </TableRow>
                       )) : (
-                          <TableRow><TableCell colSpan={6} className="h-24 text-center">Nessun impegno manuale trovato.</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={6} className="h-24 text-center">{searchTerm ? "Nessun impegno trovato per la ricerca." : "Nessun impegno manuale trovato."}</TableCell></TableRow>
                       )}
                   </TableBody>
               </Table>
