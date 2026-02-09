@@ -72,7 +72,11 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
     const materialsCol = collection(db, 'rawMaterials');
     let snapshot;
 
-    if (searchTerm && searchTerm.length > 0) {
+    if (searchTerm === undefined) {
+        // Case for article management page: get all materials, ordered by code
+        snapshot = await getDocs(query(materialsCol, orderBy("code_normalized")));
+    } else if (searchTerm && searchTerm.length >= 2) {
+        // Case for search bar: get specific materials
         const lowercasedTerm = searchTerm.toLowerCase();
         const q = query(materialsCol, 
             where('code_normalized', '>=', lowercasedTerm), 
@@ -81,7 +85,8 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         );
         snapshot = await getDocs(q);
     } else {
-        return []; // Return empty if no search term, to optimize reads
+        // Case for empty search bar: return empty array
+        return [];
     }
 
     if (snapshot.empty) {
