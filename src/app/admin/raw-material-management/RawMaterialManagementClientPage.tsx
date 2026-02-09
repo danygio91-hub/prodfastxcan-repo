@@ -594,12 +594,21 @@ export default function RawMaterialManagementClientPage({
             <TabsContent value="list">
                  <Card>
                     <CardHeader>
-                        <div className="flex justify-between items-center flex-wrap gap-4">
+                        <div className="flex justify-between items-start flex-wrap gap-4">
                             <div>
                                 <CardTitle className="font-headline">Elenco e Situazione Materie Prime</CardTitle>
                                 <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
                             </div>
                             <div className="flex items-center gap-2 flex-wrap justify-end">
+                                <div className="relative w-full sm:w-auto">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Cerca per codice o descrizione..."
+                                        className="pl-9"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
                                 <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
                                 <Button onClick={handleExport} variant="outline" size="sm" disabled={rawMaterials.length === 0}>
                                     <Download className="mr-2 h-4 w-4" />
@@ -611,18 +620,18 @@ export default function RawMaterialManagementClientPage({
                                 </Button>
                                 <Button onClick={() => handleOpenEditDialog()} size="sm">
                                     <PlusCircle className="mr-2 h-4 w-4" />
-                                    Aggiungi
+                                    Aggiungi Mat. Prima
                                 </Button>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap pt-4">
-                            {selectedRows.length > 0 && (
+                        {selectedRows.length > 0 && (
+                            <div className="flex items-center gap-2 pt-4">
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm">
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Elimina ({selectedRows.length})
-                                    </Button>
+                                        <Button variant="destructive" size="sm">
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Elimina ({selectedRows.length})
+                                        </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                     <AlertDialogHeader>
@@ -637,17 +646,8 @@ export default function RawMaterialManagementClientPage({
                                     </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
-                            )}
-                             <div className="relative flex-grow w-full sm:w-auto sm:max-w-xs">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Cerca per codice o descrizione..."
-                                    className="pl-9"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
                             </div>
-                        </div>
+                        )}
                     </CardHeader>
                     <CardContent>
                         <div className="overflow-x-auto">
