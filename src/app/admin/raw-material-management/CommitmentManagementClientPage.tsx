@@ -516,19 +516,25 @@ export default function CommitmentManagementClientPage({
                                                 placeholder="gg/mm/aaaa"
                                                 value={dateString}
                                                 onChange={(e) => {
-                                                  let value = e.target.value.replace(/\D/g, '');
+                                                  let value = e.target.value.replace(/\D/g, "");
+                                                  if (value.length > 8) {
+                                                    value = value.slice(0, 8);
+                                                  }
                                                   let formattedValue = value;
-                                                  if (value.length > 2) {
+                                                  if (value.length > 4) {
+                                                    formattedValue = `${value.slice(0, 2)}/${value.slice(2, 4)}/${value.slice(4)}`;
+                                                  } else if (value.length > 2) {
                                                     formattedValue = `${value.slice(0, 2)}/${value.slice(2)}`;
                                                   }
-                                                  if (value.length > 4) {
-                                                    formattedValue = `${formattedValue.slice(0, 5)}/${value.slice(5, 9)}`;
-                                                  }
-                                                  setDateString(formattedValue.slice(0, 10));
+                                                  setDateString(formattedValue);
 
-                                                  const parsedDate = parse(formattedValue, 'dd/MM/yyyy', new Date());
-                                                  if (isValid(parsedDate) && formattedValue.length === 10) {
-                                                    field.onChange(parsedDate);
+                                                  if (formattedValue.length === 10) {
+                                                    const parsedDate = parse(formattedValue, 'dd/MM/yyyy', new Date());
+                                                    if (isValid(parsedDate)) {
+                                                      field.onChange(parsedDate);
+                                                    } else {
+                                                      field.onChange(undefined);
+                                                    }
                                                   } else {
                                                     field.onChange(undefined);
                                                   }
