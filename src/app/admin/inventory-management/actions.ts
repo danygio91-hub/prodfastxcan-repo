@@ -540,7 +540,7 @@ export async function deleteInventoryRecords(recordIds: string[], uid: string): 
 
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
     const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(docRef);
+    const docSnap = await getDoc(materialRef);
     if (docSnap.exists()) {
         return docSnap.data() as RawMaterial;
     }
@@ -594,8 +594,6 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
         return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
     }
 }
-
     
-
     
-
+    
