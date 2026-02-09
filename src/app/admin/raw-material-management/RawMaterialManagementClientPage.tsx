@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -6,10 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
+import * as XLSX from 'xlsx';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type Packaging, Department, type Article, ManualCommitment, type ScrapRecord } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, deleteSelectedRawMaterials, deleteSingleWithdrawalAndRestoreStock, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
@@ -19,8 +18,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
@@ -573,32 +572,15 @@ export default function RawMaterialManagementClientPage({
 
   return (
       <div className="space-y-6">
-        <div className="flex justify-between items-start flex-wrap gap-4">
-          <header>
-              <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-              <Boxes className="h-8 w-8 text-primary" />
-              Gestione Materie Prime
-              </h1>
-              <p className="text-muted-foreground mt-1">
-              Gestisci l'anagrafica e la situazione delle materie prime a magazzino.
-              </p>
-          </header>
-          <div className="flex items-center gap-2 pt-2">
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-              <Button onClick={handleExport} variant="outline" disabled={rawMaterials.length === 0}>
-              <Download className="mr-2 h-4 w-4" />
-              Esporta Elenco
-            </Button>
-            <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
-              {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-              Importa da Excel
-            </Button>
-            <Button onClick={() => handleOpenEditDialog()}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Aggiungi Materiale
-            </Button>
-          </div>
-        </div>
+        <header>
+          <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
+          <Boxes className="h-8 w-8 text-primary" />
+          Gestione Materie Prime
+          </h1>
+          <p className="text-muted-foreground mt-1">
+          Gestisci l'anagrafica e la situazione delle materie prime a magazzino.
+          </p>
+        </header>
 
         <Tabs defaultValue="list">
             <TabsList className="grid w-full grid-cols-2">
@@ -614,14 +596,30 @@ export default function RawMaterialManagementClientPage({
                     <CardHeader>
                         <div className="flex justify-between items-center flex-wrap gap-4">
                             <div>
-                            <CardTitle className="font-headline">Elenco e Situazione Materie Prime</CardTitle>
-                            <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
+                                <CardTitle className="font-headline">Elenco e Situazione Materie Prime</CardTitle>
+                                <CardDescription>Cerca per codice per visualizzare le materie prime.</CardDescription>
                             </div>
-                            <div className="flex items-center gap-2">
-                                {selectedRows.length > 0 && (
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
+                                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+                                <Button onClick={handleExport} variant="outline" size="sm" disabled={rawMaterials.length === 0}>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Esporta
+                                </Button>
+                                <Button onClick={handleImportClick} variant="outline" size="sm" disabled={isImporting}>
+                                    {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
+                                    Importa
+                                </Button>
+                                <Button onClick={() => handleOpenEditDialog()} size="sm">
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Aggiungi
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap pt-4">
+                            {selectedRows.length > 0 && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                    <Button variant="destructive">
+                                    <Button variant="destructive" size="sm">
                                         <Trash2 className="mr-2 h-4 w-4" />
                                         Elimina ({selectedRows.length})
                                     </Button>
@@ -639,16 +637,15 @@ export default function RawMaterialManagementClientPage({
                                     </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
-                                )}
-                                <div className="relative w-full sm:w-64">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Cerca per codice o descrizione..."
-                                        className="pl-9"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                    />
-                                </div>
+                            )}
+                             <div className="relative flex-grow w-full sm:w-auto sm:max-w-xs">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Cerca per codice o descrizione..."
+                                    className="pl-9"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
                             </div>
                         </div>
                     </CardHeader>
