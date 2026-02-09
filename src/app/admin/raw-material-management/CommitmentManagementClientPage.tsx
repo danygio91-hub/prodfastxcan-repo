@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -281,6 +280,9 @@ export default function CommitmentManagementClientPage({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
 
+  // New state for article popover
+  const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
+
   const commitmentFormSchema = z.object({
     id: z.string().optional(),
     jobOrderCode: z.string().min(1, "Il codice commessa è obbligatorio."),
@@ -479,7 +481,7 @@ export default function CommitmentManagementClientPage({
                                   <FormField control={form.control} name="articleCode" render={({ field }) => (
                                       <FormItem className="flex flex-col">
                                       <FormLabel>Codice Articolo</FormLabel>
-                                      <Popover><PopoverTrigger asChild><FormControl>
+                                      <Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl>
                                           <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
                                               {field.value ? initialArticles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
                                               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -490,7 +492,7 @@ export default function CommitmentManagementClientPage({
                                           <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
                                           <CommandGroup>
                                               {initialArticles.map((article) => (
-                                              <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); }}>
+                                              <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); setIsArticlePopoverOpen(false); }}>
                                                   <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
                                                   {article.code}
                                               </CommandItem>
@@ -514,10 +516,18 @@ export default function CommitmentManagementClientPage({
                                                 placeholder="gg/mm/aaaa"
                                                 value={dateString}
                                                 onChange={(e) => {
-                                                  const value = e.target.value;
-                                                  setDateString(value);
-                                                  const parsedDate = parse(value, 'dd/MM/yyyy', new Date());
-                                                  if (isValid(parsedDate)) {
+                                                  let value = e.target.value.replace(/\D/g, '');
+                                                  let formattedValue = value;
+                                                  if (value.length > 2) {
+                                                    formattedValue = `${value.slice(0, 2)}/${value.slice(2)}`;
+                                                  }
+                                                  if (value.length > 4) {
+                                                    formattedValue = `${formattedValue.slice(0, 5)}/${value.slice(5, 9)}`;
+                                                  }
+                                                  setDateString(formattedValue.slice(0, 10));
+
+                                                  const parsedDate = parse(formattedValue, 'dd/MM/yyyy', new Date());
+                                                  if (isValid(parsedDate) && formattedValue.length === 10) {
                                                     field.onChange(parsedDate);
                                                   } else {
                                                     field.onChange(undefined);
