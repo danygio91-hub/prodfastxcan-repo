@@ -456,7 +456,7 @@ export async function closeMaterialSessionAndUpdateStock(
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight,
-            consumedUnits,
+            consumedUnits: unitsConsumed,
             operatorId,
             operatorName: operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto',
             withdrawalDate: Timestamp.now(),
@@ -1161,3 +1161,4 @@ export async function updateOperatorMaterialSessions(
     return { success: false, message: 'Impossibile sincronizzare le sessioni materiale.' };
   }
 }
+
