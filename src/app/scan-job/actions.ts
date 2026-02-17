@@ -1,4 +1,5 @@
 
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -411,37 +412,23 @@ export async function closeMaterialSessionAndUpdateStock(
   operatorId: string,
 ): Promise<{ success: boolean; message: string }> {
   const materialRef = doc(db, "rawMaterials", sessionData.materialId);
-  
+  const uniqueJobIds = [...new Set(sessionData.associatedJobs.map(j => j.jobId))];
+  const jobRefs = uniqueJobIds.map(id => doc(db, "jobOrders", id));
+
   try {
     await runTransaction(db, async (transaction) => {
-        // --- 1. ALL READS FIRST ---
+        // --- 1. READS ---
         const materialDoc = await transaction.get(materialRef);
-        
-        const uniqueJobIds = [...new Set(sessionData.associatedJobs.map(j => j.jobId))];
-        const jobRefs = uniqueJobIds.map(id => doc(db, "jobOrders", id));
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+        const operatorSnap = await transaction.get(doc(db, "operators", operatorId));
 
-        const operatorSnap = await getDoc(doc(db, "operators", operatorId));
-        const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
-
-        // --- 2. VALIDATION AND PREPARATION ---
-        if (!materialDoc.exists()) {
-            throw new Error("Materia prima associata alla sessione non trovata.");
-        }
-        
-        const consumedWeight = sessionData.grossOpeningWeight - closingWeight;
-        if (consumedWeight < 0) {
-            throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
-        }
-        
+        // --- 2. VALIDATION ---
+        if (!materialDoc.exists()) throw new Error("Materia prima associata alla sessione non trovata.");
         const materialData = materialDoc.data() as RawMaterial;
-        const currentWeightKg = materialData.currentWeightKg ?? 0;
-        const newWeightKg = currentWeightKg - consumedWeight;
-        
-        if (newWeightKg < 0) {
-           throw new Error(`Stock insufficiente. Peso disponibile: ${currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
-        }
-        
+
+        const consumedWeight = sessionData.grossOpeningWeight - closingWeight;
+        if (consumedWeight < 0) throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
+
         let unitsConsumed = 0;
         if (materialData.unitOfMeasure === 'kg') {
             unitsConsumed = consumedWeight;
@@ -450,60 +437,81 @@ export async function closeMaterialSessionAndUpdateStock(
         }
 
         const currentStockUnits = materialData.currentStockUnits ?? 0;
-        const newStockUnits = currentStockUnits - unitsConsumed;
+        const currentWeightKg = materialData.currentWeightKg ?? 0;
         
-        // 3a. Update material stock with correct unit and weight values
-        transaction.update(materialRef, { 
-            currentWeightKg: newWeightKg,
-            currentStockUnits: newStockUnits,
-        });
+        if (currentWeightKg < consumedWeight) {
+           throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
+        }
+        if (currentStockUnits < unitsConsumed) {
+            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
+        }
 
-        // 3b. Create a single withdrawal log for the entire session
-        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
-        const uniqueJobOrderPFs = [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))];
-
-        transaction.set(withdrawalRef, {
+        // --- 3. WRITES ---
+        
+        // 3a. Log the withdrawal
+        const newWithdrawalRef = doc(collection(db, "materialWithdrawals"));
+        transaction.set(newWithdrawalRef, {
             jobIds: uniqueJobIds,
-            jobOrderPFs: uniqueJobOrderPFs,
+            jobOrderPFs: [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))],
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
-            consumedWeight: consumedWeight,
-            consumedUnits: unitsConsumed,
-            operatorId: operatorId,
-            operatorName: operatorName,
+            consumedWeight,
+            consumedUnits,
+            operatorId,
+            operatorName: operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto',
             withdrawalDate: Timestamp.now(),
             lotto: sessionData.lotto || null,
         });
 
-        // 3c. Update all associated job orders to record the closing weight for the correct consumption
+        // 3b. Update material stock
+        transaction.update(materialRef, { 
+            currentWeightKg: currentWeightKg - consumedWeight,
+            currentStockUnits: currentStockUnits - unitsConsumed,
+        });
+
+        // 3c. Helper to update consumptions in a phases array
+        const updateConsumptions = (phases: JobPhase[]) => phases.map(p => ({
+            ...p,
+            materialConsumptions: (p.materialConsumptions || []).map(mc => {
+                if (
+                  mc.materialId === sessionData.materialId &&
+                  mc.lottoBobina === sessionData.lotto &&
+                  mc.closingWeight === undefined
+                ) {
+                  return { ...mc, closingWeight, withdrawalId: newWithdrawalRef.id };
+                }
+                return mc;
+              })
+        }));
+
+        // 3d. Update the group document if this is a group session
+        const isGroupSession = sessionData.originatorJobId.startsWith('group-');
+        if (isGroupSession) {
+            const groupRef = doc(db, 'workGroups', sessionData.originatorJobId);
+            const groupSnap = await transaction.get(groupRef);
+            if (groupSnap.exists()) {
+                const groupData = groupSnap.data() as WorkGroup;
+                const updatedGroupPhases = updateConsumptions(groupData.phases);
+                transaction.update(groupRef, { phases: updatedGroupPhases });
+            }
+        }
+        
+        // 3e. Update all individual associated job orders
         for (const jobDoc of jobDocs) {
             if (jobDoc.exists()) {
                 const jobData = jobDoc.data() as JobOrder;
-                const updatedPhases = jobData.phases.map(p => {
-                     const updatedConsumptions = (p.materialConsumptions || []).map(mc => {
-                        if (
-                          mc.materialId === sessionData.materialId &&
-                          mc.grossOpeningWeight === sessionData.grossOpeningWeight &&
-                          mc.closingWeight === undefined // Only close sessions that are open
-                        ) {
-                          return { ...mc, closingWeight, withdrawalId: withdrawalRef.id };
-                        }
-                        return mc;
-                      });
-
-                      return { ...p, materialConsumptions: updatedConsumptions };
-                });
-                transaction.update(jobDoc.ref, { phases: updatedPhases });
+                const updatedJobPhases = updateConsumptions(jobData.phases);
+                transaction.update(jobDoc.ref, { phases: updatedJobPhases });
             }
         }
     });
 
     revalidatePath('/scan-job');
+    revalidatePath('/admin/production-console');
     revalidatePath('/admin/reports');
     revalidatePath('/admin/raw-material-management');
 
     return { success: true, message: 'Sessione chiusa, peso registrato e stock aggiornato.' };
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la chiusura della sessione.";
     console.error("Failed to close material session:", error);
@@ -553,6 +561,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
 
         if (unit === 'kg') {
           consumedWeight = quantity;
+          // If a conversion factor exists, we can estimate the units consumed.
           if (material.conversionFactor && material.conversionFactor > 0) {
             unitsConsumed = quantity / material.conversionFactor;
           }
@@ -586,7 +595,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            consumedUnits,
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),
