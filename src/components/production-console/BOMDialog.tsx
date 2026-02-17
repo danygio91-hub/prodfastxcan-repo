@@ -121,23 +121,26 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
               {combinedBOM.length > 0 ? (
                 combinedBOM.map((item, index) => {
                   const material = materialsMap.get(item.component);
+                  const withdrawnQty = withdrawnByComponent.get(item.component) || 0;
                   let totalRequirement = 0;
-                  let estimatedWeight = 0;
                   let displayUnit = item.unit;
 
-                  if (isAggregatedView || !item.isFromTemplate) {
-                     // For groups or added items, the quantity is already the total
-                     totalRequirement = item.quantity;
+                  if (item.isFromTemplate) {
+                      // For template items (both single job and aggregated), calculate requirement from BOM data
+                      if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                          totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                          displayUnit = 'mt';
+                      } else {
+                          totalRequirement = item.quantity * job.qta;
+                          displayUnit = item.unit;
+                      }
                   } else {
-                     if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                        totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
-                        displayUnit = 'mt';
-                    } else {
-                        totalRequirement = item.quantity * job.qta;
-                        displayUnit = item.unit;
-                    }
+                      // For items added on the fly, the "requirement" is what was withdrawn
+                      totalRequirement = withdrawnQty;
+                      displayUnit = material?.unitOfMeasure || 'n';
                   }
 
+                  let estimatedWeight = 0;
                    if (material) {
                       if (displayUnit === 'mt' && material.rapportoKgMt && material.rapportoKgMt > 0) {
                           estimatedWeight = totalRequirement * material.rapportoKgMt;
@@ -148,7 +151,6 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                       }
                   }
 
-                  const withdrawnQty = withdrawnByComponent.get(item.component) || 0;
                   const isFullyWithdrawn = totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001;
                   const stockAvailable = material?.currentStockUnits || 0;
                   const remainingRequirement = totalRequirement - withdrawnQty;
