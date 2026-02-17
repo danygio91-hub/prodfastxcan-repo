@@ -565,7 +565,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
           if (material.conversionFactor && material.conversionFactor > 0) {
             unitsConsumed = quantity / material.conversionFactor;
           }
-        } else {
+        } else { // 'n' or 'mt'
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
         }
@@ -576,8 +576,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         if (currentStockUnits < unitsConsumed) {
             throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
         }
-        if (currentWeightKg < consumedWeight) {
-            throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
+         if (currentWeightKg < consumedWeight) {
+             throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
         }
         
         const newStockUnits = currentStockUnits - unitsConsumed;
@@ -595,7 +595,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits,
+            consumedUnits: unitsConsumed,
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),
