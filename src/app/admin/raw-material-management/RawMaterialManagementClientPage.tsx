@@ -186,17 +186,10 @@ export default function RawMaterialManagementClientPage({
   
   const watchedUnitOfMeasure = form.watch('unitOfMeasure');
   
-  useEffect(() => {
-    if (codeFromUrl) {
-      setSearchTerm(codeFromUrl);
-    }
-  }, [codeFromUrl]);
-  
   const refreshData = useCallback(() => {
-    // This function will now trigger a search if a search term exists
     const currentSearchTerm = searchTerm;
-    setSearchTerm(''); // Clear to reset state
-    setTimeout(() => setSearchTerm(currentSearchTerm), 10); // Re-trigger search
+    setSearchTerm(''); 
+    setTimeout(() => setSearchTerm(currentSearchTerm), 10);
   }, [searchTerm]);
 
   useEffect(() => {
@@ -283,17 +276,15 @@ export default function RawMaterialManagementClientPage({
     const combinedMovements: Movement[] = [
         ...batches.map((b): Movement => {
             if (b.inventoryRecordId) {
-                // If from inventory, the quantity is the net weight in KG.
                 return {
                     type: 'Carico' as const,
                     date: b.date,
                     description: `Inventario - Lotto: ${b.lotto || 'INV'}`,
-                    quantity: b.grossWeight - b.tareWeight, // This is the net weight in KG
+                    quantity: b.grossWeight - b.tareWeight,
                     unit: 'KG',
                     id: b.id,
                 };
             } else {
-                 // For manual batches, netQuantity is in the correct primary unit.
                 return {
                     type: 'Carico' as const,
                     date: b.date,
@@ -305,7 +296,6 @@ export default function RawMaterialManagementClientPage({
             }
         }),
         ...withdrawals.map((w): Movement => {
-            // Withdrawals can consume units or weight. We display what was recorded.
             const isWeightBased = (w.consumedUnits === null || w.consumedUnits === undefined);
             const quantity = isWeightBased ? w.consumedWeight : w.consumedUnits;
             const unit = isWeightBased ? 'KG' : updatedMaterial.unitOfMeasure.toUpperCase();
@@ -620,7 +610,7 @@ export default function RawMaterialManagementClientPage({
                                 </Button>
                                 <Button onClick={() => handleOpenEditDialog()} size="sm">
                                     <PlusCircle className="mr-2 h-4 w-4" />
-                                    Aggiungi Mat. Prima
+                                    Nuovo Mat. Prima
                                 </Button>
                             </div>
                         </div>
@@ -676,6 +666,10 @@ export default function RawMaterialManagementClientPage({
                             {isSearching ? renderLoading() : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((material) => {
                                   const status = materialStatus.find(s => s.id === material.id);
+                                  // Use the status stock (live) if available, otherwise document stock
+                                  const displayStock = status ? status.stock : material.currentStockUnits;
+                                  const displayWeight = status ? (status.unitOfMeasure === 'kg' ? status.stock : (material.conversionFactor ? status.stock * material.conversionFactor : material.currentWeightKg)) : material.currentWeightKg;
+
                                   return (
                                     <TableRow key={material.id} data-state={selectedRows.includes(material.id) ? "selected" : undefined}>
                                         <TableCell padding="checkbox">
@@ -687,11 +681,11 @@ export default function RawMaterialManagementClientPage({
                                         </TableCell>
                                         <TableCell className="font-medium">{material.code}</TableCell>
                                         <TableCell>{material.description}</TableCell>
-                                        <TableCell>{formatDisplayStock(material.currentStockUnits, material.unitOfMeasure)}</TableCell>
+                                        <TableCell>{formatDisplayStock(displayStock, material.unitOfMeasure)}</TableCell>
                                         <TableCell className="font-mono text-amber-600">{status ? formatDisplayStock(status.impegnato, status.unitOfMeasure) : '-'}</TableCell>
                                         <TableCell className={cn("font-bold", status && status.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{status ? formatDisplayStock(status.disponibile, status.unitOfMeasure) : '-'}</TableCell>
                                         <TableCell>{material.unitOfMeasure}</TableCell>
-                                        <TableCell>{formatDisplayStock(material.currentWeightKg, 'kg')}</TableCell>
+                                        <TableCell>{formatDisplayStock(displayWeight, 'kg')}</TableCell>
                                         <TableCell className="text-right">
                                             <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
@@ -958,7 +952,7 @@ export default function RawMaterialManagementClientPage({
                                     <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
                                       {mov.type === 'Carico' ? <ArrowUpCircle className="mr-2 h-4 w-4"/> : <ArrowDownCircle className="mr-2 h-4 w-4"/>}
                                       {mov.type}
-                                    </UiBadge>
+                                    </Badge>
                                 </TableCell>
                                 <TableCell>{mov.description}</TableCell>
                                 <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>

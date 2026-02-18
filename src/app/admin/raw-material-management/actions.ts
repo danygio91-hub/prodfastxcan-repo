@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -73,10 +71,8 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
     let snapshot;
 
     if (searchTerm === undefined) {
-        // Case for article management page: get all materials, ordered by code
         snapshot = await getDocs(query(materialsCol, orderBy("code_normalized")));
     } else if (searchTerm && searchTerm.length >= 2) {
-        // Case for search bar: get specific materials
         const lowercasedTerm = searchTerm.toLowerCase();
         const q = query(materialsCol, 
             where('code_normalized', '>=', lowercasedTerm), 
@@ -85,7 +81,6 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         );
         snapshot = await getDocs(q);
     } else {
-        // Case for empty search bar: return empty array
         return [];
     }
 
@@ -141,14 +136,11 @@ export async function saveRawMaterial(formData: FormData): Promise<{
   };
 
   if (data.id) {
-    // Update existing material
     const materialRef = doc(db, "rawMaterials", data.id);
     await setDoc(materialRef, materialData, { merge: true });
-
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima aggiornata con successo.' };
   } else {
-    // Add new material - check for unique normalized code first
     const normalizedCode = trimmedCode.toLowerCase();
     const q = query(collection(db, "rawMaterials"), where("code_normalized", "==", normalizedCode));
     const querySnapshot = await getDocs(q);
@@ -157,7 +149,6 @@ export async function saveRawMaterial(formData: FormData): Promise<{
     }
 
     const newDocRef = doc(collection(db, "rawMaterials"));
-    // Initialize with empty stock, which will be updated by adding batches
     const fullMaterialData: RawMaterial = {
         id: newDocRef.id,
         ...materialData,
@@ -208,7 +199,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           } else if (material.conversionFactor && material.conversionFactor > 0) {
               netWeightForCalc = netQuantity * material.conversionFactor;
           } else {
-              netWeightForCalc = 0; // Cannot determine weight if no conversion factor
+              netWeightForCalc = 0;
           }
           const grossWeight = netWeightForCalc + tareWeight;
           
@@ -237,7 +228,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      revalidatePath('/admin/batch-management'); // Added revalidation for batch page
+      revalidatePath('/admin/batch-management');
       return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
 
   } catch (error) {
@@ -557,7 +548,6 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
   const withdrawalRef = doc(db, "materialWithdrawals", withdrawalId);
   try {
     await runTransaction(db, async (transaction) => {
-      // --- ALL READS MUST BE AT THE TOP ---
       const withdrawalSnap = await transaction.get(withdrawalRef);
       if (!withdrawalSnap.exists()) {
         throw new Error("Movimento di scarico non trovato.");
@@ -567,8 +557,6 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
       const materialRef = doc(db, "rawMaterials", withdrawal.materialId);
       const materialSnap = await transaction.get(materialRef);
       if (!materialSnap.exists()) {
-        // If material doesn't exist, we can't restore stock, but we can still delete the withdrawal.
-        // This prevents an error loop if a material was deleted but withdrawals remain.
         transaction.delete(withdrawalRef);
         return;
       }
@@ -581,7 +569,6 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
         }
       }
       
-      // --- ALL WRITES/LOGIC AFTER READS ---
       const material = materialSnap.data() as RawMaterial;
       const weightToRevert = withdrawal.consumedWeight || 0;
       let unitsToRevert = withdrawal.consumedUnits ?? 0;
@@ -662,20 +649,54 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const normalizedCode = data.code_normalized || (data.code ? data.code.toLowerCase() : null);
         if (normalizedCode) {
             materialsMap.set(normalizedCode, { id: doc.id, ...data } as RawMaterial);
-        } else {
-            console.warn(`Raw material document with ID ${doc.id} is missing a valid 'code' field. Skipping.`);
         }
     });
     
-    // Recalculate current stock from batches and withdrawals
+    // --- HEALING LOGIC: Recalculate current stock from ground truth ---
     const withdrawals = withdrawalsSnapshot.docs.map(d => d.data() as MaterialWithdrawal);
+    const syncBatch = writeBatch(db);
+    let syncNeeded = false;
+
     materialsMap.forEach(material => {
-        const totalLoaded = (material.batches || []).reduce((sum, batch) => sum + (batch.netQuantity || 0), 0);
-        const totalWithdrawn = withdrawals
-            .filter(w => w.materialId === material.id)
-            .reduce((sum, w) => sum + (w.consumedUnits || 0), 0);
-        material.currentStockUnits = totalLoaded - totalWithdrawn;
+        // 1. Sum all loaded batches
+        const totalLoadedUnits = (material.batches || []).reduce((sum, batch) => sum + (batch.netQuantity || 0), 0);
+        const totalLoadedWeight = (material.batches || []).reduce((sum, batch) => sum + ((batch.grossWeight || 0) - (batch.tareWeight || 0)), 0);
+
+        // 2. Sum all withdrawals (ensuring units are calculated if missing)
+        const materialWithdrawals = withdrawals.filter(w => w.materialId === material.id);
+        const totalWithdrawnUnits = materialWithdrawals.reduce((sum, w) => {
+            if (w.consumedUnits !== null && w.consumedUnits !== undefined) return sum + w.consumedUnits;
+            if (w.consumedWeight > 0 && material.conversionFactor && material.conversionFactor > 0) {
+                return sum + (w.consumedWeight / material.conversionFactor);
+            }
+            return sum;
+        }, 0);
+        const totalWithdrawnWeight = materialWithdrawals.reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+
+        const calculatedStockUnits = totalLoadedUnits - totalWithdrawnUnits;
+        const calculatedWeightKg = totalLoadedWeight - totalWithdrawnWeight;
+
+        // 3. Update the map for status report
+        const previousStock = material.currentStockUnits || 0;
+        const previousWeight = material.currentWeightKg || 0;
+        
+        material.currentStockUnits = calculatedStockUnits;
+        material.currentWeightKg = calculatedWeightKg;
+
+        // 4. If Firestore document is out of sync, add to healing batch
+        if (Math.abs(previousStock - calculatedStockUnits) > 0.001 || Math.abs(previousWeight - calculatedWeightKg) > 0.001) {
+            syncBatch.update(doc(db, 'rawMaterials', material.id), {
+                currentStockUnits: calculatedStockUnits,
+                currentWeightKg: calculatedWeightKg
+            });
+            syncNeeded = true;
+        }
     });
+
+    if (syncNeeded) {
+        await syncBatch.commit();
+    }
+    // --- END HEALING LOGIC ---
 
 
     const articlesMap = new Map<string, Article>();
@@ -756,7 +777,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
             stock: stock,
             impegnato: impegnato,
             disponibile: stock - impegnato,
-            ordinato: 0, // Placeholder
+            ordinato: 0,
             unitOfMeasure: material.unitOfMeasure,
         });
     });
@@ -775,7 +796,7 @@ export async function searchMaterialsAndGetStatus(searchTerm: string): Promise<{
       return { materials: [], status: [] };
   }
   
-  const allStatus = await getMaterialsStatus(); // Still expensive, but deferred.
+  const allStatus = await getMaterialsStatus();
 
   const materialIds = new Set(materials.map(m => m.id));
   const filteredStatus = allStatus.filter(s => materialIds.has(s.id));
@@ -850,7 +871,6 @@ export async function getManualCommitments(): Promise<ManualCommitment[]> {
   
   return snapshot.docs.map(doc => {
     const data = doc.data();
-    // Ensure date fields are ISO strings for serialization
     return {
       ...data,
       id: doc.id,
@@ -883,18 +903,15 @@ export async function saveManualCommitment(
   const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
 
   try {
-    // Firestore handles JavaScript Date objects correctly, converting them to Timestamps.
-    // The previous error was a TypeScript type mismatch, not a Firestore runtime error.
     const dataToSave = {
       ...data,
+      deliveryDate: data.deliveryDate.toISOString(),
       status: 'pending' as const,
     };
 
     if (id) {
-      // Update existing document, `createdAt` is preserved by `setDoc` with `merge`.
       await setDoc(docRef, dataToSave, { merge: true });
     } else {
-      // Create new document, adding `id` and `createdAt`.
       await setDoc(docRef, {
         ...dataToSave,
         id: docRef.id,
@@ -924,7 +941,7 @@ export interface LotSelectionPayload {
   materialId: string;
   componentCode: string;
   lotto: string;
-  consumed: number; // in primary UoM of the material
+  consumed: number;
 }
 
 export async function declareCommitmentFulfillment(
@@ -958,7 +975,6 @@ export async function declareCommitmentFulfillment(
 
                 let remainingToConsume = selection.consumed;
 
-                // Sort batches by date to consume from oldest first (FIFO)
                 const lotBatches = originalBatches
                     .filter(b => (b.lotto || '').toLowerCase() === (selection.lotto || '').toLowerCase())
                     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1006,7 +1022,6 @@ export async function declareCommitmentFulfillment(
                     currentWeightKg: newWeightKg,
                 });
                 
-                // Log withdrawal
                 const withdrawalRef = doc(collection(db, "materialWithdrawals"));
                 transaction.set(withdrawalRef, {
                     jobOrderPFs: [commitment.jobOrderCode],
@@ -1100,7 +1115,7 @@ export async function importManualCommitments(
         }
 
         let parsedDate: Date;
-        if (typeof rawDate === 'number') { // Excel date number
+        if (typeof rawDate === 'number') {
             const excelEpoch = new Date(Date.UTC(1899, 11, 30));
             parsedDate = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000);
         } else if (typeof rawDate === 'string') {
@@ -1111,7 +1126,7 @@ export async function importManualCommitments(
                  parsedDate = new Date(rawDate);
             }
         } else {
-            parsedDate = new Date(); // Fallback
+            parsedDate = new Date();
         }
 
         if (isNaN(parsedDate.getTime())) {
@@ -1161,12 +1176,10 @@ export async function revertManualCommitmentFulfillment(
       throw new Error("Impegno non trovato o non è in stato 'Evaso'.");
     }
     
-    // Find the withdrawal associated with this commitment
     const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("commitmentId", "==", commitmentId));
     const withdrawalSnapshot = await getDocs(withdrawalsQuery);
 
     if (withdrawalSnapshot.empty) {
-      // If no withdrawal is found, we can't revert stock, but we can reset the status.
       await updateDoc(commitmentRef, {
           status: 'pending',
           fulfilledAt: deleteField(),
@@ -1186,7 +1199,6 @@ export async function revertManualCommitmentFulfillment(
        }
     }
 
-    // Now, also update the commitment status
     await updateDoc(commitmentRef, {
         status: 'pending',
         fulfilledAt: deleteField(),
@@ -1226,7 +1238,6 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
 
   const normalizedCodes = codes.map(c => c.toLowerCase());
   
-  // Firestore 'in' query is limited to 30 elements per query.
   const chunks: string[][] = [];
   for (let i = 0; i < normalizedCodes.length; i += 30) {
     chunks.push(normalizedCodes.slice(i, i + 30));

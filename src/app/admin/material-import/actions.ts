@@ -24,7 +24,6 @@ async function getOperatorByUid(uid: string): Promise<Operator | null> {
         const operatorDoc = querySnapshot.docs[0];
         return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
     }
-    // Fallback to check by ID if UID is not set
     const docRef = doc(db, "operators", uid);
     const docSnap = await getDoc(docRef);
     if(docSnap.exists()){
@@ -59,7 +58,7 @@ export async function importCaricoFromFile(
     const lotto = row['Lotto'];
     const ddt = row['DDT'];
     const netQuantity = parseFloat(row['Quantita Netta']);
-    const date = row['Data']; // Assuming it's an Excel date number or a string
+    const date = row['Data']; 
     const packagingName = row['Tara (Imballo)']?.toLowerCase();
     
     if (!materialCode || !lotto || isNaN(netQuantity) || netQuantity <= 0) {
@@ -76,13 +75,13 @@ export async function importCaricoFromFile(
     }
 
     let parsedDate: Date;
-    if (typeof date === 'number') { // Excel date number
+    if (typeof date === 'number') {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
       parsedDate = new Date(excelEpoch.getTime() + date * 86400 * 1000);
     } else if (typeof date === 'string') {
       parsedDate = new Date(date);
     } else {
-      parsedDate = new Date(); // Fallback to now
+      parsedDate = new Date();
     }
 
     if (isNaN(parsedDate.getTime())) {
@@ -115,7 +114,7 @@ export async function importCaricoFromFile(
             } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
                 netWeightForCalc = netQuantity * currentMaterial.conversionFactor;
             } else {
-                netWeightForCalc = 0; // cannot calculate weight
+                netWeightForCalc = 0;
             }
 
             const newBatch: RawMaterialBatch = {
@@ -189,14 +188,14 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
       continue;
     }
 
-    const material = materialsMap.get(materialCode.toLowerCase());
-    if (!material) {
+    const materialLookup = materialsMap.get(materialCode.toLowerCase());
+    if (!materialLookup) {
       errors.push(`Riga con codice "${materialCode}": Materiale non trovato.`);
       failedRows.push(row);
       continue;
     }
 
-    const materialRef = doc(db, "rawMaterials", material.id);
+    const materialRef = doc(db, "rawMaterials", materialLookup.id);
 
     try {
       await runTransaction(db, async (transaction) => {
@@ -216,7 +215,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
           } else if (currentMaterial.unitOfMeasure === 'kg') {
             unitsConsumed = quantity;
           }
-        } else { // 'n' or 'mt'
+        } else {
           if (unit !== currentMaterial.unitOfMeasure) {
             throw new Error(`Unità di misura non corrispondente. Prevista: ${currentMaterial.unitOfMeasure}, fornita: ${unit}`);
           }
@@ -229,7 +228,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
             .filter(b => (b.lotto || '').toLowerCase() === (lotto || '').toLowerCase())
             .reduce((sum, b) => sum + (b.netQuantity || 0), 0);
 
-        if (totalAvailableInLot < unitsConsumed) {
+        if (totalAvailableInLot < unitsConsumed - 0.001) {
             throw new Error(`Stock insufficiente per il lotto '${lotto}'. Disponibile: ${formatDisplayStock(totalAvailableInLot, currentMaterial.unitOfMeasure)}, Richiesto: ${formatDisplayStock(unitsConsumed, currentMaterial.unitOfMeasure)}.`);
         }
 
@@ -249,7 +248,6 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
             return batch;
         });
 
-        
         const newTotalStockUnits = (currentMaterial.currentStockUnits || 0) - unitsConsumed;
         const newTotalWeightKg = (currentMaterial.currentWeightKg || 0) - consumedWeight;
         
@@ -263,8 +261,8 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         transaction.set(withdrawalRef, {
             jobIds: [],
             jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_DA_FILE'],
-            materialId: material.id,
-            materialCode: material.code,
+            materialId: currentMaterial.id,
+            materialCode: currentMaterial.code,
             consumedWeight,
             consumedUnits: unitsConsumed,
             operatorId: uid,
