@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department } from '@/lib/mock-data';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department, type Article } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -122,19 +122,6 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
     );
 }
 
-function RenderLoadingRow() {
-    return (
-        <TableRow>
-            <TableCell colSpan={9} className="h-24 text-center">
-                <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Caricamento materiali...</span>
-                </div>
-            </TableCell>
-        </TableRow>
-    );
-}
-
 export default function RawMaterialManagementClientPage({ 
   initialArticles, 
   initialCommitments,
@@ -154,12 +141,10 @@ export default function RawMaterialManagementClientPage({
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isBatchFormDialogOpen, setIsBatchFormDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
-  const [isDetailViewOpen, setIsDetailViewOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
-  const [editingBatch, setEditingBatch] = useState<any | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
@@ -209,17 +194,21 @@ export default function RawMaterialManagementClientPage({
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined && value !== null) formData.append(key, String(value));
     });
+    setIsPending(true);
     const result = await saveRawMaterial(formData);
     toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     if (result.success) { refreshData(); setIsEditDialogOpen(false); }
+    setIsPending(false);
   };
 
   const onBatchSubmit = async (values: z.infer<typeof batchFormSchema>) => {
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => { if (value) formData.append(key, String(value)); });
-    const result = editingBatch ? await updateBatchInRawMaterial(formData) : await addBatchToRawMaterial(formData);
+    setIsPending(true);
+    const result = await addBatchToRawMaterial(formData);
     toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     if (result.success) { refreshData(); setIsBatchFormDialogOpen(false); }
+    setIsPending(false);
   };
 
   const handleDelete = async () => {
@@ -256,8 +245,8 @@ export default function RawMaterialManagementClientPage({
             type: 'Scarico',
             date: w.withdrawalDate.toISOString(),
             description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale',
-            quantity: -(w.consumedUnits || w.consumedWeight || 0),
-            unit: w.consumedUnits ? updated.unitOfMeasure.toUpperCase() : 'KG',
+            quantity: -( (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0 ),
+            unit: ((w as any).consumedUnits || (w as any).unitsConsumed) ? updated.unitOfMeasure.toUpperCase() : 'KG',
             id: w.id,
         })),
     ];
@@ -267,38 +256,18 @@ export default function RawMaterialManagementClientPage({
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsImporting(true);
-    toast({ title: 'Analisi file...', description: 'Elaborazione dei dati in corso.' });
-
     try {
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const json = XLSX.utils.sheet_to_json(worksheet);
-
-      if (json.length === 0) throw new Error("Il file è vuoto.");
-
       const result = await commitImportedRawMaterials(json);
-      toast({
-        title: result.success ? "Importazione Completata" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-      });
-      
-      if (result.success) {
-        refreshData();
-      }
+      toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
+      if (result.success) refreshData();
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Errore Importazione",
-        description: error instanceof Error ? error.message : "Impossibile processare il file.",
-      });
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
+      toast({ variant: "destructive", title: "Errore Importazione", description: "Impossibile processare il file." });
+    } finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
   return (
@@ -344,7 +313,7 @@ export default function RawMaterialManagementClientPage({
                             </TableRow>
                             </TableHeader>
                             <TableBody>
-                            {isSearching ? <RenderLoadingRow /> : (rawMaterials.length > 0) ? (
+                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((material) => {
                                   const status = materialStatus.find(s => s.id === material.id);
                                   const displayStock = status ? status.stock : material.currentStockUnits;
@@ -363,8 +332,7 @@ export default function RawMaterialManagementClientPage({
                                             <DropdownMenu>
                                             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
-                                                <DropdownMenuItem onSelect={() => { setSelectedMaterial(material); setIsDetailViewOpen(true); }}><Eye className="mr-2 h-4 w-4" /> Dettagli</DropdownMenuItem>
-                                                <DropdownMenuItem onSelect={() => { setSelectedMaterial(material); form.reset({ ...material, id: material.id, sezione: (material as any).details?.sezione, filo_el: (material as any).details?.filo_el, larghezza: (material as any).details?.larghezza, tipologia: (material as any).details?.tipologia }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem>
+                                                <DropdownMenuItem onSelect={() => { setSelectedMaterial(material); form.reset({ ...material, id: material.id }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => { setSelectedMaterial(material); batchForm.reset({ materialId: material.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_MANUALE', netQuantity: 0 }); setIsBatchFormDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(material)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem>
                                                 <DropdownMenuItem onSelect={() => { setSelectedMaterial(material); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem>
@@ -403,7 +371,7 @@ export default function RawMaterialManagementClientPage({
                 <div className="grid grid-cols-2 gap-4">
                     {watchedUOM === 'kg' ? ( <FormField control={form.control} name="rapportoKgMt" render={({ field }) => ( <FormItem> <FormLabel>Kg/mt</FormLabel> <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} /> ) : ( <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem> <FormLabel>Fattore (kg)</FormLabel> <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} /> )}
                 </div>
-                <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit">Salva</Button></DialogFooter>
+                <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>Salva</Button></DialogFooter>
             </form></Form>
           </DialogContent>
         </Dialog>
@@ -415,7 +383,7 @@ export default function RawMaterialManagementClientPage({
                     <FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>Lotto</FormLabel> <FormControl><Input {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} />
                     <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> </FormItem> )} />
                     <FormField control={batchForm.control} name="netQuantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} />
-                    <DialogFooter><Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma Carico</Button></DialogFooter>
+                    <DialogFooter><Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>Conferma Carico</Button></DialogFooter>
                 </form></Form>
             </DialogContent>
         </Dialog>
@@ -423,19 +391,16 @@ export default function RawMaterialManagementClientPage({
         <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
             <DialogContent className="sm:max-w-4xl">
                 <DialogHeader><DialogTitle>Storico Movimenti: {selectedMaterial?.code}</DialogTitle></DialogHeader>
-                <ScrollArea className="max-h-[60vh]"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
-                <TableBody>{materialMovements.map(mov => (
-                    <TableRow key={mov.id}><TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell><UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'}>{mov.type}</UiBadge></TableCell><TableCell>{mov.description}</TableCell><TableCell className="text-right font-mono">{mov.quantity} {mov.unit}</TableCell>
-                    <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => mov.type === 'Carico' ? deleteBatchFromRawMaterial(selectedMaterial!.id, mov.id).then(refreshData) : deleteRawMaterial(mov.id).then(refreshData)}><Trash2 className="h-4 w-4" /></Button>
-                    </TableCell></TableRow>
-                ))}</TableBody></Table></ScrollArea>
+                <ScrollArea className="max-h-[60vh]"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow></TableHeader>
+                <TableBody>{materialMovements.length > 0 ? materialMovements.map((mov, idx) => (
+                    <TableRow key={idx}><TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell><UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'}>{mov.type}</UiBadge></TableCell><TableCell>{mov.description}</TableCell><TableCell className="text-right font-mono">{mov.quantity} {mov.unit}</TableCell></TableRow>
+                )) : <TableRow><TableCell colSpan={4} className="text-center">Nessun movimento.</TableCell></TableRow>}</TableBody></Table></ScrollArea>
             </DialogContent>
         </Dialog>
 
         <AlertDialog open={!!materialToDelete} onOpenChange={() => setMaterialToDelete(null)}>
             <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Elimina Materia Prima?</AlertDialogTitle><AlertDialogDescription>Questa azione è irreversibile.</AlertDialogDescription></AlertDialogHeader>
-            <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive">Elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+            <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive" disabled={isPending}>Elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
         </AlertDialog>
 
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />

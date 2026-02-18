@@ -134,11 +134,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const mat = mSnap.data() as RawMaterial;
         const consumedWeight = session.grossOpeningWeight - closing;
         if (consumedWeight < 0) throw new Error("Peso chiusura errato.");
-        let unitsConsumed = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
-        if ((mat.currentWeightKg || 0) < consumedWeight || (mat.currentStockUnits || 0) < unitsConsumed) throw new Error("Stock insufficiente.");
+        let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
+        if ((mat.currentWeightKg || 0) < consumedWeight || (mat.currentStockUnits || 0) < consumedUnits) throw new Error("Stock insufficiente.");
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits: unitsConsumed, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
-        t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - unitsConsumed });
+        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
         const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && mc.lottoBobina === session.lotto && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
         if (session.originatorJobId.startsWith('group-')) {
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
@@ -167,15 +167,15 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const item = itemSnap.data() as JobOrder;
         const qty = Number(data.quantity);
         let consumedWeight = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
-        let unitsConsumed = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
-        t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - unitsConsumed, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
+        let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits: unitsConsumed, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
         const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
             const phases = [...item.phases];
             const mc = phases[pIdx].materialConsumptions || [];
-            phases[pIdx].materialConsumptions = [...mc, { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: unitsConsumed }];
+            phases[pIdx].materialConsumptions = [...mc, { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: consumedUnits }];
             if (phases[pIdx].type === 'preparation') phases[pIdx].materialReady = true;
             t.update(itemSnap.ref, { phases });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
