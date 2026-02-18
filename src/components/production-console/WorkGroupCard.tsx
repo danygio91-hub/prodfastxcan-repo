@@ -1,4 +1,6 @@
 
+"use client";
+
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +10,7 @@ import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseC
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -332,7 +334,10 @@ export default function WorkGroupCard({
                                 {canForceComplete && (
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" />Forza Chiusura Gruppo</DropdownMenuItem></AlertDialogTrigger>
-                                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Stai per impostare manualmente questo gruppo come 'Completato'.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(group.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader><AlertDialogTitle>Confermi l'azione?</AlertDialogTitle><AlertDialogDescription>Stai per chiudere forzatamente questo gruppo. Lo stato verrà impostato su "Completata".</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceCompleteClick(group.id)}>Conferma</AlertDialogAction></AlertDialogFooter>
+                                        </AlertDialogContent>
                                     </AlertDialog>
                                 )}
                                 <DropdownMenuSeparator />

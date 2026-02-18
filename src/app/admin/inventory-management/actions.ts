@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
@@ -594,6 +593,3 @@ export async function rejectMultipleInventoryRecords(recordIds: string[], uid: s
         return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
     }
 }
-    
-    
-    

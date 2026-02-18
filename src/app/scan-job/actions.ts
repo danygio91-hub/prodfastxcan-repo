@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -456,7 +455,7 @@ export async function closeMaterialSessionAndUpdateStock(
             materialId: sessionData.materialId,
             materialCode: sessionData.materialCode,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            unitsConsumed,
             operatorId,
             operatorName: operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto',
             withdrawalDate: Timestamp.now(),
@@ -595,7 +594,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
             materialId,
             materialCode: material.code,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            unitsConsumed,
             operatorId,
             operatorName,
             withdrawalDate: Timestamp.now(),
@@ -623,7 +622,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ suc
         }
         
         const updatedPhases = item.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
-        transaction.update(itemRef, { phases: updatedPhases });
+        transaction.update(itemRef, updatedPhases);
 
         if (isGroup) {
             const groupData = { ...item, phases: updatedPhases } as WorkGroup;
@@ -1158,7 +1157,44 @@ export async function updateOperatorMaterialSessions(
     return { success: true, message: 'Sessioni materiale sincronizzate.' };
   } catch (error) {
     console.error("Error updating operator material sessions:", error);
-    return { success: false, message: 'Impossibile sincronizzare le sessioni materiale.' };
+    return { success: false, message: 'Impostazioni di sincronizzazione fallite.' };
   }
 }
 
+export async function startMaterialSessionInJob(
+    itemId: string,
+    phaseId: string,
+    consumption: MaterialConsumption
+): Promise<{ success: boolean; message: string }> {
+    const isGroup = itemId.startsWith('group-');
+    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+    const itemRef = doc(db, collectionName, itemId);
+
+    try {
+        await runTransaction(db, async (transaction) => {
+            const itemSnap = await transaction.get(itemRef);
+            if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+            
+            const itemData = itemSnap.data() as JobOrder | WorkGroup;
+            const updatedPhases = itemData.phases.map(phase => {
+                if (phase.id === phaseId) {
+                    const consumptions = phase.materialConsumptions || [];
+                    return { ...phase, materialConsumptions: [...consumptions, consumption], materialReady: true };
+                }
+                return phase;
+            });
+
+            transaction.update(itemRef, { phases: updatedPhases });
+
+            if (isGroup) {
+                const groupData = { ...itemData, phases: updatedPhases } as WorkGroup;
+                await propagateGroupUpdatesToJobs(transaction, groupData);
+            }
+        });
+
+        revalidatePath('/scan-job');
+        return { success: true, message: 'Sessione materiale avviata correttamente.' };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'avvio sessione.' };
+    }
+}

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -8,8 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType, Packaging } from '@/lib/mock-data';
-import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal, getRawMaterialByCode } from './actions';
+import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption } from '@/lib/mock-data';
+import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal, getRawMaterialByCode, startMaterialSessionInJob } from './actions';
 import { getPackagingItems } from '../inventory/actions';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
@@ -18,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
@@ -166,9 +167,10 @@ export default function MaterialAssociationDialog({
   }, [openingStockInKg, selectedMaterial, inputUnit]);
 
 
-  const onAvviaSessione = () => {
+  const onAvviaSessione = async () => {
     if (!selectedMaterial || !job || !operator || openingStockInKg === null) return;
 
+    setIsProcessing(true);
     const selectedPackaging = packagingItems.find(p => p.id === form.getValues('packagingId'));
 
     let associatedJobsForSession: { jobId: string; jobOrderPF: string }[] = [];
@@ -182,17 +184,34 @@ export default function MaterialAssociationDialog({
         associatedJobsForSession = [{ jobId: job.id, jobOrderPF: job.ordinePF }];
     }
 
-    onSessionStart({
-      materialId: selectedMaterial.id,
-      materialCode: selectedMaterial.code,
-      grossOpeningWeight: openingStockInKg! + (selectedPackaging?.weightKg || 0),
-      netOpeningWeight: openingStockInKg!,
-      originatorJobId: job.id,
-      associatedJobs: associatedJobsForSession,
-      packagingId: form.getValues('packagingId'),
-      tareWeight: selectedPackaging?.weightKg || 0,
-      lotto: form.getValues('lotto'),
-    }, selectedMaterial.type);
+    const consumption: MaterialConsumption = {
+        materialId: selectedMaterial.id,
+        materialCode: selectedMaterial.code,
+        grossOpeningWeight: openingStockInKg! + (selectedPackaging?.weightKg || 0),
+        netOpeningWeight: openingStockInKg!,
+        lottoBobina: form.getValues('lotto'),
+        packagingId: form.getValues('packagingId'),
+        tareWeight: selectedPackaging?.weightKg || 0,
+    };
+
+    const registerResult = await startMaterialSessionInJob(job.id, phase.id, consumption);
+
+    if (registerResult.success) {
+        onSessionStart({
+            materialId: selectedMaterial.id,
+            materialCode: selectedMaterial.code,
+            grossOpeningWeight: consumption.grossOpeningWeight!,
+            netOpeningWeight: consumption.netOpeningWeight!,
+            originatorJobId: job.id,
+            associatedJobs: associatedJobsForSession,
+            packagingId: consumption.packagingId,
+            tareWeight: consumption.tareWeight,
+            lotto: consumption.lottoBobina,
+        }, selectedMaterial.type);
+    } else {
+        toast({ variant: 'destructive', title: 'Errore', description: registerResult.message });
+    }
+    setIsProcessing(false);
   };
   
   const onPrelevaMateriale = async (values: FormValues) => {
@@ -347,11 +366,13 @@ export default function MaterialAssociationDialog({
           </ScrollArea>
           <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background">
               <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full">
-                <Play className="mr-2 h-4 w-4" /> Avvia Sessione
+                {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Play className="mr-2 h-4 w-4" />} 
+                Avvia Sessione
               </Button>
                 {(selectedMaterial && (phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial.unitOfMeasure === 'kg' ? false : true)) && (
                   <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full">
-                    <Send className="mr-2 h-4 w-4" /> Preleva Materiale
+                    {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                    Preleva Materiale
                   </Button>
               )}
           </DialogFooter>
