@@ -1,3 +1,4 @@
+
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -132,6 +133,7 @@ export default function WorkGroupCard({
       ...entry.item,
       quantity: entry.totalRequired, // The total required quantity for the whole group
       isFromTemplate: false, // Mark as aggregated
+      isAggregated: true,
     }));
 
     return {
@@ -344,7 +346,7 @@ export default function WorkGroupCard({
                                     <AlertDialogContent>
                                         <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente. L'avanzamento verrà ereditato dal gruppo.</AlertDialogDescription></AlertDialogHeader>
                                         <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
-                                    </AlertDialogContent>
+                                    </AlertDialog>
                                 </AlertDialog>
                             </DropdownMenuContent>
                         </DropdownMenu>

@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -228,7 +229,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/raw-material-scan');
-      revalidatePath('/admin/batch-management');
+      revalidatePath('/admin/batch-management'); // Added revalidation for batch page
       return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.' };
 
   } catch (error) {
@@ -666,6 +667,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const materialWithdrawals = withdrawals.filter(w => w.materialId === material.id);
         const totalWithdrawnUnits = materialWithdrawals.reduce((sum, w) => {
             if (w.consumedUnits !== null && w.consumedUnits !== undefined) return sum + w.consumedUnits;
+            if (material.unitOfMeasure === 'kg') return sum + (w.consumedWeight || 0);
             if (w.consumedWeight > 0 && material.conversionFactor && material.conversionFactor > 0) {
                 return sum + (w.consumedWeight / material.conversionFactor);
             }

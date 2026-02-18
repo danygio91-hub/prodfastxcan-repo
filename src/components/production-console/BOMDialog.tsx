@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useMemo } from 'react';
@@ -65,19 +66,18 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
       bomMap.set(item.component, { ...item, isFromTemplate: true });
     });
 
-    // Add/update with consumed items that might not be in the template
+    // Add consumed items that might not be in the template
     (job.phases || []).forEach(phase => {
       (phase.materialConsumptions || []).forEach(consumption => {
         const material = materialsMap.get(consumption.materialCode);
-        const withdrawnQty = withdrawnByComponent.get(consumption.materialCode) || 0;
-        const isWithdrawn = withdrawnQty > 0;
+        const withdrawnQtyForThisMaterial = withdrawnByComponent.get(consumption.materialCode) || 0;
 
-        if (!bomMap.has(consumption.materialCode)) {
+        if (!bomMap.has(consumption.materialCode) && withdrawnQtyForThisMaterial > 0) {
           bomMap.set(consumption.materialCode, {
             component: consumption.materialCode,
-            quantity: 0, // This is an added item, quantity is derived from consumption
+            quantity: 0, // This is an added item, requirement will be inferred from withdrawnQty
             unit: material?.unitOfMeasure || 'n',
-            status: isWithdrawn ? 'withdrawn' : 'committed',
+            status: 'withdrawn',
             isFromTemplate: false,
           });
         }
@@ -126,7 +126,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   let displayUnit = item.unit;
 
                   if (item.isFromTemplate) {
-                      // For template items (both single job and aggregated), calculate requirement from BOM data
+                      // Standard per-piece template
                       if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
                           totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
                           displayUnit = 'mt';
@@ -134,8 +134,12 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                           totalRequirement = item.quantity * job.qta;
                           displayUnit = item.unit;
                       }
+                  } else if ((item as any).isAggregated) {
+                      // For aggregated items from groups
+                      totalRequirement = item.quantity;
+                      displayUnit = item.unit;
                   } else {
-                      // For items added on the fly, the "requirement" is what was withdrawn
+                      // For items added manually during production, the "requirement" is what was withdrawn
                       totalRequirement = withdrawnQty;
                       displayUnit = material?.unitOfMeasure || 'n';
                   }
@@ -160,7 +164,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                     <TableRow key={index}>
                         <TableCell className="font-medium">
                             {item.component}
-                            {!item.isFromTemplate && !isAggregatedView && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
+                            {!item.isFromTemplate && !isAggregatedView && !((item as any).isAggregated) && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
                         </TableCell>
                         {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
                         <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
