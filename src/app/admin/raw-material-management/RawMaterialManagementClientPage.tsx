@@ -10,7 +10,7 @@ import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department, type Article } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -242,7 +242,7 @@ export default function RawMaterialManagementClientPage({
             id: b.id,
         })),
         ...withdrawals.map((w): Movement => {
-            const units = (w as any).consumedUnits ?? (w as any).unitsConsumed;
+            const units = (w as any).consumedUnits;
             return {
                 type: 'Scarico',
                 date: w.withdrawalDate.toISOString(),
@@ -386,8 +386,7 @@ export default function RawMaterialManagementClientPage({
                     <FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>Lotto</FormLabel> <FormControl><Input {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} />
                     <FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> </FormItem> )} />
                     <FormField control={batchForm.control} name="netQuantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} />
-                    <DialogFooter><Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>Conferma Carico</Button></DialogFooter>
-                </form></Form>
+                    <DialogFooter><Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>Conferma Carico</Button></form></Form>
             </DialogContent>
         </Dialog>
 

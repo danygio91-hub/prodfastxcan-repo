@@ -119,8 +119,8 @@ export default function WorkGroupCard({
                                 <DropdownMenuSeparator />
                                 <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><Unlink className="mr-2 h-4 w-4" /> Annulla Gruppo</DropdownMenuItem></AlertDialogTrigger>
                                 <AlertDialogContent>
-                                    <AlertDialogHeader><AlertDialogTitle>Annullare gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali.</AlertDialogDescription></AlertDialogHeader>
-                                    <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive">Sì, annulla</AlertDialogAction></AlertDialogFooter>
+                                    <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente. L'avanzamento verrà ereditato dal gruppo.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent></AlertDialog>
                             </DropdownMenuContent></DropdownMenu>
                     </div>

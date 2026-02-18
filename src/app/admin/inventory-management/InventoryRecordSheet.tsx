@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -22,9 +21,7 @@ import { type InventoryRecord, type Packaging, type RawMaterial } from '@/lib/mo
 import { updateInventoryRecord, getPackagingItems, getMaterialById } from './actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Save, Weight, Archive, Package, TestTube } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { Loader2, Save, Archive, Package } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -38,7 +35,7 @@ interface InventoryRecordSheetProps {
 
 const formSchema = z.object({
   inputQuantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  packagingId: z.string().optional(),
+  packagingId: z.string().optional().default('none'),
   inputUnit: z.enum(['n', 'mt', 'kg']),
 });
 
@@ -80,19 +77,14 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     const tareWeight = packagingItems.find(p => p.id === packagingId)?.weightKg || 0;
 
     if (inputUnit === 'kg') {
-        // User is inputting GROSS weight. Net weight is Gross - Tare.
         return (inputQuantity || 0) - tareWeight;
     } else {
-        // User is inputting net quantity (pieces or meters).
-        // Net weight is calculated from units * conversion factor.
         const conversionFactor = material.conversionFactor;
         if (conversionFactor && conversionFactor > 0) {
             return (inputQuantity || 0) * conversionFactor;
         }
     }
-    
-    return 0; // Fallback if no valid calculation can be made
-
+    return 0;
   }, [material, watchedValues, packagingItems]);
 
 
@@ -100,13 +92,11 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
-    // IMPORTANT: We are now passing the *original* input quantity and unit to the server.
-    // The server action will be responsible for recalculating everything based on this.
     const result = await updateInventoryRecord(
         record.id, 
-        values.inputQuantity, // The value from the form field
-        values.inputUnit,     // The unit selected in the form
-        values.packagingId,
+        values.inputQuantity,
+        values.inputUnit,
+        values.packagingId || 'none',
         user.uid
     );
     toast({
@@ -129,9 +119,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Modifica Registrazione Inventario</SheetTitle>
-          <SheetDescription>
-            Correggi quantità o tara. Il peso netto verrà ricalcolato.
-          </SheetDescription>
+          <SheetDescription>Correggi quantità o tara. Il peso netto verrà ricalcolato.</SheetDescription>
         </SheetHeader>
         {!material ? <Skeleton className="h-96 w-full mt-6" /> : (
         <Form {...form}>
@@ -166,17 +154,12 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
                     <Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/>
                        {form.watch('inputUnit') === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Inserita (${material.unitOfMeasure.toUpperCase()})`}
                     </Label>
-                    <Input 
-                        id="inputQuantity" 
-                        type="number"
-                        step="any"
-                        {...form.register('inputQuantity')}
-                    />
+                    <Input id="inputQuantity" type="number" step="any" {...form.register('inputQuantity')} />
                     {form.formState.errors.inputQuantity && <p className="text-sm text-destructive">{form.formState.errors.inputQuantity.message}</p>}
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="packagingId" className="flex items-center gap-2"><Archive className="h-4 w-4"/> Tara Applicata (kg)</Label>
+                    <Label htmlFor="packagingId" className="flex items-center gap-2"><Archive className="mr-2 h-4 w-4"/> Tara Applicata (kg)</Label>
                     <Select onValueChange={(value) => form.setValue('packagingId', value)} defaultValue={record.packagingId || 'none'}>
                     <SelectTrigger id="packagingId">
                         <SelectValue placeholder="Seleziona una tara..." />
@@ -196,12 +179,9 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
                     <Label className="text-muted-foreground">Nuovo Peso Netto Calcolato (kg)</Label>
                     <p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? calculatedNetWeight.toFixed(3) : '---'}</p>
                 </div>
-
             </div>
             <SheetFooter>
-                <SheetClose asChild>
-                <Button type="button" variant="outline">Annulla</Button>
-                </SheetClose>
+                <SheetClose asChild><Button type="button" variant="outline">Annulla</Button></SheetClose>
                 <Button type="submit" disabled={isPending || calculatedNetWeight < 0}>
                     {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
                     Salva Modifiche
