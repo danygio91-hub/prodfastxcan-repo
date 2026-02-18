@@ -51,7 +51,6 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
     code_normalized: code.toLowerCase(),
     type: rawData.type as RawMaterialType,
     description: rawData.description as string,
-    details: { sezione: rawData.sezione, filo_el: rawData.filo_el, larghezza: rawData.larghezza, tipologia: rawData.tipologia },
     unitOfMeasure: rawData.unitOfMeasure as any,
     conversionFactor: rawData.conversionFactor ? Number(rawData.conversionFactor) : null,
     rapportoKgMt: rawData.rapportoKgMt ? Number(rawData.rapportoKgMt) : null,
@@ -160,7 +159,6 @@ export async function commitImportedRawMaterials(data: any[]): Promise<{ success
             code_normalized: code.toLowerCase(),
             type: (row.type || 'BOB') as RawMaterialType,
             description: row.description || row.Descrizione || "N/D",
-            details: { sezione: row.sezione || "", filo_el: row.filo_el || "", larghezza: row.larghezza || "", tipologia: row.tipologia || "" },
             unitOfMeasure: uom as any,
             conversionFactor: row.conversionFactor ? Number(row.conversionFactor) : null,
             currentStockUnits: 0,
@@ -209,16 +207,14 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     let syncNeeded = false;
 
     // --- AUTO-HEALING LOGIC ---
-    // Ricalcoliamo lo stock reale incrociando carichi e scarichi storici
     materialsMap.forEach(material => {
         const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (b.netQuantity || 0), 0);
         const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (b.grossWeight || 0), 0);
         
         const matWithdrawals = withdrawals.filter(w => w.materialId === material.id);
         const totalWithdrawnUnits = matWithdrawals.reduce((sum, w) => {
-            const units = (w as any).consumedUnits;
+            const units = (w as any).consumedUnits ?? (w as any).unitsConsumed;
             if (units !== undefined && units !== null && units !== 0) return sum + units;
-            // Deducibilità unità dai KG se mancano
             if (material.unitOfMeasure === 'kg') return sum + (w.consumedWeight || 0);
             if (material.conversionFactor && material.conversionFactor > 0) return sum + ((w.consumedWeight || 0) / material.conversionFactor);
             return sum;
@@ -228,7 +224,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
-        // Se il dato nel DB è sporco, lo ripariamo
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001) {
             syncBatch.update(doc(db, 'rawMaterials', material.id), { currentStockUnits: realStockUnits, currentWeightKg: realWeightKg });
             syncNeeded = true;
@@ -240,7 +235,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     const impegniMap = new Map<string, number>();
     
-    // 1. Impegni da Commesse
     jobsSnap.forEach(docSnap => {
         const job = docSnap.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
@@ -253,7 +247,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         });
     });
 
-    // 2. Impegni Manuali (Esplosione Distinta Articoli)
     commitmentsSnap.forEach(docSnap => {
         const comm = docSnap.data() as ManualCommitment;
         const artCode = comm.articleCode.toLowerCase().trim();
@@ -281,31 +274,21 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 }
 
 export async function searchMaterialsAndGetStatus(searchTerm: string) {
-  const materials = await getRawMaterials(searchTerm);
-  if (materials.length === 0) return { materials: [], status: [] };
   const allStatus = await getMaterialsStatus();
-  const ids = new Set(materials.map(m => m.id));
-  return { materials, status: allStatus.filter(s => ids.has(s.id)) };
+  const lowerTerm = searchTerm.toLowerCase().trim();
+  const filteredStatus = allStatus.filter(s => s.code.toLowerCase().includes(lowerTerm));
+  const filteredIds = new Set(filteredStatus.map(s => s.id));
+  const materials = await getRawMaterials();
+  return { materials: materials.filter(m => filteredIds.has(m.id)), status: filteredStatus };
 }
 
 export async function saveManualCommitment(data: any, uid: string): Promise<{ success: boolean; message: string; }> {
   await ensureAdmin(uid);
   const id = data.id;
   const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
-  
   const deliveryDate = data.deliveryDate instanceof Date ? data.deliveryDate.toISOString() : data.deliveryDate;
-
-  const dataToSave = { 
-    ...data, 
-    deliveryDate,
-    status: 'pending' 
-  };
-  
-  if (!id) { 
-    dataToSave.id = docRef.id; 
-    dataToSave.createdAt = Timestamp.now(); 
-  }
-  
+  const dataToSave = { ...data, deliveryDate, status: 'pending' };
+  if (!id) { dataToSave.id = docRef.id; dataToSave.createdAt = Timestamp.now(); }
   await setDoc(docRef, dataToSave, { merge: true });
   revalidatePath('/admin/raw-material-management');
   return { success: true, message: 'Impegno salvato.' };
@@ -316,79 +299,48 @@ export async function deleteManualCommitment(id: string): Promise<{ success: boo
         await deleteDoc(doc(db, "manualCommitments", id));
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Impegno eliminato.' };
-    } catch (e) { return { success: false, message: 'Errore durante l\'eliminazione dell\'impegno.' }; }
+    } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export async function importManualCommitments(data: any[], uid: string): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
     const batch = writeBatch(db);
     let added = 0;
-    
     for (const row of data) {
         const jobCode = String(row.Commessa || row.jobOrderCode || "").trim();
         const artCode = String(row["Codice Articolo"] || row.articleCode || "").trim();
         const qty = Number(row.Quantita || row.quantity);
         const dateRaw = row["Data Consegna"] || row.deliveryDate;
-        
         if (!jobCode || !artCode || isNaN(qty)) continue;
-
-        let deliveryDate: string;
-        if (dateRaw instanceof Date) {
-            deliveryDate = dateRaw.toISOString();
-        } else if (typeof dateRaw === 'number') {
-            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-            deliveryDate = new Date(excelEpoch.getTime() + dateRaw * 86400 * 1000).toISOString();
-        } else {
-            deliveryDate = new Date().toISOString();
-        }
-
+        let deliveryDate = dateRaw instanceof Date ? dateRaw.toISOString() : (typeof dateRaw === 'number' ? new Date(new Date(Date.UTC(1899, 11, 30)).getTime() + dateRaw * 86400 * 1000).toISOString() : new Date().toISOString());
         const newRef = doc(collection(db, "manualCommitments"));
-        batch.set(newRef, {
-            id: newRef.id,
-            jobOrderCode: jobCode,
-            articleCode: artCode,
-            quantity: qty,
-            deliveryDate,
-            status: 'pending',
-            createdAt: Timestamp.now(),
-        });
+        batch.set(newRef, { id: newRef.id, jobOrderCode: jobCode, articleCode: artCode, quantity: qty, deliveryDate, status: 'pending', createdAt: Timestamp.now() });
         added++;
     }
-    
     if (added > 0) await batch.commit();
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: `Importati ${added} impegni manuali.` };
+    return { success: true, message: `Importati ${added} impegni.` };
 }
 
 export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string): Promise<{ success: boolean; message: string }> {
     try {
-        await runTransaction(db, async (transaction) => {
-            const withdrawalRef = doc(db, 'materialWithdrawals', withdrawalId);
-            const withdrawalSnap = await transaction.get(withdrawalRef);
-            if (!withdrawalSnap.exists()) throw new Error("Prelievo non trovato.");
-            
-            const withdrawal = withdrawalSnap.data() as MaterialWithdrawal;
-            const materialRef = doc(db, 'rawMaterials', withdrawal.materialId);
-            const materialSnap = await transaction.get(materialRef);
-            
-            if (materialSnap.exists()) {
-                const material = materialSnap.data() as RawMaterial;
-                const unitsToRestore = (withdrawal as any).consumedUnits ?? 0;
-                
-                transaction.update(materialRef, {
-                    currentStockUnits: (material.currentStockUnits || 0) + unitsToRestore,
-                    currentWeightKg: (material.currentWeightKg || 0) + withdrawal.consumedWeight,
-                });
+        await runTransaction(db, async (t) => {
+            const wRef = doc(db, 'materialWithdrawals', withdrawalId);
+            const wSnap = await t.get(wRef);
+            if (!wSnap.exists()) throw new Error("Non trovato.");
+            const w = wSnap.data() as MaterialWithdrawal;
+            const mRef = doc(db, 'rawMaterials', w.materialId);
+            const mSnap = await t.get(mRef);
+            if (mSnap.exists()) {
+                const mat = mSnap.data() as RawMaterial;
+                const units = (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0;
+                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + w.consumedWeight });
             }
-            
-            transaction.delete(withdrawalRef);
+            t.delete(wRef);
         });
         revalidatePath('/admin/raw-material-management');
-        revalidatePath('/admin/reports');
-        return { success: true, message: "Prelievo eliminato e stock ripristinato." };
-    } catch (error) {
-        return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione del prelievo." };
-    }
+        return { success: true, message: "Eliminato." };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export async function getScrapsForMaterial(id: string): Promise<ScrapRecord[]> {
@@ -410,153 +362,66 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     const materialRef = doc(db, "rawMaterials", materialId);
     const materialSnap = await getDoc(materialRef);
     if (!materialSnap.exists()) return [];
-    
     const material = materialSnap.data() as RawMaterial;
     const withdrawals = await getMaterialWithdrawalsForMaterial(materialId);
-    
-    const batchesByLotto = (material.batches || []).reduce((acc, b) => {
-        const lot = b.lotto || 'SENZA_LOTTO';
-        if (!acc[lot]) acc[lot] = [];
-        acc[lot].push(b);
-        return acc;
-    }, {} as Record<string, RawMaterialBatch[]>);
-
-    const lotWithdrawalsMap = withdrawals.reduce((acc, w) => {
-        const lot = w.lotto || 'SENZA_LOTTO';
-        const units = (w as any).consumedUnits ?? 0;
-        acc[lot] = (acc[lot] || 0) + units;
-        return acc;
-    }, {} as Record<string, number>);
-
-    return Object.entries(batchesByLotto).map(([lotto, batches]) => {
-        const totalLoaded = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-        const withdrawn = lotWithdrawalsMap[lotto] || 0;
-        return { lotto, totalLoaded, available: totalLoaded - withdrawn, batches };
-    }).filter(l => l.available > 0.001);
+    const batchesByLot = (material.batches || []).reduce((acc, b) => { const lot = b.lotto || 'SENZA_LOTTO'; if (!acc[lot]) acc[lot] = []; acc[lot].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
+    const lotWMap = withdrawals.reduce((acc, w) => { const lot = w.lotto || 'SENZA_LOTTO'; acc[lot] = (acc[lot] || 0) + ((w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0); return acc; }, {} as Record<string, number>);
+    return Object.entries(batchesByLot).map(([lotto, batches]) => { const total = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0); const used = lotWMap[lotto] || 0; return { lotto, totalLoaded: total, available: total - used, batches }; }).filter(l => l.available > 0.001);
 }
 
-export async function declareCommitmentFulfillment(
-    commitmentId: string,
-    goodPieces: number,
-    scrapPieces: number,
-    lotSelections: LotSelectionPayload[],
-    uid: string
-): Promise<{ success: boolean; message: string }> {
+export async function declareCommitmentFulfillment(commitmentId: string, goodPieces: number, scrapPieces: number, lotSelections: LotSelectionPayload[], uid: string): Promise<{ success: boolean; message: string }> {
     try {
-        await runTransaction(db, async (transaction) => {
-            const commitmentRef = doc(db, 'manualCommitments', commitmentId);
-            const commitmentSnap = await transaction.get(commitmentRef);
-            if (!commitmentSnap.exists() || commitmentSnap.data().status === 'fulfilled') {
-                throw new Error("Impegno non trovato o già evaso.");
-            }
-
-            const opSnap = await transaction.get(doc(db, 'operators', uid));
+        await runTransaction(db, async (t) => {
+            const cRef = doc(db, 'manualCommitments', commitmentId);
+            const cSnap = await t.get(cRef);
+            if (!cSnap.exists() || cSnap.data().status === 'fulfilled') throw new Error("Non trovato o già evaso.");
+            const opSnap = await t.get(doc(db, 'operators', uid));
             const opName = opSnap.data()?.nome || 'Sconosciuto';
-
-            for (const selection of lotSelections) {
-                const materialRef = doc(db, 'rawMaterials', selection.materialId);
-                const materialSnap = await transaction.get(materialRef);
-                if (!materialSnap.exists()) throw new Error(`Materiale ${selection.componentCode} non trovato.`);
-                
-                const material = materialSnap.data() as RawMaterial;
-                const weightToConsume = material.conversionFactor ? selection.consumed * material.conversionFactor : 0;
-
-                transaction.update(materialRef, {
-                    currentStockUnits: (material.currentStockUnits || 0) - selection.consumed,
-                    currentWeightKg: (material.currentWeightKg || 0) - weightToConsume
-                });
-
-                const withdrawalRef = doc(collection(db, 'materialWithdrawals'));
-                transaction.set(withdrawalRef, {
-                    materialId: selection.materialId,
-                    materialCode: selection.componentCode,
-                    consumedWeight: weightToConsume,
-                    consumedUnits: selection.consumed,
-                    lotto: selection.lotto,
-                    operatorId: uid,
-                    operatorName: opName,
-                    withdrawalDate: Timestamp.now(),
-                    jobOrderPFs: [commitmentSnap.data().jobOrderCode],
-                    commitmentId: commitmentId,
-                });
-
+            for (const sel of lotSelections) {
+                const mRef = doc(db, 'rawMaterials', sel.materialId);
+                const mSnap = await t.get(mRef);
+                const mat = mSnap.data() as RawMaterial;
+                const weight = mat.conversionFactor ? sel.consumed * mat.conversionFactor : 0;
+                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) - sel.consumed, currentWeightKg: (mat.currentWeightKg || 0) - weight });
+                const wRef = doc(collection(db, 'materialWithdrawals'));
+                t.set(wRef, { materialId: sel.materialId, materialCode: sel.componentCode, consumedWeight: weight, consumedUnits: sel.consumed, lotto: sel.lotto, operatorId: uid, operatorName: opName, withdrawalDate: Timestamp.now(), jobOrderPFs: [cSnap.data().jobOrderCode], commitmentId });
                 if (scrapPieces > 0) {
-                    const scrapWeight = material.conversionFactor ? (scrapPieces * (selection.consumed / (goodPieces + scrapPieces)) * material.conversionFactor) : 0;
-                    const scrapRef = doc(collection(db, 'scrapRecords'));
-                    transaction.set(scrapRef, {
-                        commitmentId,
-                        jobOrderCode: commitmentSnap.data().jobOrderCode,
-                        articleCode: commitmentSnap.data().articleCode,
-                        materialId: selection.materialId,
-                        materialCode: selection.componentCode,
-                        scrappedQuantity: scrapPieces,
-                        scrappedWeightKg: scrapWeight,
-                        declaredAt: Timestamp.now(),
-                        operatorId: uid,
-                        operatorName: opName
-                    });
+                    const sw = mat.conversionFactor ? (scrapPieces * (sel.consumed / (goodPieces + scrapPieces)) * mat.conversionFactor) : 0;
+                    t.set(doc(collection(db, 'scrapRecords')), { commitmentId, jobOrderCode: cSnap.data().jobOrderCode, articleCode: cSnap.data().articleCode, materialId: sel.materialId, materialCode: sel.componentCode, scrappedQuantity: scrapPieces, scrappedWeightKg: sw, declaredAt: Timestamp.now(), operatorId: uid, operatorName: opName });
                 }
             }
-
-            transaction.update(commitmentRef, {
-                status: 'fulfilled',
-                fulfilledAt: Timestamp.now(),
-                fulfilledBy: uid,
-                producedQuantity: goodPieces,
-                scrapQuantity: scrapPieces
-            });
+            t.update(cRef, { status: 'fulfilled', fulfilledAt: Timestamp.now(), fulfilledBy: uid, producedQuantity: goodPieces, scrapQuantity: scrapPieces });
         });
-
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Produzione dichiarata e stock aggiornato." };
-    } catch (e) {
-        return { success: false, message: e instanceof Error ? e.message : "Errore durante l'evasione." };
-    }
+        return { success: true, message: "Evaso." };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export async function revertManualCommitmentFulfillment(commitmentId: string, uid: string): Promise<{ success: boolean; message: string }> {
     try {
-        await runTransaction(db, async (transaction) => {
-            const commitmentRef = doc(db, 'manualCommitments', commitmentId);
-            const commitmentSnap = await transaction.get(commitmentRef);
-            if (!commitmentSnap.exists() || commitmentSnap.data().status !== 'fulfilled') {
-                throw new Error("Impegno non evaso o non trovato.");
-            }
-
-            const withdrawalsQuery = query(collection(db, 'materialWithdrawals'), where('commitmentId', '==', commitmentId));
-            const withdrawalsSnap = await getDocs(withdrawalsQuery);
-
-            for (const wDoc of withdrawalsSnap.docs) {
-                const wData = wDoc.data();
-                const mRef = doc(db, 'rawMaterials', wData.materialId);
-                const mSnap = await transaction.get(mRef);
+        await runTransaction(db, async (t) => {
+            const cRef = doc(db, 'manualCommitments', commitmentId);
+            const cSnap = await t.get(cRef);
+            if (!cSnap.exists()) return;
+            const ws = await getDocs(query(collection(db, 'materialWithdrawals'), where('commitmentId', '==', commitmentId)));
+            for (const wDoc of ws.docs) {
+                const w = wDoc.data();
+                const mRef = doc(db, 'rawMaterials', w.materialId);
+                const mSnap = await t.get(mRef);
                 if (mSnap.exists()) {
                     const mat = mSnap.data() as RawMaterial;
-                    transaction.update(mRef, {
-                        currentStockUnits: (mat.currentStockUnits || 0) + (wData.consumedUnits || 0),
-                        currentWeightKg: (mat.currentWeightKg || 0) + (wData.consumedWeight || 0)
-                    });
+                    const units = w.consumedUnits ?? w.unitsConsumed ?? 0;
+                    t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + (w.consumedWeight || 0) });
                 }
-                transaction.delete(wDoc.ref);
+                t.delete(wDoc.ref);
             }
-
-            const scrapsQuery = query(collection(db, 'scrapRecords'), where('commitmentId', '==', commitmentId));
-            const scrapsSnap = await getDocs(scrapsQuery);
-            scrapsSnap.forEach(sDoc => transaction.delete(sDoc.ref));
-
-            transaction.update(commitmentRef, {
-                status: 'pending',
-                fulfilledAt: deleteField(),
-                fulfilledBy: deleteField(),
-                producedQuantity: deleteField(),
-                scrapQuantity: deleteField()
-            });
+            const ss = await getDocs(query(collection(db, 'scrapRecords'), where('commitmentId', '==', commitmentId)));
+            ss.forEach(s => t.delete(s.ref));
+            t.update(cRef, { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField(), producedQuantity: deleteField(), scrapQuantity: deleteField() });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Evasione annullata e stock ripristinato." };
-    } catch (e) {
-        return { success: false, message: e instanceof Error ? e.message : "Errore." };
-    }
+        return { success: true, message: "Annullato." };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number; };

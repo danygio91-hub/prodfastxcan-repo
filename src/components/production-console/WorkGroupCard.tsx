@@ -109,7 +109,7 @@ export default function WorkGroupCard({
                                     <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}>{isPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />} Sposta Guaina</DropdownMenuItem></AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader><AlertDialogTitle>Conferma</AlertDialogTitle><AlertDialogDescription>Spostare la guaina scioglierà il gruppo. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guaina.id, isPostponed ? 'postponed' : 'default')}>Conferma e Sciogli</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guaina.id, isPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent></AlertDialog>
                                 )}
                                 <DropdownMenuSeparator />
@@ -119,8 +119,8 @@ export default function WorkGroupCard({
                                 <DropdownMenuSeparator />
                                 <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><Unlink className="mr-2 h-4 w-4" /> Annulla Gruppo</DropdownMenuItem></AlertDialogTrigger>
                                 <AlertDialogContent>
-                                    <AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler annullare il gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali e dovranno essere gestite singolarmente. L'avanzamento verrà ereditato dal gruppo.</AlertDialogDescription></AlertDialogHeader>
-                                    <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla gruppo</AlertDialogAction></AlertDialogFooter>
+                                    <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent></AlertDialog>
                             </DropdownMenuContent></DropdownMenu>
                     </div>

@@ -35,7 +35,7 @@ interface InventoryRecordSheetProps {
 
 const formSchema = z.object({
   inputQuantity: z.coerce.number().positive("La quantità deve essere positiva."),
-  packagingId: z.string().optional().default('none'),
+  packagingId: z.string().default('none'),
   inputUnit: z.enum(['n', 'mt', 'kg']),
 });
 
@@ -118,8 +118,8 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
       <SheetContent>
         <SheetHeader>
-          <SheetTitle>Modifica Registrazione Inventario</SheetTitle>
-          <SheetDescription>Correggi quantità o tara. Il peso netto verrà ricalcolato.</SheetDescription>
+          <SheetTitle>Modifica Registrazione</SheetTitle>
+          <SheetDescription>Correggi quantità o tara.</SheetDescription>
         </SheetHeader>
         {!material ? <Skeleton className="h-96 w-full mt-6" /> : (
         <Form {...form}>
