@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useMemo } from 'react';
@@ -7,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { JobOrder, JobBillOfMaterialsItem, MaterialConsumption, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobBillOfMaterialsItem, RawMaterial } from '@/lib/mock-data';
 import { ClipboardList, Check } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { formatDisplayStock } from '@/lib/utils';
@@ -75,7 +74,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
         if (!bomMap.has(consumption.materialCode) && withdrawnQtyForThisMaterial > 0) {
           bomMap.set(consumption.materialCode, {
             component: consumption.materialCode,
-            quantity: 0, // This is an added item, requirement will be inferred from withdrawnQty
+            quantity: 0,
             unit: material?.unitOfMeasure || 'n',
             status: 'withdrawn',
             isFromTemplate: false,
@@ -126,7 +125,6 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   let displayUnit = item.unit;
 
                   if (item.isFromTemplate) {
-                      // Standard per-piece template
                       if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
                           totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
                           displayUnit = 'mt';
@@ -135,11 +133,9 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                           displayUnit = item.unit;
                       }
                   } else if ((item as any).isAggregated) {
-                      // For aggregated items from groups
                       totalRequirement = item.quantity;
                       displayUnit = item.unit;
                   } else {
-                      // For items added manually during production, the "requirement" is what was withdrawn
                       totalRequirement = withdrawnQty;
                       displayUnit = material?.unitOfMeasure || 'n';
                   }
