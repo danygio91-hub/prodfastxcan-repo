@@ -9,1192 +9,305 @@ import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
-
-// Helper function to convert Firestore Timestamps to Dates in nested objects
 function convertTimestampsToDates(obj: any): any {
-    if (obj === null || typeof obj !== 'object') {
-        return obj;
-    }
-
-    if (obj.toDate && typeof obj.toDate === 'function') {
-        return obj.toDate();
-    }
-    
-    if (Array.isArray(obj)) {
-        return obj.map(item => convertTimestampsToDates(item));
-    }
-
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
+    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
     const newObj: { [key: string]: any } = {};
-    for (const key in obj) {
-        newObj[key] = convertTimestampsToDates(obj[key]);
-    }
+    for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
     return newObj;
 }
 
 export async function getRawMaterialByCode(code: string): Promise<RawMaterial | { error: string; title?: string }> {
-  const materialsRef = collection(db, "rawMaterials");
-  const trimmedCode = code.trim();
-  
-  if (!trimmedCode) {
-     return {
-      error: `Il codice inserito è vuoto.`,
-      title: 'Codice Vuoto',
-    };
-  }
-
-  // Security check: if the code looks like a login credential, reject it with a generic error.
-  if (trimmedCode.includes('@') && trimmedCode.length > 3) {
-      return {
-          error: "Scansione non valida per questo contesto. Assicurati di scansionare un codice materiale.",
-          title: "Scansione non Valida",
-      };
-  }
-
-  const normalizedCode = trimmedCode.toLowerCase();
-  const q = firestoreQuery(materialsRef, where("code_normalized", "==", normalizedCode));
-  const querySnapshot = await getDocs(q);
-
-  if (querySnapshot.empty) {
-    return {
-      error: `Materia prima non trovata. Verificare il codice o aggiungerla dall'area amministrazione.`,
-      title: 'Materiale non Trovato',
-    };
-  }
-
-  const docSnap = querySnapshot.docs[0];
-  const material = docSnap.data() as RawMaterial;
-  material.id = docSnap.id;
-
+  const trimmed = code.trim();
+  if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
+  if (trimmed.includes('@') && trimmed.length > 3) return { error: "Scansione non valida.", title: "Errore" };
+  const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", trimmed.toLowerCase()));
+  const snap = await getDocs(q);
+  if (snap.empty) return { error: `Materia prima non trovata.`, title: 'Materiale non Trovato' };
+  const material = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
   return JSON.parse(JSON.stringify(material));
 }
 
-
-/**
- * Helper function to propagate state changes from a group to its member job orders.
- * @param transaction Firestore transaction object.
- * @param groupData The WorkGroup data containing the state to propagate.
- */
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    
-    const updatePayload: { [key: string]: any } = {
-        phases: groupData.phases,
-        status: groupData.status,
-    };
-
-    const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
-    jobRefs.forEach(jobRef => {
-        transaction.update(jobRef, updatePayload);
-    });
+    const updatePayload = { phases: groupData.phases, status: groupData.status };
+    groupData.jobOrderIds.forEach(id => transaction.update(doc(db, 'jobOrders', id), updatePayload));
 }
 
-
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
-    const isWorkGroup = id.startsWith('group-');
-    const collectionName = isWorkGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, id);
-    const docSnap = await getDoc(itemRef);
-
-    if (!docSnap.exists()) return null;
-
-    const data = convertTimestampsToDates(docSnap.data());
-
-    if (isWorkGroup) {
+    const isGroup = id.startsWith('group-');
+    const snap = await getDoc(doc(db, isGroup ? 'workGroups' : 'jobOrders', id));
+    if (!snap.exists()) return null;
+    const data = convertTimestampsToDates(snap.data());
+    if (isGroup) {
         const group = data as WorkGroup;
-        // The client-side logic will handle the operator view.
-        // We pass the group status as is.
-        return {
-            id: group.id,
-            cliente: group.cliente,
-            qta: group.totalQuantity,
-            department: group.department,
-            details: group.details,
-            ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
-            numeroODL: group.numeroODL || 'N/D',
-            numeroODLInterno: group.numeroODLInterno || 'N/D',
-            dataConsegnaFinale: group.dataConsegnaFinale || 'N/D',
-            postazioneLavoro: 'Multi-Commessa',
-            phases: group.phases || [],
-            overallStartTime: group.overallStartTime,
-            overallEndTime: group.overallEndTime,
-            isProblemReported: group.isProblemReported,
-            problemType: group.problemType,
-            problemNotes: group.problemNotes,
-            problemReportedBy: group.problemReportedBy,
-            status: group.status,
-            workCycleId: group.workCycleId,
-            workGroupId: group.id,
-            jobOrderIds: group.jobOrderIds,
-            jobOrderPFs: group.jobOrderPFs,
-        };
+        return { id: group.id, cliente: group.cliente, qta: group.totalQuantity, department: group.department, details: group.details, ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo', numeroODL: group.numeroODL || 'N/D', numeroODLInterno: group.numeroODLInterno || 'N/D', dataConsegnaFinale: group.dataConsegnaFinale || 'N/D', postazioneLavoro: 'Multi-Commessa', phases: group.phases || [], overallStartTime: group.overallStartTime, overallEndTime: group.overallEndTime, isProblemReported: group.isProblemReported, problemType: group.problemType, problemNotes: group.problemNotes, problemReportedBy: group.problemReportedBy, status: group.status, workCycleId: group.workCycleId, workGroupId: group.id, jobOrderIds: group.jobOrderIds, jobOrderPFs: group.jobOrderPFs };
     }
-
     return data as JobOrder;
 }
 
-export async function verifyAndGetJobOrder(scannedData: {
-  ordinePF: string;
-  codice: string;
-  qta: string; // Keep as string for comparison flexibility
-}): Promise<JobOrder | { error: string; title?: string }> {
+export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
   const sanitizedId = scannedData.ordinePF.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
-  const jobRef = doc(db, "jobOrders", sanitizedId);
-  const docSnap = await getDoc(jobRef);
-
-  if (!docSnap.exists()) {
-    return {
-      error: `Commessa con ID "${scannedData.ordinePF}" non trovata nel database.`,
-      title: 'Commessa non Trovata',
-    };
-  }
-
-  const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
-
-  // If the job belongs to a group, always prioritize opening the group context.
+  const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
+  if (!snap.exists()) return { error: `Commessa non trovata.`, title: 'Errore' };
+  const job = convertTimestampsToDates(snap.data()) as JobOrder;
   if (job.workGroupId) {
-    const groupRef = doc(db, 'workGroups', job.workGroupId);
-    const groupSnap = await getDoc(groupRef);
-    
-    // If the group exists, return the group data. This forces the user into the group context.
-    if (groupSnap.exists()) {
-      const groupData = await getJobOrderById(job.workGroupId);
-      if (groupData) {
-        return groupData;
-      }
-    }
-    // If the group does NOT exist (it was dissolved), the code will proceed to treat the job as a standalone job.
+    const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
+    if (gSnap.exists()) return await getJobOrderById(job.workGroupId) as JobOrder;
   }
-
-  // This block is now for standalone jobs or jobs that have been ungrouped.
-  if (!['production', 'suspended', 'paused'].includes(job.status)) {
-    return {
-      error: `La commessa "${scannedData.ordinePF}" non è in produzione, sospesa o in pausa. Stato attuale: ${job.status}.`,
-      title: 'Commessa non Lavorabile',
-    };
-  }
-
-  // This check is now only for non-grouped jobs or jobs that have been ungrouped.
-  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) {
-    return {
-      error: `I dati scansionati non corrispondono. Attesi: Articolo "${job.details}", Qta "${job.qta}". Scansionati: Articolo "${scannedData.codice}", Qta "${scannedData.qta}".`,
-      title: 'Dati non Corrispondenti',
-    };
-  }
-  
-  const jobCopy: JobOrder = JSON.parse(JSON.stringify(job));
-  
-  jobCopy.phases = (jobCopy.phases || []).map(p => ({
-    ...p,
-    workPeriods: p.workPeriods || [], 
-    materialConsumptions: p.materialConsumptions || [],
-  }));
-  
-  jobCopy.isProblemReported = jobCopy.isProblemReported || false;
-  
-  return jobCopy;
+  if (!['production', 'suspended', 'paused'].includes(job.status)) return { error: `Stato non valido: ${job.status}`, title: 'Errore' };
+  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) return { error: `Dati non corrispondenti.`, title: 'Errore' };
+  return JSON.parse(JSON.stringify(job));
 }
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
-    const sortedPhases = [...phases].sort((a, b) => a.sequence - b.sequence);
-
-    // This checks if all *preparation* phases that haven't been postponed are complete.
-    const allPrepCompleted = sortedPhases
-        .filter(p => p.type === 'preparation' && !p.postponed)
-        .every(p => p.status === 'completed' || p.status === 'skipped');
-
-    for (let i = 0; i < sortedPhases.length; i++) {
-        const currentPhase = sortedPhases[i];
-        
-        // If material is marked as missing, it's not ready. This has priority.
-        if (currentPhase.materialStatus === 'missing') {
-            currentPhase.materialReady = false;
-            continue;
-        }
-
-        // A phase that allows optional material association is always ready.
-        if (currentPhase.requiresMaterialAssociation) {
-            currentPhase.materialReady = true;
-            continue;
-        }
-
-        // An independent phase is always ready, regardless of anything else.
-        if (currentPhase.isIndependent) {
-            currentPhase.materialReady = true;
-            continue;
-        }
-
-        // A preparation phase is always considered ready to start.
-        if (currentPhase.type === 'preparation') {
-            currentPhase.materialReady = true;
-            continue;
-        }
-        
-        // --- For sequential phases (production, quality, packaging) ---
-        // Rule 1: All non-postponed preparation phases must be complete.
-        if (!allPrepCompleted) {
-            currentPhase.materialReady = false;
-            continue;
-        }
-
-        // Rule 2: Find the true preceding sequential phase.
-        let previousSequentialPhase: JobPhase | null = null;
-        for (let j = i - 1; j >= 0; j--) {
-            if (!sortedPhases[j].isIndependent) {
-                previousSequentialPhase = sortedPhases[j];
-                break;
-            }
-        }
-        
-        if (!previousSequentialPhase) {
-             // This is the FIRST sequential phase after preparations, so it's ready.
-            currentPhase.materialReady = true;
-        } else {
-            // It's ready if the previous one has been started, completed or skipped.
-            const isPreviousStartedOrDone = ['in-progress', 'completed', 'skipped', 'paused'].includes(previousSequentialPhase.status);
-            currentPhase.materialReady = isPreviousStartedOrDone;
-        }
+    const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
+    const allPrepDone = sorted.filter(p => p.type === 'preparation' && !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
+    for (let i = 0; i < sorted.length; i++) {
+        const curr = sorted[i];
+        if (curr.materialStatus === 'missing') { curr.materialReady = false; continue; }
+        if (curr.requiresMaterialAssociation || curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
+        if (!allPrepDone) { curr.materialReady = false; continue; }
+        let prev: JobPhase | null = null;
+        for (let j = i - 1; j >= 0; j--) { if (!sorted[j].isIndependent) { prev = sorted[j]; break; } }
+        if (!prev) curr.materialReady = true;
+        else curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
     }
-
-    return sortedPhases;
+    return sorted;
 }
 
-export async function updateOperatorStatus(operatorId: string, activeJobId: string | null, activePhaseName: string | null) {
-  const operatorRef = doc(db, 'operators', operatorId);
-  try {
-    const payload: { activeJobId: string | null; activePhaseName: string | null; stato?: 'attivo' | 'inattivo' } = {
-        activeJobId,
-        activePhaseName,
-    };
-    if (activeJobId === null && activePhaseName === null) {
-        payload.stato = 'inattivo';
-    } else {
-        payload.stato = activeJobId ? 'attivo' : 'inattivo';
-    }
-    await updateDoc(operatorRef, payload);
-    return { success: true };
-  } catch (error) {
-    console.error("Failed to update operator status:", error);
-    return { success: false, message: "Failed to update operator status." };
-  }
+export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
+  await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId, activePhaseName: phaseName, stato: jobId ? 'attivo' : 'inattivo' });
+  return { success: true };
 }
 
-export async function updateJob(jobData: JobOrder): Promise<{ success: boolean; message: string; }> {
-    const jobRef = doc(db, "jobOrders", jobData.id);
-
-    try {
-        const updatedPhases = updatePhasesMaterialReadiness(jobData.phases || []);
-        jobData.phases = updatedPhases;
-
-        const allRequiredPhasesCompleted = (jobData.phases || []).length > 0 &&
-            (jobData.phases || []).filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
-
-        if (allRequiredPhasesCompleted && !jobData.isProblemReported && jobData.status !== 'suspended') {
-            jobData.status = 'completed';
-            if (!jobData.overallEndTime) {
-                jobData.overallEndTime = new Date();
-            }
-        }
-
-        const dataToSave = JSON.parse(JSON.stringify(jobData));
-
-        await setDoc(jobRef, dataToSave, { merge: true });
-        
-        revalidatePath('/scan-job');
-        revalidatePath('/admin/production-console');
-        revalidatePath('/admin/reports');
-        revalidatePath(`/admin/reports/${jobData.id}`);
-
-        return { success: true, message: `Commessa ${jobData.id} aggiornata con successo.` };
-    } catch (error) {
-        console.error("Error updating job:", error);
-        return { success: false, message: 'Commessa non trovata o errore durante l\'aggiornamento.' };
+export async function updateJob(job: JobOrder) {
+    const updated = updatePhasesMaterialReadiness(job.phases || []);
+    job.phases = updated;
+    if (updated.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !job.isProblemReported) {
+        job.status = 'completed';
+        if (!job.overallEndTime) job.overallEndTime = new Date();
     }
-}
-
-
-export async function updateWorkGroup(groupData: WorkGroup, operatorId: string): Promise<{ success: boolean; message: string; }> {
-    const groupRef = doc(db, "workGroups", groupData.id);
-    
-    try {
-        const groupPhases = groupData.phases || [];
-
-        const allRequiredPhasesCompleted = groupPhases.length > 0 && 
-            groupPhases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
-
-        // Automatic dissolution on completion
-        if (allRequiredPhasesCompleted && !groupData.isProblemReported) {
-            // By passing `forceComplete: true`, we ensure dissolveWorkGroup knows this is a natural completion.
-            return await dissolveWorkGroup(groupData.id, true);
-        }
-        
-        const isAnyPhaseInProgress = groupPhases.some(p => p.status === 'in-progress');
-        groupData.status = isAnyPhaseInProgress ? 'production' : 'paused';
-        
-        const dataToSave = JSON.parse(JSON.stringify(groupData));
-        
-        await runTransaction(db, async (transaction) => {
-            transaction.set(groupRef, dataToSave, { merge: true });
-            // Always propagate updates to ensure consistency
-            await propagateGroupUpdatesToJobs(transaction, groupData);
-        });
-        
-        revalidatePath('/scan-job');
-        revalidatePath('/admin/production-console');
-        revalidatePath('/admin/work-group-management');
-
-        return { success: true, message: `Gruppo di lavoro ${groupData.id} aggiornato.` };
-
-    } catch (error) {
-        console.error("Error updating work group:", error);
-        return { success: false, message: "Errore during l'aggiornamento del gruppo." };
-    }
-}
-
-
-export async function resolveJobProblem(jobId: string, uid: string): Promise<{ success: boolean; message: string; }> {
-  try {
-    const operator = await ensureAdmin(uid); // Re-use ensureAdmin for role check
-    if (operator.role !== 'admin' && operator.role !== 'supervisor') {
-      throw new Error('Permessi non sufficienti.');
-    }
-
-    const isGroup = jobId.startsWith('group-');
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, jobId);
-    
-    await runTransaction(db, async (transaction) => {
-        const itemSnap = await transaction.get(itemRef);
-        if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
-
-        const itemData = itemSnap.data() as JobOrder | WorkGroup;
-        
-        const updatePayload: any = { 
-            isProblemReported: false,
-            problemType: deleteField(),
-            problemNotes: deleteField(),
-            problemReportedBy: deleteField()
-        };
-
-        const failedPhaseIndex = itemData.phases.findIndex(p => p.qualityResult === 'failed');
-        if (failedPhaseIndex !== -1) {
-            const updatedPhases = [...itemData.phases];
-            updatedPhases[failedPhaseIndex].status = 'pending';
-            updatedPhases[failedPhaseIndex].qualityResult = null;
-            updatePayload.phases = updatedPhases;
-        }
-
-        transaction.update(itemRef, updatePayload);
-
-        if (isGroup) {
-            ( (itemData as WorkGroup).jobOrderIds || []).forEach(individualJobId => {
-                const jobRef = doc(db, 'jobOrders', individualJobId);
-                transaction.update(jobRef, updatePayload);
-            });
-        }
-    });
-
+    await setDoc(doc(db, "jobOrders", job.id), JSON.parse(JSON.stringify(job)), { merge: true });
     revalidatePath('/scan-job');
-    revalidatePath('/admin/production-console');
-    
-    return { success: true, message: 'Problema risolto. La lavorazione è stata sbloccata.' };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
-    console.error("Error resolving job problem:", error);
-    return { success: false, message: errorMessage };
-  }
+    return { success: true, message: 'Aggiornata.' };
 }
 
-
-export async function closeMaterialSessionAndUpdateStock(
-  sessionData: ActiveMaterialSessionData,
-  closingWeight: number,
-  operatorId: string,
-): Promise<{ success: boolean; message: string }> {
-  const materialRef = doc(db, "rawMaterials", sessionData.materialId);
-  const uniqueJobIds = [...new Set(sessionData.associatedJobs.map(j => j.jobId))];
-  const jobRefs = uniqueJobIds.map(id => doc(db, "jobOrders", id));
-
-  try {
-    await runTransaction(db, async (transaction) => {
-        // --- 1. READS ---
-        const materialDoc = await transaction.get(materialRef);
-        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
-        const operatorSnap = await transaction.get(doc(db, "operators", operatorId));
-
-        // --- 2. VALIDATION ---
-        if (!materialDoc.exists()) throw new Error("Materia prima associata alla sessione non trovata.");
-        const materialData = materialDoc.data() as RawMaterial;
-
-        const consumedWeight = sessionData.grossOpeningWeight - closingWeight;
-        if (consumedWeight < 0) throw new Error("Il peso di chiusura non può essere maggiore di quello di apertura.");
-
-        let unitsConsumed = 0;
-        if (materialData.unitOfMeasure === 'kg') {
-            unitsConsumed = consumedWeight;
-        } else if (materialData.conversionFactor && materialData.conversionFactor > 0) {
-            unitsConsumed = consumedWeight / materialData.conversionFactor;
-        }
-
-        const currentStockUnits = materialData.currentStockUnits ?? 0;
-        const currentWeightKg = materialData.currentWeightKg ?? 0;
-        
-        if (currentWeightKg < consumedWeight) {
-           throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, richiesto: ${consumedWeight.toFixed(2)}kg.`);
-        }
-        if (currentStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
-        }
-
-        // --- 3. WRITES ---
-        
-        // 3a. Log the withdrawal
-        const newWithdrawalRef = doc(collection(db, "materialWithdrawals"));
-        transaction.set(newWithdrawalRef, {
-            jobIds: uniqueJobIds,
-            jobOrderPFs: [...new Set(sessionData.associatedJobs.map(j => j.jobOrderPF))],
-            materialId: sessionData.materialId,
-            materialCode: sessionData.materialCode,
-            consumedWeight,
-            unitsConsumed,
-            operatorId,
-            operatorName: operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto',
-            withdrawalDate: Timestamp.now(),
-            lotto: sessionData.lotto || null,
-        });
-
-        // 3b. Update material stock
-        transaction.update(materialRef, { 
-            currentWeightKg: currentWeightKg - consumedWeight,
-            currentStockUnits: currentStockUnits - unitsConsumed,
-        });
-
-        // 3c. Helper to update consumptions in a phases array
-        const updateConsumptions = (phases: JobPhase[]) => phases.map(p => ({
-            ...p,
-            materialConsumptions: (p.materialConsumptions || []).map(mc => {
-                if (
-                  mc.materialId === sessionData.materialId &&
-                  mc.lottoBobina === sessionData.lotto &&
-                  mc.closingWeight === undefined
-                ) {
-                  return { ...mc, closingWeight, withdrawalId: newWithdrawalRef.id };
-                }
-                return mc;
-              })
-        }));
-
-        // 3d. Update the group document if this is a group session
-        const isGroupSession = sessionData.originatorJobId.startsWith('group-');
-        if (isGroupSession) {
-            const groupRef = doc(db, 'workGroups', sessionData.originatorJobId);
-            const groupSnap = await transaction.get(groupRef);
-            if (groupSnap.exists()) {
-                const groupData = groupSnap.data() as WorkGroup;
-                const updatedGroupPhases = updateConsumptions(groupData.phases);
-                transaction.update(groupRef, { phases: updatedGroupPhases });
-            }
-        }
-        
-        // 3e. Update all individual associated job orders
-        for (const jobDoc of jobDocs) {
-            if (jobDoc.exists()) {
-                const jobData = jobDoc.data() as JobOrder;
-                const updatedJobPhases = updateConsumptions(jobData.phases);
-                transaction.update(jobDoc.ref, { phases: updatedJobPhases });
-            }
-        }
+export async function updateWorkGroup(group: WorkGroup, opId: string) {
+    const phases = group.phases || [];
+    if (phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !group.isProblemReported) {
+        return await dissolveWorkGroup(group.id, true);
+    }
+    group.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
+    await runTransaction(db, async (t) => {
+        t.set(doc(db, "workGroups", group.id), JSON.parse(JSON.stringify(group)), { merge: true });
+        await propagateGroupUpdatesToJobs(t, group);
     });
-
     revalidatePath('/scan-job');
-    revalidatePath('/admin/production-console');
-    revalidatePath('/admin/reports');
-    revalidatePath('/admin/raw-material-management');
-
-    return { success: true, message: 'Sessione chiusa, peso registrato e stock aggiornato.' };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la chiusura della sessione.";
-    console.error("Failed to close material session:", error);
-    return { success: false, message: errorMessage };
-  }
+    return { success: true, message: 'Gruppo aggiornato.' };
 }
 
-const tubiGuainaWithdrawalSchema = z.object({
-  materialId: z.string(),
-  operatorId: z.string(),
-  jobId: z.string(),
-  jobOrderPF: z.string(),
-  phaseId: z.string(),
-  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
-  unit: z.enum(['n', 'mt', 'kg']),
-});
+export async function resolveJobProblem(jobId: string, uid: string) {
+    await ensureAdmin(uid);
+    const isG = jobId.startsWith('group-');
+    await runTransaction(db, async (t) => {
+        const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
+        if (!snap.exists()) throw new Error("Non trovato.");
+        const data = snap.data() as JobOrder;
+        const up: any = { isProblemReported: false, problemType: deleteField(), problemNotes: deleteField(), problemReportedBy: deleteField() };
+        const fIdx = data.phases.findIndex(p => p.qualityResult === 'failed');
+        if (fIdx !== -1) { const p = [...data.phases]; p[fIdx].status = 'pending'; p[fIdx].qualityResult = null; up.phases = p; }
+        t.update(snap.ref, up);
+        if (isG) (data as any).jobOrderIds?.forEach((id: string) => t.update(doc(db, 'jobOrders', id), up));
+    });
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Risolto.' };
+}
 
-export async function logTubiGuainaWithdrawal(formData: FormData): Promise<{ success: boolean; message: string }> {
-  const rawData = Object.fromEntries(formData.entries());
-  const validated = tubiGuainaWithdrawalSchema.safeParse(rawData);
-  if (!validated.success) {
-    return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
-  }
-  
-  const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit } = validated.data;
-  
-  const isGroup = jobId.startsWith('group-');
-  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-  const itemRef = doc(db, collectionName, jobId);
-  const materialRef = doc(db, "rawMaterials", materialId);
-  
+export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterialSessionData, closing: number, opId: string) {
+  const mRef = doc(db, "rawMaterials", session.materialId);
   try {
-    await runTransaction(db, async (transaction) => {
-        const materialDoc = await transaction.get(materialRef);
-        const itemDoc = await transaction.get(itemRef);
-        const operatorSnap = await getDoc(doc(db, "operators", operatorId));
-        const operatorName = operatorSnap.exists() ? operatorSnap.data().nome : 'Sconosciuto';
-
-        if (!materialDoc.exists()) throw new Error("Materia prima non trovata.");
-        if (!itemDoc.exists()) throw new Error("Commessa o Gruppo non trovato.");
-        
-        const material = materialDoc.data() as RawMaterial;
-        const item = itemDoc.data() as JobOrder | WorkGroup;
-        
-        let unitsConsumed = 0;
-        let consumedWeight = 0;
-
-        if (unit === 'kg') {
-          consumedWeight = quantity;
-          // If a conversion factor exists, we can estimate the units consumed.
-          if (material.conversionFactor && material.conversionFactor > 0) {
-            unitsConsumed = quantity / material.conversionFactor;
-          }
-        } else { // 'n' or 'mt'
-          unitsConsumed = quantity;
-          consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
+    await runTransaction(db, async (t) => {
+        const mSnap = await t.get(mRef);
+        const opSnap = await t.get(doc(db, "operators", opId));
+        if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
+        const mat = mSnap.data() as RawMaterial;
+        const consW = session.grossOpeningWeight - closing;
+        if (consW < 0) throw new Error("Peso chiusura errato.");
+        let unitsC = mat.unitOfMeasure === 'kg' ? consW : (mat.conversionFactor ? consW / mat.conversionFactor : 0);
+        if ((mat.currentWeightKg || 0) < consW || (mat.currentStockUnits || 0) < unitsC) throw new Error("Stock insufficiente.");
+        const wRef = doc(collection(db, "materialWithdrawals"));
+        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight: consW, consumedUnits: unitsC, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consW, currentStockUnits: (mat.currentStockUnits || 0) - unitsC });
+        const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && mc.lottoBobina === session.lotto && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
+        if (session.originatorJobId.startsWith('group-')) {
+            const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
+            if (gSnap.exists()) t.update(gSnap.ref, { phases: updateC(gSnap.data().phases) });
         }
-        
-        const currentStockUnits = material.currentStockUnits ?? 0;
-        const currentWeightKg = material.currentWeightKg ?? 0;
-
-        if (currentStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
-        }
-         if (currentWeightKg < consumedWeight) {
-             throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
-        }
-        
-        const newStockUnits = currentStockUnits - unitsConsumed;
-        const newWeightKg = currentWeightKg - consumedWeight;
-
-        transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
-        
-        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
-        const jobIds = isGroup ? (item as WorkGroup).jobOrderIds : [jobId];
-        const jobOrderPFs = isGroup ? (item as WorkGroup).jobOrderPFs : [jobOrderPF];
-        
-        transaction.set(withdrawalRef, {
-            jobIds: jobIds,
-            jobOrderPFs: jobOrderPFs,
-            materialId,
-            materialCode: material.code,
-            consumedWeight,
-            unitsConsumed,
-            operatorId,
-            operatorName,
-            withdrawalDate: Timestamp.now(),
-        });
-        
-        const phaseToUpdate = item.phases.find(p => p.id === phaseId);
-        if (!phaseToUpdate) {
-            throw new Error(`Fase con ID ${phaseId} non trovata.`);
-        }
-        
-        const newConsumption: MaterialConsumption = {
-            withdrawalId: withdrawalRef.id,
-            materialId: materialId,
-            materialCode: material.code,
-            pcs: unitsConsumed,
-        };
-
-        if (!phaseToUpdate.materialConsumptions) {
-            phaseToUpdate.materialConsumptions = [];
-        }
-        phaseToUpdate.materialConsumptions.push(newConsumption);
-        
-        if (phaseToUpdate.type === 'preparation') {
-            phaseToUpdate.materialReady = true;
-        }
-        
-        const updatedPhases = item.phases.map(p => p.id === phaseId ? phaseToUpdate : p);
-        transaction.update(itemRef, updatedPhases);
-
-        if (isGroup) {
-            const groupData = { ...item, phases: updatedPhases } as WorkGroup;
-            await propagateGroupUpdatesToJobs(transaction, groupData);
+        for (const job of session.associatedJobs) {
+            const jSnap = await t.get(doc(db, 'jobOrders', job.jobId));
+            if (jSnap.exists()) t.update(jSnap.ref, { phases: updateC(jSnap.data().phases) });
         }
     });
-
-    revalidatePath('/admin/raw-material-management');
-    revalidatePath('/admin/reports');
-    return { success: true, message: `Prelievo registrato con successo.` };
-  } catch (error) {
-     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
-     return { success: false, message: errorMessage };
-  }
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Chiusa.' };
+  } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
-export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<{grossWeight: number, netWeight: number, packagingId: string, isInitialLoad: boolean, material: RawMaterial | null} | null> {
+export async function logTubiGuainaWithdrawal(formData: FormData) {
+  const data = Object.fromEntries(formData.entries());
+  const jobId = data.jobId as string;
+  const isG = jobId.startsWith('group-');
+  try {
+    await runTransaction(db, async (t) => {
+        const mSnap = await t.get(doc(db, "rawMaterials", data.materialId as string));
+        const itemSnap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
+        const opSnap = await t.get(doc(db, "operators", data.operatorId as string));
+        const mat = mSnap.data() as RawMaterial;
+        const item = itemSnap.data() as JobOrder;
+        const qty = Number(data.quantity);
+        let consW = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
+        let unitsC = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - unitsC, currentWeightKg: (mat.currentWeightKg || 0) - consW });
+        const wRef = doc(collection(db, "materialWithdrawals"));
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight: consW, consumedUnits: unitsC, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
+        const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
+        if (pIdx !== -1) {
+            const phases = [...item.phases];
+            const mc = phases[pIdx].materialConsumptions || [];
+            phases[pIdx].materialConsumptions = [...mc, { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: unitsC }];
+            if (phases[pIdx].type === 'preparation') phases[pIdx].materialReady = true;
+            t.update(itemSnap.ref, { phases });
+            if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
+        }
+    });
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Registrato.' };
+  } catch (e) { return { success: false, message: 'Errore.' }; }
+}
+
+export async function findLastWeightForLotto(matId: string | undefined, lotto: string) {
     if (!lotto) return null;
-
-    let material: RawMaterial | null = null;
-    let materialToSearchId = materialId;
-
-    const materialsRef = collection(db, "rawMaterials");
-    const allMaterialsSnap = await getDocs(materialsRef);
-    const allMaterials = allMaterialsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
-
-    // If materialId is not provided, try to find it via the lotto number across all materials
-    if (!materialToSearchId) {
-        for (const mat of allMaterials) {
-            if ((mat.batches || []).some(b => b.lotto === lotto)) {
-                material = mat;
-                materialToSearchId = mat.id;
-                break;
+    const allMats = (await getDocs(collection(db, "rawMaterials"))).docs.map(d => ({ id: d.id, ...d.data() } as RawMaterial));
+    let mat = matId ? allMats.find(m => m.id === matId) : allMats.find(m => (m.batches || []).some(b => b.lotto === lotto));
+    if (!mat) return null;
+    const jSnap = await getDocs(collection(db, "jobOrders"));
+    const consumptions: any[] = [];
+    jSnap.forEach(d => {
+        const job = convertTimestampsToDates(d.data()) as JobOrder;
+        job.phases?.forEach(p => p.materialConsumptions?.forEach(c => {
+            if (c.materialId === mat!.id && c.lottoBobina === lotto && c.closingWeight !== undefined) {
+                const last = (p.workPeriods || []).reduce((lat, wp) => wp.end && (!lat || new Date(wp.end) > lat) ? new Date(wp.end) : lat, null as Date | null);
+                if (last) consumptions.push({ closingWeight: c.closingWeight, tareWeight: c.tareWeight || 0, packagingId: c.packagingId || 'none', completedAt: last });
             }
-        }
-        if (!material) return null;
-    } else {
-       material = allMaterials.find(m => m.id === materialToSearchId) || null;
-       if (!material) return null; // materialId was provided but doc doesn't exist
-    }
-
-    // STRATEGY 1: Find the last usage (closing weight) of this lot from all jobs.
-    const jobsRef = collection(db, "jobOrders");
-    const snapshotJobs = await getDocs(jobsRef);
-    const consumptions: { closingWeight: number; tareWeight: number; packagingId: string; completedAt: Date }[] = [];
-
-    if (!snapshotJobs.empty) {
-        for (const docSnap of snapshotJobs.docs) {
-            const job = convertTimestampsToDates(docSnap.data()) as JobOrder;
-            for (const phase of (job.phases || [])) {
-                for (const consumption of (phase.materialConsumptions || [])) {
-                  if (
-                      consumption.materialId === materialToSearchId &&
-                      consumption.lottoBobina === lotto &&
-                      consumption.closingWeight !== undefined &&
-                      consumption.closingWeight !== null
-                  ) {
-                      const lastWorkPeriodEnd = (phase.workPeriods || []).reduce((latest, wp) => {
-                          if (wp.end && (!latest || new Date(wp.end) > latest)) {
-                              return new Date(wp.end);
-                          }
-                          return latest;
-                      }, null as Date | null);
-                      
-                      if (lastWorkPeriodEnd) {
-                          consumptions.push({
-                              closingWeight: consumption.closingWeight,
-                              tareWeight: consumption.tareWeight || 0,
-                              packagingId: consumption.packagingId || 'none',
-                              completedAt: lastWorkPeriodEnd,
-                          });
-                      }
-                  }
-                }
-            }
-        }
-    }
-    
+        }));
+    });
     if (consumptions.length > 0) {
-        consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime());
-        const lastUsage = consumptions[0];
-        return {
-            grossWeight: lastUsage.closingWeight,
-            netWeight: lastUsage.closingWeight - lastUsage.tareWeight,
-            packagingId: lastUsage.packagingId,
-            isInitialLoad: false,
-            material: material,
-        };
+        const last = consumptions.sort((a, b) => b.completedAt.getTime() - a.completedAt.getTime())[0];
+        return { grossWeight: last.closingWeight, netWeight: last.closingWeight - last.tareWeight, packagingId: last.packagingId, isInitialLoad: false, material: mat };
     }
-
-    // STRATEGY 2: If no usage found, find the initial loading data for this lot.
-    if (material) {
-        const specificBatch = (material.batches || []).find(b => b.lotto === lotto);
-        if (specificBatch) {
-            return { 
-                grossWeight: specificBatch.grossWeight,
-                netWeight: specificBatch.grossWeight - specificBatch.tareWeight,
-                packagingId: specificBatch.packagingId || 'none',
-                isInitialLoad: true,
-                material: material,
-            };
-        }
-    }
-
+    const batch = (mat.batches || []).find(b => b.lotto === lotto);
+    if (batch) return { grossWeight: batch.grossWeight, netWeight: batch.grossWeight - batch.tareWeight, packagingId: batch.packagingId || 'none', isInitialLoad: true, material: mat };
     return null;
 }
 
-export async function searchRawMaterials(
-  searchTerm: string,
-  allowedTypes?: RawMaterialType[]
-): Promise<Array<Pick<RawMaterial, 'id' | 'code' | 'description' | 'type' | 'unitOfMeasure' | 'currentStockUnits' | 'currentWeightKg'>>> {
-  const materialsRef = collection(db, "rawMaterials");
-  
-  let q = firestoreQuery(materialsRef);
-
-  if (allowedTypes && allowedTypes.length > 0) {
-    q = firestoreQuery(q, where("type", "in", allowedTypes));
-  }
-  
-  const querySnapshot = await getDocs(q);
-  if (querySnapshot.empty) {
-    return [];
-  }
-
-  const allMaterials = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as RawMaterial);
-  
-  const lowercasedTerm = searchTerm.toLowerCase();
-
-  const filteredMaterials = allMaterials
-    .filter(material => 
-      material.code.toLowerCase().includes(lowercasedTerm) || 
-      material.description.toLowerCase().includes(lowercasedTerm)
-    )
-    .map(({ id, code, description, type, unitOfMeasure, currentStockUnits, currentWeightKg }) => ({
-      id,
-      code,
-      description,
-      type,
-      unitOfMeasure,
-      currentStockUnits,
-      currentWeightKg
-    }));
-  
-  return filteredMaterials.slice(0, 10); // Limit to 10 results for performance
-}
-
-
-export async function handlePhaseScanResult(jobId: string, phaseId: string, operatorId: string): Promise<{ success: boolean; message: string; error?: string }> {
-  try {
-    const isGroup = jobId.startsWith('group-');
-    
-    const availability = await isOperatorActiveOnAnyJob(operatorId, isGroup ? jobId : undefined);
-    if (!availability.available) {
-        return { success: false, message: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l'attività precedente.`, error: 'OPERATOR_BUSY' };
-    }
-
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, jobId);
-    
-    let startedPhaseName = '';
-    await runTransaction(db, async (transaction) => {
-        const docSnap = await transaction.get(itemRef);
-        if (!docSnap.exists()) throw new Error('Commessa o Gruppo non trovato.');
-
-        const itemData = convertTimestampsToDates(docSnap.data()) as JobOrder | WorkGroup;
-        
-        const itemToUpdate = JSON.parse(JSON.stringify(itemData));
-        const sortedPhases = itemToUpdate.phases.sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-        const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseId);
-        
-        if (currentPhaseIndex === -1) throw new Error('Fase non trovata nella commessa.');
-
-        const phaseToStart = sortedPhases[currentPhaseIndex];
-        startedPhaseName = phaseToStart.name;
-
-        if (phaseToStart.status !== 'pending' && phaseToStart.status !== 'paused') throw new Error('Questa fase non è in attesa o in pausa.');
-        if (itemData.isProblemReported) throw new Error('Lavorazione bloccata a causa di un problema.');
-
-        if (!phaseToStart.isIndependent && !phaseToStart.materialReady) {
-            throw new Error('Il materiale per questa fase non è pronto.');
-        }
-
-        phaseToStart.status = 'in-progress';
-        phaseToStart.workstationScannedAndVerified = true;
-        phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operatorId });
-
-        itemToUpdate.status = 'production';
-        if (!itemToUpdate.overallStartTime) {
-            itemToUpdate.overallStartTime = new Date();
-        }
-
-        const phasesWithReadiness = updatePhasesMaterialReadiness(sortedPhases);
-        const updatedGroupData = { ...itemToUpdate, phases: phasesWithReadiness, status: 'production' };
-
-
-        transaction.update(itemRef, updatedGroupData);
-
-        if (isGroup) {
-            await propagateGroupUpdatesToJobs(transaction, updatedGroupData as WorkGroup);
-        }
-
-        // Update operator status
-        await updateOperatorStatus(operatorId, jobId, startedPhaseName);
+export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
+    const isG = jobId.startsWith('group-');
+    const avail = await isOperatorActiveOnAnyJob(opId, isG ? jobId : undefined);
+    if (!avail.available) return { success: false, message: "Occupato.", error: 'OPERATOR_BUSY' };
+    await runTransaction(db, async (t) => {
+        const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
+        const data = convertTimestampsToDates(snap.data()) as JobOrder;
+        const phases = [...data.phases].sort((a, b) => a.sequence - b.sequence);
+        const pIdx = phases.findIndex(p => p.id === phaseId);
+        if (pIdx === -1) throw new Error("Fase non trovata.");
+        const phase = phases[pIdx];
+        phase.status = 'in-progress';
+        phase.workPeriods.push({ start: new Date(), end: null, operatorId: opId });
+        const upData = { ...data, phases: updatePhasesMaterialReadiness(phases), status: 'production', overallStartTime: data.overallStartTime || new Date() };
+        t.update(snap.ref, upData);
+        if (isG) await propagateGroupUpdatesToJobs(t, upData as any);
+        await updateOperatorStatus(opId, jobId, phase.name);
     });
-
-    revalidatePath('/scan-job'); 
-    revalidatePath('/admin/production-console');
-    return { success: true, message: `Fase avviata con successo.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
-  }
-}
-
-export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
-  try {
-    const isGroup = jobId.startsWith('group-');
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, jobId);
-    
-    await runTransaction(db, async (transaction) => {
-        const itemSnap = await transaction.get(itemRef);
-
-        if (!itemSnap.exists()) {
-          throw new Error('Commessa o Gruppo non trovato.');
-        }
-
-        const itemData = itemSnap.data() as JobOrder | WorkGroup;
-        const originalPhases = itemData.phases || [];
-        const phaseIndex = originalPhases.findIndex(p => p.id === phaseId);
-
-        if (phaseIndex === -1) {
-          throw new Error('Fase "Taglio Guaina" non trovata.');
-        }
-
-        const phaseToMove = originalPhases[phaseIndex];
-
-        if (!['pending', 'paused'].includes(phaseToMove.status)) {
-            throw new Error('È possibile spostare la fase solo se non è ancora stata avviata o è in pausa.');
-        }
-        
-        const updatedPhases = [...originalPhases];
-        const isCurrentlyPostponed = currentState === 'postponed';
-
-        if (!isCurrentlyPostponed) {
-          // Logic to move it after the last 'production' phase
-          const phasesSorted = [...originalPhases].sort((a, b) => a.sequence - b.sequence);
-          const productionPhases = phasesSorted.filter(p => p.type === 'production');
-          
-          let targetSequence;
-          if (productionPhases.length > 0) {
-            const lastProductionPhase = productionPhases[productionPhases.length - 1];
-            targetSequence = lastProductionPhase.sequence + 0.1; // Place it right after
-          } else {
-            const firstQualityPhase = phasesSorted.find(p => p.type === 'quality' || p.type === 'packaging');
-            targetSequence = firstQualityPhase ? firstQualityPhase.sequence - 0.1 : 99;
-          }
-          
-          updatedPhases[phaseIndex].sequence = targetSequence;
-          updatedPhases[phaseIndex].postponed = true;
-
-        } else { // 'postponed' -> revert to original
-          const templateRef = doc(db, 'workPhaseTemplates', phaseId);
-          const templateSnap = await transaction.get(templateRef);
-          if (!templateSnap.exists()) {
-              throw new Error('Impossibile trovare il modello originale della fase per ripristinare la sequenza.');
-          }
-          const originalSequence = (templateSnap.data() as WorkPhaseTemplate).sequence;
-          updatedPhases[phaseIndex].sequence = originalSequence;
-          delete updatedPhases[phaseIndex].postponed;
-        }
-
-        const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
-
-        transaction.update(itemRef, { phases: finalPhases });
-
-        if (isGroup) {
-             const groupData = itemSnap.data() as WorkGroup;
-             const updatedGroupData = { ...groupData, phases: finalPhases };
-             await propagateGroupUpdatesToJobs(transaction, updatedGroupData);
-        }
-    });
-    
-    revalidatePath('/admin/production-console');
-    revalidatePath(`/scan-job?jobId=${jobId}`);
-
-    return { 
-      success: true, 
-      message: `Posizione della fase "Taglio Guaina" aggiornata.` 
-    };
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore.";
-    console.error("Error toggling phase position:", error);
-    return { success: false, message: errorMessage };
-  }
-}
-
-
-export async function isOperatorActiveOnAnyJob(operatorId: string, currentGroupId?: string): Promise<{ available: boolean, activeJobId?: string, activePhaseName?: string }> {
-    const operatorDocRef = doc(db, "operators", operatorId);
-    const operatorDocSnap = await getDoc(operatorDocRef);
-
-    if (!operatorDocSnap.exists()) {
-        console.warn(`Operator with ID ${operatorId} not found.`);
-        return { available: true };
-    }
-
-    const operatorData = operatorDocSnap.data() as Operator;
-    const activeJobId = operatorData.activeJobId;
-    
-    if (!activeJobId) {
-        return { available: true }; // Operator is free
-    }
-
-    // If the operator thinks they are on the current group, they are available for actions within it.
-    if (currentGroupId && activeJobId === currentGroupId) {
-        return { available: true };
-    }
-
-    // --- Cross-Verification Logic ---
-    // The operator thinks they are busy. Let's verify if that's actually true.
-    const isGroup = activeJobId.startsWith('group-');
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, activeJobId);
-    const itemSnap = await getDoc(itemRef);
-
-    let isStillActive = false;
-    if (itemSnap.exists()) {
-        const itemData = itemSnap.data() as JobOrder | WorkGroup;
-        isStillActive = (itemData.phases || []).some(p => 
-            p.status === 'in-progress' &&
-            (p.workPeriods || []).some(wp => wp.operatorId === operatorId && wp.end === null)
-        );
-    }
-
-    if (isStillActive) {
-        // The state is consistent. The operator is genuinely busy.
-        return {
-            available: false,
-            activeJobId: activeJobId,
-            activePhaseName: operatorData.activePhaseName || 'Sconosciuta',
-        };
-    } else {
-        // GHOST STATE DETECTED! The operator's profile is stale.
-        // Auto-correct the state and report the operator as available.
-        console.warn(`Ghost state detected for operator ${operatorId}. Auto-correcting.`);
-        await updateOperatorStatus(operatorId, null, null);
-        return { available: true };
-    }
-}
-
-export async function createWorkGroup(jobIds: string[], operatorId: string): Promise<{ success: boolean; message: string; workGroupId?: string }> {
-    try {
-        if (jobIds.length < 2) {
-            return { success: false, message: 'Selezionare almeno due commesse da raggruppare.' };
-        }
-        const jobDocs = await Promise.all(jobIds.map(id => getDoc(doc(db, 'jobOrders', id))));
-        const jobs = jobDocs.map(d => d.data() as JobOrder);
-        
-        if (jobs.some(j => !j)) {
-            return { success: false, message: 'Una o più commesse selezionate non sono valide.' };
-        }
-         if (jobs.some(j => j.workGroupId)) {
-            return { success: false, message: 'Una o più commesse selezionate fanno già parte di un altro gruppo.' };
-        }
-        const firstJob = jobs[0];
-        
-        const { workCycleId, department, cliente } = firstJob;
-        if (jobs.some(j => j.workCycleId !== workCycleId || j.department !== department || j.cliente !== cliente)) {
-            return { success: false, message: 'Le commesse non sono compatibili. Devono avere lo stesso ciclo, reparto e cliente.' };
-        }
-
-        const workGroupId = `group-${Date.now()}`;
-        const workGroupRef = doc(db, 'workGroups', workGroupId);
-
-        const totalQuantity = jobs.reduce((sum, job) => sum + job.qta, 0);
-        
-        const allOdlInterno = [...new Set(jobs.map(j => j.numeroODLInterno).filter(Boolean))];
-        const allOdlEst = [...new Set(jobs.map(j => j.numeroODL).filter(Boolean))];
-        const allDeliveryDates = jobs.map(j => j.dataConsegnaFinale).filter(Boolean).map(d => new Date(d));
-        const earliestDeliveryDate = allDeliveryDates.length > 0 ? new Date(Math.min(...allDeliveryDates.map(d => d.getTime()))) : null;
-
-        const jobOrderPFs = [...new Set(jobs.map(j => j.ordinePF))];
-
-        const newWorkGroup: WorkGroup = {
-            id: workGroupId,
-            jobOrderIds: jobs.map(j => j.id),
-            jobOrderPFs: jobOrderPFs,
-            status: 'production',
-            createdAt: new Date(),
-            createdBy: operatorId,
-            totalQuantity: totalQuantity,
-            qta: totalQuantity, 
-            workCycleId: workCycleId || '',
-            department: department,
-            cliente: cliente,
-            phases: firstJob.phases,
-            details: 'Lavorazione Multi-Commessa',
-            numeroODLInterno: allOdlInterno.join(', ') || 'N/D',
-            numeroODL: allOdlEst.join(', ') || 'N/D',
-            dataConsegnaFinale: earliestDeliveryDate ? earliestDeliveryDate.toISOString().split('T')[0] : 'N/D',
-            ordinePF: jobOrderPFs.join(', '),
-        };
-
-        const batch = writeBatch(db);
-        batch.set(workGroupRef, newWorkGroup);
-
-        jobDocs.forEach(jobDoc => {
-            batch.update(jobDoc.ref, { workGroupId: workGroupId });
-        });
-
-        await batch.commit();
-
-        return { success: true, message: 'Gruppo creato con successo.', workGroupId: workGroupId };
-
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la creazione del gruppo.";
-        return { success: false, message: errorMessage };
-    }
-}
-
-export async function reportMaterialMissing(
-  itemId: string,
-  phaseId: string,
-  uid: string,
-  notes?: string,
-): Promise<{ success: boolean; message: string }> {
-  
-  const isGroup = itemId.startsWith('group-');
-  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-  const itemRef = doc(db, collectionName, itemId);
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const itemSnap = await transaction.get(itemRef);
-      if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
-      
-      const itemData = itemSnap.data() as JobOrder | WorkGroup;
-      const phases = [...itemData.phases];
-      const phaseIndex = phases.findIndex(p => p.id === phaseId);
-
-      if (phaseIndex === -1) throw new Error("Fase non trovata.");
-      
-      phases[phaseIndex].materialStatus = 'missing';
-      phases[phaseIndex].materialReady = false;
-
-      const operatorDocSnap = await getOperatorByUid(uid);
-      const operatorName = operatorDocSnap ? operatorDocSnap.nome : 'Sconosciuto';
-      
-      const updatePayload: any = { 
-        phases,
-        isProblemReported: true,
-        problemType: 'MANCA_MATERIALE',
-        problemReportedBy: operatorName,
-        problemNotes: notes || '',
-      };
-
-      const phaseToUpdate = phases[phaseIndex];
-      let operatorWasActive = false;
-
-      if (phaseToUpdate.status === 'in-progress') {
-        const myWorkPeriodIndex = phaseToUpdate.workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
-        if (myWorkPeriodIndex !== -1) {
-            operatorWasActive = true;
-            phaseToUpdate.workPeriods[myWorkPeriodIndex].end = new Date();
-        }
-        const isAnyoneElseWorking = phaseToUpdate.workPeriods.some(wp => wp.end === null);
-        if (!isAnyoneElseWorking) {
-            phaseToUpdate.status = 'paused';
-        }
-        updatePayload.status = isAnyPhaseInProgress(phases) ? 'production' : 'paused';
-      }
-
-      transaction.update(itemRef, updatePayload);
-      
-      // If the operator was active, clear their state
-      if (operatorWasActive) {
-          await updateOperatorStatus(uid, null, null);
-      }
-
-      if (isGroup) {
-        const groupData = { ...itemData, ...updatePayload } as WorkGroup;
-        await propagateGroupUpdatesToJobs(transaction, groupData);
-      }
-    });
-
-    revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
-    return { success: true, message: 'Mancanza materiale segnalata. La fase è stata messa in pausa.' };
-  } catch (e) {
-    return { success: false, message: e instanceof Error ? e.message : 'Errore sconosciuto' };
-  }
-}
-    
-function isAnyPhaseInProgress(phases: JobPhase[]): boolean {
-    return phases.some(p => p.status === 'in-progress');
+    return { success: true, message: 'Avviata.' };
 }
 
-
-export async function getOperatorByUid(uid: string): Promise<Operator | null> {
-    const q = firestoreQuery(collection(db, "operators"), where("uid", "==", uid));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-        const operatorDoc = querySnapshot.docs[0];
-        return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+export async function isOperatorActiveOnAnyJob(opId: string, currentGroupId?: string) {
+    const snap = await getDoc(doc(db, "operators", opId));
+    if (!snap.exists()) return { available: true };
+    const op = snap.data() as Operator;
+    if (!op.activeJobId || (currentGroupId && op.activeJobId === currentGroupId)) return { available: true };
+    const isG = op.activeJobId.startsWith('group-');
+    const jSnap = await getDoc(doc(db, isG ? 'workGroups' : 'jobOrders', op.activeJobId));
+    let stillAct = false;
+    if (jSnap.exists()) {
+        stillAct = (jSnap.data().phases || []).some((p: any) => p.status === 'in-progress' && p.workPeriods?.some((wp: any) => wp.operatorId === opId && wp.end === null));
     }
-    // Fallback to check by ID if UID is not set
-    const docRef = doc(db, "operators", uid);
-    const docSnap = await getDoc(docRef);
-    if(docSnap.exists()){
-        return { ...docSnap.data(), id: docSnap.id } as Operator;
-    }
-
-    return null;
+    if (stillAct) return { available: false, activeJobId: op.activeJobId, activePhaseName: op.activePhaseName };
+    await updateOperatorStatus(opId, null, null);
+    return { available: true };
 }
 
-
-
-export async function updateOperatorMaterialSessions(
-  operatorId: string,
-  sessions: ActiveMaterialSessionData[]
-): Promise<{ success: boolean; message: string }> {
-  if (!operatorId) {
-    return { success: false, message: "ID Operatore mancante." };
-  }
-  const operatorRef = doc(db, 'operators', operatorId);
-  try {
-    await updateDoc(operatorRef, {
-      activeMaterialSessions: sessions,
+export async function startMaterialSessionInJob(itemId: string, phaseId: string, consumption: MaterialConsumption) {
+    const isG = itemId.startsWith('group-');
+    await runTransaction(db, async (t) => {
+        const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
+        const item = snap.data() as JobOrder;
+        const phases = item.phases.map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
+        t.update(snap.ref, { phases });
+        if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
     });
-    
-    return { success: true, message: 'Sessioni materiale sincronizzate.' };
-  } catch (error) {
-    console.error("Error updating operator material sessions:", error);
-    return { success: false, message: 'Impostazioni di sincronizzazione fallite.' };
-  }
+    revalidatePath('/scan-job');
+    return { success: true, message: 'Sessione avviata.' };
 }
 
-export async function startMaterialSessionInJob(
-    itemId: string,
-    phaseId: string,
-    consumption: MaterialConsumption
-): Promise<{ success: boolean; message: string }> {
-    const isGroup = itemId.startsWith('group-');
-    const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-    const itemRef = doc(db, collectionName, itemId);
+export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
+  await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions });
+  return { success: true, message: 'Sincronizzate.' };
+}
 
-    try {
-        await runTransaction(db, async (transaction) => {
-            const itemSnap = await transaction.get(itemRef);
-            if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
-            
-            const itemData = itemSnap.data() as JobOrder | WorkGroup;
-            const updatedPhases = itemData.phases.map(phase => {
-                if (phase.id === phaseId) {
-                    const consumptions = phase.materialConsumptions || [];
-                    return { ...phase, materialConsumptions: [...consumptions, consumption], materialReady: true };
-                }
-                return phase;
-            });
-
-            transaction.update(itemRef, { phases: updatedPhases });
-
-            if (isGroup) {
-                const groupData = { ...itemData, phases: updatedPhases } as WorkGroup;
-                await propagateGroupUpdatesToJobs(transaction, groupData);
-            }
-        });
-
-        revalidatePath('/scan-job');
-        return { success: true, message: 'Sessione materiale avviata correttamente.' };
-    } catch (e) {
-        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'avvio sessione.' };
+export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string) {
+  const isG = itemId.startsWith('group-');
+  await runTransaction(db, async (t) => {
+    const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
+    const item = snap.data() as JobOrder;
+    const phases = [...item.phases];
+    const pIdx = phases.findIndex(p => p.id === phaseId);
+    phases[pIdx].materialStatus = 'missing';
+    phases[pIdx].materialReady = false;
+    const opSnap = await getDoc(doc(db, "operators", uid));
+    const up: any = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE', problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
+    if (phases[pIdx].status === 'in-progress') {
+        const wpIdx = phases[pIdx].workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
+        if (wpIdx !== -1) phases[pIdx].workPeriods[wpIdx].end = new Date();
+        if (!phases[pIdx].workPeriods.some(wp => wp.end === null)) phases[pIdx].status = 'paused';
+        up.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
+        await updateOperatorStatus(uid, null, null);
     }
+    t.update(snap.ref, up);
+    if (isG) await propagateGroupUpdatesToJobs(t, { ...item, ...up } as any);
+  });
+  revalidatePath('/admin/production-console');
+  return { success: true, message: 'Segnalato.' };
+}
+
+export async function searchRawMaterials(term: string, types?: RawMaterialType[]) {
+  const snap = await getDocs(query(collection(db, "rawMaterials"), where("type", "in", types || RawMaterialTypeValues)));
+  const termL = term.toLowerCase();
+  return snap.docs.map(d => ({ id: d.id, ...d.data() } as RawMaterial)).filter(m => m.code.toLowerCase().includes(termL) || m.description.toLowerCase().includes(termL)).slice(0, 10);
+}
+
+export async function createWorkGroup(ids: string[], opId: string) {
+    const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'jobOrders', id))));
+    const jobs = docs.map(d => d.data() as JobOrder);
+    const first = jobs[0];
+    const gId = `group-${Date.now()}`;
+    const group: WorkGroup = { id: gId, jobOrderIds: ids, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opId, totalQuantity: jobs.reduce((s, j) => s + j.qta, 0), workCycleId: first.workCycleId || '', department: first.department, cliente: first.cliente, phases: first.phases, details: 'Lavorazione Multi-Commessa', numeroODLInterno: [...new Set(jobs.map(j => j.numeroODLInterno))].join(', '), numeroODL: [...new Set(jobs.map(j => j.numeroODL))].join(', '), dataConsegnaFinale: first.dataConsegnaFinale, ordinePF: jobs.map(j => j.ordinePF).join(', ') };
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'workGroups', gId), group);
+    docs.forEach(d => batch.update(d.ref, { workGroupId: gId }));
+    await batch.commit();
+    return { success: true, message: 'Creato.', workGroupId: gId };
 }

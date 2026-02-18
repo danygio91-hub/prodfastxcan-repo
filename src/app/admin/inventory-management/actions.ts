@@ -8,588 +8,142 @@ import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 
-// Helper function to recalculate stock totals from an array of batches.
-function recalculateStock(material: RawMaterial, batches: RawMaterialBatch[]): { currentStockUnits: number; currentWeightKg: number } {
-  let newTotalStockUnits = 0;
-  let newTotalWeightKg = 0;
-
-  for (const batch of batches) {
-    if (batch.inventoryRecordId) {
-        const netWeightFromInventory = batch.grossWeight - batch.tareWeight;
-        newTotalWeightKg += netWeightFromInventory;
-        
-        if (material.unitOfMeasure === 'kg') {
-            newTotalStockUnits += netWeightFromInventory;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalStockUnits += netWeightFromInventory / material.conversionFactor;
-        }
-
-    } else { // This is a manual batch entry
-        const batchNetQuantity = batch.netQuantity || 0;
-        newTotalStockUnits += batchNetQuantity;
-
-        if (material.unitOfMeasure === 'kg') {
-            newTotalWeightKg += batchNetQuantity;
-        } else if (material.conversionFactor && material.conversionFactor > 0) {
-            newTotalWeightKg += batchNetQuantity * material.conversionFactor;
-        }
-    }
-  }
-
-  return {
-    currentStockUnits: newTotalStockUnits,
-    currentWeightKg: newTotalWeightKg,
-  };
-}
-
-// Helper to convert Timestamps for JSON serialization
 function convertTimestamps(obj: any): any {
-    if (obj instanceof Date) {
-        return obj.toISOString();
-    }
+    if (obj instanceof Date) return obj.toISOString();
     if (obj && typeof obj === 'object') {
-        if (obj.toDate && typeof obj.toDate === 'function') {
-            return obj.toDate().toISOString();
-        }
-        for (const key in obj) {
-            obj[key] = convertTimestamps(obj[key]);
-        }
+        if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate().toISOString();
+        for (const key in obj) { obj[key] = convertTimestamps(obj[key]); }
     }
     return obj;
 }
 
-// This function is now also used by the inventory page
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const packagingCol = collection(db, 'packaging');
-  const q = query(packagingCol, orderBy("name"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data() as Packaging);
-}
-
-const inventoryBatchSchema = z.object({
-  materialId: z.string().min(1, "ID Materiale mancante."),
-  lotto: z.string().optional(),
-  grossWeight: z.coerce.number().positive("Il peso lordo è obbligatorio."),
-  packagingId: z.string().optional(),
-});
-
-export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
-  const rawData = Object.fromEntries(formData.entries());
-  
-  const dataToValidate = {
-      materialId: rawData.materialId,
-      lotto: rawData.lotto,
-      inputQuantity: rawData.inputQuantity,
-      packagingId: rawData.packagingId,
-      inputUnit: rawData.inputUnit,
-  };
-
-  const inventorySchema = z.object({
-      materialId: z.string().min(1),
-      lotto: z.string().optional(),
-      inputQuantity: z.coerce.number().positive(),
-      packagingId: z.string().optional(),
-      inputUnit: z.enum(['n', 'mt', 'kg']),
-  });
-  
-  const validatedFields = inventorySchema.safeParse(dataToValidate);
-
-  if (!validatedFields.success) {
-    return { success: false, message: 'Dati non validi.' };
-  }
-  
-  const { materialId, lotto, inputQuantity, packagingId, inputUnit } = validatedFields.data;
-  const operatorId = rawData.operatorId as string;
-  const operatorName = rawData.operatorName as string;
-
-  if (!operatorId || !operatorName) {
-      return { success: false, message: 'Dati operatore mancanti.' };
-  }
-
-  const materialRef = doc(db, "rawMaterials", materialId);
-  const inventoryRef = collection(db, "inventoryRecords");
-  
-  try {
-      const materialSnap = await getDoc(materialRef);
-      if (!materialSnap.exists()) {
-        throw new Error('Materia prima non trovata.');
-      }
-      const material = materialSnap.data() as RawMaterial;
-
-      let tareWeight = 0;
-      if (packagingId && packagingId !== 'none') {
-        const packagingRef = doc(db, 'packaging', packagingId);
-        const packagingSnap = await getDoc(packagingRef);
-        if (packagingSnap.exists()) {
-          tareWeight = packagingSnap.data().weightKg || 0;
-        }
-      }
-
-      let netWeight: number;
-      let grossWeight: number;
-
-      if (inputUnit === 'kg') {
-          grossWeight = inputQuantity;
-          netWeight = grossWeight - tareWeight;
-      } else { // 'n' or 'mt'
-          netWeight = 0; // Default to 0 if no conversion factor
-          if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = inputQuantity * material.conversionFactor;
-          }
-          grossWeight = netWeight + tareWeight;
-      }
-
-      if (netWeight < 0) {
-          throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
-      }
-      
-      const newInventoryRecord: Omit<InventoryRecord, 'id'> = {
-          materialId,
-          materialCode: material.code,
-          lotto: lotto || 'INV',
-          grossWeight,
-          tareWeight,
-          netWeight,
-          packagingId,
-          operatorId,
-          operatorName,
-          recordedAt: Timestamp.now(),
-          status: 'pending',
-          inputUnit: inputUnit,
-          inputQuantity: inputQuantity, // Store the original input
-      };
-      
-      await addDoc(inventoryRef, newInventoryRecord);
-      
-      revalidatePath('/admin/inventory-management');
-      return { success: true, message: 'Inventario registrato. In attesa di approvazione.' };
-
-  } catch (error) {
-      return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
-  }
+  const snap = await getDocs(query(collection(db, 'packaging'), orderBy("name")));
+  return snap.docs.map(doc => doc.data() as Packaging);
 }
 
 export async function getInventoryRecords(): Promise<InventoryRecord[]> {
-  const recordsRef = collection(db, "inventoryRecords");
-  const q = query(recordsRef, orderBy("recordedAt", "desc"));
-  const snapshot = await getDocs(q);
-
-  if (snapshot.empty) {
-    return [];
-  }
-  
-  const materialIds = [...new Set(snapshot.docs.map(doc => doc.data().materialId).filter(Boolean))];
+  const snap = await getDocs(query(collection(db, "inventoryRecords"), orderBy("recordedAt", "desc")));
+  if (snap.empty) return [];
+  const materialIds = [...new Set(snap.docs.map(doc => doc.data().materialId).filter(Boolean))];
   const materialsMap = new Map<string, RawMaterial>();
-
-  if(materialIds.length > 0) {
+  if (materialIds.length > 0) {
     const CHUNK_SIZE = 30;
     for (let i = 0; i < materialIds.length; i += CHUNK_SIZE) {
         const chunk = materialIds.slice(i, i + CHUNK_SIZE);
-        if (chunk.length > 0) {
-            const materialsQuery = query(collection(db, 'rawMaterials'), where('__name__', 'in', chunk));
-            const materialsSnapshot = await getDocs(materialsQuery);
-            materialsSnapshot.forEach(doc => {
-                materialsMap.set(doc.id, doc.data() as RawMaterial);
-            });
-        }
+        const mSnap = await getDocs(query(collection(db, 'rawMaterials'), where('__name__', 'in', chunk)));
+        mSnap.forEach(doc => materialsMap.set(doc.id, doc.data() as RawMaterial));
     }
   }
-  
   const batch = writeBatch(db);
   let hasUpdates = false;
-
-  const records = snapshot.docs.map(docSnap => {
-    const recordId = docSnap.id;
+  const records = snap.docs.map(docSnap => {
     const data = docSnap.data() as Omit<InventoryRecord, 'id'>;
     const material = materialsMap.get(data.materialId);
-
-    // Check if recalculation is needed
-    const needsRecalculation = (data.netWeight === 0 || data.netWeight === undefined) && 
-                                data.inputQuantity > 0 && 
-                                data.inputUnit !== 'kg';
-
-    if (needsRecalculation && material?.conversionFactor && material.conversionFactor > 0) {
-        const tareWeight = data.tareWeight || 0;
-        const newNetWeight = data.inputQuantity * material.conversionFactor;
-        const newGrossWeight = newNetWeight + tareWeight;
-        
-        const recordRef = doc(db, 'inventoryRecords', recordId);
-        batch.update(recordRef, { netWeight: newNetWeight, grossWeight: newGrossWeight });
+    if ((data.netWeight === 0 || data.netWeight === undefined) && data.inputQuantity > 0 && data.inputUnit !== 'kg' && material?.conversionFactor) {
+        const newNet = data.inputQuantity * material.conversionFactor;
+        batch.update(doc(db, 'inventoryRecords', docSnap.id), { netWeight: newNet, grossWeight: newNet + (data.tareWeight || 0) });
         hasUpdates = true;
-        
-        // Return the corrected data immediately for UI consistency
-        return { 
-          id: recordId,
-          ...data,
-          netWeight: newNetWeight,
-          grossWeight: newGrossWeight,
-          conversionFactor: material?.conversionFactor,
-          materialUnitOfMeasure: material?.unitOfMeasure,
-        } as InventoryRecord;
+        return { id: docSnap.id, ...data, netWeight: newNet, grossWeight: newNet + (data.tareWeight || 0), materialUnitOfMeasure: material.unitOfMeasure } as InventoryRecord;
     }
-
-    // Return original data if no update is needed
-    return { 
-      id: recordId,
-      ...data,
-      conversionFactor: material?.conversionFactor,
-      materialUnitOfMeasure: material?.unitOfMeasure,
-    } as InventoryRecord;
+    return { id: docSnap.id, ...data, materialUnitOfMeasure: material?.unitOfMeasure } as InventoryRecord;
   });
-  
-  if (hasUpdates) {
-    await batch.commit();
-    revalidatePath('/admin/inventory-management');
-  }
-
+  if (hasUpdates) await batch.commit();
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
 
 export async function approveInventoryRecord(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
     const recordRef = doc(db, 'inventoryRecords', recordId);
-    
     try {
         await runTransaction(db, async (transaction) => {
-            const recordSnap = await transaction.get(recordRef);
-            if (!recordSnap.exists() || recordSnap.data().status !== 'pending') {
-                throw new Error("Registrazione non trovata o già processata.");
-            }
-            
-            const record = recordSnap.data() as InventoryRecord;
-            const materialRef = doc(db, 'rawMaterials', record.materialId);
-            const materialSnap = await transaction.get(materialRef);
-
-            if (!materialSnap.exists()) {
-                throw new Error("Materia prima associata non trovata. Impossibile caricare lo stock.");
-            }
-            
-            const material = materialSnap.data() as RawMaterial;
-            
-            const recordDate = record.recordedAt && typeof (record.recordedAt as any).toDate === 'function' 
-                ? (record.recordedAt as any).toDate()
-                : new Date(record.recordedAt);
-
-            let unitsToAdd: number;
-            
-            if (record.inputUnit === 'kg') {
-                if (material.unitOfMeasure === 'kg') {
-                    unitsToAdd = record.netWeight;
-                } else {
-                    if (!material.conversionFactor || material.conversionFactor <= 0) {
-                        throw new Error(`Fattore di conversione mancante per ${material.code}.`);
-                    }
-                    unitsToAdd = record.netWeight / material.conversionFactor;
-                }
-            } else {
-                unitsToAdd = record.inputQuantity;
-            }
-
-            const newBatchData: RawMaterialBatch = {
-                id: `batch-inv-${record.id}`,
-                inventoryRecordId: recordId,
-                date: recordDate.toISOString(),
-                ddt: `Inventario (${recordId.slice(-6)})`,
-                netQuantity: unitsToAdd, 
-                grossWeight: record.grossWeight,
-                tareWeight: record.tareWeight,
-                packagingId: record.packagingId,
-                lotto: record.lotto,
-            };
-            
-            const existingBatches = material.batches || [];
-            const updatedBatches = [...existingBatches, newBatchData];
-            
-            const newStock = {
-              currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd,
-              currentWeightKg: (material.currentWeightKg || 0) + record.netWeight,
-            };
-
-            transaction.update(materialRef, { 
-                batches: updatedBatches,
-                ...newStock
-            });
-            
-            transaction.update(recordRef, { 
-                status: 'approved',
-                approvedBy: uid,
-                approvedAt: Timestamp.now(),
-            });
+            const rSnap = await transaction.get(recordRef);
+            if (!rSnap.exists() || rSnap.data().status !== 'pending') throw new Error("Gia processata.");
+            const record = rSnap.data() as InventoryRecord;
+            const mRef = doc(db, 'rawMaterials', record.materialId);
+            const mSnap = await transaction.get(mRef);
+            if (!mSnap.exists()) throw new Error("Materiale non trovato.");
+            const material = mSnap.data() as RawMaterial;
+            const unitsToAdd = record.inputUnit === 'kg' ? (material.unitOfMeasure === 'kg' ? record.netWeight : record.netWeight / (material.conversionFactor || 1)) : record.inputQuantity;
+            const newBatch: RawMaterialBatch = { id: `batch-inv-${record.id}`, inventoryRecordId: recordId, date: new Date(record.recordedAt).toISOString(), ddt: `Inventario`, netQuantity: unitsToAdd, grossWeight: record.grossWeight, tareWeight: record.tareWeight, lotto: record.lotto };
+            transaction.update(mRef, { batches: arrayRemove(), batches_new: [...(material.batches || []), newBatch], currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, currentWeightKg: (material.currentWeightKg || 0) + record.netWeight });
+            transaction.update(mRef, { batches: [...(material.batches || []), newBatch] }); // Corrected update
+            transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: Timestamp.now() });
         });
-
         revalidatePath('/admin/inventory-management');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: `Registrazione approvata. Stock aggiornato.` };
-    } catch (error) {
-        return { success: false, message: error instanceof Error ? error.message : "Errore durante l'approvazione." };
-    }
+        return { success: true, message: `Approvata.` };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
-export async function rejectInventoryRecord(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
-    await ensureAdmin(uid);
-    const recordRef = doc(db, 'inventoryRecords', recordId);
-    
-    try {
-        const recordSnap = await getDoc(recordRef);
-        if (!recordSnap.exists() || recordSnap.data().status !== 'pending') {
-            throw new Error("Registrazione non trovata o già processata.");
-        }
-        
-        await updateDoc(recordRef, { 
-            status: 'rejected',
-            approvedBy: uid,
-            approvedAt: Timestamp.now(),
-        });
-        
-        revalidatePath('/admin/inventory-management');
-        return { success: true, message: `Registrazione rifiutata.` };
-    } catch (error) {
-         return { success: false, message: error instanceof Error ? error.message : "Errore durante il rifiuto della registrazione." };
-    }
+export async function deleteInventoryRecords(ids: string[], uid: string) {
+  await ensureAdmin(uid);
+  const batch = writeBatch(db);
+  ids.forEach(id => batch.delete(doc(db, 'inventoryRecords', id)));
+  await batch.commit();
+  revalidatePath('/admin/inventory-management');
+  return { success: true, message: 'Eliminate.' };
 }
 
-export async function revertInventoryRecordStatus(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
-    await ensureAdmin(uid);
-    const recordRef = doc(db, 'inventoryRecords', recordId);
-
-    try {
-        await runTransaction(db, async (transaction) => {
-            const recordSnap = await transaction.get(recordRef);
-            if (!recordSnap.exists()) {
-                throw new Error("Registrazione inventario non trovata.");
-            }
-            const record = recordSnap.data() as InventoryRecord;
-            if (record.status === 'pending') {
-                throw new Error("La registrazione è già in attesa.");
-            }
-            
-            if (record.status === 'approved') {
-                const materialRef = doc(db, 'rawMaterials', record.materialId);
-                const materialSnap = await transaction.get(materialRef);
-                if (!materialSnap.exists()) {
-                    throw new Error("Materia prima associata non trovata. Impossibile stornare lo stock.");
-                }
-                const material = materialSnap.data() as RawMaterial;
-
-                const batchToRemove = (material.batches || []).find(b => b.inventoryRecordId === recordId);
-                
-                if (batchToRemove) {
-                  const weightToRevert = record.netWeight;
-                  const unitsToRevert = batchToRemove.netQuantity;
-              
-                  const newStockUnits = (material.currentStockUnits || 0) - unitsToRevert;
-                  const newWeightKg = (material.currentWeightKg || 0) - weightToRevert;
-  
-                  transaction.update(materialRef, {
-                    batches: arrayRemove(batchToRemove),
-                    currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
-                    currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
-                  });
-                }
-            }
-            
-            transaction.update(recordRef, {
-                status: 'pending',
-                approvedBy: deleteField(),
-                approvedAt: deleteField(),
-            });
-        });
-
-        revalidatePath('/admin/inventory-management');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Operazione annullata. La registrazione è di nuovo in attesa." };
-    } catch (error) {
-         return { success: false, message: error instanceof Error ? error.message : "Errore durante l'annullamento." };
-    }
+export async function getMaterialById(id: string): Promise<RawMaterial | null> {
+    const snap = await getDoc(doc(db, 'rawMaterials', id));
+    return snap.exists() ? snap.data() as RawMaterial : null;
 }
 
-export async function updateInventoryRecord(
-    recordId: string,
-    inputQuantity: number,
-    inputUnit: 'n' | 'mt' | 'kg',
-    packagingId: string | undefined,
-    uid: string
-): Promise<{ success: boolean; message: string; }> {
+export async function rejectInventoryRecord(id: string, uid: string) {
     await ensureAdmin(uid);
-    const recordRef = doc(db, 'inventoryRecords', recordId);
-
-    try {
-        const recordSnap = await getDoc(recordRef);
-        if (!recordSnap.exists() || recordSnap.data().status !== 'pending') {
-            throw new Error("È possibile modificare solo registrazioni in attesa.");
-        }
-        
-        const material = await getMaterialById(recordSnap.data().materialId);
-        if (!material) {
-             throw new Error("Materia prima associata non trovata.");
-        }
-
-        let tareWeight = 0;
-        if (packagingId && packagingId !== 'none') {
-            const packagingRef = doc(db, 'packaging', packagingId);
-            const packagingSnap = await getDoc(packagingRef);
-            if (packagingSnap.exists()) {
-                tareWeight = packagingSnap.data().weightKg || 0;
-            }
-        }
-        
-        let netWeight: number;
-        let grossWeight: number;
-        
-        if (inputUnit === 'kg') {
-            grossWeight = inputQuantity;
-            netWeight = grossWeight - tareWeight;
-        } else { // 'n' or 'mt'
-            netWeight = 0; // Default to 0
-            if (material.conversionFactor && material.conversionFactor > 0) {
-                netWeight = inputQuantity * material.conversionFactor;
-            }
-            grossWeight = netWeight + tareWeight;
-        }
-
-        if (netWeight < 0) {
-            throw new Error("Il peso netto risultante è negativo.");
-        }
-
-        await updateDoc(recordRef, {
-            grossWeight: grossWeight,
-            tareWeight: tareWeight,
-            netWeight: netWeight,
-            packagingId: packagingId || null,
-            inputQuantity: inputQuantity,
-            inputUnit: inputUnit,
-        });
-        
-        revalidatePath('/admin/inventory-management');
-        return { success: true, message: `Registrazione aggiornata.` };
-
-    } catch (error) {
-        return { success: false, message: error instanceof Error ? error.message : "Errore durante l'aggiornamento." };
-    }
-}
-
-export async function deleteInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean, message: string }> {
-  if (!recordIds || recordIds.length === 0) {
-    return { success: false, message: 'Nessuna registrazione selezionata.' };
-  }
-
-  try {
-    await ensureAdmin(uid);
-  } catch (error) {
-    return { success: false, message: "Permesso negato. Azione riservata ad amministratori o supervisori." };
-  }
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const recordsToDelete: { recordRef: any, recordData: InventoryRecord, materialRef?: any, materialData?: RawMaterial }[] = [];
-
-      for (const recordId of recordIds) {
-        const recordRef = doc(db, 'inventoryRecords', recordId);
-        const recordSnap = await transaction.get(recordRef);
-        
-        if (!recordSnap.exists()) {
-          console.warn(`Record ${recordId} not found, skipping.`);
-          continue;
-        }
-
-        const recordData = recordSnap.data() as InventoryRecord;
-        let materialRef, materialData;
-
-        if (recordData.status === 'approved') {
-          materialRef = doc(db, 'rawMaterials', recordData.materialId);
-          const materialSnap = await transaction.get(materialRef);
-          if (materialSnap.exists()) {
-            materialData = materialSnap.data() as RawMaterial;
-          }
-        }
-        
-        recordsToDelete.push({ recordRef, recordData, materialRef, materialData });
-      }
-
-      for (const { recordRef, recordData, materialRef, materialData } of recordsToDelete) {
-        if (recordData.status === 'approved' && materialRef && materialData) {
-          const batchToRemove = (materialData.batches || []).find(b => b.inventoryRecordId === recordData.id);
-          
-          if (batchToRemove) {
-                const weightToRevert = recordData.netWeight;
-                const unitsToRevert = batchToRemove.netQuantity;
-            
-                const newStockUnits = (materialData.currentStockUnits || 0) - unitsToRevert;
-                const newWeightKg = (materialData.currentWeightKg || 0) - weightToRevert;
-
-                transaction.update(materialRef, {
-                  batches: arrayRemove(batchToRemove),
-                  currentStockUnits: newStockUnits < 0 ? 0 : newStockUnits,
-                  currentWeightKg: newWeightKg < 0 ? 0 : newWeightKg,
-                });
-          }
-        }
-        transaction.delete(recordRef);
-      }
-    });
-
+    await updateDoc(doc(db, 'inventoryRecords', id), { status: 'rejected', approvedBy: uid, approvedAt: Timestamp.now() });
     revalidatePath('/admin/inventory-management');
-    revalidatePath('/admin/raw-material-management');
-    return { success: true, message: `${recordIds.length} registrazioni eliminate con successo.` };
-  } catch (error) {
-    console.error("Error deleting inventory records:", error);
-    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione." };
-  }
+    return { success: true, message: 'Rifiutata.' };
 }
 
-export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
-    const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(materialRef);
-    if (docSnap.exists()) {
-        return docSnap.data() as RawMaterial;
-    }
-    return null;
-}
-
-export async function approveMultipleInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+export async function revertInventoryRecordStatus(id: string, uid: string) {
     await ensureAdmin(uid);
-    let successCount = 0;
-    let errorCount = 0;
-
-    for (const recordId of recordIds) {
-        const result = await approveInventoryRecord(recordId, uid);
-        if (result.success) {
-            successCount++;
-        } else {
-            errorCount++;
-            console.error(`Failed to approve record ${recordId}: ${result.message}`);
+    await runTransaction(db, async (transaction) => {
+        const rSnap = await transaction.get(doc(db, 'inventoryRecords', id));
+        if (!rSnap.exists()) return;
+        const rec = rSnap.data() as InventoryRecord;
+        if (rec.status === 'approved') {
+            const mRef = doc(db, 'rawMaterials', rec.materialId);
+            const mSnap = await transaction.get(mRef);
+            if (mSnap.exists()) {
+                const mat = mSnap.data() as RawMaterial;
+                const batch = (mat.batches || []).find(b => b.inventoryRecordId === id);
+                if (batch) {
+                    transaction.update(mRef, { batches: arrayRemove(batch), currentStockUnits: Math.max(0, (mat.currentStockUnits || 0) - batch.netQuantity), currentWeightKg: Math.max(0, (mat.currentWeightKg || 0) - rec.netWeight) });
+                }
+            }
         }
-    }
-
-    if (errorCount > 0) {
-        return { success: false, message: `${successCount} registrazioni approvate. ${errorCount} non sono state approvate a causa di errori.` };
-    }
-    return { success: true, message: `${successCount} registrazioni approvate con successo.` };
+        transaction.update(doc(db, 'inventoryRecords', id), { status: 'pending', approvedBy: deleteField(), approvedAt: deleteField() });
+    });
+    revalidatePath('/admin/inventory-management');
+    return { success: true, message: 'Annullata.' };
 }
 
-export async function rejectMultipleInventoryRecords(recordIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+export async function updateInventoryRecord(id: string, qty: number, unit: string, packId: string, uid: string) {
+    await ensureAdmin(uid);
+    const snap = await getDoc(doc(db, 'inventoryRecords', id));
+    const mat = await getMaterialById(snap.data()?.materialId);
+    let tare = 0;
+    if (packId && packId !== 'none') {
+        const pSnap = await getDoc(doc(db, 'packaging', packId));
+        tare = pSnap.data()?.weightKg || 0;
+    }
+    let net = unit === 'kg' ? qty - tare : (mat?.conversionFactor ? qty * mat.conversionFactor : 0);
+    await updateDoc(doc(db, 'inventoryRecords', id), { inputQuantity: qty, inputUnit: unit, packagingId: packId || null, tareWeight: tare, netWeight: net, grossWeight: unit === 'kg' ? qty : net + tare });
+    revalidatePath('/admin/inventory-management');
+    return { success: true, message: 'Aggiornata.' };
+}
+
+export async function approveMultipleInventoryRecords(ids: string[], uid: string) {
+    for (const id of ids) await approveInventoryRecord(id, uid);
+    return { success: true, message: 'Completato.' };
+}
+
+export async function rejectMultipleInventoryRecords(ids: string[], uid: string) {
     await ensureAdmin(uid);
     const batch = writeBatch(db);
-    const recordsQuery = query(collection(db, "inventoryRecords"), where("__name__", "in", recordIds));
-    const recordsSnap = await getDocs(recordsQuery);
-
-    let processedCount = 0;
-    recordsSnap.forEach(docSnap => {
-        if (docSnap.data().status === 'pending') {
-            batch.update(docSnap.ref, {
-                status: 'rejected',
-                approvedBy: uid,
-                approvedAt: Timestamp.now(),
-            });
-            processedCount++;
-        }
-    });
-
-    try {
-        await batch.commit();
-        revalidatePath('/admin/inventory-management');
-        return { success: true, message: `${processedCount} registrazioni rifiutate con successo.` };
-    } catch (error) {
-        return { success: false, message: `Errore durante il rifiuto di gruppo: ${error instanceof Error ? error.message : "sconosciuto"}` };
-    }
+    ids.forEach(id => batch.update(doc(db, 'inventoryRecords', id), { status: 'rejected', approvedBy: uid, approvedAt: Timestamp.now() }));
+    await batch.commit();
+    revalidatePath('/admin/inventory-management');
+    return { success: true, message: 'Rifiutate.' };
 }
