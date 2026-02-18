@@ -1,4 +1,3 @@
-
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import RawMaterialManagementClientPage from './RawMaterialManagementClientPage';
@@ -10,7 +9,6 @@ import { getArticles } from '../article-management/actions';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
-  // Fetch only the data needed for dialogs and other tabs, not the main list.
   const [departments, articles, manualCommitments] = await Promise.all([
     getDepartments(),
     getArticles(),
@@ -30,9 +28,6 @@ export default async function AdminRawMaterialManagementPage() {
             initialDepartments={departments}
             initialArticles={articles}
             initialCommitments={manualCommitments}
-            // Pass empty arrays for the main list data. The client will fetch on search.
-            initialRawMaterials={[]}
-            initialMaterialStatus={[]}
           />
         </Suspense>
       </AppShell>

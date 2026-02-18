@@ -74,7 +74,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
         if (!bomMap.has(consumption.materialCode) && withdrawnQtyForThisMaterial > 0) {
           bomMap.set(consumption.materialCode, {
             component: consumption.materialCode,
-            quantity: 0,
+            quantity: withdrawnQtyForThisMaterial,
             unit: material?.unitOfMeasure || 'n',
             status: 'withdrawn',
             isFromTemplate: false,
@@ -132,10 +132,8 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                           totalRequirement = item.quantity * job.qta;
                           displayUnit = item.unit;
                       }
-                  } else if ((item as any).isAggregated) {
-                      totalRequirement = item.quantity;
-                      displayUnit = item.unit;
                   } else {
+                      // For manual additions, requirement is what was taken
                       totalRequirement = withdrawnQty;
                       displayUnit = material?.unitOfMeasure || 'n';
                   }
@@ -160,7 +158,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                     <TableRow key={index}>
                         <TableCell className="font-medium">
                             {item.component}
-                            {!item.isFromTemplate && !isAggregatedView && !((item as any).isAggregated) && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
+                            {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Aggiunto</Badge>}
                         </TableCell>
                         {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
                         <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>

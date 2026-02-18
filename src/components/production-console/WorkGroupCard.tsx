@@ -108,8 +108,10 @@ export default function WorkGroupCard({
                                 <DropdownMenuItem onSelect={() => onForceCompleteClick(group.id)} disabled={isLive || overallStatus === 'Completata'}><PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura</DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><Unlink className="mr-2 h-4 w-4" /> Annulla Gruppo</DropdownMenuItem></AlertDialogTrigger>
-                                <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Annullare gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive">Sì, annulla</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader><AlertDialogTitle>Annullare gruppo?</AlertDialogTitle><AlertDialogDescription>Le commesse torneranno individuali.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogFooter><AlertDialogCancel>Chiudi</AlertDialogCancel><AlertDialogAction onClick={() => onDissolveGroupClick(group.id)} className="bg-destructive">Sì, annulla</AlertDialogAction></AlertDialogFooter>
+                                </AlertDialogContent></AlertDialog>
                             </DropdownMenuContent></DropdownMenu>
                     </div>
                 </div>

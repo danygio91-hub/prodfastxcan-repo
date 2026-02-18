@@ -17,6 +17,19 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+export async function getDepartments(): Promise<Department[]> {
+  const col = collection(db, "departments");
+  const snapshot = await getDocs(col);
+  return snapshot.docs.map(d => d.data() as Department);
+}
+
+export async function getManualCommitments(): Promise<ManualCommitment[]> {
+  const col = collection(db, "manualCommitments");
+  const q = query(col, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as ManualCommitment);
+}
+
 export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[]> {
     const materialsCol = collection(db, 'rawMaterials');
     let snapshot;
@@ -179,7 +192,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const materialsMap = new Map<string, RawMaterial>();
     materialsSnap.forEach(doc => {
         const data = doc.data() as RawMaterial;
-        materialsMap.set(data.code.toLowerCase(), { id: doc.id, ...data });
+        materialsMap.set(data.id, { id: doc.id, ...data });
     });
     
     const withdrawals = withdrawalsSnap.docs.map(d => ({id: d.id, ...convertTimestampsToDates(d.data())}) as MaterialWithdrawal);
@@ -221,7 +234,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         (job.billOfMaterials || []).forEach(item => {
             if (item.status !== 'withdrawn') {
                 const code = item.component.toLowerCase();
-                const material = materialsMap.get(code);
+                const material = Array.from(materialsMap.values()).find(m => m.code.toLowerCase() === code);
                 let qty = (item.lunghezzaTaglioMm && material?.unitOfMeasure === 'mt') ? (job.qta * item.quantity * item.lunghezzaTaglioMm / 1000) : job.qta * item.quantity;
                 impegniMap.set(code, (impegniMap.get(code) || 0) + qty);
             }
@@ -230,12 +243,8 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     commitmentsSnap.forEach(docSnap => {
         const comm = docSnap.data() as ManualCommitment;
-        // In un'app reale qui dovremmo recuperare l'articolo e la sua distinta base
-        // Per semplicità qui simuliamo l'impegno se il codice articolo è una materia prima
         const code = comm.articleCode.toLowerCase();
-        if (materialsMap.has(code)) {
-            impegniMap.set(code, (impegniMap.get(code) || 0) + comm.quantity);
-        }
+        impegniMap.set(code, (impegniMap.get(code) || 0) + comm.quantity);
     });
 
     return Array.from(materialsMap.values()).map(m => {

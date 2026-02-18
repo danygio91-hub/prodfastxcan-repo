@@ -9,14 +9,14 @@ import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
 
-import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord } from '@/lib/mock-data';
+import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, updateBatchInRawMaterial, deleteBatchFromRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@/components/ui/alert-dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -137,10 +137,12 @@ function RenderLoadingRow() {
 
 export default function RawMaterialManagementClientPage({ 
   initialArticles, 
-  initialCommitments, 
+  initialCommitments,
+  initialDepartments,
 }: {
-  initialArticles: any[];
-  initialCommitments: any[];
+  initialArticles: Article[];
+  initialCommitments: ManualCommitment[];
+  initialDepartments: Department[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,7 +287,7 @@ export default function RawMaterialManagementClientPage({
       });
       
       if (result.success) {
-        router.refresh();
+        refreshData();
       }
     } catch (error) {
       toast({
