@@ -134,14 +134,6 @@ export async function deleteRawMaterial(id: string): Promise<{ success: boolean;
   return { success: true, message: 'Materia prima eliminata.' };
 }
 
-export async function deleteSelectedRawMaterials(ids: string[]): Promise<{ success: boolean, message: string }> {
-  const batch = writeBatch(db);
-  ids.forEach(id => batch.delete(doc(db, 'rawMaterials', id)));
-  await batch.commit();
-  revalidatePath('/admin/raw-material-management');
-  return { success: true, message: `${ids.length} materie prime eliminate.` };
-}
-
 export async function commitImportedRawMaterials(data: any[]): Promise<{ success: boolean; message: string; }> {
     const batch = writeBatch(db);
     let added = 0;
@@ -281,41 +273,27 @@ export async function searchMaterialsAndGetStatus(searchTerm: string) {
   return { materials, status: allStatus.filter(s => ids.has(s.id)) };
 }
 
-export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
-    const mSnap = await getDoc(doc(db, 'rawMaterials', materialId));
-    if (!mSnap.exists()) return [];
-    const material = mSnap.data() as RawMaterial;
-    const wSnap = await getDocs(query(collection(db, "materialWithdrawals"), where("materialId", "==", materialId)));
-    const withdrawals = wSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as MaterialWithdrawal);
-    const withdrawalsByLotto = withdrawals.reduce((acc, w) => {
-        const key = w.lotto || 'SENZA_LOTTO';
-        acc[key] = (acc[key] || 0) + (w.consumedUnits || (material.conversionFactor ? w.consumedWeight / material.conversionFactor : 0));
-        return acc;
-    }, {} as Record<string, number>);
-    const batchesByLotto = (material.batches || []).reduce((acc, b) => {
-        const key = b.lotto || 'SENZA_LOTTO';
-        if (!acc[key]) acc[key] = [];
-        acc[key].push(b);
-        return acc;
-    }, {} as Record<string, RawMaterialBatch[]>);
-    return Object.entries(batchesByLotto).map(([lotto, batches]) => {
-        const loaded = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-        const withdrawn = withdrawalsByLotto[lotto] || 0;
-        return { lotto, totalLoaded: loaded, totalWithdrawn: withdrawn, available: loaded - withdrawn, batches: batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) };
-    }).filter(l => l.available > 0.001);
-}
-
-export async function getManualCommitments(): Promise<ManualCommitment[]> {
-  const snap = await getDocs(query(collection(db, "manualCommitments"), orderBy("createdAt", "desc")));
-  return snap.docs.map(doc => ({ ...doc.data(), id: doc.id, createdAt: doc.data().createdAt.toDate().toISOString(), deliveryDate: doc.data().deliveryDate }) as ManualCommitment);
-}
-
 export async function saveManualCommitment(values: any, uid: string): Promise<{ success: boolean; message: string; }> {
   await ensureAdmin(uid);
-  const docRef = values.id ? doc(db, "manualCommitments", values.id) : doc(collection(db, "manualCommitments"));
-  const data = { ...values, deliveryDate: typeof values.deliveryDate === 'string' ? values.deliveryDate : values.deliveryDate.toISOString(), status: 'pending' };
-  if (!values.id) { data.id = docRef.id; data.createdAt = Timestamp.now(); }
-  await setDoc(docRef, data, { merge: true });
+  const id = values.id;
+  const docRef = id ? doc(db, "manualCommitments", id) : doc(collection(db, "manualCommitments"));
+  
+  const deliveryDate = values.deliveryDate instanceof Date 
+    ? values.deliveryDate.toISOString() 
+    : values.deliveryDate;
+
+  const dataToSave = { 
+    ...values, 
+    deliveryDate,
+    status: 'pending' 
+  };
+  
+  if (!id) { 
+    dataToSave.id = docRef.id; 
+    dataToSave.createdAt = Timestamp.now(); 
+  }
+  
+  await setDoc(docRef, dataToSave, { merge: true });
   revalidatePath('/admin/raw-material-management');
   return { success: true, message: 'Impegno salvato.' };
 }
@@ -370,20 +348,33 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
-export async function revertManualCommitmentFulfillment(id: string, uid: string): Promise<{ success: boolean; message: string }> {
-  await ensureAdmin(uid);
-  const cSnap = await getDoc(doc(db, "manualCommitments", id));
-  if (!cSnap.exists() || cSnap.data().status !== 'fulfilled') throw new Error("Impegno non evaso.");
-  const wSnap = await getDocs(query(collection(db, "materialWithdrawals"), where("commitmentId", "==", id)));
-  for (const docSnap of wSnap.docs) await deleteSingleWithdrawalAndRestoreStock(docSnap.id);
-  await updateDoc(doc(db, "manualCommitments", id), { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField(), declaredGoodPieces: deleteField(), declaredScrapPieces: deleteField() });
-  revalidatePath('/admin/raw-material-management');
-  return { success: true, message: "Evasione annullata." };
-}
-
 export async function getScrapsForMaterial(id: string): Promise<ScrapRecord[]> {
     const snap = await getDocs(query(collection(db, "scrapRecords"), where("materialId", "==", id), orderBy("declaredAt", "desc")));
     return snap.docs.map(doc => ({ ...doc.data(), id: doc.id, declaredAt: doc.data().declaredAt.toDate().toISOString() } as ScrapRecord));
+}
+
+export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
+    const mSnap = await getDoc(doc(db, 'rawMaterials', materialId));
+    if (!mSnap.exists()) return [];
+    const material = mSnap.data() as RawMaterial;
+    const wSnap = await getDocs(query(collection(db, "materialWithdrawals"), where("materialId", "==", materialId)));
+    const withdrawals = wSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as MaterialWithdrawal);
+    const withdrawalsByLotto = withdrawals.reduce((acc, w) => {
+        const key = w.lotto || 'SENZA_LOTTO';
+        acc[key] = (acc[key] || 0) + (w.consumedUnits || (material.conversionFactor ? w.consumedWeight / material.conversionFactor : 0));
+        return acc;
+    }, {} as Record<string, number>);
+    const batchesByLotto = (material.batches || []).reduce((acc, b) => {
+        const key = b.lotto || 'SENZA_LOTTO';
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(b);
+        return acc;
+    }, {} as Record<string, RawMaterialBatch[]>);
+    return Object.entries(batchesByLotto).map(([lotto, batches]) => {
+        const loaded = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0);
+        const withdrawn = withdrawalsByLotto[lotto] || 0;
+        return { lotto, totalLoaded: loaded, totalWithdrawn: withdrawn, available: loaded - withdrawn, batches: batches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) };
+    }).filter(l => l.available > 0.001);
 }
 
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
@@ -393,7 +384,15 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as RawMaterial));
 }
 
+export async function getManualCommitments(): Promise<ManualCommitment[]> {
+  const snap = await getDocs(query(collection(db, "manualCommitments"), orderBy("createdAt", "desc")));
+  return snap.docs.map(doc => ({ ...doc.data(), id: doc.id, createdAt: doc.data().createdAt.toDate().toISOString(), deliveryDate: doc.data().deliveryDate }) as ManualCommitment);
+}
+
 export async function getDepartments(): Promise<Department[]> {
   const snap = await getDocs(collection(db, "departments"));
   return snap.docs.map(d => d.data() as Department);
 }
+
+export type LotInfo = { lotto: string; totalLoaded: number; totalWithdrawn: number; available: number; batches: RawMaterialBatch[]; };
+export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };

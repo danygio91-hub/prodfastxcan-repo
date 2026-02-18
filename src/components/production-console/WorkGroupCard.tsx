@@ -18,6 +18,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import BOMDialog from './BOMDialog';
 import JobOrderCard from './JobOrderCard';
 
@@ -74,7 +75,8 @@ export default function WorkGroupCard({
 
   return (
     <>
-    <Collapsible asChild><Card className={cn("relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", (group.isProblemReported || hasMatMissing) && "border-destructive/50", isSelected && "ring-2 ring-primary/50")}>
+    <Collapsible asChild>
+      <Card className={cn("relative flex flex-col h-full bg-card hover:bg-card/90 transition-all duration-300 border-2 border-teal-500/70", (group.isProblemReported || hasMatMissing) && "border-destructive/50", isSelected && "ring-2 ring-primary/50")}>
         <div className="flex-grow">
             <CardHeader className="pb-3 space-y-2">
                 <div className="flex justify-between items-center gap-4">
@@ -88,15 +90,17 @@ export default function WorkGroupCard({
                 <div className="flex justify-between items-center gap-4">
                     <CardDescription className="flex items-center gap-2"><Building className="h-4 w-4 text-muted-foreground" />{group.cliente}</CardDescription>
                     <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsBOMDialogOpen(true)}><ClipboardList className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); setIsBOMDialogOpen(true); }}><ClipboardList className="h-4 w-4" /></Button>
                         <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                                 <DropdownMenuItem onSelect={() => onOpenPhaseManager(group)}><ListOrdered className="mr-2 h-4 w-4" /> Fasi</DropdownMenuItem>
                                 <DropdownMenuItem onSelect={() => onOpenMaterialManager(group)}><Boxes className="mr-2 h-4 w-4" /> Materiali</DropdownMenuItem>
                                 {guaina && (guaina.status === 'pending' || guaina.status === 'paused') && !group.phases.some(p => p.status === 'in-progress' || p.status === 'paused') && (
                                     <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}>{isPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />} Sposta Guaina</DropdownMenuItem></AlertDialogTrigger>
-                                    <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma</AlertDialogTitle><AlertDialogDescription>Spostare la guaina scioglierà il gruppo. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
-                                    <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guaina.id, isPostponed ? 'postponed' : 'default')}>Conferma e Sciogli</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Conferma</AlertDialogTitle><AlertDialogDescription>Spostare la guaina scioglierà il gruppo. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guaina.id, isPostponed ? 'postponed' : 'default')}>Conferma e Sciogli</AlertDialogAction></AlertDialogFooter>
+                                    </AlertDialogContent></AlertDialog>
                                 )}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onSelect={() => { setSelectedOperators([]); setIsPauseDialogOpen(true); }} disabled={!isLive}><Users className="mr-2 h-4 w-4" /> Forza Pausa</DropdownMenuItem>

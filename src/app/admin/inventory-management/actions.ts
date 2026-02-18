@@ -66,8 +66,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const material = mSnap.data() as RawMaterial;
             const unitsToAdd = record.inputUnit === 'kg' ? (material.unitOfMeasure === 'kg' ? record.netWeight : record.netWeight / (material.conversionFactor || 1)) : record.inputQuantity;
             const newBatch: RawMaterialBatch = { id: `batch-inv-${record.id}`, inventoryRecordId: recordId, date: new Date(record.recordedAt).toISOString(), ddt: `Inventario`, netQuantity: unitsToAdd, grossWeight: record.grossWeight, tareWeight: record.tareWeight, lotto: record.lotto };
-            transaction.update(mRef, { batches: arrayRemove(), batches_new: [...(material.batches || []), newBatch], currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, currentWeightKg: (material.currentWeightKg || 0) + record.netWeight });
-            transaction.update(mRef, { batches: [...(material.batches || []), newBatch] }); // Corrected update
+            transaction.update(mRef, { currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, currentWeightKg: (material.currentWeightKg || 0) + record.netWeight, batches: [...(material.batches || []), newBatch] });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
@@ -84,9 +83,13 @@ export async function deleteInventoryRecords(ids: string[], uid: string) {
   return { success: true, message: 'Eliminate.' };
 }
 
-export async function getMaterialById(id: string): Promise<RawMaterial | null> {
-    const snap = await getDoc(doc(db, 'rawMaterials', id));
-    return snap.exists() ? snap.data() as RawMaterial : null;
+export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
+    const materialRef = doc(db, 'rawMaterials', materialId);
+    const docSnap = await getDoc(materialRef);
+    if (docSnap.exists()) {
+        return docSnap.data() as RawMaterial;
+    }
+    return null;
 }
 
 export async function rejectInventoryRecord(id: string, uid: string) {
