@@ -241,14 +241,17 @@ export default function RawMaterialManagementClientPage({
             unit: b.inventoryRecordId ? 'KG' : updated.unitOfMeasure.toUpperCase(),
             id: b.id,
         })),
-        ...withdrawals.map((w): Movement => ({
-            type: 'Scarico',
-            date: w.withdrawalDate.toISOString(),
-            description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale',
-            quantity: -( (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0 ),
-            unit: ((w as any).consumedUnits || (w as any).unitsConsumed) ? updated.unitOfMeasure.toUpperCase() : 'KG',
-            id: w.id,
-        })),
+        ...withdrawals.map((w): Movement => {
+            const units = (w as any).consumedUnits ?? (w as any).unitsConsumed;
+            return {
+                type: 'Scarico',
+                date: w.withdrawalDate.toISOString(),
+                description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale',
+                quantity: -( units ?? 0 ),
+                unit: units ? updated.unitOfMeasure.toUpperCase() : 'KG',
+                id: w.id,
+            };
+        }),
     ];
     setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   };

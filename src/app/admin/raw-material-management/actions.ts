@@ -206,6 +206,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const syncBatch = writeBatch(db);
     let syncNeeded = false;
 
+    // --- AUTO-HEALING LOGIC ---
     materialsMap.forEach(material => {
         const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (b.netQuantity || 0), 0);
         const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (b.grossWeight || 0), 0);
@@ -263,7 +264,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
-            // Fallback: impegno diretto se non è un articolo con distinta
             impegniMap.set(artCode, (impegniMap.get(artCode) || 0) + comm.quantity);
         }
     });
@@ -304,6 +304,86 @@ export async function saveManualCommitment(data: any, uid: string): Promise<{ su
   await setDoc(docRef, dataToSave, { merge: true });
   revalidatePath('/admin/raw-material-management');
   return { success: true, message: 'Impegno salvato.' };
+}
+
+export async function deleteManualCommitment(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await deleteDoc(doc(db, "manualCommitments", id));
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: 'Impegno eliminato.' };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
+}
+
+export async function importManualCommitments(data: any[], uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    const batch = writeBatch(db);
+    let added = 0;
+    
+    for (const row of data) {
+        const jobCode = String(row.Commessa || row.jobOrderCode || "").trim();
+        const artCode = String(row["Codice Articolo"] || row.articleCode || "").trim();
+        const qty = Number(row.Quantita || row.quantity);
+        const dateRaw = row["Data Consegna"] || row.deliveryDate;
+        
+        if (!jobCode || !artCode || isNaN(qty)) continue;
+
+        let deliveryDate: string;
+        if (dateRaw instanceof Date) {
+            deliveryDate = dateRaw.toISOString();
+        } else if (typeof dateRaw === 'number') {
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            deliveryDate = new Date(excelEpoch.getTime() + dateRaw * 86400 * 1000).toISOString();
+        } else {
+            deliveryDate = new Date().toISOString();
+        }
+
+        const newRef = doc(collection(db, "manualCommitments"));
+        batch.set(newRef, {
+            id: newRef.id,
+            jobOrderCode: jobCode,
+            articleCode: artCode,
+            quantity: qty,
+            deliveryDate,
+            status: 'pending',
+            createdAt: Timestamp.now(),
+        });
+        added++;
+    }
+    
+    if (added > 0) await batch.commit();
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: `Importati ${added} impegni.` };
+}
+
+export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await runTransaction(db, async (transaction) => {
+            const withdrawalRef = doc(db, 'materialWithdrawals', withdrawalId);
+            const withdrawalSnap = await transaction.get(withdrawalRef);
+            if (!withdrawalSnap.exists()) throw new Error("Prelievo non trovato.");
+            
+            const withdrawal = withdrawalSnap.data() as MaterialWithdrawal;
+            const materialRef = doc(db, 'rawMaterials', withdrawal.materialId);
+            const materialSnap = await transaction.get(materialRef);
+            
+            if (materialSnap.exists()) {
+                const material = materialSnap.data() as RawMaterial;
+                const unitsToRestore = (withdrawal as any).consumedUnits ?? (withdrawal as any).unitsConsumed ?? 0;
+                
+                transaction.update(materialRef, {
+                    currentStockUnits: (material.currentStockUnits || 0) + unitsToRestore,
+                    currentWeightKg: (material.currentWeightKg || 0) + withdrawal.consumedWeight,
+                });
+            }
+            
+            transaction.delete(withdrawalRef);
+        });
+        revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/reports');
+        return { success: true, message: "Prelievo eliminato e stock ripristinato." };
+    } catch (error) {
+        return { success: false, message: error instanceof Error ? error.message : "Errore." };
+    }
 }
 
 export async function getScrapsForMaterial(id: string): Promise<ScrapRecord[]> {
@@ -348,61 +428,6 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
         const withdrawn = lotWithdrawalsMap[lotto] || 0;
         return { lotto, totalLoaded, available: totalLoaded - withdrawn, batches };
     }).filter(l => l.available > 0.001);
-}
-
-export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, lotSelections: LotSelectionPayload[], uid: string) {
-    await ensureAdmin(uid);
-    try {
-        await runTransaction(db, async (t) => {
-            const commRef = doc(db, "manualCommitments", id);
-            const commSnap = await t.get(commRef);
-            const opSnap = await t.get(doc(db, "operators", uid));
-            if (!commSnap.exists() || commSnap.data().status === 'fulfilled') throw new Error("Gia evaso.");
-            const comm = commSnap.data() as ManualCommitment;
-
-            for (const sel of lotSelections) {
-                const mRef = doc(db, "rawMaterials", sel.materialId);
-                const mSnap = await t.get(mRef);
-                const mat = mSnap.data() as RawMaterial;
-                let consumedWeight = mat.unitOfMeasure === 'kg' ? sel.consumed : (mat.conversionFactor ? sel.consumed * mat.conversionFactor : 0);
-                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) - sel.consumed, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
-                const wRef = doc(collection(db, "materialWithdrawals"));
-                t.set(wRef, { jobIds: [comm.jobOrderCode], jobOrderPFs: [comm.jobOrderCode], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits: sel.consumed, operatorId: uid, operatorName: opSnap.data()?.nome, withdrawalDate: Timestamp.now(), lotto: sel.lotto, commitmentId: id });
-                if (scrap > 0) {
-                    const sRef = doc(collection(db, "scrapRecords"));
-                    t.set(sRef, { commitmentId: id, jobOrderCode: comm.jobOrderCode, articleCode: comm.articleCode, materialId: mat.id, materialCode: mat.code, scrappedQuantity: scrap, declaredAt: Timestamp.now(), operatorId: uid, operatorName: opSnap.data()?.nome });
-                }
-            }
-            t.update(commRef, { status: 'fulfilled', fulfilledAt: Timestamp.now(), fulfilledBy: uid });
-        });
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Evasione registrata." };
-    } catch (e) { return { success: false, message: "Errore." }; }
-}
-
-export async function revertManualCommitmentFulfillment(id: string, uid: string) {
-    await ensureAdmin(uid);
-    try {
-        await runTransaction(db, async (t) => {
-            const commRef = doc(db, "manualCommitments", id);
-            const commSnap = await t.get(commRef);
-            if (!commSnap.exists() || commSnap.data().status !== 'fulfilled') throw new Error("Non evaso.");
-            const wSnap = await getDocs(query(collection(db, "materialWithdrawals"), where("commitmentId", "==", id)));
-            for (const wd of wSnap.docs) {
-                const w = wd.data() as MaterialWithdrawal;
-                const mRef = doc(db, "rawMaterials", w.materialId);
-                const mSnap = await t.get(mRef);
-                const mat = mSnap.data() as RawMaterial;
-                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + (w.consumedUnits || 0), currentWeightKg: (mat.currentWeightKg || 0) + w.consumedWeight });
-                t.delete(wd.ref);
-            }
-            const sSnap = await getDocs(query(collection(db, "scrapRecords"), where("commitmentId", "==", id)));
-            sSnap.forEach(sd => t.delete(sd.ref));
-            t.update(commRef, { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField() });
-        });
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Evasione annullata." };
-    } catch (e) { return { success: false, message: "Errore." }; }
 }
 
 export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number; };
