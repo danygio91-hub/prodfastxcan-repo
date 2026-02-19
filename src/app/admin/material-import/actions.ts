@@ -5,8 +5,6 @@ import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, array
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { formatDisplayStock } from '@/lib/utils';
-
 
 export async function getPackagingItems(): Promise<Packaging[]> {
   const packagingCol = collection(db, 'packaging');
@@ -30,7 +28,6 @@ async function getOperatorByUid(uid: string): Promise<Operator | null> {
     return null;
 }
 
-
 export async function importCaricoFromFile(
   data: any[],
   uid: string
@@ -48,7 +45,6 @@ export async function importCaricoFromFile(
   const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), {id: doc.id, weight: doc.data().weightKg as number}]));
 
   const failedRows: any[] = [];
-  const errors: string[] = [];
   let successCount = 0;
 
   for (const row of data) {
@@ -60,14 +56,12 @@ export async function importCaricoFromFile(
     const packagingName = row['Tara (Imballo)']?.toLowerCase();
     
     if (!materialCode || !lotto || isNaN(netQuantity) || netQuantity <= 0) {
-      errors.push(`Riga con codice "${materialCode || 'N/D'}": Dati mancanti o non validi.`);
       failedRows.push(row);
       continue;
     }
 
     const material = materialsMap.get(materialCode.toLowerCase());
     if (!material) {
-      errors.push(`Riga con codice "${materialCode}": Materiale non trovato.`);
       failedRows.push(row);
       continue;
     }
@@ -123,10 +117,8 @@ export async function importCaricoFromFile(
   }
 
   revalidatePath('/admin/raw-material-management');
-  revalidatePath('/admin/batch-management');
   return { success: failedRows.length === 0, message: `Importazione completata. ${successCount} lotti caricati.`, failedRows };
 }
-
 
 export async function importScaricoFromFile(data: any[], uid: string): Promise<{ success: boolean; message: string; failedRows?: any[] }> {
   await ensureAdmin(uid);

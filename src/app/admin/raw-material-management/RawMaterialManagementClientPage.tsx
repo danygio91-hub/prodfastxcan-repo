@@ -91,7 +91,15 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
     );
 }
 
-export default function RawMaterialManagementClientPage({ initialArticles, initialCommitments }: { initialArticles: Article[]; initialCommitments: ManualCommitment[]; }) {
+export default function RawMaterialManagementClientPage({ 
+  initialArticles, 
+  initialCommitments,
+  initialDepartments // Added to interface
+}: { 
+  initialArticles: Article[]; 
+  initialCommitments: ManualCommitment[]; 
+  initialDepartments: Department[];
+}) {
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 

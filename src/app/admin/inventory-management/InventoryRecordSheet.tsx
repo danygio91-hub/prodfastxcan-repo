@@ -87,7 +87,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
         record.id, 
         values.inputQuantity,
         values.inputUnit,
-        values.packagingId || 'none',
+        values.packagingId || 'none', // Ensure it's a string
         user.uid
     );
     toast({
