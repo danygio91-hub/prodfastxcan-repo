@@ -233,7 +233,15 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
     });
 
-    const withdrawals = withdrawalsSnap.docs.map(d => ({id: d.id, ...convertTimestampsToDates(d.data())}));
+    const withdrawals = withdrawalsSnap.docs.map(d => {
+        const data = d.data();
+        return { 
+            id: d.id, 
+            materialId: data.materialId,
+            consumedUnits: data.consumedUnits !== undefined ? data.consumedUnits : data.unitsConsumed,
+            consumedWeight: data.consumedWeight
+        };
+    });
 
     materialsMap.forEach(material => {
         const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0);
@@ -361,7 +369,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             const mSnap = await t.get(mRef);
             if (mSnap.exists()) {
                 const mat = mSnap.data() as RawMaterial;
-                const units = Number(w.consumedUnits);
+                const units = Number(w.consumedUnits !== undefined ? w.consumedUnits : (w as any).unitsConsumed);
                 t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight) });
             }
             t.delete(wRef);
@@ -393,7 +401,12 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     const material = materialSnap.data() as RawMaterial;
     const withdrawals = await getMaterialWithdrawalsForMaterial(materialId);
     const batchesByLot = (material.batches || []).reduce((acc, b) => { const lot = b.lotto || 'SENZA_LOTTO'; if (!acc[lot]) acc[lot] = []; acc[lot].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
-    const lotWMap = withdrawals.reduce((acc, w) => { const lot = w.lotto || 'SENZA_LOTTO'; acc[lot] = (acc[lot] || 0) + Number(w.consumedUnits); return acc; }, {} as Record<string, number>);
+    const lotWMap = withdrawals.reduce((acc, w) => { 
+        const lot = w.lotto || 'SENZA_LOTTO'; 
+        const units = Number(w.consumedUnits !== undefined ? w.consumedUnits : (w as any).unitsConsumed);
+        acc[lot] = (acc[lot] || 0) + units; 
+        return acc; 
+    }, {} as Record<string, number>);
     return Object.entries(batchesByLot).map(([lotto, batches]) => { const total = batches.reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0); const used = lotWMap[lotto] || 0; return { lotto, totalLoaded: total, available: total - used, batches }; }).filter(l => l.available > 0.001);
 }
 
@@ -438,7 +451,7 @@ export async function revertManualCommitmentFulfillment(commitmentId: string, ui
                 const mSnap = await t.get(mRef);
                 if (mSnap.exists()) {
                     const mat = mSnap.data() as RawMaterial;
-                    const units = Number(w.consumedUnits);
+                    const units = Number(w.consumedUnits !== undefined ? w.consumedUnits : (w as any).unitsConsumed);
                     t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight || 0) });
                 }
                 t.delete(wDoc.ref);

@@ -159,19 +159,19 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         const materialDoc = await transaction.get(materialRef);
         const currentMaterial = materialDoc.data() as RawMaterial;
         
-        let unitsConsumed = 0;
+        let consumedUnits = 0;
         let consumedWeight = 0;
 
         if (unit === 'kg') {
           consumedWeight = quantity;
           consumedUnits = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity / currentMaterial.conversionFactor : quantity;
         } else {
-          unitsConsumed = quantity;
+          consumedUnits = quantity;
           consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
         }
 
         transaction.update(materialRef, { 
-            currentStockUnits: (currentMaterial.currentStockUnits || 0) - unitsConsumed, 
+            currentStockUnits: (currentMaterial.currentStockUnits || 0) - consumedUnits, 
             currentWeightKg: (currentMaterial.currentWeightKg || 0) - consumedWeight 
         });
         
@@ -182,7 +182,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
             materialId: currentMaterial.id,
             materialCode: currentMaterial.code,
             consumedWeight,
-            consumedUnits: unitsConsumed,
+            consumedUnits: consumedUnits,
             operatorId: uid,
             operatorName: admin?.nome || 'Admin Import',
             withdrawalDate: Timestamp.now(),

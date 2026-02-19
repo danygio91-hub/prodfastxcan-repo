@@ -195,7 +195,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
     const combined: Movement[] = [
         ...(updated.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: Number(b.netQuantity) || 0, unit: updated.unitOfMeasure.toUpperCase(), id: b.id })),
         ...withdrawals.map((w): Movement => {
-            const units = Number(w.consumedUnits) || 0;
+            const units = Number(w.consumedUnits !== undefined ? w.consumedUnits : (w as any).unitsConsumed) || 0;
             return { type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale', quantity: -units, unit: units ? updated.unitOfMeasure.toUpperCase() : 'KG', id: w.id };
         })
     ];
