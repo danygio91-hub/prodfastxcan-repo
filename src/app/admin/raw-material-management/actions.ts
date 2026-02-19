@@ -196,7 +196,8 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const codeToMaterial = new Map<string, RawMaterial>();
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
-        const mat = { ...data, id: docSnap.id };
+        const { id: _, ...rest } = data;
+        const mat = { ...rest, id: docSnap.id };
         materialsMap.set(docSnap.id, mat);
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
     });

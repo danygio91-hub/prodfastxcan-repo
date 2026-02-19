@@ -71,7 +71,7 @@ export default function WorkGroupCard({
         ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
         postazioneLavoro: 'Multi-Commessa',
         details: group.details || 'Lavorazione Gruppo'
-    } as JobOrder;
+    } as unknown as JobOrder;
   }, [group, jobsInGroup]);
 
   const activePhases = useMemo((): ActivePhaseInfo[] => {
