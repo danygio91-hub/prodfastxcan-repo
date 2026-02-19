@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -73,18 +72,10 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   
   const calculatedNetWeight = useMemo(() => {
     if (!material) return 0;
-    
     const { inputQuantity, inputUnit, packagingId } = watchedValues;
     const tareWeight = packagingItems.find(p => p.id === packagingId)?.weightKg || 0;
-
-    if (inputUnit === 'kg') {
-        return (inputQuantity || 0) - tareWeight;
-    } else {
-        const conversionFactor = material.conversionFactor;
-        if (conversionFactor && conversionFactor > 0) {
-            return (inputQuantity || 0) * conversionFactor;
-        }
-    }
+    if (inputUnit === 'kg') return (inputQuantity || 0) - tareWeight;
+    if (material.conversionFactor && material.conversionFactor > 0) return (inputQuantity || 0) * material.conversionFactor;
     return 0;
   }, [material, watchedValues, packagingItems]);
 
@@ -92,7 +83,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
   const onSubmit = async (values: FormValues) => {
     if (!record || !user || !material) return;
     setIsPending(true);
-    
     const result = await updateInventoryRecord(
         record.id, 
         values.inputQuantity,
@@ -105,7 +95,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
-
     if (result.success) {
       onUpdateSuccess();
       onOpenChange(false);
@@ -126,68 +115,15 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid gap-6 py-6">
-                <div className="space-y-1">
-                <Label>Materiale</Label>
-                <p className="p-2 bg-muted rounded-md font-mono text-sm">{record.materialCode}</p>
-                </div>
-                
-                 <FormField
-                    control={form.control}
-                    name="inputUnit"
-                    render={({ field }) => (
-                    <FormItem>
-                         <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                            <Label htmlFor="unit-switch">{material.unitOfMeasure.toUpperCase()}</Label>
-                            <Switch
-                                id="unit-switch"
-                                checked={field.value === 'kg'}
-                                onCheckedChange={(checked) => {
-                                    field.onChange(checked ? 'kg' : material.unitOfMeasure)
-                                }}
-                            />
-                            <Label htmlFor="unit-switch">KG</Label>
-                        </div>
-                    </FormItem>
-                    )}
-                />
-
-                <div className="space-y-2">
-                    <Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/>
-                       {form.watch('inputUnit') === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Inserita (${material.unitOfMeasure.toUpperCase()})`}
-                    </Label>
-                    <Input id="inputQuantity" type="number" step="any" {...form.register('inputQuantity')} />
-                    {form.formState.errors.inputQuantity && <p className="text-sm text-destructive">{form.formState.errors.inputQuantity.message}</p>}
-                </div>
-
-                <div className="space-y-2">
-                    <Label htmlFor="packagingId" className="flex items-center gap-2"><Archive className="mr-2 h-4 w-4"/> Tara Applicata (kg)</Label>
-                    <Select onValueChange={(value) => form.setValue('packagingId', value)} value={form.watch('packagingId')}>
-                    <SelectTrigger id="packagingId">
-                        <SelectValue placeholder="Seleziona una tara..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
-                        {packagingItems.map(item => (
-                        <SelectItem key={item.id} value={item.id}>
-                            {item.name} ({item.weightKg.toFixed(3)} kg)
-                        </SelectItem>
-                        ))}
-                    </SelectContent>
-                    </Select>
-                </div>
-
-                <div className="p-4 rounded-lg border bg-background text-center">
-                    <Label className="text-muted-foreground">Nuovo Peso Netto Calcolato (kg)</Label>
-                    <p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? calculatedNetWeight.toFixed(3) : '---'}</p>
-                </div>
+                <div className="space-y-1"><Label>Materiale</Label><p className="p-2 bg-muted rounded-md font-mono text-sm">{record.materialCode}</p></div>
+                 <FormField control={form.control} name="inputUnit" render={({ field }) => (
+                    <FormItem><div className="flex items-center space-x-2 rounded-lg border p-3 justify-center"><Label htmlFor="unit-switch">{material.unitOfMeasure.toUpperCase()}</Label><Switch id="unit-switch" checked={field.value === 'kg'} onCheckedChange={(checked) => field.onChange(checked ? 'kg' : material.unitOfMeasure)} /><Label htmlFor="unit-switch">KG</Label></div></FormItem>
+                 )}/>
+                <div className="space-y-2"><Label htmlFor="inputQuantity" className="flex items-center gap-2"><Package className="h-4 w-4"/> {form.watch('inputUnit') === 'kg' ? 'Quantità Lorda (KG)' : `Quantità Inserita (${material.unitOfMeasure.toUpperCase()})`} </Label><Input id="inputQuantity" type="number" step="any" {...form.register('inputQuantity')} /></div>
+                <div className="space-y-2"><Label htmlFor="packagingId" className="flex items-center gap-2"><Archive className="mr-2 h-4 w-4"/> Tara Applicata (kg)</Label><Select onValueChange={(v) => form.setValue('packagingId', v)} value={form.watch('packagingId')}><SelectTrigger id="packagingId"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>{packagingItems.map(i => (<SelectItem key={i.id} value={i.id}>{i.name} ({i.weightKg.toFixed(3)} kg)</SelectItem>))}</SelectContent></Select></div>
+                <div className="p-4 rounded-lg border bg-background text-center"><Label className="text-muted-foreground">Peso Netto Calcolato (kg)</Label><p className="text-2xl font-bold text-primary">{calculatedNetWeight >= 0 ? calculatedNetWeight.toFixed(3) : '---'}</p></div>
             </div>
-            <SheetFooter>
-                <SheetClose asChild><Button type="button" variant="outline">Annulla</Button></SheetClose>
-                <Button type="submit" disabled={isPending || calculatedNetWeight < 0}>
-                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
-                    Salva Modifiche
-                </Button>
-            </SheetFooter>
+            <SheetFooter><SheetClose asChild><Button type="button" variant="outline">Annulla</Button></SheetClose><Button type="submit" disabled={isPending || calculatedNetWeight < 0}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />} Salva Modifiche</Button></SheetFooter>
             </form>
         </Form>
         )}

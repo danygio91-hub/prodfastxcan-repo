@@ -1,4 +1,3 @@
-
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
@@ -35,20 +34,11 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
         mSnap.forEach(doc => materialsMap.set(doc.id, doc.data() as RawMaterial));
     }
   }
-  const batch = writeBatch(db);
-  let hasUpdates = false;
   const records = snap.docs.map(docSnap => {
     const data = docSnap.data() as Omit<InventoryRecord, 'id'>;
     const material = materialsMap.get(data.materialId);
-    if ((data.netWeight === 0 || data.netWeight === undefined) && data.inputQuantity > 0 && data.inputUnit !== 'kg' && material?.conversionFactor) {
-        const newNet = data.inputQuantity * material.conversionFactor;
-        batch.update(doc(db, 'inventoryRecords', docSnap.id), { netWeight: newNet, grossWeight: newNet + (data.tareWeight || 0) });
-        hasUpdates = true;
-        return { id: docSnap.id, ...data, netWeight: newNet, grossWeight: newNet + (data.tareWeight || 0), materialUnitOfMeasure: material.unitOfMeasure } as InventoryRecord;
-    }
     return { id: docSnap.id, ...data, materialUnitOfMeasure: material?.unitOfMeasure } as InventoryRecord;
   });
-  if (hasUpdates) await batch.commit();
   return JSON.parse(JSON.stringify(convertTimestamps(records)));
 }
 
@@ -64,9 +54,25 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             const mSnap = await transaction.get(mRef);
             if (!mSnap.exists()) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
+            
             const unitsToAdd = record.inputUnit === 'kg' ? (material.unitOfMeasure === 'kg' ? record.netWeight : record.netWeight / (material.conversionFactor || 1)) : record.inputQuantity;
-            const newBatch: RawMaterialBatch = { id: `batch-inv-${record.id}`, inventoryRecordId: recordId, date: new Date(record.recordedAt).toISOString(), ddt: `Inventario`, netQuantity: unitsToAdd, grossWeight: record.grossWeight, tareWeight: record.tareWeight, lotto: record.lotto };
-            transaction.update(mRef, { currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, currentWeightKg: (material.currentWeightKg || 0) + record.netWeight, batches: [...(material.batches || []), newBatch] });
+            
+            const newBatch: RawMaterialBatch = { 
+                id: `batch-inv-${record.id}`, 
+                inventoryRecordId: recordId, 
+                date: new Date(record.recordedAt).toISOString(), 
+                ddt: `Inventario`, 
+                netQuantity: unitsToAdd, 
+                grossWeight: record.grossWeight, 
+                tareWeight: record.tareWeight, 
+                lotto: record.lotto 
+            };
+            
+            transaction.update(mRef, { 
+                currentStockUnits: (material.currentStockUnits || 0) + unitsToAdd, 
+                currentWeightKg: (material.currentWeightKg || 0) + record.netWeight, 
+                batches: [...(material.batches || []), newBatch] 
+            });
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
@@ -86,9 +92,7 @@ export async function deleteInventoryRecords(ids: string[], uid: string) {
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
     const materialRef = doc(db, 'rawMaterials', materialId);
     const docSnap = await getDoc(materialRef);
-    if (docSnap.exists()) {
-        return docSnap.data() as RawMaterial;
-    }
+    if (docSnap.exists()) return docSnap.data() as RawMaterial;
     return null;
 }
 
@@ -112,7 +116,11 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
                 const mat = mSnap.data() as RawMaterial;
                 const batch = (mat.batches || []).find(b => b.inventoryRecordId === id);
                 if (batch) {
-                    transaction.update(mRef, { batches: arrayRemove(batch), currentStockUnits: Math.max(0, (mat.currentStockUnits || 0) - batch.netQuantity), currentWeightKg: Math.max(0, (mat.currentWeightKg || 0) - rec.netWeight) });
+                    transaction.update(mRef, { 
+                        batches: arrayRemove(batch), 
+                        currentStockUnits: Math.max(0, (mat.currentStockUnits || 0) - batch.netQuantity), 
+                        currentWeightKg: Math.max(0, (mat.currentWeightKg || 0) - rec.netWeight) 
+                    });
                 }
             }
         }
@@ -125,7 +133,6 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
 export async function updateInventoryRecord(id: string, qty: number, unit: string, packId: string, uid: string) {
     await ensureAdmin(uid);
     const snap = await getDoc(doc(db, 'inventoryRecords', id));
-    if (!snap.exists()) throw new Error("Documento non trovato.");
     const mat = await getMaterialById(snap.data()?.materialId);
     let tare = 0;
     if (packId && packId !== 'none') {

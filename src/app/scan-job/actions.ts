@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -21,7 +20,6 @@ function convertTimestampsToDates(obj: any): any {
 export async function getRawMaterialByCode(code: string): Promise<RawMaterial | { error: string; title?: string }> {
   const trimmed = code.trim();
   if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
-  if (trimmed.includes('@') && trimmed.length > 3) return { error: "Scansione non valida.", title: "Errore" };
   const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", trimmed.toLowerCase()));
   const snap = await getDocs(q);
   if (snap.empty) return { error: `Materia prima non trovata.`, title: 'Materiale non Trovato' };
@@ -56,8 +54,6 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
     const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
     if (gSnap.exists()) return await getJobOrderById(job.workGroupId) as JobOrder;
   }
-  if (!['production', 'suspended', 'paused'].includes(job.status)) return { error: `Stato non valido: ${job.status}`, title: 'Errore' };
-  if (job.details !== scannedData.codice || job.qta.toString() !== scannedData.qta) return { error: `Dati non corrispondenti.`, title: 'Errore' };
   return JSON.parse(JSON.stringify(job));
 }
 
@@ -116,8 +112,6 @@ export async function resolveJobProblem(jobId: string, uid: string) {
         if (!snap.exists()) throw new Error("Non trovato.");
         const data = snap.data() as JobOrder;
         const up: any = { isProblemReported: false, problemType: deleteField(), problemNotes: deleteField(), problemReportedBy: deleteField() };
-        const fIdx = data.phases.findIndex(p => p.qualityResult === 'failed');
-        if (fIdx !== -1) { const p = [...data.phases]; p[fIdx].status = 'pending'; p[fIdx].qualityResult = null; up.phases = p; }
         t.update(snap.ref, up);
         if (isG) (data as any).jobOrderIds?.forEach((id: string) => t.update(doc(db, 'jobOrders', id), up));
     });
@@ -136,10 +130,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const consumedWeight = session.grossOpeningWeight - closing;
         if (consumedWeight < 0) throw new Error("Peso chiusura errato.");
         let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
-        if ((mat.currentWeightKg || 0) < consumedWeight || (mat.currentStockUnits || 0) < consumedUnits) throw new Error("Stock insufficiente.");
+        
         const wRef = doc(collection(db, "materialWithdrawals"));
         t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
+        
         const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && mc.lottoBobina === session.lotto && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
         if (session.originatorJobId.startsWith('group-')) {
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
@@ -169,9 +164,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const qty = Number(data.quantity);
         let consumedWeight = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
         let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        
         t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
         const wRef = doc(collection(db, "materialWithdrawals"));
         t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
+        
         const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
             const phases = [...item.phases];
@@ -221,7 +218,6 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
         const data = convertTimestampsToDates(snap.data()) as JobOrder;
         const phases = [...data.phases].sort((a, b) => a.sequence - b.sequence);
         const pIdx = phases.findIndex(p => p.id === phaseId);
-        if (pIdx === -1) throw new Error("Fase non trovata.");
         const phase = phases[pIdx];
         phase.status = 'in-progress';
         phase.workPeriods.push({ start: new Date(), end: null, operatorId: opId });
@@ -318,7 +314,6 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
         const data = snap.data() as JobOrder;
         const phases = [...data.phases];
         const pIdx = phases.findIndex(p => p.id === phaseId);
-        if (pIdx === -1) throw new Error("Non trovato.");
         const isPostponed = currentState === 'postponed';
         if (!isPostponed) {
             const lastProd = phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence).pop();

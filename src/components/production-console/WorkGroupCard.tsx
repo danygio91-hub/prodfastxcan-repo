@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, JobBillOfMaterialsItem } from '@/lib/mock-data';
@@ -65,10 +64,9 @@ export default function WorkGroupCard({
         if (ex) ex.total += req; else compMap.set(i.component, { item: i, total: req });
     }));
     
-    // Add missing properties required by JobOrder type to satisfy TypeScript
     return { 
         ...group, 
-        billOfMaterials: Array.from(compMap.values()).map(e => ({ ...e.item, quantity: e.total, isFromTemplate: false, isAggregated: true })), 
+        billOfMaterials: Array.from(compMap.values()).map(e => ({ ...e.item, quantity: e.total, isFromTemplate: false })), 
         qta: group.totalQuantity || 1,
         ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
         postazioneLavoro: 'Multi-Commessa',

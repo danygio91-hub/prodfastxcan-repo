@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { doc, runTransaction, Timestamp, collection } from 'firebase/firestore';
@@ -23,18 +21,14 @@ export async function logManualWithdrawal(
   data: z.infer<typeof manualWithdrawalSchema>
 ): Promise<{ success: boolean; message: string }> {
   const validated = manualWithdrawalSchema.safeParse(data);
-  if (!validated.success) {
-    return { success: false, message: validated.error.errors[0]?.message || 'Dati non validi.' };
-  }
+  if (!validated.success) return { success: false, message: 'Dati non validi.' };
   
   const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF } = validated.data;
-  const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
     await runTransaction(db, async (transaction) => {
+        const materialRef = doc(db, "rawMaterials", materialId);
         const materialDoc = await transaction.get(materialRef);
-        if (!materialDoc.exists()) throw new Error("Materia prima non trovata.");
-        
         const material = materialDoc.data() as RawMaterial;
         
         let unitsConsumed = 0;
@@ -42,29 +36,16 @@ export async function logManualWithdrawal(
 
         if (unit === 'kg') {
           consumedWeight = quantity;
-          // If a conversion factor exists, we can estimate the units consumed.
-          if (material.conversionFactor && material.conversionFactor > 0) {
-            unitsConsumed = quantity / material.conversionFactor;
-          }
-        } else { // 'n' or 'mt'
+          unitsConsumed = (material.conversionFactor && material.conversionFactor > 0) ? quantity / material.conversionFactor : quantity;
+        } else {
           unitsConsumed = quantity;
           consumedWeight = (material.conversionFactor && material.conversionFactor > 0) ? quantity * material.conversionFactor : 0;
         }
         
-        const currentStockUnits = material.currentStockUnits ?? 0;
-        const currentWeightKg = material.currentWeightKg ?? 0;
-
-        if (currentStockUnits < unitsConsumed) {
-            throw new Error(`Stock a unità insufficiente. Disponibile: ${currentStockUnits}, Richiesto: ${unitsConsumed}.`);
-        }
-         if (currentWeightKg < consumedWeight) {
-             throw new Error(`Stock a peso insufficiente. Disponibile: ${currentWeightKg.toFixed(2)}kg, Richiesto: ${consumedWeight.toFixed(2)}kg.`);
-        }
-        
-        const newStockUnits = currentStockUnits - unitsConsumed;
-        const newWeightKg = currentWeightKg - consumedWeight;
-
-        transaction.update(materialRef, { currentStockUnits: newStockUnits, currentWeightKg: newWeightKg });
+        transaction.update(materialRef, { 
+            currentStockUnits: (material.currentStockUnits || 0) - unitsConsumed, 
+            currentWeightKg: (material.currentWeightKg || 0) - consumedWeight 
+        });
         
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
@@ -84,9 +65,8 @@ export async function logManualWithdrawal(
 
     revalidatePath('/admin/raw-material-management');
     revalidatePath('/admin/reports');
-    return { success: true, message: `Scarico di ${quantity} ${unit} registrato con successo.` };
+    return { success: true, message: `Scarico registrato.` };
   } catch (error) {
-     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la registrazione del prelievo.";
-     return { success: false, message: errorMessage };
+     return { success: false, message: "Errore durante la registrazione." };
   }
 }
