@@ -93,7 +93,6 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
-    // Fix for packagingId potential undefined
     const result = await updateInventoryRecord(
         record.id, 
         values.inputQuantity,
@@ -162,7 +161,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
 
                 <div className="space-y-2">
                     <Label htmlFor="packagingId" className="flex items-center gap-2"><Archive className="mr-2 h-4 w-4"/> Tara Applicata (kg)</Label>
-                    <Select onValueChange={(value) => form.setValue('packagingId', value)} defaultValue={record.packagingId || 'none'}>
+                    <Select onValueChange={(value) => form.setValue('packagingId', value)} value={form.watch('packagingId')}>
                     <SelectTrigger id="packagingId">
                         <SelectValue placeholder="Seleziona una tara..." />
                     </SelectTrigger>

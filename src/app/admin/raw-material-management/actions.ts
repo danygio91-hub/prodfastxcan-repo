@@ -206,24 +206,25 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const syncBatch = writeBatch(db);
     let syncNeeded = false;
 
-    // --- AUTO-HEALING LOGIC ---
+    // --- AUTO-HEALING LOGIC (Fixes 184 vs 132 issues) ---
     materialsMap.forEach(material => {
-        const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (b.netQuantity || 0), 0);
-        const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (b.grossWeight || 0), 0);
+        const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0);
+        const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (Number(b.grossWeight) || 0), 0);
         
         const matWithdrawals = withdrawals.filter(w => w.materialId === material.id);
         const totalWithdrawnUnits = matWithdrawals.reduce((sum, w) => {
             const units = (w as any).consumedUnits ?? (w as any).unitsConsumed;
-            if (units !== undefined && units !== null && units !== 0) return sum + units;
-            if (material.unitOfMeasure === 'kg') return sum + (w.consumedWeight || 0);
-            if (material.conversionFactor && material.conversionFactor > 0) return sum + ((w.consumedWeight || 0) / material.conversionFactor);
+            if (units !== undefined && units !== null && units !== 0) return sum + Number(units);
+            if (material.unitOfMeasure === 'kg') return sum + (Number(w.consumedWeight) || 0);
+            if (material.conversionFactor && material.conversionFactor > 0) return sum + ((Number(w.consumedWeight) || 0) / material.conversionFactor);
             return sum;
         }, 0);
-        const totalWithdrawnWeight = matWithdrawals.reduce((sum, w) => sum + (w.consumedWeight || 0), 0);
+        const totalWithdrawnWeight = matWithdrawals.reduce((sum, w) => sum + (Number(w.consumedWeight) || 0), 0);
 
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
+        // If stored stock is different from calculated historical stock, fix it.
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001) {
             syncBatch.update(doc(db, 'rawMaterials', material.id), { currentStockUnits: realStockUnits, currentWeightKg: realWeightKg });
             syncNeeded = true;
@@ -262,6 +263,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
+            // Fallback: if article code IS the material code
             impegniMap.set(artCode, (impegniMap.get(artCode) || 0) + comm.quantity);
         }
     });
@@ -334,7 +336,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             if (mSnap.exists()) {
                 const mat = mSnap.data() as RawMaterial;
                 const units = (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0;
-                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + w.consumedWeight });
+                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + Number(units), currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight) });
             }
             t.delete(wRef);
         });
@@ -365,8 +367,8 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     const material = materialSnap.data() as RawMaterial;
     const withdrawals = await getMaterialWithdrawalsForMaterial(materialId);
     const batchesByLot = (material.batches || []).reduce((acc, b) => { const lot = b.lotto || 'SENZA_LOTTO'; if (!acc[lot]) acc[lot] = []; acc[lot].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
-    const lotWMap = withdrawals.reduce((acc, w) => { const lot = w.lotto || 'SENZA_LOTTO'; acc[lot] = (acc[lot] || 0) + ((w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0); return acc; }, {} as Record<string, number>);
-    return Object.entries(batchesByLot).map(([lotto, batches]) => { const total = batches.reduce((sum, b) => sum + (b.netQuantity || 0), 0); const used = lotWMap[lotto] || 0; return { lotto, totalLoaded: total, available: total - used, batches }; }).filter(l => l.available > 0.001);
+    const lotWMap = withdrawals.reduce((acc, w) => { const lot = w.lotto || 'SENZA_LOTTO'; acc[lot] = (acc[lot] || 0) + (Number((w as any).consumedUnits ?? (w as any).unitsConsumed) || 0); return acc; }, {} as Record<string, number>);
+    return Object.entries(batchesByLot).map(([lotto, batches]) => { const total = batches.reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0); const used = lotWMap[lotto] || 0; return { lotto, totalLoaded: total, available: total - used, batches }; }).filter(l => l.available > 0.001);
 }
 
 export async function declareCommitmentFulfillment(commitmentId: string, goodPieces: number, scrapPieces: number, lotSelections: LotSelectionPayload[], uid: string): Promise<{ success: boolean; message: string }> {
@@ -411,7 +413,7 @@ export async function revertManualCommitmentFulfillment(commitmentId: string, ui
                 if (mSnap.exists()) {
                     const mat = mSnap.data() as RawMaterial;
                     const units = w.consumedUnits ?? w.unitsConsumed ?? 0;
-                    t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + (w.consumedWeight || 0) });
+                    t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + Number(units), currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight || 0) });
                 }
                 t.delete(wDoc.ref);
             }

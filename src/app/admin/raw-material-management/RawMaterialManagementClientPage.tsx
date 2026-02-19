@@ -60,6 +60,7 @@ const batchFormSchema = z.object({
   netQuantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
 });
 
+// Componente Scarti esterno per pulizia JSX
 function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null }) {
     const [scraps, setScraps] = useState<ScrapRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -164,6 +165,22 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
     setIsPending(false);
   };
 
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(worksheet);
+      const result = await commitImportedRawMaterials(json);
+      toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
+      if (result.success) refreshData();
+    } catch (error) { toast({ variant: "destructive", title: "Errore Importazione", description: "Errore durante la lettura del file." }); }
+    finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+  };
+
   const handleDelete = async () => {
     if (!materialToDelete) return;
     setIsPending(true);
@@ -179,29 +196,13 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
     const withdrawals = await getMaterialWithdrawalsForMaterial(material.id);
     const updated = rawMaterials.find(m => m.id === material.id) || material;
     const combined: Movement[] = [
-        ...(updated.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: b.netQuantity, unit: updated.unitOfMeasure.toUpperCase(), id: b.id })),
+        ...(updated.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: Number(b.netQuantity) || 0, unit: updated.unitOfMeasure.toUpperCase(), id: b.id })),
         ...withdrawals.map((w): Movement => {
-            const units = (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0;
+            const units = Number((w as any).consumedUnits ?? (w as any).unitsConsumed) || 0;
             return { type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale', quantity: -units, unit: units ? updated.unitOfMeasure.toUpperCase() : 'KG', id: w.id };
         })
     ];
     setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-  };
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsImporting(true);
-    try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(worksheet);
-      const result = await commitImportedRawMaterials(json);
-      toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
-      if (result.success) refreshData();
-    } catch (error) { toast({ variant: "destructive", title: "Errore Importazione", description: "Errore durante la lettura del file." }); }
-    finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
   return (
@@ -233,6 +234,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
                             {isSearching ? <TableRow><TableCell colSpan={8} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((m) => {
                                   const s = materialStatus.find(st => st.id === m.id);
+                                  // Always use live calculated stock if available
                                   const displayStock = s ? s.stock : m.currentStockUnits;
                                   return (
                                     <TableRow key={m.id}>
