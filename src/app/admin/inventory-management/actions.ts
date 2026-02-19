@@ -1,3 +1,4 @@
+
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
@@ -124,6 +125,7 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
 export async function updateInventoryRecord(id: string, qty: number, unit: string, packId: string, uid: string) {
     await ensureAdmin(uid);
     const snap = await getDoc(doc(db, 'inventoryRecords', id));
+    if (!snap.exists()) throw new Error("Documento non trovato.");
     const mat = await getMaterialById(snap.data()?.materialId);
     let tare = 0;
     if (packId && packId !== 'none') {
@@ -131,7 +133,7 @@ export async function updateInventoryRecord(id: string, qty: number, unit: strin
         tare = pSnap.data()?.weightKg || 0;
     }
     let net = unit === 'kg' ? qty - tare : (mat?.conversionFactor ? qty * mat.conversionFactor : 0);
-    await updateDoc(doc(db, 'inventoryRecords', id), { inputQuantity: qty, inputUnit: unit, packagingId: packId || null, tareWeight: tare, netWeight: net, grossWeight: unit === 'kg' ? qty : net + tare });
+    await updateDoc(doc(db, 'inventoryRecords', id), { inputQuantity: qty, inputUnit: unit, packagingId: packId === 'none' ? null : packId, tareWeight: tare, netWeight: net, grossWeight: unit === 'kg' ? qty : net + tare });
     revalidatePath('/admin/inventory-management');
     return { success: true, message: 'Aggiornata.' };
 }

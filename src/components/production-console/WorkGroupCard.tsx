@@ -64,7 +64,16 @@ export default function WorkGroupCard({
         const ex = compMap.get(i.component);
         if (ex) ex.total += req; else compMap.set(i.component, { item: i, total: req });
     }));
-    return { ...group, billOfMaterials: Array.from(compMap.values()).map(e => ({ ...e.item, quantity: e.total, isFromTemplate: false, isAggregated: true })), qta: 1 } as JobOrder;
+    
+    // Add missing properties required by JobOrder type to satisfy TypeScript
+    return { 
+        ...group, 
+        billOfMaterials: Array.from(compMap.values()).map(e => ({ ...e.item, quantity: e.total, isFromTemplate: false, isAggregated: true })), 
+        qta: group.totalQuantity || 1,
+        ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
+        postazioneLavoro: 'Multi-Commessa',
+        details: group.details || 'Lavorazione Gruppo'
+    } as JobOrder;
   }, [group, jobsInGroup]);
 
   const activePhases = useMemo((): ActivePhaseInfo[] => {

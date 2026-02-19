@@ -194,7 +194,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const codeToMaterial = new Map<string, RawMaterial>();
     materialsSnap.forEach(doc => {
         const data = doc.data() as RawMaterial;
-        // Fix for duplicate 'id' error
         const mat = { ...data, id: doc.id };
         materialsMap.set(doc.id, mat);
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
