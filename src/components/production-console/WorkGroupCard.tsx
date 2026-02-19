@@ -70,7 +70,12 @@ export default function WorkGroupCard({
         qta: group.totalQuantity || 1,
         ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
         postazioneLavoro: 'Multi-Commessa',
-        details: group.details || 'Lavorazione Gruppo'
+        details: group.details || 'Lavorazione Gruppo',
+        department: group.department,
+        cliente: group.cliente,
+        phases: group.phases,
+        status: group.status,
+        id: group.id,
     } as unknown as JobOrder;
   }, [group, jobsInGroup]);
 

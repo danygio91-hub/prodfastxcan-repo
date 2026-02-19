@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, limit, orderBy, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Department, ManualCommitment, Article, ScrapRecord, JobOrder, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Department, ManualCommitment, Article, ScrapRecord, JobOrder, JobBillOfMaterialsItem, InventoryRecord } from '@/lib/mock-data';
 import { formatDisplayStock } from '@/lib/utils';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -39,7 +39,7 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         snapshot = await getDocs(query(materialsCol, where('code_normalized', '>=', lowercasedTerm), where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), limit(50)));
     } else { return []; }
     return snapshot.docs.map(doc => {
-        const data = doc.data();
+        const data = doc.data() as RawMaterial;
         return { ...data, id: doc.id } as RawMaterial;
     });
 }
@@ -184,59 +184,88 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
-    const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap] = await Promise.all([
+    const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap] = await Promise.all([
         getDocs(query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(collection(db, "rawMaterials")),
         getDocs(query(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
         getDocs(collection(db, 'materialWithdrawals')),
-        getDocs(collection(db, 'articles'))
+        getDocs(collection(db, 'articles')),
+        getDocs(collection(db, 'inventoryRecords'))
     ]);
+
+    const inventoryMap = new Map();
+    invSnap.forEach(doc => {
+        if (doc.data().status === 'approved') inventoryMap.set(doc.id, doc.data());
+    });
 
     const materialsMap = new Map<string, RawMaterial>();
     const codeToMaterial = new Map<string, RawMaterial>();
+    
+    const syncBatch = writeBatch(db);
+    let syncNeeded = false;
+
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
-        const { id: _, ...rest } = data;
-        const mat = { ...rest, id: docSnap.id };
+        const mat = { ...data, id: docSnap.id };
+        
+        let matBatchesChanged = false;
+        const restoredBatches = (mat.batches || []).map(batch => {
+            if (batch.inventoryRecordId && inventoryMap.has(batch.inventoryRecordId)) {
+                const originalInv = inventoryMap.get(batch.inventoryRecordId);
+                const originalUnits = originalInv.inputUnit === 'kg' 
+                    ? (mat.unitOfMeasure === 'kg' ? originalInv.netWeight : originalInv.netWeight / (mat.conversionFactor || 1)) 
+                    : originalInv.inputQuantity;
+
+                if (Math.abs(batch.netQuantity - originalUnits) > 0.001) {
+                    matBatchesChanged = true;
+                    return { ...batch, netQuantity: originalUnits, grossWeight: originalInv.grossWeight, tareWeight: originalInv.tareWeight };
+                }
+            }
+            return batch;
+        });
+
+        if (matBatchesChanged) {
+            mat.batches = restoredBatches;
+            syncNeeded = true;
+        }
+
         materialsMap.set(docSnap.id, mat);
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
     });
-    
-    const articlesMap = new Map();
-    articlesSnap.forEach(docSnap => articlesMap.set(docSnap.data().code.toLowerCase().trim(), docSnap.data()));
-    
+
     const withdrawals = withdrawalsSnap.docs.map(d => ({id: d.id, ...convertTimestampsToDates(d.data())}));
-    const syncBatch = writeBatch(db);
-    let syncNeeded = false;
 
     materialsMap.forEach(material => {
         const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0);
         const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (Number(b.grossWeight) || 0), 0);
         
         const matWithdrawals = withdrawals.filter(w => w.materialId === material.id);
-        const totalWithdrawnUnits = matWithdrawals.reduce((sum, w) => {
-            const units = Number(w.consumedUnits);
-            if (!isNaN(units) && units !== 0) return sum + units;
-            if (material.unitOfMeasure === 'kg') return sum + (Number(w.consumedWeight) || 0);
-            if (material.conversionFactor && material.conversionFactor > 0) return sum + ((Number(w.consumedWeight) || 0) / material.conversionFactor);
-            return sum;
-        }, 0);
+        const totalWithdrawnUnits = matWithdrawals.reduce((sum, w) => sum + (Number(w.consumedUnits) || 0), 0);
         const totalWithdrawnWeight = matWithdrawals.reduce((sum, w) => sum + (Number(w.consumedWeight) || 0), 0);
 
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
-        if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001) {
-            syncBatch.update(doc(db, 'rawMaterials', material.id), { currentStockUnits: realStockUnits, currentWeightKg: realWeightKg });
+        if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || 
+            Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001 || syncNeeded) {
+            
+            syncBatch.update(doc(db, 'rawMaterials', material.id), { 
+                currentStockUnits: realStockUnits, 
+                currentWeightKg: realWeightKg,
+                batches: material.batches
+            });
             syncNeeded = true;
             material.currentStockUnits = realStockUnits;
             material.currentWeightKg = realWeightKg;
         }
     });
+
     if (syncNeeded) await syncBatch.commit();
 
+    const articlesMap = new Map();
+    articlesSnap.forEach(docSnap => articlesMap.set(docSnap.data().code.toLowerCase().trim(), docSnap.data()));
+
     const impegniMap = new Map<string, number>();
-    
     jobsSnap.forEach(docSnap => {
         const job = docSnap.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
@@ -253,14 +282,11 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const comm = docSnap.data() as ManualCommitment;
         const artCode = comm.articleCode.toLowerCase().trim();
         const art = articlesMap.get(artCode);
-        
         if (art && art.billOfMaterials) {
             art.billOfMaterials.forEach((bomItem: any) => {
                 const matCode = bomItem.component.toLowerCase().trim();
                 const material = codeToMaterial.get(matCode);
-                let qty = (bomItem.lunghezzaTaglioMm && material?.unitOfMeasure === 'mt') 
-                    ? (comm.quantity * bomItem.quantity * bomItem.lunghezzaTaglioMm / 1000) 
-                    : comm.quantity * bomItem.quantity;
+                let qty = (bomItem.lunghezzaTaglioMm && material?.unitOfMeasure === 'mt') ? (comm.quantity * bomItem.quantity * bomItem.lunghezzaTaglioMm / 1000) : comm.quantity * bomItem.quantity;
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
@@ -336,7 +362,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             if (mSnap.exists()) {
                 const mat = mSnap.data() as RawMaterial;
                 const units = Number(w.consumedUnits);
-                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + Number(units), currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight) });
+                t.update(mRef, { currentStockUnits: (mat.currentStockUnits || 0) + units, currentWeightKg: (mat.currentWeightKg || 0) + Number(w.consumedWeight) });
             }
             t.delete(wRef);
         });
@@ -355,7 +381,7 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
     const normalizedCodes = codes.map(c => c.toLowerCase().trim());
     const q = query(collection(db, "rawMaterials"), where("code_normalized", "in", normalizedCodes));
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as RawMaterial));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
 }
 
 export type LotInfo = { lotto: string; available: number; totalLoaded: number; batches: RawMaterialBatch[]; };

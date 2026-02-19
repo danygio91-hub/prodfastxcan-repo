@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -60,7 +59,6 @@ const batchFormSchema = z.object({
   netQuantity: z.coerce.number().min(0, "La quantità non può essere negativa."),
 });
 
-// Componente Scarti esterno per pulizia JSX
 function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null }) {
     const [scraps, setScraps] = useState<ScrapRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -93,8 +91,7 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
     );
 }
 
-export default function RawMaterialManagementClientPage({ initialArticles, initialCommitments, initialDepartments }: { initialArticles: Article[]; initialCommitments: ManualCommitment[]; initialDepartments: Department[]; }) {
-  const router = useRouter();
+export default function RawMaterialManagementClientPage({ initialArticles, initialCommitments }: { initialArticles: Article[]; initialCommitments: ManualCommitment[]; }) {
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 
@@ -198,7 +195,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
     const combined: Movement[] = [
         ...(updated.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: Number(b.netQuantity) || 0, unit: updated.unitOfMeasure.toUpperCase(), id: b.id })),
         ...withdrawals.map((w): Movement => {
-            const units = Number((w as any).consumedUnits ?? (w as any).unitsConsumed) || 0;
+            const units = Number(w.consumedUnits) || 0;
             return { type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale', quantity: -units, unit: units ? updated.unitOfMeasure.toUpperCase() : 'KG', id: w.id };
         })
     ];
@@ -234,7 +231,6 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
                             {isSearching ? <TableRow><TableCell colSpan={8} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((m) => {
                                   const s = materialStatus.find(st => st.id === m.id);
-                                  // Always use live calculated stock if available
                                   const displayStock = s ? s.stock : m.currentStockUnits;
                                   return (
                                     <TableRow key={m.id}>
