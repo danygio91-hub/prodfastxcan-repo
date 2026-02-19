@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -92,6 +93,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!record || !user || !material) return;
     setIsPending(true);
     
+    // Fix for packagingId potential undefined
     const result = await updateInventoryRecord(
         record.id, 
         values.inputQuantity,
@@ -119,7 +121,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Modifica Registrazione</SheetTitle>
-          <SheetDescription>Correggi quantità o tara.</SheetDescription>
+          <SheetDescription>Correggi quantità o tara per l'invio all'approvazione.</SheetDescription>
         </SheetHeader>
         {!material ? <Skeleton className="h-96 w-full mt-6" /> : (
         <Form {...form}>

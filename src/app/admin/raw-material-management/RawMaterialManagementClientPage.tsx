@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -73,7 +74,7 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-2xl">
-                <DialogHeader><DialogTitle>Storico Scarti: {material?.code}</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Storico Scarti per: {material?.code}</DialogTitle></DialogHeader>
                 <ScrollArea className="max-h-[60vh] mt-4">
                     <Table>
                         <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Commessa</TableHead><TableHead>Q.tà Scartata</TableHead><TableHead>Operatore</TableHead></TableRow></TableHeader>
@@ -82,7 +83,7 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
                                 <TableRow><TableCell colSpan={4} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
                             ) : scraps.length > 0 ? (
                                 scraps.map(s => (<TableRow key={s.id}><TableCell>{format(parseISO(s.declaredAt), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell>{s.jobOrderCode}</TableCell><TableCell>{s.scrappedQuantity} pz</TableCell><TableCell>{s.operatorName}</TableCell></TableRow>))
-                            ) : (<TableRow><TableCell colSpan={4} className="text-center h-24">Nessuno scarto.</TableCell></TableRow>)}
+                            ) : (<TableRow><TableCell colSpan={4} className="text-center h-24">Nessuno scarto registrato.</TableCell></TableRow>)}
                         </TableBody>
                     </Table>
                 </ScrollArea>
@@ -179,7 +180,10 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
     const updated = rawMaterials.find(m => m.id === material.id) || material;
     const combined: Movement[] = [
         ...(updated.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario - Lotto: ${b.lotto || 'INV'}` : `Carico Manuale - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: b.netQuantity, unit: updated.unitOfMeasure.toUpperCase(), id: b.id })),
-        ...withdrawals.map((w): Movement => ({ type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale', quantity: -( (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0 ), unit: ((w as any).consumedUnits ?? (w as any).unitsConsumed) ? updated.unitOfMeasure.toUpperCase() : 'KG', id: w.id }))
+        ...withdrawals.map((w): Movement => {
+            const units = (w as any).consumedUnits ?? (w as any).unitsConsumed ?? 0;
+            return { type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs && w.jobOrderPFs.length > 0 && w.jobOrderPFs[0] !== 'SCARICO_MANUALE' ? `Commesse: ${w.jobOrderPFs.join(', ')}` : 'Scarico Manuale', quantity: -units, unit: units ? updated.unitOfMeasure.toUpperCase() : 'KG', id: w.id };
+        })
     ];
     setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   };
@@ -196,7 +200,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
       const result = await commitImportedRawMaterials(json);
       toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
       if (result.success) refreshData();
-    } catch (error) { toast({ variant: "destructive", title: "Errore Importazione", description: "Errore file." }); }
+    } catch (error) { toast({ variant: "destructive", title: "Errore Importazione", description: "Errore durante la lettura del file." }); }
     finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
@@ -204,7 +208,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
       <div className="space-y-6">
         <header>
           <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><Boxes className="h-8 w-8 text-primary" />Gestione Materie Prime</h1>
-          <p className="text-muted-foreground mt-1">Situazione magazzino live e anagrafica.</p>
+          <p className="text-muted-foreground mt-1">Monitoraggio real-time del magazzino e gestione anagrafica.</p>
         </header>
 
         <Tabs defaultValue="list">
@@ -242,7 +246,7 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
                                     </TableRow>
                                   )
                                 })
-                            ) : (<TableRow><TableCell colSpan={8} className="text-center h-24">{searchTerm.length < 2 ? "Digita 2+ caratteri per cercare." : "Nessun materiale."}</TableCell></TableRow>)}
+                            ) : (<TableRow><TableCell colSpan={8} className="text-center h-24">{searchTerm.length < 2 ? "Digita 2+ caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>)}
                             </TableBody>
                         </Table>
                         </div>
@@ -258,9 +262,9 @@ export default function RawMaterialManagementClientPage({ initialArticles, initi
 
         <Dialog open={isBatchFormDialogOpen} onOpenChange={setIsBatchFormDialogOpen}><DialogContent><DialogHeader><DialogTitle>Carico Manuale Lotto</DialogTitle></DialogHeader><Form {...batchForm}><form onSubmit={batchForm.handleSubmit(onBatchSubmit)} className="space-y-4 py-4"><FormField control={batchForm.control} name="lotto" render={({ field }) => ( <FormItem> <FormLabel>Lotto</FormLabel> <FormControl><Input {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} /><FormField control={batchForm.control} name="date" render={({ field }) => ( <FormItem> <FormLabel>Data</FormLabel> <FormControl><Input type="date" {...field} /></FormControl> </FormItem> )} /><FormField control={batchForm.control} name="netQuantity" render={({ field }) => ( <FormItem> <FormLabel>Quantità ({selectedMaterial?.unitOfMeasure.toUpperCase()})</FormLabel> <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl> </FormItem> )} /><DialogFooter><Button type="button" variant="outline" onClick={() => setIsBatchFormDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>Conferma</Button></DialogFooter></form></Form></DialogContent></Dialog>
 
-        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}><DialogContent className="sm:max-w-4xl"><DialogHeader><DialogTitle>Storico: {selectedMaterial?.code}</DialogTitle></DialogHeader><ScrollArea className="max-h-[60vh]"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow></TableHeader><TableBody>{materialMovements.length > 0 ? materialMovements.map((m, idx) => (<TableRow key={idx}><TableCell>{format(parseISO(m.date), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell><UiBadge variant={m.type === 'Carico' ? 'default' : 'destructive'}>{m.type}</UiBadge></TableCell><TableCell>{m.description}</TableCell><TableCell className="text-right font-mono">{m.quantity} {m.unit}</TableCell></TableRow>)) : <TableRow><TableCell colSpan={4} className="text-center">Nessun movimento.</TableCell></TableRow>}</TableBody></Table></ScrollArea></DialogContent></Dialog>
+        <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}><DialogContent className="sm:max-w-4xl"><DialogHeader><DialogTitle>Storico: {selectedMaterial?.code}</DialogTitle></DialogHeader><ScrollArea className="max-h-[60vh]"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow></TableHeader><TableBody>{materialMovements.length > 0 ? materialMovements.map((m, idx) => (<TableRow key={idx}><TableCell>{format(parseISO(m.date), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell><UiBadge variant={m.type === 'Carico' ? 'default' : 'destructive'}>{m.type}</UiBadge></TableCell><TableCell>{m.description}</TableCell><TableCell className="text-right font-mono">{m.quantity} {m.unit}</TableCell></TableRow>)) : <TableRow><TableCell colSpan={4} className="text-center">Nessun movimento registrato.</TableCell></TableRow>}</TableBody></Table></ScrollArea></DialogContent></Dialog>
 
-        <AlertDialog open={!!materialToDelete} onOpenChange={() => setMaterialToDelete(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminare?</AlertDialogTitle><AlertDialogDescription>Azione irreversibile.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive" disabled={isPending}>Elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+        <AlertDialog open={!!materialToDelete} onOpenChange={() => setMaterialToDelete(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminare permanentemente?</AlertDialogTitle><AlertDialogDescription>Questa azione è irreversibile.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive" disabled={isPending}>Elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
         <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />

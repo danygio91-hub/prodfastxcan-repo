@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, JobBillOfMaterialsItem } from '@/lib/mock-data';
@@ -108,7 +109,7 @@ export default function WorkGroupCard({
                                 {guaina && (guaina.status === 'pending' || guaina.status === 'paused') && !group.phases.some(p => p.status === 'in-progress' || p.status === 'paused') && (
                                     <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}>{isPostponed ? <CornerUpLeft className="mr-2 h-4 w-4" /> : <CornerDownRight className="mr-2 h-4 w-4" />} Sposta Guaina</DropdownMenuItem></AlertDialogTrigger>
                                     <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Conferma</AlertDialogTitle><AlertDialogDescription>Spostare la guaina scioglierà il gruppo. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogHeader><AlertDialogTitle>Conferma Spostamento</AlertDialogTitle><AlertDialogDescription>Spostare la guaina scioglierà il gruppo. Vuoi continuare?</AlertDialogDescription></AlertDialogHeader>
                                         <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onToggleGuainaClick(group.id, guaina.id, isPostponed ? 'postponed' : 'default')}>Conferma</AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent></AlertDialog>
                                 )}
@@ -145,23 +146,23 @@ export default function WorkGroupCard({
         <CardFooter className="flex-col items-start gap-2 pt-4">
           <div className="w-full"><div className="flex justify-between text-xs text-muted-foreground mb-1"><span>Progresso</span><span>{Math.round(progress)}%</span></div><Progress value={progress} className="h-2" /></div>
         </CardFooter>
-        <CollapsibleContent><div className="space-y-2 p-4"><Separator /><h4 className="text-sm font-semibold text-foreground/80 pt-2">Fasi</h4>
+        <CollapsibleContent><div className="space-y-2 p-4"><Separator /><h4 className="text-sm font-semibold text-foreground/80 pt-2">Avanzamento Fasi</h4>
             {group.phases?.sort((a,b) => a.sequence - b.sequence).map(p => (
                 <div key={p.id} className="flex items-center gap-3 text-sm text-muted-foreground">{getPhaseIcon(p.status)}<span className={cn(p.status === 'skipped' && 'line-through')}>{p.name}</span></div>
             ))}
-            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}><View className="mr-2 h-4 w-4" /> Esplodi ({jobsInGroup.length})</Button>
+            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}><View className="mr-2 h-4 w-4" /> Esplodi Commesse ({jobsInGroup.length})</Button>
         </div></CollapsibleContent>
       </Card></Collapsible>
       
       {isBOMDialogOpen && <BOMDialog isOpen={isBOMDialogOpen} onOpenChange={setIsBOMDialogOpen} job={syntheticJob} allRawMaterials={allRawMaterials} />}
 
       <Dialog open={isPauseDialogOpen} onOpenChange={setIsPauseDialogOpen}>
-          <DialogContent><DialogHeader><DialogTitle>Forza Pausa</DialogTitle></DialogHeader>
+          <DialogContent><DialogHeader><DialogTitle>Forza Pausa Operatori</DialogTitle></DialogHeader>
               <div className="py-4 space-y-2">
                   {activePhases.flatMap(p => p.operators).map(op => (
                       <div key={op.id} className="flex items-center space-x-2 p-2 border rounded-md">
                            <Checkbox checked={selectedOperators.includes(op.id)} onCheckedChange={c => setSelectedOperators(prev => c ? [...prev, op.id] : prev.filter(i => i !== op.id))} />
-                           <Label className="flex-1">{op.name}</Label>
+                           <Label className="flex-1 font-semibold">{op.name}</Label>
                       </div>
                   ))}
               </div>
@@ -170,7 +171,7 @@ export default function WorkGroupCard({
       </Dialog>
       
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
-          <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Commesse in Gruppo</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Dettaglio Commesse nel Gruppo</DialogTitle></DialogHeader>
               <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{jobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}</div></ScrollArea>
           </DialogContent>
       </Dialog>

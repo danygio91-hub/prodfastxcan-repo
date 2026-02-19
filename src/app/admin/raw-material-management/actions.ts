@@ -1,7 +1,7 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import * as z from 'zod';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, limit, orderBy, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Department, ManualCommitment, Article, ScrapRecord, JobOrder } from '@/lib/mock-data';
@@ -20,7 +20,7 @@ function convertTimestampsToDates(obj: any): any {
 export async function getDepartments(): Promise<Department[]> {
   const col = collection(db, "departments");
   const snapshot = await getDocs(col);
-  return snapshot.docs.map(d => d.data() as Department);
+  return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Department));
 }
 
 export async function getManualCommitments(): Promise<ManualCommitment[]> {
@@ -194,7 +194,8 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const codeToMaterial = new Map<string, RawMaterial>();
     materialsSnap.forEach(doc => {
         const data = doc.data() as RawMaterial;
-        const mat = { id: doc.id, ...data };
+        // Fix for duplicate 'id' error
+        const mat = { ...data, id: doc.id };
         materialsMap.set(doc.id, mat);
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
     });

@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -134,11 +135,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const mat = mSnap.data() as RawMaterial;
         const consumedWeight = session.grossOpeningWeight - closing;
         if (consumedWeight < 0) throw new Error("Peso chiusura errato.");
-        let unitsConsumed = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
-        if ((mat.currentWeightKg || 0) < consumedWeight || (mat.currentStockUnits || 0) < unitsConsumed) throw new Error("Stock insufficiente.");
+        let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
+        if ((mat.currentWeightKg || 0) < consumedWeight || (mat.currentStockUnits || 0) < consumedUnits) throw new Error("Stock insufficiente.");
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits: unitsConsumed, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
-        t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - unitsConsumed });
+        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
         const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && mc.lottoBobina === session.lotto && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
         if (session.originatorJobId.startsWith('group-')) {
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
@@ -150,7 +151,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         }
     });
     revalidatePath('/scan-job');
-    return { success: true, message: 'Chiusa.' };
+    return { success: true, message: 'Sessione chiusa.' };
   } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
@@ -167,15 +168,15 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const item = itemSnap.data() as JobOrder;
         const qty = Number(data.quantity);
         let consumedWeight = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
-        let unitsConsumed = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
-        t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - unitsConsumed, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
+        let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits: unitsConsumed, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
         const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
             const phases = [...item.phases];
             const mc = phases[pIdx].materialConsumptions || [];
-            phases[pIdx].materialConsumptions = [...mc, { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: unitsConsumed }];
+            phases[pIdx].materialConsumptions = [...mc, { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: consumedUnits }];
             if (phases[pIdx].type === 'preparation') phases[pIdx].materialReady = true;
             t.update(itemSnap.ref, { phases });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
@@ -214,7 +215,7 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
 export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
     const isG = jobId.startsWith('group-');
     const avail = await isOperatorActiveOnAnyJob(opId, isG ? jobId : undefined);
-    if (!avail.available) return { success: false, message: "Occupato.", error: 'OPERATOR_BUSY' };
+    if (!avail.available) return { success: false, message: "Operatore occupato.", error: 'OPERATOR_BUSY' };
     await runTransaction(db, async (t) => {
         const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
         const data = convertTimestampsToDates(snap.data()) as JobOrder;
@@ -264,7 +265,7 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
   await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions });
-  return { success: true, message: 'Sincronizzate.' };
+  return { success: true, message: 'OK' };
 }
 
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string) {
@@ -303,7 +304,7 @@ export async function createWorkGroup(ids: string[], opId: string) {
     const jobs = docs.map(d => d.data() as JobOrder);
     const first = jobs[0];
     const gId = `group-${Date.now()}`;
-    const group: WorkGroup = { id: gId, jobOrderIds: ids, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opId, totalQuantity: jobs.reduce((s, j) => s + j.qta, 0), workCycleId: first.workCycleId || '', department: first.department, cliente: first.cliente, phases: first.phases, details: 'Lavorazione Multi-Commessa', numeroODLInterno: [...new Set(jobs.map(j => j.numeroODLInterno))].join(', '), numeroODL: [...new Set(jobs.map(j => j.numeroODL))].join(', '), dataConsegnaFinale: first.dataConsegnaFinale, ordinePF: jobs.map(j => j.ordinePF).join(', ') };
+    const group: WorkGroup = { id: gId, jobOrderIds: ids, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opId, totalQuantity: jobs.reduce((s, j) => s + j.qta, 0), workCycleId: first.workCycleId || '', department: first.department, cliente: first.cliente, phases: first.phases, details: 'Multi-Commessa', numeroODLInterno: [...new Set(jobs.map(j => j.numeroODLInterno))].join(', '), numeroODL: [...new Set(jobs.map(j => j.numeroODL))].join(', '), dataConsegnaFinale: first.dataConsegnaFinale, ordinePF: jobs.map(j => j.ordinePF).join(', ') };
     const batch = writeBatch(db);
     batch.set(doc(db, 'workGroups', gId), group);
     docs.forEach(d => batch.update(d.ref, { workGroupId: gId }));
@@ -317,7 +318,7 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
         const data = snap.data() as JobOrder;
         const phases = [...data.phases];
         const pIdx = phases.findIndex(p => p.id === phaseId);
-        if (pIdx === -1) throw new Error("Fase non trovata.");
+        if (pIdx === -1) throw new Error("Non trovato.");
         const isPostponed = currentState === 'postponed';
         if (!isPostponed) {
             const lastProd = phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence).pop();
