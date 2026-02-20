@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, JobBillOfMaterialsItem } from '@/lib/mock-data';
@@ -57,16 +58,14 @@ export default function WorkGroupCard({
   const hasMatMissing = group.phases.some(p => p.materialStatus === 'missing');
 
   const syntheticJob: JobOrder = useMemo(() => {
-    const compMap = new Map<string, { item: JobBillOfMaterialsItem, total: number }>();
-    jobsInGroup.forEach(j => (j.billOfMaterials || []).forEach(i => {
-        let req = (i.lunghezzaTaglioMm && i.lunghezzaTaglioMm > 0) ? (i.quantity * j.qta * i.lunghezzaTaglioMm / 1000) : i.quantity * j.qta;
-        const ex = compMap.get(i.component);
-        if (ex) ex.total += req; else compMap.set(i.component, { item: i, total: req });
-    }));
+    // Per i gruppi, prendiamo la distinta base unitaria dal primo lavoro del gruppo.
+    // Tutte le commesse in un gruppo devono avere lo stesso articolo/ciclo.
+    const firstJob = jobsInGroup[0];
+    const baseBOM = firstJob?.billOfMaterials || [];
     
     return { 
         ...group, 
-        billOfMaterials: Array.from(compMap.values()).map(e => ({ ...e.item, quantity: e.total, isFromTemplate: false })), 
+        billOfMaterials: baseBOM, // Passiamo i pezzi unitari, BOMDialog moltiplicherà per job.qta
         qta: group.totalQuantity || 1,
         ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
         postazioneLavoro: 'Multi-Commessa',
@@ -142,7 +141,7 @@ export default function WorkGroupCard({
             <CardContent className="flex-grow space-y-4 pt-0">
                 <div className="flex justify-between items-start gap-4 text-sm">
                     <p className="flex items-center gap-2 text-muted-foreground"><Boxes className="h-4 w-4" />{group.details}</p>
-                    <div className="text-right"><span className="font-bold">{group.totalQuantity}</span><span className="text-muted-foreground text-xs ml-1">pz</span></div>
+                    <div className="text-right"><span className="font-bold">{group.totalQuantity}</span><span className="text-muted-foreground text-xs ml-1">pz totali</span></div>
                 </div>
                 {activePhases.length > 0 && (
                   <div className="rounded-lg border-2 border-cyan-400/50 bg-cyan-900/20 p-3 space-y-2 animate-pulse">

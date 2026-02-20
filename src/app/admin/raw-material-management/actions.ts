@@ -187,7 +187,8 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
 /**
- * CORE LOGIC: Recalculates stock and heals the database by restoring original batch quantities.
+ * CORE LOGIC: Recalculates stock and heals the database.
+ * This version checks both field names for withdrawals to ensure no data is missed.
  */
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap] = await Promise.all([
@@ -261,6 +262,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
+        // Perform permanent fix if database total is out of sync with movements
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || 
             Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001 || syncNeeded) {
             

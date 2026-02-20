@@ -68,18 +68,19 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     const bom = job.billOfMaterials || [];
     const bomMap = new Map<string, JobBillOfMaterialsItem>();
     
-    // Add items from the template first
+    // Gli item passati nel syntheticJob di un gruppo hanno isFromTemplate: true
+    // e contengono la quantità UNITARIA.
     bom.forEach(item => {
       bomMap.set(item.component, { ...item, isFromTemplate: true });
     });
 
-    // Add consumed items that might not be in the template
+    // Aggiungiamo eventuali consumi manuali rilevati nelle fasi
     withdrawnByComponent.forEach((data, materialCode) => {
         const material = materialsMap.get(materialCode);
         if (!bomMap.has(materialCode) && (data.units > 0 || data.hasActiveSession)) {
           bomMap.set(materialCode, {
             component: materialCode,
-            quantity: data.units,
+            quantity: data.units, // Per i manuali, la quantità è il totale prelevato
             unit: material?.unitOfMeasure || 'n',
             status: 'withdrawn',
             isFromTemplate: false,
@@ -130,7 +131,9 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   let totalRequirement = 0;
                   let displayUnit = item.unit;
 
+                  // CALCOLO FABBISOGNO REALE
                   if (item.isFromTemplate) {
+                      // Se è da template, moltiplichiamo quantità unitaria per qta totale (job.qta è 640 nel gruppo)
                       if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
                           totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
                           displayUnit = 'mt';
@@ -139,7 +142,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                           displayUnit = item.unit;
                       }
                   } else {
-                      // For manual additions, requirement is what was taken (or 0 if session just started)
+                      // Per aggiunte manuali, il fabbisogno è quanto è stato prelevato
                       totalRequirement = withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0);
                       displayUnit = material?.unitOfMeasure || 'n';
                   }
