@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -23,23 +22,20 @@ const articleSchema = z.object({
 });
 
 export async function getArticles(): Promise<Article[]> {
-  // First, get articles already defined in the 'articles' collection
   const articlesCol = collection(db, 'articles');
   const articlesSnapshot = await getDocs(articlesCol);
   const existingArticles = new Map(articlesSnapshot.docs.map(d => [d.data().code, { ...d.data(), id: d.id } as Article]));
 
-  // Then, find all unique article codes from existing job orders
   const jobsCol = collection(db, 'jobOrders');
   const jobsSnapshot = await getDocs(jobsCol);
   const jobs = jobsSnapshot.docs.map(d => d.data() as JobOrder);
 
   const articleCodesFromJobs = new Set(jobs.map(job => job.details));
 
-  // Merge the two lists, giving priority to already defined articles
   articleCodesFromJobs.forEach(code => {
     if (!existingArticles.has(code)) {
       existingArticles.set(code, {
-        id: code, // Use code as ID for jobs that don't have a formal article entry yet
+        id: code,
         code: code,
         billOfMaterials: [],
       });
@@ -49,6 +45,108 @@ export async function getArticles(): Promise<Article[]> {
   const sortedArticles = Array.from(existingArticles.values()).sort((a, b) => a.code.localeCompare(b.code));
   
   return sortedArticles;
+}
+
+/**
+ * Validates a list of articles for import.
+ * Returns detailed info about valid and invalid items.
+ */
+export async function validateArticlesImport(articlesToImport: Omit<Article, 'id'>[]): Promise<{
+    success: boolean;
+    validArticles: Omit<Article, 'id'>[];
+    invalidArticles: { code: string; errors: string[] }[];
+}> {
+    try {
+        const materialsSnapshot = await getDocs(collection(db, "rawMaterials"));
+        const validMaterialCodes = new Set(materialsSnapshot.docs.map(doc => doc.data().code));
+        
+        const validArticles: Omit<Article, 'id'>[] = [];
+        const invalidArticles: { code: string; errors: string[] }[] = [];
+
+        for (const article of articlesToImport) {
+            const errors: string[] = [];
+            
+            if (!article.code || article.code.length < 3) {
+                errors.push("Codice articolo mancante o troppo corto.");
+            }
+
+            if (!article.billOfMaterials || article.billOfMaterials.length === 0) {
+                errors.push("Distinta base vuota.");
+            } else {
+                article.billOfMaterials.forEach((item, index) => {
+                    if (!validMaterialCodes.has(item.component)) {
+                        errors.push(`Componente non valido alla riga ${index + 1}: "${item.component}" non esiste in anagrafica.`);
+                    }
+                });
+            }
+
+            if (errors.length > 0) {
+                invalidArticles.push({ code: article.code || 'N/D', errors });
+            } else {
+                validArticles.push(article);
+            }
+        }
+
+        return {
+            success: true,
+            validArticles,
+            invalidArticles
+        };
+    } catch (error) {
+        return { success: false, validArticles: [], invalidArticles: [] };
+    }
+}
+
+/**
+ * Saves a list of articles in bulk and updates associated jobs.
+ */
+export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]): Promise<{ success: boolean; message: string }> {
+    if (articles.length === 0) return { success: false, message: "Nessun articolo da salvare." };
+
+    try {
+        const batch = writeBatch(db);
+        let updatedJobsTotal = 0;
+
+        for (const articleData of articles) {
+            const docId = articleData.code;
+            const articleRef = doc(db, 'articles', docId);
+            
+            const fullArticle: Article = {
+                id: docId,
+                ...articleData,
+            };
+            
+            batch.set(articleRef, fullArticle);
+
+            // Update associated jobs
+            const jobsQuery = query(collection(db, "jobOrders"), where("details", "==", articleData.code));
+            const jobsSnapshot = await getDocs(jobsQuery);
+            
+            if (!jobsSnapshot.empty) {
+                const newJobBOM: JobBillOfMaterialsItem[] = articleData.billOfMaterials.map(item => ({
+                    ...item,
+                    status: 'pending',
+                    isFromTemplate: true,
+                }));
+
+                jobsSnapshot.forEach(jobDoc => {
+                    batch.update(jobDoc.ref, { billOfMaterials: newJobBOM });
+                    updatedJobsTotal++;
+                });
+            }
+        }
+
+        await batch.commit();
+        revalidatePath('/admin/article-management');
+        revalidatePath('/admin/production-console');
+
+        return { 
+            success: true, 
+            message: `${articles.length} articoli salvati/aggiornati. ${updatedJobsTotal} commesse aggiornate.` 
+        };
+    } catch (error) {
+        return { success: false, message: "Errore durante il salvataggio massivo." };
+    }
 }
 
 export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<{ success: boolean; message: string; }> {
@@ -74,7 +172,6 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
       message: `I seguenti componenti non esistono: ${invalidCodes}. Aggiungili prima di creare la distinta base.`
     };
   }
-  // --- End Validation ---
   
   const docId = code;
   const articleRef = doc(db, 'articles', docId);
@@ -89,11 +186,8 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 
   try {
     const batch = writeBatch(db);
-    
-    // 1. Save the article itself
     batch.set(articleRef, articleData);
     
-    // 2. Find and update associated job orders
     const jobsQuery = query(collection(db, "jobOrders"), where("details", "==", code));
     const jobsSnapshot = await getDocs(jobsQuery);
     
@@ -101,12 +195,11 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     if (!jobsSnapshot.empty) {
         const newJobBOM: JobBillOfMaterialsItem[] = newBOM.map(item => ({
             ...item,
-            status: 'pending', // Reset status on update
+            status: 'pending',
             isFromTemplate: true,
         }));
 
         jobsSnapshot.forEach(jobDoc => {
-            // Update all jobs, regardless of status, as per user's implicit request
             batch.update(jobDoc.ref, { billOfMaterials: newJobBOM });
             updatedJobsCount++;
         });
@@ -115,7 +208,7 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     await batch.commit();
 
     revalidatePath('/admin/article-management');
-    revalidatePath('/admin/production-console'); // Revalidate console to reflect changes
+    revalidatePath('/admin/production-console');
     
     let message = `Articolo ${code} salvato con successo.`;
     if (updatedJobsCount > 0) {
