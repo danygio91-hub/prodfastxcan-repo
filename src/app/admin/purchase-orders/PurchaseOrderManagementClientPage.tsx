@@ -3,7 +3,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid, parse } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -12,10 +12,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar } from 'lucide-react';
-import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders } from './actions';
+import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save } from 'lucide-react';
+import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder } from './actions';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { type PurchaseOrder } from '@/lib/mock-data';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { cn } from '@/lib/utils';
+
+const orderSchema = z.object({
+  orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
+  supplierName: z.string().min(1, "Il fornitore è obbligatorio."),
+  materialCode: z.string().min(1, "Il codice materiale è obbligatorio."),
+  quantity: z.coerce.number().positive("La quantità deve essere positiva."),
+  unitOfMeasure: z.enum(['n', 'mt', 'kg']),
+  expectedDeliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
+});
+
+type OrderFormValues = z.infer<typeof orderSchema>;
 
 export default function PurchaseOrderManagementClientPage({ 
   initialOrders 
@@ -25,9 +45,19 @@ export default function PurchaseOrderManagementClientPage({
   const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders);
   const [searchTerm, setSearchTerm] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+
+  const form = useForm<OrderFormValues>({
+    resolver: zodResolver(orderSchema),
+    defaultValues: {
+      unitOfMeasure: 'n',
+    }
+  });
 
   const filteredOrders = useMemo(() => {
     if (!searchTerm) return orders;
@@ -84,6 +114,26 @@ export default function PurchaseOrderManagementClientPage({
     }
   };
 
+  const onManualSubmit = async (values: OrderFormValues) => {
+    if (!user) return;
+    setIsSaving(true);
+    const result = await savePurchaseOrder({
+      ...values,
+      expectedDeliveryDate: values.expectedDeliveryDate.toISOString(),
+    }, user.uid);
+
+    if (result.success) {
+      toast({ title: "Ordine Creato", description: `L'ordine ${values.orderNumber} è stato salvato.` });
+      const updated = await getPurchaseOrders();
+      setOrders(updated);
+      setIsCreateDialogOpen(false);
+      form.reset();
+    } else {
+      toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+    setIsSaving(false);
+  };
+
   const handleDelete = async (id: string) => {
     if (!user) return;
     const result = await deletePurchaseOrder(id, user.uid);
@@ -111,6 +161,71 @@ export default function PurchaseOrderManagementClientPage({
           <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting}>
             {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />} Carica Excel
           </Button>
+          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <PlusCircle className="mr-2 h-4 w-4" /> Crea Ordine
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Nuovo Ordine Fornitore</DialogTitle>
+                <DialogDescription>Inserisci i dettagli del materiale in arrivo.</DialogDescription>
+              </DialogHeader>
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onManualSubmit)} className="space-y-4 py-4">
+                  <FormField control={form.control} name="orderNumber" render={({ field }) => (
+                    <FormItem><FormLabel>N° Ordine</FormLabel><FormControl><Input placeholder="Es. ORD-2024-001" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="supplierName" render={({ field }) => (
+                    <FormItem><FormLabel>Fornitore</FormLabel><FormControl><Input placeholder="Es. Rossi Metalli" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField control={form.control} name="materialCode" render={({ field }) => (
+                    <FormItem><FormLabel>Codice Materiale</FormLabel><FormControl><Input placeholder="Es. BOB-123" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="quantity" render={({ field }) => (
+                      <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                    <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (
+                      <FormItem><FormLabel>Unità</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent><SelectItem value="n">N</SelectItem><SelectItem value="mt">MT</SelectItem><SelectItem value="kg">KG</SelectItem></SelectContent>
+                        </Select>
+                      </FormItem>
+                    )} />
+                  </div>
+                  <FormField control={form.control} name="expectedDeliveryDate" render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Data Consegna Prevista</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                              {field.value ? format(field.value, "dd/MM/yyyy") : <span>Scegli una data</span>}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>Annulla</Button>
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}
+                      Salva Ordine
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            </DialogContent>
+          </Dialog>
         </div>
       </header>
 
@@ -147,7 +262,7 @@ export default function PurchaseOrderManagementClientPage({
                       <TableCell>{order.materialCode}</TableCell>
                       <TableCell className="font-bold">{order.quantity} {order.unitOfMeasure.toUpperCase()}</TableCell>
                       <TableCell className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                         {order.expectedDeliveryDate ? format(parseISO(order.expectedDeliveryDate), 'dd/MM/yyyy') : 'N/D'}
                       </TableCell>
                       <TableCell>

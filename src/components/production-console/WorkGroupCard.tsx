@@ -58,14 +58,12 @@ export default function WorkGroupCard({
   const hasMatMissing = group.phases.some(p => p.materialStatus === 'missing');
 
   const syntheticJob: JobOrder = useMemo(() => {
-    // Per i gruppi, prendiamo la distinta base unitaria dal primo lavoro del gruppo.
-    // Tutte le commesse in un gruppo devono avere lo stesso articolo/ciclo.
     const firstJob = jobsInGroup[0];
     const baseBOM = firstJob?.billOfMaterials || [];
     
     return { 
         ...group, 
-        billOfMaterials: baseBOM, // Passiamo i pezzi unitari, BOMDialog moltiplicherà per job.qta
+        billOfMaterials: baseBOM,
         qta: group.totalQuantity || 1,
         ordinePF: group.jobOrderPFs?.join(', ') || 'Gruppo',
         postazioneLavoro: 'Multi-Commessa',
