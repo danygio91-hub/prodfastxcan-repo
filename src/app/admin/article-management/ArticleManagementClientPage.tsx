@@ -360,7 +360,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                 </DialogDescription>
             </DialogHeader>
 
-            <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col mt-4">
+            <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col mt-4 min-h-0">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="valid" className="flex items-center gap-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -372,8 +372,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="valid" className="flex-1 overflow-hidden pt-4">
-                    <ScrollArea className="h-full border rounded-md p-2">
+                <TabsContent value="valid" className="flex-1 overflow-hidden pt-4 min-h-0">
+                    <ScrollArea className="h-[500px] border rounded-md p-2">
                         <Table>
                             <TableHeader>
                                 <TableRow>
@@ -396,8 +396,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                     </ScrollArea>
                 </TabsContent>
 
-                <TabsContent value="errors" className="flex-1 overflow-hidden pt-4">
-                    <ScrollArea className="h-full border rounded-md p-2">
+                <TabsContent value="errors" className="flex-1 overflow-hidden pt-4 min-h-0">
+                    <ScrollArea className="h-[500px] border rounded-md p-2">
                         <div className="space-y-4">
                             {importReport?.invalidArticles.map((item, idx) => (
                                 <div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5 rounded-r-md">
@@ -415,7 +415,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                 </TabsContent>
             </Tabs>
 
-            <DialogFooter className="mt-6 gap-2">
+            <DialogFooter className="mt-6 gap-2 border-t pt-4">
                 <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
                 <Button 
                     onClick={handleConfirmImport} 

@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -187,7 +188,6 @@ export type MaterialStatus = { id: string; code: string; description: string; st
 
 /**
  * CORE LOGIC: Recalculates stock and heals the database by restoring original batch quantities.
- * Resolves the "184 vs 132 MT" problem by trusting movements over the currentStockUnits counter.
  */
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap] = await Promise.all([
@@ -212,10 +212,10 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
 
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
-        const mat = { ...data, id: docSnap.id };
+        const matId = docSnap.id;
+        const mat = { ...data, id: matId };
         
         let matBatchesChanged = false;
-        // HEALING: Check if batch netQuantity was corrupted (reduced) instead of being used as a reference.
         const restoredBatches = (mat.batches || []).map(batch => {
             if (batch.inventoryRecordId && inventoryMap.has(batch.inventoryRecordId)) {
                 const originalInv = inventoryMap.get(batch.inventoryRecordId);
@@ -236,11 +236,10 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
             syncNeeded = true;
         }
 
-        materialsMap.set(docSnap.id, mat);
+        materialsMap.set(matId, mat);
         codeToMaterial.set(data.code.toLowerCase().trim(), mat);
     });
 
-    // Unified withdrawals list (standardizing field names)
     const withdrawals = withdrawalsSnap.docs.map(d => {
         const data = d.data();
         return { 
@@ -251,7 +250,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         };
     });
 
-    // RECALCULATION: Determine real stock from carichi minus scarichi
     materialsMap.forEach(material => {
         const totalLoadedUnits = (material.batches || []).reduce((sum, b) => sum + (Number(b.netQuantity) || 0), 0);
         const totalLoadedWeight = (material.batches || []).reduce((sum, b) => sum + (Number(b.grossWeight) || 0), 0);
@@ -263,7 +261,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
-        // If saved stock is wrong, we prepare a batch update
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || 
             Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001 || syncNeeded) {
             
@@ -283,7 +280,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const articlesMap = new Map();
     articlesSnap.forEach(docSnap => articlesMap.set(docSnap.data().code.toLowerCase().trim(), docSnap.data()));
 
-    // COMMITMENT CALCULATION: Explode article BOMs for manual commitments
     const impegniMap = new Map<string, number>();
     jobsSnap.forEach(docSnap => {
         const job = docSnap.data() as JobOrder;
@@ -309,7 +305,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
-            // Fallback if no BOM is found for the article
             impegniMap.set(artCode, (impegniMap.get(artCode) || 0) + comm.quantity);
         }
     });
