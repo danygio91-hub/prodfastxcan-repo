@@ -41,9 +41,10 @@ export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[
         const lowercasedTerm = searchTerm.toLowerCase().trim();
         snapshot = await getDocs(query(materialsCol, where('code_normalized', '>=', lowercasedTerm), where('code_normalized', '<=', lowercasedTerm + '\uf8ff'), limit(50)));
     } else { return []; }
-    return snapshot.docs.map(doc => {
-        const data = doc.data() as RawMaterial;
-        return { ...data, id: doc.id } as RawMaterial;
+    return snapshot.docs.map(docSnap => {
+        const data = docSnap.data() as RawMaterial;
+        const { id: _, ...rest } = data;
+        return { ...rest, id: docSnap.id } as RawMaterial;
     });
 }
 
@@ -187,8 +188,7 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
 /**
- * CORE LOGIC: Recalculates stock and heals the database.
- * This version checks both field names for withdrawals to ensure no data is missed.
+ * CORE LOGIC: Recalculates stock and heals the database by restoring corrupted batch data.
  */
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap, posSnap] = await Promise.all([
@@ -215,7 +215,8 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
         const matId = docSnap.id;
-        const mat = { ...data, id: matId };
+        const { id: _, ...rest } = data;
+        const mat = { ...rest, id: matId } as RawMaterial;
         
         let matBatchesChanged = false;
         const restoredBatches = (mat.batches || []).map(batch => {
@@ -263,7 +264,6 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
-        // Perform permanent fix if database total is out of sync with movements
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || 
             Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001 || syncNeeded) {
             
@@ -407,7 +407,11 @@ export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[
     const normalizedCodes = codes.map(c => c.toLowerCase().trim());
     const q = query(collection(db, "rawMaterials"), where("code_normalized", "in", normalizedCodes));
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+    return snap.docs.map(d => {
+        const data = d.data() as RawMaterial;
+        const { id: _, ...rest } = data;
+        return { ...rest, id: d.id } as RawMaterial;
+    });
 }
 
 export type LotInfo = { lotto: string; available: number; totalLoaded: number; batches: RawMaterialBatch[]; };

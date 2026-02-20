@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -26,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList, Send } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
@@ -91,15 +92,17 @@ function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onO
     );
 }
 
-export default function RawMaterialManagementClientPage({ 
-  initialArticles, 
-  initialCommitments,
-  initialDepartments // Added to interface
-}: { 
+interface RawMaterialManagementClientPageProps {
   initialArticles: Article[]; 
   initialCommitments: ManualCommitment[]; 
   initialDepartments: Department[];
-}) {
+}
+
+export default function RawMaterialManagementClientPage({ 
+  initialArticles, 
+  initialCommitments,
+  initialDepartments
+}: RawMaterialManagementClientPageProps) {
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 

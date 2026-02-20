@@ -2,7 +2,7 @@
 "use client";
 
 import React from 'react';
-import Link from 'link';
+import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -47,7 +47,7 @@ const adminNavItems = [
 
 export default function Header() {
   const { operator, logout } = useAuth();
-  const { activeJob, setActiveJobId } = useActiveJob();
+  const { activeJob } = useActiveJob();
   const pathname = usePathname();
   const { toast } = useToast();
   
