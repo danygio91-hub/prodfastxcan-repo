@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO } from 'date-fns';
 import * as XLSX from 'xlsx';
+import Link from 'next/link';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department, type Article } from '@/lib/mock-data';
 import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
@@ -27,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList, Truck } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
@@ -229,6 +230,7 @@ export default function RawMaterialManagementClientPage({
                             <div><CardTitle className="font-headline">Magazzino Live</CardTitle><CardDescription>Dati ricalcolati live dai movimenti storici.</CardDescription></div>
                             <div className="flex items-center gap-2 flex-wrap justify-end">
                                 <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca materiale..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                                <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini Fornitore</Link></Button>
                                 <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting}><Upload className="mr-2 h-4 w-4" /> Importa</Button>
                                 <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
                             </div>
@@ -237,9 +239,9 @@ export default function RawMaterialManagementClientPage({
                     <CardContent>
                         <div className="overflow-x-auto">
                         <Table>
-                            <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length > 0 && selectedRows.length === rawMaterials.length} onCheckedChange={(c) => setSelectedRows(c ? rawMaterials.map(m => m.id) : [])} /></TableHead><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Unità</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                            <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length > 0 && selectedRows.length === rawMaterials.length} onCheckedChange={(c) => setSelectedRows(c ? rawMaterials.map(m => m.id) : [])} /></TableHead><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead>Unità</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                             <TableBody>
-                            {isSearching ? <TableRow><TableCell colSpan={8} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
+                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((m) => {
                                   const s = materialStatus.find(st => st.id === m.id);
                                   const displayStock = s ? s.stock : m.currentStockUnits;
@@ -250,12 +252,13 @@ export default function RawMaterialManagementClientPage({
                                         <TableCell className="font-semibold">{formatDisplayStock(displayStock, m.unitOfMeasure)}</TableCell>
                                         <TableCell className="font-mono text-amber-600">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</TableCell>
                                         <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
+                                        <TableCell className="font-mono text-blue-600">{s ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</TableCell>
                                         <TableCell>{m.unitOfMeasure.toUpperCase()}</TableCell>
                                         <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m, id: m.id }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); batchForm.reset({ materialId: m.id, date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_MANUALE', netQuantity: 0 }); setIsBatchFormDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                                     </TableRow>
                                   )
                                 })
-                            ) : (<TableRow><TableCell colSpan={8} className="text-center h-24">{searchTerm.length < 2 ? "Digita 2+ caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>)}
+                            ) : (<TableRow><TableCell colSpan={9} className="text-center h-24">{searchTerm.length < 2 ? "Digita 2+ caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>)}
                             </TableBody>
                         </Table>
                         </div>

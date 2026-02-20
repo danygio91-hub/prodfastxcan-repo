@@ -215,8 +215,7 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
         const matId = docSnap.id;
-        const { id: _, ...rest } = data;
-        const mat = { ...rest, id: matId } as RawMaterial;
+        const mat = { ...data, id: matId };
         
         let matBatchesChanged = false;
         const restoredBatches = (mat.batches || []).map(batch => {
