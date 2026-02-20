@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { format, parseISO, isValid, parse } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -27,6 +27,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useSearchParams } from 'next/navigation';
 
 const orderSchema = z.object({
   orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
@@ -46,8 +47,11 @@ export default function PurchaseOrderManagementClientPage({
   initialOrders: PurchaseOrder[],
   rawMaterials: RawMaterial[]
 }) {
+  const searchParams = useSearchParams();
+  const materialCodeParam = searchParams.get('materialCode');
+  
   const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(materialCodeParam || '');
   const [isImporting, setIsImporting] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -56,6 +60,12 @@ export default function PurchaseOrderManagementClientPage({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (materialCodeParam) {
+      setSearchTerm(materialCodeParam);
+    }
+  }, [materialCodeParam]);
 
   const form = useForm<OrderFormValues>({
     resolver: zodResolver(orderSchema),
