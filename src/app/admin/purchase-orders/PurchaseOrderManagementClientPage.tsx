@@ -12,23 +12,25 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save } from 'lucide-react';
+import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save, ChevronsUpDown, Check } from 'lucide-react';
 import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder } from './actions';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
-import { type PurchaseOrder } from '@/lib/mock-data';
+import { type PurchaseOrder, type RawMaterial } from '@/lib/mock-data';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const orderSchema = z.object({
   orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
-  supplierName: z.string().min(1, "Il fornitore è obbligatorio."),
+  supplierName: z.string().optional(),
   materialCode: z.string().min(1, "Il codice materiale è obbligatorio."),
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
@@ -38,15 +40,18 @@ const orderSchema = z.object({
 type OrderFormValues = z.infer<typeof orderSchema>;
 
 export default function PurchaseOrderManagementClientPage({ 
-  initialOrders 
+  initialOrders,
+  rawMaterials
 }: { 
-  initialOrders: PurchaseOrder[] 
+  initialOrders: PurchaseOrder[],
+  rawMaterials: RawMaterial[]
 }) {
   const [orders, setOrders] = useState<PurchaseOrder[]>(initialOrders);
   const [searchTerm, setSearchTerm] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isMaterialPopoverOpen, setIsMaterialPopoverOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -56,6 +61,7 @@ export default function PurchaseOrderManagementClientPage({
     resolver: zodResolver(orderSchema),
     defaultValues: {
       unitOfMeasure: 'n',
+      supplierName: '',
     }
   });
 
@@ -64,7 +70,7 @@ export default function PurchaseOrderManagementClientPage({
     const lower = searchTerm.toLowerCase();
     return orders.filter(o => 
       o.orderNumber.toLowerCase().includes(lower) ||
-      o.supplierName.toLowerCase().includes(lower) ||
+      (o.supplierName || '').toLowerCase().includes(lower) ||
       o.materialCode.toLowerCase().includes(lower)
     );
   }, [orders, searchTerm]);
@@ -119,6 +125,7 @@ export default function PurchaseOrderManagementClientPage({
     setIsSaving(true);
     const result = await savePurchaseOrder({
       ...values,
+      supplierName: values.supplierName || '',
       expectedDeliveryDate: values.expectedDeliveryDate.toISOString(),
     }, user.uid);
 
@@ -178,18 +185,57 @@ export default function PurchaseOrderManagementClientPage({
                     <FormItem><FormLabel>N° Ordine</FormLabel><FormControl><Input placeholder="Es. ORD-2024-001" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="supplierName" render={({ field }) => (
-                    <FormItem><FormLabel>Fornitore</FormLabel><FormControl><Input placeholder="Es. Rossi Metalli" {...field} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Fornitore (Opzionale)</FormLabel><FormControl><Input placeholder="Es. Rossi Metalli" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
+                  
                   <FormField control={form.control} name="materialCode" render={({ field }) => (
-                    <FormItem><FormLabel>Codice Materiale</FormLabel><FormControl><Input placeholder="Es. BOB-123" {...field} /></FormControl><FormMessage /></FormItem>
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Codice Materiale</FormLabel>
+                      <Popover open={isMaterialPopoverOpen} onOpenChange={setIsMaterialPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
+                              {field.value ? rawMaterials.find(m => m.code === field.value)?.code : "Seleziona materiale..."}
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                          <Command>
+                            <CommandInput placeholder="Cerca materiale..." />
+                            <CommandEmpty>Nessun materiale trovato.</CommandEmpty>
+                            <CommandGroup>
+                              <ScrollArea className="h-64">
+                                {rawMaterials.map((material) => (
+                                  <CommandItem
+                                    value={material.code}
+                                    key={material.id}
+                                    onSelect={() => {
+                                      form.setValue("materialCode", material.code);
+                                      form.setValue("unitOfMeasure", material.unitOfMeasure);
+                                      setIsMaterialPopoverOpen(false);
+                                    }}
+                                  >
+                                    <Check className={cn("mr-2 h-4 w-4", material.code === field.value ? "opacity-100" : "opacity-0")} />
+                                    {material.code}
+                                  </CommandItem>
+                                ))}
+                              </ScrollArea>
+                            </CommandGroup>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
                   )} />
+
                   <div className="grid grid-cols-2 gap-4">
                     <FormField control={form.control} name="quantity" render={({ field }) => (
                       <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
                     )} />
                     <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (
                       <FormItem><FormLabel>Unità</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value}>
                           <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                           <SelectContent><SelectItem value="n">N</SelectItem><SelectItem value="mt">MT</SelectItem><SelectItem value="kg">KG</SelectItem></SelectContent>
                         </Select>
@@ -258,7 +304,7 @@ export default function PurchaseOrderManagementClientPage({
                   filteredOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-mono font-semibold">{order.orderNumber}</TableCell>
-                      <TableCell>{order.supplierName}</TableCell>
+                      <TableCell>{order.supplierName || 'N/D'}</TableCell>
                       <TableCell>{order.materialCode}</TableCell>
                       <TableCell className="font-bold">{order.quantity} {order.unitOfMeasure.toUpperCase()}</TableCell>
                       <TableCell className="flex items-center gap-2">

@@ -2,6 +2,7 @@
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getPurchaseOrders } from './actions';
+import { getRawMaterials } from '../raw-material-management/actions';
 import PurchaseOrderManagementClientPage from './PurchaseOrderManagementClientPage';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -9,7 +10,10 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function PurchaseOrdersPage() {
-  const initialOrders = await getPurchaseOrders();
+  const [initialOrders, rawMaterials] = await Promise.all([
+    getPurchaseOrders(),
+    getRawMaterials(),
+  ]);
 
   return (
     <AdminAuthGuard>
@@ -20,7 +24,7 @@ export default async function PurchaseOrdersPage() {
             <p className="ml-4 text-muted-foreground">Caricamento ordini fornitore...</p>
           </div>
         }>
-          <PurchaseOrderManagementClientPage initialOrders={initialOrders} />
+          <PurchaseOrderManagementClientPage initialOrders={initialOrders} rawMaterials={rawMaterials} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>
