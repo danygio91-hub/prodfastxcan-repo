@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -29,53 +30,49 @@ service cloud.firestore {
     }
     
     // --- Default Deny Rule ---
-    // By default, nobody can read or write to any document.
-    // We must explicitly allow access below.
     match /{document=**} {
       allow read, write: if false;
     }
     
     // --- Collections Rules ---
 
-    // Operators Collection:
-    // Only admins/supervisors can manage operators.
-    // Any authenticated user can read the list (for names, etc.), but not sensitive fields.
-    // A user can read their own full document.
     match /operators/{userId} {
       allow read: if isAuthenticated();
       allow list: if isAuthenticated();
       allow create, update, delete: if isAuthenticated() && isAdmin(request.auth.uid);
       
-      // Allow a user to update their own 'stato' and 'privacySigned'
       allow update: if isAuthenticated() && request.auth.uid == userId 
                     && request.resource.data.diff(resource.data).affectedKeys()
-                       .hasOnly(['stato', 'privacySigned']);
+                       .hasOnly(['stato', 'privacySigned', 'activeJobId', 'activePhaseName', 'activeMaterialSessions']);
     }
     
-    // JobOrders Collection:
-    // Public read needed for server-side material status calculation
     match /jobOrders/{jobId} {
       allow read, list: if true;
       allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-      allow update: if isAuthenticated(); // Allow granular updates based on role
+      allow update: if isAuthenticated();
+    }
+
+    match /workGroups/{groupId} {
+      allow read, list: if true;
+      allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+      allow update: if isAuthenticated();
     }
     
-    // Articles Collection:
-    // Public read needed for server-side material status calculation
     match /articles/{articleId} {
       allow read, list: if true;
       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
     
-    // Manual Commitments Collection:
-    // Public read needed for server-side material status calculation
     match /manualCommitments/{commitmentId} {
        allow read, list: if true;
        allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
 
-    // RawMaterials, Packaging, Workstations, WorkCycles, WorkPhaseTemplates, Departments
-    // Public read needed for server-side material status calculation
+    match /scrapRecords/{scrapId} {
+       allow read, list: if true;
+       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    }
+
     match /rawMaterials/{materialId} {
       allow read, list: if true;
       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
@@ -106,15 +103,18 @@ service cloud.firestore {
        allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
 
-    // MaterialWithdrawals and NonConformityReports
-    // Any authenticated user can create a report (write).
-    // Reading/deleting is for admin/supervisors.
     match /materialWithdrawals/{withdrawalId} {
         allow create: if isAuthenticated();
         allow read, list: if true;
         allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
     
+    match /inventoryRecords/{recordId} {
+        allow create: if isAuthenticated();
+        allow read, list: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+        allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    }
+
     match /nonConformityReports/{reportId} {
         allow create, read, list: if isAuthenticated();
         allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
@@ -125,8 +125,11 @@ service cloud.firestore {
         allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
     }
 
-    // System and Configuration collections
-    // Only admins can modify system settings.
+    match /purchaseOrders/{orderId} {
+        allow read, list: if isAuthenticated();
+        allow write: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    }
+
     match /system/{docId} {
         allow read: if isAuthenticated();
         allow write: if isAuthenticated() && isAdmin(request.auth.uid);

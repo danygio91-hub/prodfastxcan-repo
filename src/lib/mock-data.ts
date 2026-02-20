@@ -1,5 +1,4 @@
 
-
 // --- Type Definitions ---
 
 export interface Department {
@@ -343,6 +342,19 @@ export interface ScrapRecord {
   declaredAt: any; // Timestamp
   operatorId: string;
   operatorName: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  orderNumber: string;
+  supplierName: string;
+  materialCode: string;
+  quantity: number;
+  unitOfMeasure: 'n' | 'mt' | 'kg';
+  expectedDeliveryDate: string; // ISO string
+  status: 'pending' | 'received' | 'partially_received' | 'cancelled';
+  createdAt: any; // Timestamp
+  notes?: string;
 }
 
 

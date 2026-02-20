@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, query, where, getDoc, runTransaction, arrayUnion, limit, orderBy, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Department, ManualCommitment, Article, ScrapRecord, JobOrder, JobBillOfMaterialsItem, InventoryRecord } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, RawMaterialType, MaterialWithdrawal, Department, ManualCommitment, Article, ScrapRecord, JobOrder, JobBillOfMaterialsItem, InventoryRecord, PurchaseOrder } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
 /**
@@ -191,13 +191,14 @@ export type MaterialStatus = { id: string; code: string; description: string; st
  * This version checks both field names for withdrawals to ensure no data is missed.
  */
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
-    const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap] = await Promise.all([
+    const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap, posSnap] = await Promise.all([
         getDocs(query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(collection(db, "rawMaterials")),
         getDocs(query(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
         getDocs(collection(db, 'materialWithdrawals')),
         getDocs(collection(db, 'articles')),
-        getDocs(collection(db, 'inventoryRecords'))
+        getDocs(collection(db, 'inventoryRecords')),
+        getDocs(query(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
     const inventoryMap = new Map();
@@ -311,10 +312,18 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
         }
     });
 
+    const ordersMap = new Map<string, number>();
+    posSnap.forEach(doc => {
+        const po = doc.data() as PurchaseOrder;
+        const code = po.materialCode.toLowerCase().trim();
+        ordersMap.set(code, (ordersMap.get(code) || 0) + po.quantity);
+    });
+
     return Array.from(materialsMap.values()).map(m => {
         const stock = m.currentStockUnits || 0;
         const imp = impegniMap.get(m.code.toLowerCase().trim()) || 0;
-        return { id: m.id, code: m.code, description: m.description, stock, impegnato: imp, disponibile: stock - imp, ordinato: 0, unitOfMeasure: m.unitOfMeasure };
+        const ord = ordersMap.get(m.code.toLowerCase().trim()) || 0;
+        return { id: m.id, code: m.code, description: m.description, stock, impegnato: imp, disponibile: stock - imp, ordinato: ord, unitOfMeasure: m.unitOfMeasure };
     }).sort((a, b) => a.code.localeCompare(b.code));
 }
 

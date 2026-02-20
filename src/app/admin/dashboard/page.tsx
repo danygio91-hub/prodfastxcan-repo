@@ -4,14 +4,13 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ListChecks, Briefcase, BarChart3, Settings, ArrowRight, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
-  { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica delle materie prime.', icon: Boxes },
+  { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica e gli impegni delle materie prime.', icon: Boxes },
+  { href: '/admin/purchase-orders', label: 'Ordini Fornitore', description: 'Monitora gli ordini di materiale in arrivo dai fornitori.', icon: Truck },
   { href: '/admin/material-import', label: 'Carico/Scarico da File', description: 'Importa massivamente carichi o scarichi di materiale da un file Excel.', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', description: 'Visualizza e gestisci i lotti delle materie prime.', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', description: 'Crea e gestisci la distinta base degli articoli.', icon: ClipboardList },
