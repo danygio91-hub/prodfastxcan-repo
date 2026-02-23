@@ -330,6 +330,95 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     }).sort((a, b) => a.code.localeCompare(b.code));
 }
 
+export type CommitmentDetail = {
+    jobId: string;
+    type: 'PRODUZIONE' | 'MANUALE';
+    quantity: number;
+    deliveryDate: string;
+    client: string;
+    articleCode: string;
+};
+
+/**
+ * Fetches detailed information about where a material is committed.
+ */
+export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
+    const normCode = materialCode.toLowerCase().trim();
+    
+    const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap] = await Promise.all([
+        getDocs(query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
+        getDocs(query(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
+        getDocs(collection(db, 'articles')),
+        getDocs(query(collection(db, 'rawMaterials'), where('code_normalized', '==', normCode)))
+    ]);
+
+    const material = materialsSnap.docs[0]?.data() as RawMaterial;
+    if (!material) return [];
+
+    const articlesMap = new Map();
+    articlesSnap.forEach(doc => articlesMap.set(doc.data().code.toLowerCase().trim(), doc.data()));
+
+    const details: CommitmentDetail[] = [];
+
+    // 1. Production Job Orders
+    jobsSnap.forEach(docSnap => {
+        const job = docSnap.data() as JobOrder;
+        (job.billOfMaterials || []).forEach(item => {
+            if (item.component.toLowerCase().trim() === normCode && item.status !== 'withdrawn') {
+                let qty = (item.lunghezzaTaglioMm && material.unitOfMeasure === 'mt') 
+                    ? (job.qta * item.quantity * item.lunghezzaTaglioMm / 1000) 
+                    : job.qta * item.quantity;
+                
+                details.push({
+                    jobId: job.ordinePF,
+                    type: 'PRODUZIONE',
+                    quantity: qty,
+                    deliveryDate: job.dataConsegnaFinale || 'N/D',
+                    client: job.cliente || 'N/D',
+                    articleCode: job.details
+                });
+            }
+        });
+    });
+
+    // 2. Manual Commitments
+    commitmentsSnap.forEach(docSnap => {
+        const comm = docSnap.data() as ManualCommitment;
+        const artCode = comm.articleCode.toLowerCase().trim();
+        const art = articlesMap.get(artCode);
+        
+        if (art && art.billOfMaterials) {
+            art.billOfMaterials.forEach((bomItem: any) => {
+                if (bomItem.component.toLowerCase().trim() === normCode) {
+                    let qty = (bomItem.lunghezzaTaglioMm && material.unitOfMeasure === 'mt') 
+                        ? (comm.quantity * bomItem.quantity * bomItem.lunghezzaTaglioMm / 1000) 
+                        : comm.quantity * bomItem.quantity;
+                    
+                    details.push({
+                        jobId: comm.jobOrderCode,
+                        type: 'MANUALE',
+                        quantity: qty,
+                        deliveryDate: comm.deliveryDate || 'N/D',
+                        client: 'N/D (Impegno Manuale)',
+                        articleCode: comm.articleCode
+                    });
+                }
+            });
+        } else if (artCode === normCode) {
+            details.push({
+                jobId: comm.jobOrderCode,
+                type: 'MANUALE',
+                quantity: comm.quantity,
+                deliveryDate: comm.deliveryDate || 'N/D',
+                client: 'N/D (Impegno Manuale)',
+                articleCode: comm.articleCode
+            });
+        }
+    });
+
+    return details.sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
+}
+
 export async function searchMaterialsAndGetStatus(searchTerm: string) {
   const allStatus = await getMaterialsStatus();
   const lowerTerm = searchTerm.toLowerCase().trim();

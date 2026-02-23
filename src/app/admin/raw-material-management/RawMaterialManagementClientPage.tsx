@@ -7,12 +7,13 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isPast } from 'date-fns';
+import { it } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import Link from 'next/link';
 
 import { type RawMaterial, type RawMaterialBatch, type MaterialWithdrawal, type RawMaterialType, type ManualCommitment, type ScrapRecord, type Department, type Article } from '@/lib/mock-data';
-import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus } from './actions';
+import { saveRawMaterial, deleteRawMaterial, commitImportedRawMaterials, addBatchToRawMaterial, getMaterialWithdrawalsForMaterial, getScrapsForMaterial, searchMaterialsAndGetStatus, type MaterialStatus, getMaterialCommitmentDetails, type CommitmentDetail } from './actions';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -28,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList, Truck } from 'lucide-react';
+import { Boxes, PlusCircle, Edit, Trash2, Upload, Loader2, MoreVertical, History, PackagePlus, Search, ArrowUpCircle, ArrowDownCircle, TestTube, ClipboardList, Truck, ListChecks, Calendar } from 'lucide-react';
 import { Badge as UiBadge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
@@ -121,6 +122,13 @@ export default function RawMaterialManagementClientPage({
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isPending, setIsPending] = useState(false);
+  
+  // Impegnato Details State
+  const [isCommitmentDialogOpen, setIsCommitmentDialogOpen] = useState(false);
+  const [commitmentDetails, setCommitmentDetails] = useState<CommitmentDetail[]>([]);
+  const [isLoadingCommitment, setIsLoadingCommitment] = useState(false);
+  const [activeMaterialForDetails, setActiveMaterialForDetails] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -214,6 +222,21 @@ export default function RawMaterialManagementClientPage({
     setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
   };
 
+  const handleOpenCommitmentDetails = async (materialCode: string) => {
+    setActiveMaterialForDetails(materialCode);
+    setIsLoadingCommitment(true);
+    setIsCommitmentDialogOpen(true);
+    try {
+        const details = await getMaterialCommitmentDetails(materialCode);
+        setCommitmentDetails(details);
+    } catch (error) {
+        toast({ variant: 'destructive', title: "Errore", description: "Impossibile caricare i dettagli dell'impegnato." });
+        setIsCommitmentDialogOpen(false);
+    } finally {
+        setIsLoadingCommitment(false);
+    }
+  };
+
   return (
       <div className="space-y-6">
         <header>
@@ -241,7 +264,7 @@ export default function RawMaterialManagementClientPage({
                         <Table>
                             <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length > 0 && selectedRows.length === rawMaterials.length} onCheckedChange={(c) => setSelectedRows(c ? rawMaterials.map(m => m.id) : [])} /></TableHead><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead>Unità</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                             <TableBody>
-                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto"/></TableCell></TableRow> : (rawMaterials.length > 0) ? (
+                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((m) => {
                                   const s = materialStatus.find(st => st.id === m.id);
                                   const displayStock = s ? s.stock : m.currentStockUnits;
@@ -250,7 +273,14 @@ export default function RawMaterialManagementClientPage({
                                         <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(m.id)} onCheckedChange={(c) => setSelectedRows(prev => c ? [...prev, m.id] : prev.filter(id => id !== m.id))} /></TableCell>
                                         <TableCell className="font-medium">{m.code}</TableCell><TableCell className="max-w-xs truncate">{m.description}</TableCell>
                                         <TableCell className="font-semibold">{formatDisplayStock(displayStock, m.unitOfMeasure)}</TableCell>
-                                        <TableCell className="font-mono text-amber-600">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</TableCell>
+                                        <TableCell>
+                                            <button 
+                                                onClick={() => handleOpenCommitmentDetails(m.code)}
+                                                className="font-mono text-amber-600 hover:text-amber-800 hover:underline font-semibold"
+                                            >
+                                                {s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}
+                                            </button>
+                                        </TableCell>
                                         <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
                                         <TableCell>
                                             <Link 
@@ -284,6 +314,70 @@ export default function RawMaterialManagementClientPage({
         <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}><DialogContent className="sm:max-w-4xl"><DialogHeader><DialogTitle>Storico: {selectedMaterial?.code}</DialogTitle></DialogHeader><ScrollArea className="max-h-[60vh]"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow></TableHeader><TableBody>{materialMovements.length > 0 ? materialMovements.map((m, idx) => (<TableRow key={idx}><TableCell>{format(parseISO(m.date), 'dd/MM/yyyy HH:mm')}</TableCell><TableCell><UiBadge variant={m.type === 'Carico' ? 'default' : 'destructive'}>{m.type}</UiBadge></TableCell><TableCell>{m.description}</TableCell><TableCell className="text-right font-mono">{m.quantity} {m.unit}</TableCell></TableRow>)) : <TableRow><TableCell colSpan={4} className="text-center">Nessun movimento registrato.</TableCell></TableRow>}</TableBody></Table></ScrollArea></DialogContent></Dialog>
 
         <AlertDialog open={!!materialToDelete} onOpenChange={() => setMaterialToDelete(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminare permanentemente?</AlertDialogTitle><AlertDialogDescription>Questa azione è irreversibile.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDelete} className="bg-destructive" disabled={isPending}>Elimina</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+
+        {/* Commitment Details Dialog */}
+        <Dialog open={isCommitmentDialogOpen} onOpenChange={setIsCommitmentDialogOpen}>
+            <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ListChecks className="h-6 w-6 text-primary" />
+                        Dettaglio Impegnato: {activeMaterialForDetails}
+                    </DialogTitle>
+                    <DialogDescription>
+                        Elenco delle commesse e degli impegni manuali che hanno prenotato questo materiale.
+                    </DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="max-h-[60vh] mt-4">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Commessa</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Articolo</TableHead>
+                                <TableHead>Cliente</TableHead>
+                                <TableHead className="text-right">Quantità</TableHead>
+                                <TableHead>Consegna Prevista</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {isLoadingCommitment ? (
+                                <TableRow><TableCell colSpan={6} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+                            ) : commitmentDetails.length > 0 ? (
+                                commitmentDetails.map((det, idx) => {
+                                    const isDelayed = det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) && det.deliveryDate !== format(new Date(), 'yyyy-MM-dd');
+                                    return (
+                                        <TableRow key={idx}>
+                                            <TableCell className="font-mono font-bold">{det.jobId}</TableCell>
+                                            <TableCell>
+                                                <UiBadge variant={det.type === 'PRODUZIONE' ? 'default' : 'secondary'}>{det.type}</UiBadge>
+                                            </TableCell>
+                                            <TableCell className="text-xs">{det.articleCode}</TableCell>
+                                            <TableCell className="text-xs">{det.client}</TableCell>
+                                            <TableCell className="text-right font-semibold">{det.quantity.toFixed(2)}</TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-2">
+                                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                                    <span className={cn(isDelayed && "text-destructive font-bold animate-pulse")}>
+                                                        {det.deliveryDate !== 'N/D' ? format(parseISO(det.deliveryDate), 'dd/MM/yyyy') : 'N/D'}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })
+                            ) : (
+                                <TableRow><TableCell colSpan={6} className="text-center h-24">Nessun impegno trovato per questo materiale.</TableCell></TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </ScrollArea>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button variant="outline">Chiudi</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
         <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
         <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
