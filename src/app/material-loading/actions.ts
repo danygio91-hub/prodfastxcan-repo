@@ -1,13 +1,11 @@
 
-
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging } from '@/lib/mock-data';
+import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, PurchaseOrder } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
-import { format } from 'date-fns';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -17,7 +15,26 @@ const batchFormSchema = z.object({
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   unit: z.enum(['n', 'kg', 'mt']),
   packagingId: z.string().optional(),
+  purchaseOrderId: z.string().optional(),
 });
+
+/**
+ * Fetches open purchase orders for a specific material code.
+ * Orders are sorted by expected delivery date.
+ */
+export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
+    const col = collection(db, "purchaseOrders");
+    // We filter for pending or partially_received orders for the scanned material
+    const q = query(
+        col, 
+        where("materialCode", "==", materialCode),
+        where("status", "in", ["pending", "partially_received"]),
+        orderBy("expectedDeliveryDate", "asc")
+    );
+    
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
+}
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; errors?: any }> {
   const rawData = Object.fromEntries(formData.entries());
@@ -27,7 +44,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
     return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
-  const { materialId, date, ddt, quantity, lotto, packagingId, unit } = validatedFields.data;
+  const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId } = validatedFields.data;
   
   const materialRef = doc(db, "rawMaterials", materialId);
   
@@ -58,7 +75,6 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const netQuantityInput = quantity;
 
           if (unit === 'kg') {
-              // User inputs NET weight
               netWeightKg = netQuantityInput;
               if (material.unitOfMeasure === 'kg') {
                   unitsToAdd = netWeightKg;
@@ -68,8 +84,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                   }
                   unitsToAdd = netWeightKg / material.conversionFactor;
               }
-          } else { // unit is 'n' or 'mt'
-              // User inputs NET quantity in primary UOM
+          } else { 
               unitsToAdd = netQuantityInput;
               if (material.unitOfMeasure === 'kg') {
                   netWeightKg = unitsToAdd;
@@ -80,14 +95,34 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
+          // --- Purchase Order Update Logic ---
+          if (purchaseOrderId) {
+              const poRef = doc(db, "purchaseOrders", purchaseOrderId);
+              const poSnap = await transaction.get(poRef);
+              if (poSnap.exists()) {
+                  const poData = poSnap.data() as PurchaseOrder;
+                  const currentReceived = poData.receivedQuantity || 0;
+                  // Quantity added is always in the primary UOM of the material (which should match PO)
+                  const newReceivedTotal = currentReceived + unitsToAdd;
+                  
+                  const isFullyReceived = newReceivedTotal >= poData.quantity - 0.001; // Tiny margin for floating point
+                  
+                  transaction.update(poRef, {
+                      receivedQuantity: newReceivedTotal,
+                      status: isFullyReceived ? 'received' : 'partially_received'
+                  });
+              }
+          }
+
           const newBatch: RawMaterialBatch = {
             id: `batch-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
             tareWeight: tareWeight,
-            grossWeight: netWeightKg + tareWeight, // Gross is always Net + Tare
+            grossWeight: netWeightKg + tareWeight,
             lotto: lotto || null,
+            purchaseOrderId: purchaseOrderId || null,
           };
           
           if (validPackagingId) {
@@ -108,14 +143,14 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               batches: [...existingBatches, newBatch], 
               currentStockUnits: newStockUnits,
               currentWeightKg: newWeightKg,
-              stock: newStockUnits // For legacy compatibility if needed
           };
       });
       
       revalidatePath('/admin/raw-material-management');
-      revalidatePath('/raw-material-scan');
-      revalidatePath('/admin/batch-management'); // Added revalidation for batch page
-      return { success: true, message: 'Lotto aggiunto con successo. Stock aggiornato.', updatedMaterial: finalMaterialState };
+      revalidatePath('/admin/purchase-orders');
+      revalidatePath('/admin/batch-management');
+      
+      return { success: true, message: 'Lotto aggiunto con successo. Stock e Ordine Fornitore aggiornati.', updatedMaterial: finalMaterialState as RawMaterial };
 
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
@@ -144,7 +179,7 @@ export async function reportNonConformity(data: z.infer<typeof ncReportSchema>):
         const ncCollectionRef = collection(db, "nonConformityReports");
         const reportData: Omit<NonConformityReport, 'id'> = {
             ...validated.data,
-            reportDate: Timestamp.now() as any, // Cast to any to satisfy type temporarily
+            reportDate: Timestamp.now(),
             status: 'pending',
         }
         await addDoc(ncCollectionRef, reportData);

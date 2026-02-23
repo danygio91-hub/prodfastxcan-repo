@@ -159,6 +159,7 @@ export interface RawMaterialBatch {
   tareWeight: number;
   packagingId?: string;
   lotto?: string | null;
+  purchaseOrderId?: string; // Link to the PO if received via PO flow
 }
 
 
@@ -350,6 +351,7 @@ export interface PurchaseOrder {
   supplierName: string;
   materialCode: string;
   quantity: number;
+  receivedQuantity?: number; // Tracks how much has been loaded
   unitOfMeasure: 'n' | 'mt' | 'kg';
   expectedDeliveryDate: string; // ISO string
   status: 'pending' | 'received' | 'partially_received' | 'cancelled';

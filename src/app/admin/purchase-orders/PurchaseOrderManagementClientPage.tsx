@@ -12,8 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save, ChevronsUpDown, Check } from 'lucide-react';
-import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder } from './actions';
+import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save, ChevronsUpDown, Check, MoreVertical, XCircle, CheckCircle2 } from 'lucide-react';
+import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder, closePurchaseOrder } from './actions';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -28,6 +28,7 @@ import * as z from 'zod';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 
 const orderSchema = z.object({
   orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
@@ -160,6 +161,18 @@ export default function PurchaseOrderManagementClientPage({
     }
   };
 
+  const handleForceClose = async (id: string) => {
+      if (!user) return;
+      const result = await closePurchaseOrder(id, user.uid);
+      if (result.success) {
+          toast({ title: "Ordine Chiuso", description: "L'ordine è stato marcato come completato manualmente." });
+          const updated = await getPurchaseOrders();
+          setOrders(updated);
+      } else {
+          toast({ variant: "destructive", title: "Errore", description: result.message });
+      }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col sm:flex-row justify-between items-start gap-4">
@@ -288,7 +301,7 @@ export default function PurchaseOrderManagementClientPage({
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>Riepilogo Ordini Pendenti</CardTitle>
+            <CardTitle>Riepilogo Ordini</CardTitle>
             <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Cerca ordine, fornitore..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -300,53 +313,93 @@ export default function PurchaseOrderManagementClientPage({
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Stato</TableHead>
                   <TableHead>N° Ordine</TableHead>
                   <TableHead>Fornitore</TableHead>
                   <TableHead>Materiale</TableHead>
                   <TableHead>Quantità</TableHead>
+                  <TableHead>Ricevuto</TableHead>
                   <TableHead>Data Consegna Prevista</TableHead>
-                  <TableHead>Stato</TableHead>
                   <TableHead className="text-right">Azioni</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOrders.length > 0 ? (
-                  filteredOrders.map((order) => (
-                    <TableRow key={order.id}>
+                  filteredOrders.map((order) => {
+                    const isPending = order.status === 'pending' || order.status === 'partially_received';
+                    return (
+                    <TableRow key={order.id} className={cn(!isPending && "opacity-60 bg-muted/30")}>
+                      <TableCell>
+                        <Badge variant={order.status === 'received' ? 'default' : order.status === 'pending' ? 'secondary' : 'outline'} className={cn(order.status === 'partially_received' && "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-100")}>
+                          {order.status === 'pending' ? 'In attesa' : order.status === 'received' ? 'Completato' : order.status === 'partially_received' ? 'Parziale' : order.status}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="font-mono font-semibold">{order.orderNumber}</TableCell>
                       <TableCell>{order.supplierName || 'N/D'}</TableCell>
                       <TableCell>{order.materialCode}</TableCell>
                       <TableCell className="font-bold">{order.quantity} {order.unitOfMeasure.toUpperCase()}</TableCell>
+                      <TableCell className={cn("font-mono", (order.receivedQuantity || 0) > 0 && "text-green-600 font-bold")}>
+                        {order.receivedQuantity || 0} {order.unitOfMeasure.toUpperCase()}
+                      </TableCell>
                       <TableCell className="flex items-center gap-2">
                         <CalendarIcon className="h-4 w-4 text-muted-foreground" />
                         {order.expectedDeliveryDate ? format(parseISO(order.expectedDeliveryDate), 'dd/MM/yyyy') : 'N/D'}
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={order.status === 'pending' ? 'secondary' : 'default'}>
-                          {order.status === 'pending' ? 'In attesa' : order.status}
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-right">
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-destructive"><Trash2 className="h-4 w-4"/></Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                              <AlertDialogDescription>L'ordine verrà rimosso permanentemente.</AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Annulla</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDelete(order.id)} className="bg-destructive hover:bg-destructive/90">Elimina</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4"/></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                {isPending && (
+                                    <>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <DropdownMenuItem onSelect={e => e.preventDefault()}>
+                                                    <CheckCircle2 className="mr-2 h-4 w-4 text-green-600"/> Chiudi Manualmente
+                                                </DropdownMenuItem>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Conferma Chiusura Ordine</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        Sei sicuro di voler chiudere l'ordine {order.orderNumber}? 
+                                                        Questa azione lo rimuoverà dall'ordinato in magazzino anche se non tutta la merce è stata caricata.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleForceClose(order.id)}>Sì, chiudi ordine</AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive">
+                                            <Trash2 className="mr-2 h-4 w-4"/> Elimina
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                                            <AlertDialogDescription>L'ordine verrà rimosso permanentemente.</AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDelete(order.id)} className="bg-destructive hover:bg-destructive/90">Elimina</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ))
+                  )})
                 ) : (
-                  <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Nessun ordine fornitore trovato.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Nessun ordine fornitore trovato.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

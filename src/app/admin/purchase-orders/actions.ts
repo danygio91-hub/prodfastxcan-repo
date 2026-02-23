@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { PurchaseOrder } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -34,6 +34,7 @@ export async function savePurchaseOrder(data: Partial<PurchaseOrder>, uid: strin
     id,
     createdAt: Timestamp.now(),
     status: data.status || 'pending',
+    receivedQuantity: data.receivedQuantity || 0,
   };
 
   try {
@@ -44,6 +45,23 @@ export async function savePurchaseOrder(data: Partial<PurchaseOrder>, uid: strin
   } catch (e) {
     return { success: false, message: 'Errore durante il salvataggio.' };
   }
+}
+
+/**
+ * Manually closes a purchase order (e.g., when the supplier won't send the remaining items).
+ */
+export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    try {
+        await updateDoc(doc(db, "purchaseOrders", id), {
+            status: 'received'
+        });
+        revalidatePath('/admin/purchase-orders');
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: 'Ordine chiuso correttamente.' };
+    } catch (e) {
+        return { success: false, message: 'Errore durante la chiusura.' };
+    }
 }
 
 export async function deletePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
@@ -80,8 +98,13 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             const excelEpoch = new Date(Date.UTC(1899, 11, 30));
             deliveryDate = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000).toISOString();
         } else if (typeof rawDate === 'string') {
-            const parsed = parse(rawDate, 'dd/MM/yyyy', new Date());
-            deliveryDate = isValid(parsed) ? parsed.toISOString() : new Date().toISOString();
+            const formatsToTry = ['dd/MM/yyyy', 'yyyy-MM-dd'];
+            let parsed = null;
+            for(const fmt of formatsToTry) {
+                const temp = parse(rawDate, fmt, new Date());
+                if(isValid(temp)) { parsed = temp; break; }
+            }
+            deliveryDate = parsed ? parsed.toISOString() : new Date().toISOString();
         } else {
             deliveryDate = new Date().toISOString();
         }
@@ -93,6 +116,7 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             supplierName,
             materialCode,
             quantity,
+            receivedQuantity: 0,
             unitOfMeasure: unit,
             expectedDeliveryDate: deliveryDate,
             status: 'pending',

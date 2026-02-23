@@ -22,11 +22,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from '@/components/ui/switch';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { addBatchToRawMaterial, reportNonConformity, getPackagingItems } from './actions';
+import { addBatchToRawMaterial, reportNonConformity, getPackagingItems, getOpenPurchaseOrdersForMaterial } from './actions';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
-import type { RawMaterial, Packaging } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube } from 'lucide-react';
+import type { RawMaterial, Packaging, PurchaseOrder } from '@/lib/mock-data';
+import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube, Truck, ClipboardList, Calendar } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
+import { cn } from '@/lib/utils';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1),
@@ -36,6 +37,7 @@ const batchFormSchema = z.object({
   quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
   packagingId: z.string().optional(),
   unit: z.enum(['n', 'kg', 'mt']),
+  purchaseOrderId: z.string().optional(),
 });
 type BatchFormValues = z.infer<typeof batchFormSchema>;
 
@@ -46,7 +48,7 @@ const ncReportFormSchema = z.object({
 });
 type NcReportFormValues = z.infer<typeof ncReportFormSchema>;
 
-type Step = 'scan_material' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success';
+type Step = 'scan_material' | 'select_order' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success';
 
 // New isolated component for scanning UI
 const ScanUI = ({ title, onScan, onCancel }: { title: string, onScan: (code: string) => void, onCancel: () => void }) => {
@@ -123,10 +125,13 @@ export default function MaterialLoadingPage() {
 
     const [step, setStep] = useState<Step>('scan_material');
     const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
+    const [openOrders, setOpenOrders] = useState<PurchaseOrder[]>([]);
+    const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
     const [scannedLotto, setScannedLotto] = useState<string | null>(null);
     const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
     const [showNCReport, setShowNCReport] = useState(false);
     const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
+    const [isLoadingOrders, setIsLoadingOrders] = useState(false);
     
     useEffect(() => {
         if (!authLoading && operator) {
@@ -145,7 +150,7 @@ export default function MaterialLoadingPage() {
     
     useEffect(() => {
         if (scannedMaterial) {
-            setInputUnit('primary'); // Reset to primary unit whenever material changes
+            setInputUnit('primary'); 
         }
     }, [scannedMaterial]);
 
@@ -176,7 +181,7 @@ export default function MaterialLoadingPage() {
 
         if (inputUnit === 'kg') {
             netWeightKg = numEnteredQuantity;
-        } else { // unit is 'primary' (n or mt)
+        } else { 
             if (scannedMaterial.conversionFactor && scannedMaterial.conversionFactor > 0) {
                 netWeightKg = numEnteredQuantity * scannedMaterial.conversionFactor;
             } else if (scannedMaterial.unitOfMeasure === 'kg') {
@@ -197,9 +202,30 @@ export default function MaterialLoadingPage() {
             form.setValue('materialId', result.id);
             form.setValue('unit', result.unitOfMeasure);
             setInputUnit('primary');
-            setStep('scan_lotto');
+            
+            // Fetch open orders for this material
+            setIsLoadingOrders(true);
+            setStep('select_order');
+            const orders = await getOpenPurchaseOrdersForMaterial(result.code);
+            setOpenOrders(orders);
+            setIsLoadingOrders(false);
         }
     }, [toast, form]);
+
+    const handleSelectOrder = (order: PurchaseOrder | null) => {
+        setSelectedOrder(order);
+        if (order) {
+            form.setValue('purchaseOrderId', order.id);
+            form.setValue('ddt', order.orderNumber);
+            // Propose remaining quantity
+            const remaining = order.quantity - (order.receivedQuantity || 0);
+            form.setValue('quantity', remaining > 0 ? remaining : 0);
+        } else {
+            form.setValue('purchaseOrderId', undefined);
+            form.setValue('quantity', 0);
+        }
+        setStep('scan_lotto');
+    };
 
     const handleLottoScanned = (code: string) => {
         setScannedLotto(code.trim());
@@ -228,7 +254,7 @@ export default function MaterialLoadingPage() {
         if (result.success) {
             setStep('success');
         } else {
-            setStep('enter_quantity'); // Go back to allow correction
+            setStep('enter_quantity'); 
         }
     };
     
@@ -264,6 +290,8 @@ export default function MaterialLoadingPage() {
     const resetFlow = () => {
         setScannedMaterial(null);
         setScannedLotto(null);
+        setSelectedOrder(null);
+        setOpenOrders([]);
         setShowNCReport(false);
         ncForm.reset();
         form.reset({ date: format(new Date(), 'yyyy-MM-dd'), ddt: 'CARICO_RAPIDO' });
@@ -291,16 +319,16 @@ export default function MaterialLoadingPage() {
                         
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
-                                {['Materiale', 'Lotto', 'Convalida', 'Quantità'].map((title, index) => {
-                                    const stepNames: Step[] = ['scan_material', 'scan_lotto', 'validate', 'enter_quantity', 'saving', 'success'];
+                                {['Materiale', 'Ordine', 'Lotto', 'Q.tà'].map((title, index) => {
+                                    const stepNames: Step[] = ['scan_material', 'select_order', 'scan_lotto', 'validate', 'enter_quantity', 'saving', 'success'];
                                     const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
 
                                     return (
                                         <li key={title} className={`flex items-center ${index < 3 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
-                                            <span className={`flex items-center justify-center w-10 h-10 ${isActive || isCompleted ? 'bg-primary/20' : 'bg-muted'} rounded-full lg:h-12 lg:w-12 dark:bg-gray-800 shrink-0`}>
-                                                {isCompleted ? <Check className="w-5 h-5 text-primary" /> : <span className={`${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{index + 1}</span>}
+                                            <span className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 ${isActive || isCompleted ? 'bg-primary/20' : 'bg-muted'} rounded-full shrink-0`}>
+                                                {isCompleted ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> : <span className={`${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{index + 1}</span>}
                                             </span>
                                         </li>
                                     );
@@ -311,12 +339,59 @@ export default function MaterialLoadingPage() {
                                 {step === 'scan_material' && (
                                     <ScanUI title="1. Scansiona il Codice Materiale" onScan={handleMaterialScanned} onCancel={resetFlow} />
                                 )}
-                                {step === 'scan_lotto' && (
-                                    <ScanUI title="2. Scansiona il Codice del Lotto" onScan={handleLottoScanned} onCancel={resetFlow} />
+
+                                {step === 'select_order' && (
+                                    <div className="space-y-4">
+                                        <h3 className="text-xl font-semibold text-center">2. Seleziona Ordine Fornitore</h3>
+                                        <p className="text-center text-sm text-muted-foreground">Materiale: <span className="font-bold">{scannedMaterial?.code}</span></p>
+                                        
+                                        {isLoadingOrders ? (
+                                            <div className="py-10 text-center"><Loader2 className="h-10 w-10 animate-spin mx-auto text-primary"/></div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {openOrders.length > 0 ? (
+                                                    openOrders.map(order => {
+                                                        const remaining = order.quantity - (order.receivedQuantity || 0);
+                                                        return (
+                                                            <Button 
+                                                                key={order.id} 
+                                                                variant="outline" 
+                                                                className="w-full h-auto p-4 flex flex-col items-start gap-1 text-left hover:border-primary"
+                                                                onClick={() => handleSelectOrder(order)}
+                                                            >
+                                                                <div className="flex justify-between w-full font-bold">
+                                                                    <span>Ordine: {order.orderNumber}</span>
+                                                                    <Badge variant="secondary">{format(new Date(order.expectedDeliveryDate), 'dd/MM/yyyy')}</Badge>
+                                                                </div>
+                                                                <div className="text-sm text-muted-foreground flex justify-between w-full">
+                                                                    <span>Fornitore: {order.supplierName || 'N/D'}</span>
+                                                                    <span className="text-primary font-semibold">Residuo: {remaining} {order.unitOfMeasure.toUpperCase()}</span>
+                                                                </div>
+                                                            </Button>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <Alert>
+                                                        <AlertTriangle className="h-4 w-4" />
+                                                        <AlertTitle>Nessun Ordine Trovato</AlertTitle>
+                                                        <AlertDescription>Non ci sono ordini pendenti per questo materiale. Puoi procedere con un carico libero.</AlertDescription>
+                                                    </Alert>
+                                                )}
+                                                <Button variant="ghost" className="w-full mt-4" onClick={() => handleSelectOrder(null)}>
+                                                    Procedi senza ordine (Carico Libero)
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
+
+                                {step === 'scan_lotto' && (
+                                    <ScanUI title="3. Scansiona il Codice del Lotto" onScan={handleLottoScanned} onCancel={resetFlow} />
+                                )}
+
                                 {step === 'validate' && (
                                      <div className="text-center space-y-4">
-                                        <h3 className="text-xl font-semibold">3. Convalida / Segnala</h3>
+                                        <h3 className="text-xl font-semibold">4. Convalida / Segnala</h3>
                                         <p className="text-muted-foreground">Il materiale ricevuto è conforme?</p>
                                         <div className="flex justify-center gap-4 pt-4">
                                             <Button onClick={() => setStep('enter_quantity')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
@@ -392,10 +467,16 @@ export default function MaterialLoadingPage() {
                                 )}
                                 {step === 'enter_quantity' && scannedMaterial && (
                                     <div>
-                                        <h3 className="text-xl font-semibold text-center mb-4">4. Inserisci Quantità</h3>
+                                        <h3 className="text-xl font-semibold text-center mb-4">5. Inserisci Quantità</h3>
                                          <Form {...form}>
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
-                                                <p className="text-sm text-muted-foreground">Materiale: <span className="font-bold text-primary">{scannedMaterial?.code}</span> | Lotto: <span className="font-bold text-primary">{scannedLotto}</span></p>
+                                                <div className="p-3 bg-muted rounded-md text-sm space-y-1">
+                                                    <p>Materiale: <span className="font-bold">{scannedMaterial?.code}</span></p>
+                                                    <p>Lotto: <span className="font-bold">{scannedLotto}</span></p>
+                                                    {selectedOrder && (
+                                                        <p className="text-primary font-semibold flex items-center gap-2"><Truck className="h-4 w-4"/> Ordine: {selectedOrder.orderNumber}</p>
+                                                    )}
+                                                </div>
                                                 
                                                 {scannedMaterial.unitOfMeasure !== 'kg' && (
                                                     <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
@@ -416,6 +497,9 @@ export default function MaterialLoadingPage() {
                                                         </FormLabel>
                                                         <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} autoFocus /></FormControl>
                                                         <FormMessage />
+                                                        {selectedOrder && inputUnit === 'primary' && (
+                                                            <p className="text-xs text-muted-foreground italic">Quantità proposta basata sul residuo dell'ordine.</p>
+                                                        )}
                                                     </FormItem>
                                                 )} />
 
@@ -445,7 +529,7 @@ export default function MaterialLoadingPage() {
                                                     <p className="text-2xl font-bold text-primary">{calculatedGrossWeight > 0 ? calculatedGrossWeight.toFixed(3) : '---'}</p>
                                                 </div>
                                                 
-                                                <Button type="submit" className="w-full">Registra Carico</Button>
+                                                <Button type="submit" className="w-full h-12 text-lg">Registra Carico</Button>
                                             </form>
                                         </Form>
                                     </div>
@@ -460,7 +544,8 @@ export default function MaterialLoadingPage() {
                                     <div className="text-center py-8 space-y-4">
                                         <Check className="h-16 w-16 text-green-500 bg-green-500/10 rounded-full p-2 mx-auto" />
                                         <h3 className="text-xl font-semibold">Carico Registrato con Successo!</h3>
-                                        <Button onClick={resetFlow} className="w-full">Carica un Altro Materiale</Button>
+                                        <p className="text-sm text-muted-foreground">Lo stock è stato aggiornato e l'ordine è stato processato.</p>
+                                        <Button onClick={resetFlow} className="w-full h-12 text-lg">Carica un Altro Materiale</Button>
                                     </div>
                                  )}
                             </div>
@@ -479,5 +564,3 @@ export default function MaterialLoadingPage() {
         </AuthGuard>
     );
 }
-
-    

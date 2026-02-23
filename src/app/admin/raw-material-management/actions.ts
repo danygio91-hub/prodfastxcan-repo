@@ -189,6 +189,7 @@ export type MaterialStatus = { id: string; code: string; description: string; st
 
 /**
  * CORE LOGIC: Recalculates stock and heals the database by restoring corrupted batch data.
+ * Also calculates the "Ordered" quantity from pending purchase orders.
  */
 export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap, posSnap] = await Promise.all([
@@ -315,7 +316,10 @@ export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
     posSnap.forEach(doc => {
         const po = doc.data() as PurchaseOrder;
         const code = po.materialCode.toLowerCase().trim();
-        ordersMap.set(code, (ordersMap.get(code) || 0) + po.quantity);
+        const remaining = po.quantity - (po.receivedQuantity || 0);
+        if (remaining > 0) {
+            ordersMap.set(code, (ordersMap.get(code) || 0) + remaining);
+        }
     });
 
     return Array.from(materialsMap.values()).map(m => {
