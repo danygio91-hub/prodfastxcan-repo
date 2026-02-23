@@ -188,13 +188,28 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
 /**
- * CORE LOGIC: Recalculates stock and heals the database by restoring corrupted batch data.
- * Also calculates the "Ordered" quantity from pending purchase orders.
+ * CORE LOGIC: Recalculates stock and heals the database for specific materials.
+ * Optimized to work with a searchTerm to avoid processing the whole DB.
  */
-export async function getMaterialsStatus(): Promise<MaterialStatus[]> {
+export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialStatus[]> {
+    const materialsCol = collection(db, "rawMaterials");
+    let materialsQuery;
+    
+    if (searchTerm && searchTerm.length >= 2) {
+        const lower = searchTerm.toLowerCase().trim();
+        materialsQuery = query(
+            materialsCol, 
+            where("code_normalized", ">=", lower),
+            where("code_normalized", "<=", lower + '\uf8ff'),
+            limit(100)
+        );
+    } else {
+        materialsQuery = query(materialsCol, orderBy("code_normalized"), limit(50));
+    }
+
     const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap, posSnap] = await Promise.all([
         getDocs(query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
-        getDocs(collection(db, "rawMaterials")),
+        getDocs(materialsQuery),
         getDocs(query(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
         getDocs(collection(db, 'materialWithdrawals')),
         getDocs(collection(db, 'articles')),
@@ -420,11 +435,10 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
 }
 
 export async function searchMaterialsAndGetStatus(searchTerm: string) {
-  const allStatus = await getMaterialsStatus();
-  const lowerTerm = searchTerm.toLowerCase().trim();
-  const filteredStatus = allStatus.filter(s => s.code.toLowerCase().includes(lowerTerm));
+  // Passiamo il searchTerm per processare solo i materiali necessari
+  const filteredStatus = await getMaterialsStatus(searchTerm);
   const filteredIds = new Set(filteredStatus.map(s => s.id));
-  const materials = await getRawMaterials();
+  const materials = await getRawMaterials(searchTerm);
   return { materials: materials.filter(m => filteredIds.has(m.id)), status: filteredStatus };
 }
 

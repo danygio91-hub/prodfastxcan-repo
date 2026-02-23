@@ -147,20 +147,28 @@ export default function RawMaterialManagementClientPage({
   }, [searchTerm]);
 
   useEffect(() => {
+    // Aumentato debounce a 500ms per evitare ricerche a raffica
     const delayDebounceFn = setTimeout(() => {
       if (searchTerm.length >= 2) {
+        // Puliamo i risultati precedenti per dare un feedback visivo immediato di caricamento
+        setRawMaterials([]);
+        setMaterialStatus([]);
         setIsSearching(true);
+        
         searchMaterialsAndGetStatus(searchTerm).then(result => {
           setRawMaterials(result.materials);
           setMaterialStatus(result.status);
+        }).catch(err => {
+            console.error(err);
+            toast({ variant: 'destructive', title: 'Errore ricerca' });
         }).finally(() => setIsSearching(false));
       } else {
         setRawMaterials([]);
         setMaterialStatus([]);
       }
-    }, 300);
+    }, 500);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+  }, [searchTerm, toast]);
 
   const onEditSubmit = async (values: z.infer<typeof rawMaterialFormSchema>) => {
     const formData = new FormData();
@@ -264,7 +272,7 @@ export default function RawMaterialManagementClientPage({
                         <Table>
                             <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length > 0 && selectedRows.length === rawMaterials.length} onCheckedChange={(c) => setSelectedRows(c ? rawMaterials.map(m => m.id) : [])} /></TableHead><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead>Unità</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                             <TableBody>
-                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow> : (rawMaterials.length > 0) ? (
+                            {isSearching ? <TableRow><TableCell colSpan={9} className="text-center h-24"><div className="flex items-center justify-center gap-3"><Loader2 className="h-6 w-6 animate-spin text-primary" /><span>Ricerca e ricalcolo stock in corso...</span></div></TableCell></TableRow> : (rawMaterials.length > 0) ? (
                                 rawMaterials.map((m) => {
                                   const s = materialStatus.find(st => st.id === m.id);
                                   const displayStock = s ? s.stock : m.currentStockUnits;
