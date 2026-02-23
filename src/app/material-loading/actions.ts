@@ -20,20 +20,24 @@ const batchFormSchema = z.object({
 
 /**
  * Fetches open purchase orders for a specific material code.
- * Orders are sorted by expected delivery date.
+ * Optimized to avoid composite index requirement by filtering in memory.
  */
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
     const col = collection(db, "purchaseOrders");
-    // We filter for pending or partially_received orders for the scanned material
+    
+    // We fetch by material code (which has a standard index)
+    // and handle status filtering and ordering in memory to avoid "Query requires an index" error.
     const q = query(
         col, 
-        where("materialCode", "==", materialCode),
-        where("status", "in", ["pending", "partially_received"]),
-        orderBy("expectedDeliveryDate", "asc")
+        where("materialCode", "==", materialCode)
     );
     
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
+    const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
+    
+    return orders
+        .filter(o => o.status === 'pending' || o.status === 'partially_received')
+        .sort((a, b) => a.expectedDeliveryDate.localeCompare(b.expectedDeliveryDate));
 }
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; updatedMaterial?: RawMaterial; errors?: any }> {
@@ -141,7 +145,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           return { 
               ...material, 
               batches: [...existingBatches, newBatch], 
-              currentStockUnits: newStockUnits,
+              currentStockUnits: newStockUnits, 
               currentWeightKg: newWeightKg,
           };
       });

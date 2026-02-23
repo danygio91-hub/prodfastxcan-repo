@@ -28,6 +28,7 @@ import type { RawMaterial, Packaging, PurchaseOrder } from '@/lib/mock-data';
 import { QrCode, AlertTriangle, Boxes, Send, Loader2, Package, Barcode, PlayCircle, Weight, Check, X, ArrowLeft, ThumbsDown, ThumbsUp, MessageSquare, Camera, Archive, TestTube, Truck, ClipboardList, Calendar } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 const batchFormSchema = z.object({
   materialId: z.string().min(1),
@@ -48,7 +49,7 @@ const ncReportFormSchema = z.object({
 });
 type NcReportFormValues = z.infer<typeof ncReportFormSchema>;
 
-type Step = 'scan_material' | 'select_order' | 'scan_lotto' | 'validate' | 'enter_quantity' | 'saving' | 'success';
+type Step = 'scan_material' | 'select_order' | 'validate' | 'scan_lotto' | 'enter_quantity' | 'saving' | 'success';
 
 // New isolated component for scanning UI
 const ScanUI = ({ title, onScan, onCancel }: { title: string, onScan: (code: string) => void, onCancel: () => void }) => {
@@ -206,9 +207,15 @@ export default function MaterialLoadingPage() {
             // Fetch open orders for this material
             setIsLoadingOrders(true);
             setStep('select_order');
-            const orders = await getOpenPurchaseOrdersForMaterial(result.code);
-            setOpenOrders(orders);
-            setIsLoadingOrders(false);
+            try {
+                const orders = await getOpenPurchaseOrdersForMaterial(result.code);
+                setOpenOrders(orders);
+            } catch (error) {
+                console.error("Search error:", error);
+                toast({ variant: 'destructive', title: "Errore di Ricerca", description: "Si è verificato un problema durante la ricerca degli ordini." });
+            } finally {
+                setIsLoadingOrders(false);
+            }
         }
     }, [toast, form]);
 
@@ -224,13 +231,13 @@ export default function MaterialLoadingPage() {
             form.setValue('purchaseOrderId', undefined);
             form.setValue('quantity', 0);
         }
-        setStep('scan_lotto');
+        setStep('validate');
     };
 
     const handleLottoScanned = (code: string) => {
         setScannedLotto(code.trim());
         form.setValue('lotto', code.trim());
-        setStep('validate');
+        setStep('enter_quantity');
     };
 
     async function onFinalSubmit(values: BatchFormValues) {
@@ -259,12 +266,12 @@ export default function MaterialLoadingPage() {
     };
     
     const handleNonConformityReport = async (values: NcReportFormValues) => {
-        if (!scannedMaterial || !scannedLotto || !operator) return;
+        if (!scannedMaterial || !operator) return;
 
         const result = await reportNonConformity({
             materialId: scannedMaterial.id,
             materialCode: scannedMaterial.code,
-            lotto: scannedLotto,
+            lotto: scannedLotto || 'NC_DA_CONVALIDA',
             quantity: values.quantity,
             reason: values.reason,
             notes: values.notes,
@@ -319,14 +326,14 @@ export default function MaterialLoadingPage() {
                         
                         <CardContent>
                             <ol className="relative flex items-center justify-between w-full text-sm font-medium text-center text-gray-500 dark:text-gray-400">
-                                {['Materiale', 'Ordine', 'Lotto', 'Q.tà'].map((title, index) => {
-                                    const stepNames: Step[] = ['scan_material', 'select_order', 'scan_lotto', 'validate', 'enter_quantity', 'saving', 'success'];
+                                {['Materiale', 'Ordine', 'Convalida', 'Lotto', 'Q.tà'].map((title, index) => {
+                                    const stepNames: Step[] = ['scan_material', 'select_order', 'validate', 'scan_lotto', 'enter_quantity', 'saving', 'success'];
                                     const stepIndex = stepNames.indexOf(step);
                                     const isCompleted = stepIndex > index || step === 'saving' || step === 'success';
                                     const isActive = stepIndex === index;
 
                                     return (
-                                        <li key={title} className={`flex items-center ${index < 3 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
+                                        <li key={title} className={`flex items-center ${index < 4 ? 'w-full' : ''} ${isCompleted ? 'text-primary dark:text-primary after:border-primary dark:after:border-primary' : ''} after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:inline-block dark:after:border-gray-700`}>
                                             <span className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 ${isActive || isCompleted ? 'bg-primary/20' : 'bg-muted'} rounded-full shrink-0`}>
                                                 {isCompleted ? <Check className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> : <span className={`${isActive ? 'text-primary' : 'text-muted-foreground'}`}>{index + 1}</span>}
                                             </span>
@@ -385,16 +392,12 @@ export default function MaterialLoadingPage() {
                                     </div>
                                 )}
 
-                                {step === 'scan_lotto' && (
-                                    <ScanUI title="3. Scansiona il Codice del Lotto" onScan={handleLottoScanned} onCancel={resetFlow} />
-                                )}
-
                                 {step === 'validate' && (
                                      <div className="text-center space-y-4">
-                                        <h3 className="text-xl font-semibold">4. Convalida / Segnala</h3>
+                                        <h3 className="text-xl font-semibold">3. Convalida / Segnala Merce</h3>
                                         <p className="text-muted-foreground">Il materiale ricevuto è conforme?</p>
                                         <div className="flex justify-center gap-4 pt-4">
-                                            <Button onClick={() => setStep('enter_quantity')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
+                                            <Button onClick={() => setStep('scan_lotto')} className="h-24 w-32 flex-col gap-2 bg-green-600 hover:bg-green-700 text-lg">
                                                 <ThumbsUp className="h-8 w-8" />
                                                 OK
                                             </Button>
@@ -465,9 +468,14 @@ export default function MaterialLoadingPage() {
                                         )}
                                     </div>
                                 )}
+
+                                {step === 'scan_lotto' && (
+                                    <ScanUI title="4. Scansiona il Codice del Lotto" onScan={handleLottoScanned} onCancel={resetFlow} />
+                                )}
+
                                 {step === 'enter_quantity' && scannedMaterial && (
                                     <div>
-                                        <h3 className="text-xl font-semibold text-center mb-4">5. Inserisci Quantità</h3>
+                                        <h3 className="text-xl font-semibold text-center mb-4">5. Inserisci Quantità Ricevuta</h3>
                                          <Form {...form}>
                                             <form onSubmit={form.handleSubmit(onFinalSubmit)} className="space-y-6 text-left">
                                                 <div className="p-3 bg-muted rounded-md text-sm space-y-1">
