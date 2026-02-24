@@ -580,9 +580,10 @@ export default function RawMaterialManagementClientPage({
       {isBatchDialogOpen && groupedBatchMaterial && (
         <BatchFormDialog 
           isOpen={isBatchDialogOpen} 
-          onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} 
+          onOpenChange={setIsBatchDialogOpen}
           material={groupedBatchMaterial} 
           batch={null} 
+          onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} 
         />
       )}
 

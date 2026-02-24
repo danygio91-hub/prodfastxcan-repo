@@ -30,7 +30,8 @@ import type {
   ScrapRecord, 
   JobOrder, 
   PurchaseOrder,
-  InventoryRecord
+  InventoryRecord,
+  Operator
 } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -405,7 +406,8 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
 export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
   try {
     await ensureAdmin(uid);
-    const op = (await getDoc(doc(db, "operators", uid))).data() as Operator;
+    const opDoc = await getDoc(doc(db, "operators", uid));
+    const op = opDoc.data() as Operator;
     await runTransaction(db, async (t) => {
       const cRef = doc(db, "manualCommitments", id);
       const c = (await t.get(cRef)).data() as ManualCommitment;
