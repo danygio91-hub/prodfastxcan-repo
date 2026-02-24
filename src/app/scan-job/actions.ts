@@ -159,6 +159,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const mSnap = await t.get(doc(db, "rawMaterials", data.materialId as string));
         const itemSnap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
         const opSnap = await t.get(doc(db, "operators", data.operatorId as string));
+        if (!mSnap.exists() || !itemSnap.exists()) throw new Error("Dati non trovati.");
         const mat = mSnap.data() as RawMaterial;
         const item = itemSnap.data() as JobOrder;
         const qty = Number(data.quantity);

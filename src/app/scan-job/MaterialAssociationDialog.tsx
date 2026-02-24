@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -21,7 +20,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '../ui/badge';
 import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
@@ -31,6 +30,7 @@ const formSchema = z.object({
   material: z.custom<RawMaterial>().nullable(),
   lotto: z.string().optional(),
   ddt: z.string().optional(),
+  openingWeightManual: z.coerce.number().min(0, "Il peso non può essere negativo.").optional(),
   quantityToWithdraw: z.coerce.number().optional(),
   packagingId: z.string().optional(),
 });
@@ -61,7 +61,6 @@ export default function MaterialAssociationDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
-  const [openingStockInKg, setOpeningStockInKg] = useState<number | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
 
   const videoRef = React.useRef<HTMLVideoElement>(null);
@@ -73,11 +72,14 @@ export default function MaterialAssociationDialog({
       material: null,
       lotto: "",
       ddt: "",
+      openingWeightManual: undefined,
       quantityToWithdraw: undefined,
+      packagingId: 'none'
     },
   });
 
   const selectedMaterial = form.watch('material');
+  const lottoValue = form.watch('lotto');
 
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
@@ -88,6 +90,21 @@ export default function MaterialAssociationDialog({
       setInputUnit('primary');
     }
   }, [selectedMaterial]);
+
+  // Debounced search for lotto weight when typing
+  useEffect(() => {
+    if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
+        const timer = setTimeout(async () => {
+            const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
+            if (lottoData) {
+                form.setValue('openingWeightManual', lottoData.netWeight);
+                form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
+                form.setValue('packagingId', lottoData.packagingId || 'none');
+            }
+        }, 800);
+        return () => clearTimeout(timer);
+    }
+  }, [lottoValue, selectedMaterial, form]);
 
   const handleMaterialSelect = (material: RawMaterial) => {
     form.setValue('material', material);
@@ -137,41 +154,30 @@ export default function MaterialAssociationDialog({
       if (lottoData?.material) {
         handleMaterialSelect(lottoData.material);
         form.setValue('lotto', scannedValue);
-        setOpeningStockInKg(lottoData.netWeight);
+        form.setValue('openingWeightManual', lottoData.netWeight);
         form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
-        form.setValue('packagingId', lottoData.packagingId);
+        form.setValue('packagingId', lottoData.packagingId || 'none');
       } else {
-        toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente o scansionare prima il materiale.' });
+        form.setValue('lotto', scannedValue);
+        toast({ title: 'Lotto Nuovo', description: 'Nessuno storico per questo lotto. Inserire il peso manualmente.' });
       }
     }
-    setScanType(null); // Close scanner view
+    setScanType(null); 
   }, [scanType, form, toast, selectedMaterial]);
-
-  const openingQuantityDisplay = useMemo(() => {
-    if (openingStockInKg === null || !selectedMaterial) return '0.00';
-
-    if (inputUnit === 'kg') {
-        return formatDisplayStock(openingStockInKg, 'kg');
-    }
-
-    if (selectedMaterial.conversionFactor && selectedMaterial.conversionFactor > 0) {
-        const valueInPrimaryUnit = openingStockInKg / selectedMaterial.conversionFactor;
-        return formatDisplayStock(valueInPrimaryUnit, selectedMaterial.unitOfMeasure);
-    }
-    
-    if (selectedMaterial.unitOfMeasure === 'kg') {
-        return formatDisplayStock(openingStockInKg, 'kg');
-    }
-    
-    return 'N/A';
-  }, [openingStockInKg, selectedMaterial, inputUnit]);
 
 
   const onAvviaSessione = async () => {
-    if (!selectedMaterial || !job || !operator || openingStockInKg === null) return;
+    const values = form.getValues();
+    if (!selectedMaterial || !job || !operator) return;
+
+    const openingWeight = values.openingWeightManual;
+    if (openingWeight === undefined || openingWeight === null) {
+        toast({ variant: 'destructive', title: 'Peso Mancante', description: 'Inserire il peso di apertura per avviare la sessione.' });
+        return;
+    }
 
     setIsProcessing(true);
-    const selectedPackaging = packagingItems.find(p => p.id === form.getValues('packagingId'));
+    const selectedPackaging = packagingItems.find(p => p.id === values.packagingId);
 
     let associatedJobsForSession: { jobId: string; jobOrderPF: string }[] = [];
 
@@ -187,10 +193,10 @@ export default function MaterialAssociationDialog({
     const consumption: MaterialConsumption = {
         materialId: selectedMaterial.id,
         materialCode: selectedMaterial.code,
-        grossOpeningWeight: openingStockInKg! + (selectedPackaging?.weightKg || 0),
-        netOpeningWeight: openingStockInKg!,
-        lottoBobina: form.getValues('lotto'),
-        packagingId: form.getValues('packagingId'),
+        grossOpeningWeight: openingWeight + (selectedPackaging?.weightKg || 0),
+        netOpeningWeight: openingWeight,
+        lottoBobina: values.lotto,
+        packagingId: values.packagingId,
         tareWeight: selectedPackaging?.weightKg || 0,
     };
 
@@ -274,11 +280,11 @@ export default function MaterialAssociationDialog({
       const kgStock = formatDisplayStock(selectedMaterial.currentWeightKg, 'kg');
       let unitStockDisplay: string;
       const unitStock = selectedMaterial.currentStockUnits ?? 0;
-      
       unitStockDisplay = formatDisplayStock(unitStock, selectedMaterial.unitOfMeasure);
-
       stockDisplay = `${kgStock} KG` + (selectedMaterial.unitOfMeasure !== 'kg' ? ` / ${unitStockDisplay} ${selectedMaterial.unitOfMeasure.toUpperCase()}` : '');
     }
+
+    const isBobina = phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0';
 
     return (
      <Form {...form}>
@@ -307,7 +313,7 @@ export default function MaterialAssociationDialog({
               <FormField control={form.control} name="lotto" render={({field}) => (
                   <FormItem>
                       <FormLabel>Lotto</FormLabel>
-                      <FormControl><Input {...field} value={field.value ?? ''} /></FormControl>
+                      <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita il lotto" /></FormControl>
                   </FormItem>
               )}/>
               <FormField control={form.control} name="ddt" render={({field}) => (
@@ -317,63 +323,76 @@ export default function MaterialAssociationDialog({
                   </FormItem>
               )}/>
 
-              {phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial?.unitOfMeasure === 'kg' ? (
-                  <FormItem>
-                      <FormLabel>Kg Netti di Apertura</FormLabel>
-                      <FormControl>
-                          <Input 
-                              readOnly 
-                              className="bg-muted font-mono" 
-                              value={openingQuantityDisplay}
-                          />
-                      </FormControl>
-                  </FormItem>
-              ) : (
-                  <>
-                      {selectedMaterial && (
-                        <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
-                            <Label htmlFor="unit-switch-assoc">{selectedMaterial.unitOfMeasure.toUpperCase()}</Label>
-                            <Switch
-                              id="unit-switch-assoc"
-                              checked={inputUnit === 'kg'}
-                              onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
-                            />
-                            <Label htmlFor="unit-switch-assoc">KG</Label>
-                        </div>
-                      )}
-                      
-                      <FormItem>
-                          <FormLabel>Quantità di Apertura ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                          <FormControl>
-                            <Input 
-                                readOnly 
-                                className="bg-muted font-mono" 
-                                value={openingQuantityDisplay}
-                            />
-                          </FormControl>
-                      </FormItem>
-                      
-                      <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
-                      <FormItem>
-                          <FormLabel>Quantità da prelevare ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                          <FormControl><Input type="number" step="any" {...field} value={field.value ?? undefined} /></FormControl>
-                          <FormMessage/>
-                      </FormItem>
-                      )}/>
-                  </>
-              )}
+              <div className="space-y-4 border-t pt-4">
+                {isBobina ? (
+                    <FormField control={form.control} name="openingWeightManual" render={({field}) => (
+                        <FormItem>
+                            <FormLabel className="text-primary font-bold">Quantità di Apertura ({selectedMaterial?.unitOfMeasure.toUpperCase() || 'N/D'})</FormLabel>
+                            <FormControl>
+                                <Input 
+                                    type="number"
+                                    step="any"
+                                    className="bg-background font-mono text-lg" 
+                                    {...field}
+                                    value={field.value ?? ''}
+                                />
+                            </FormControl>
+                            <p className="text-[10px] text-muted-foreground italic">Inserire il peso attuale della bobina/rocchetto prima di iniziare.</p>
+                        </FormItem>
+                    )}/>
+                ) : (
+                    <>
+                        {selectedMaterial && (
+                            <div className="flex items-center space-x-2 rounded-lg border p-3 justify-center">
+                                <Label htmlFor="unit-switch-assoc">{selectedMaterial.unitOfMeasure.toUpperCase()}</Label>
+                                <Switch
+                                id="unit-switch-assoc"
+                                checked={inputUnit === 'kg'}
+                                onCheckedChange={(checked) => setInputUnit(checked ? 'kg' : 'primary')}
+                                />
+                                <Label htmlFor="unit-switch-assoc">KG</Label>
+                            </div>
+                        )}
+                        <FormField control={form.control} name="quantityToWithdraw" render={({field}) => (
+                            <FormItem>
+                                <FormLabel className="text-primary font-bold">Quantità da prelevare ({inputUnit === 'primary' ? selectedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
+                                <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
+                                <FormMessage/>
+                            </FormItem>
+                        )}/>
+                    </>
+                )}
+
+                {isBobina && (
+                    <FormField control={form.control} name="packagingId" render={({field}) => (
+                        <FormItem>
+                            <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" />Tara (Imballo)</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl><SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                    <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
+                                    {packagingItems.filter(p => !selectedMaterial || p.associatedTypes?.includes(selectedMaterial.type)).map(item => (
+                                        <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </FormItem>
+                    )} />
+                )}
+              </div>
             </div>
           </ScrollArea>
           <DialogFooter className="flex-col sm:flex-col gap-2 p-6 pt-4 border-t sticky bottom-0 bg-background">
-              <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full">
-                {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Play className="mr-2 h-4 w-4" />} 
-                Avvia Sessione
-              </Button>
-                {(selectedMaterial && (phase.name.includes("TRECCIA") || phase.name.includes("CORDA") || selectedMaterial.unitOfMeasure === 'kg' ? false : true)) && (
-                  <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full">
+              {isBobina ? (
+                <Button type="button" onClick={onAvviaSessione} disabled={!selectedMaterial || isProcessing} className="w-full h-12 text-lg">
+                    {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Play className="mr-2 h-4 w-4" />} 
+                    Avvia Sessione Bobina
+                </Button>
+              ) : (
+                <Button type="button" onClick={form.handleSubmit(onPrelevaMateriale)} disabled={!selectedMaterial || isProcessing || !form.watch('quantityToWithdraw')} className="w-full h-12 text-lg">
                     {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
-                    Preleva Materiale
-                  </Button>
+                    Registra Prelievo
+                </Button>
               )}
           </DialogFooter>
         </form>
