@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -34,6 +33,7 @@ import type {
 } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
+// Exporting types needed by other components
 export type LotSelectionPayload = { 
     materialId: string; 
     componentCode: string; 
@@ -55,32 +55,34 @@ function convertTimestampsToDates(obj: any): any {
  * Trasforma il fabbisogno della BOM nell'unità di misura del magazzino (KG, MT o N).
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
+    const qta = Number(jobQta) || 0;
+    const bomQty = Number(bomItem.quantity) || 0;
+    const length = Number(bomItem.lunghezzaTaglioMm) || 0;
+    
     // 1. Calcoliamo il fabbisogno base (Metri o Pezzi)
     let baseQty = 0;
-    const hasCuttingLength = bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0;
-    
-    if (hasCuttingLength) {
+    if (length > 0) {
         // Se c'è una lunghezza di taglio, il fabbisogno base è in METRI
-        baseQty = (jobQta * bomItem.quantity * bomItem.lunghezzaTaglioMm) / 1000;
+        baseQty = (qta * bomQty * length) / 1000;
+    } else if (bomItem.unit === 'mt') {
+        baseQty = qta * bomQty;
     } else {
-        // Altrimenti sono PEZZI (N)
-        baseQty = jobQta * bomItem.quantity;
+        baseQty = qta * bomQty;
     }
 
     if (!material) return baseQty;
 
     // 2. Se il materiale in magazzino è gestito in KG, convertiamo il fabbisogno base in peso
     if (material.unitOfMeasure === 'kg') {
-        if (hasCuttingLength || bomItem.unit === 'mt') {
+        if (length > 0 || bomItem.unit === 'mt') {
             // METRI -> KG usando rapportoKgMt
-            return baseQty * (material.rapportoKgMt || 0);
+            return baseQty * (Number(material.rapportoKgMt) || 0);
         } else {
             // PEZZI -> KG usando conversionFactor
-            return baseQty * (material.conversionFactor || 0);
+            return baseQty * (Number(material.conversionFactor) || 0);
         }
     }
     
-    // Se il materiale è in metri e la BOM specifica pezzi con lunghezza, abbiamo già baseQty in metri
     return baseQty;
 }
 
@@ -302,7 +304,10 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
             });
         } else {
             const code = artCode;
-            impMap.set(code, (impMap.get(code) || 0) + comm.quantity);
+            const mat = codeToMat.get(code);
+            if (mat) {
+                impMap.set(code, (impMap.get(code) || 0) + comm.quantity);
+            }
         }
     });
 

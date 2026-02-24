@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -186,10 +185,11 @@ export default function RawMaterialManagementClientPage({
   initialCommitments, 
   initialDepartments 
 }: RawMaterialManagementClientPageProps) {
-  const searchParams = useSearchParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 
+  // State initialization at the top
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isSearching, setIsSearching] = useState(false);

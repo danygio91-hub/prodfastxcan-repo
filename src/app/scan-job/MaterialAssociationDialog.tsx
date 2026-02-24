@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -247,7 +246,7 @@ export default function MaterialAssociationDialog({
         <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden my-4">
             <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
             {hasPermission === false && (
-                <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                <div className="absolute inset-0 bg-black/80 flex items-center justify-center text-center p-4">
                     <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                     <p className="text-destructive-foreground font-semibold">Accesso Fotocamera Negato</p>
                 </div>
