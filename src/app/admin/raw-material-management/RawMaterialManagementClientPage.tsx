@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -189,7 +190,7 @@ export default function RawMaterialManagementClientPage({
   const searchParams = useSearchParams();
   const codeFromUrl = searchParams.get('code');
 
-  // State initialization at the top
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -197,7 +198,6 @@ export default function RawMaterialManagementClientPage({
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
-  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
