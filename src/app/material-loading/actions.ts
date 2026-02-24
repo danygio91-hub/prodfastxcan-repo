@@ -27,7 +27,7 @@ export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Pr
     
     // We fetch by material code (which has a standard index)
     // and handle status filtering and ordering in memory to avoid "Query requires an index" error.
-    const q = firestoreQuery(col, 
+    const q = query(col, 
         where("materialCode", "==", materialCode)
     );
     
@@ -118,7 +118,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
 
           const newBatch: RawMaterialBatch = {
-            id: `batch-${Date.now()}`,
+            id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
@@ -201,8 +201,3 @@ export async function getPackagingItems(): Promise<Packaging[]> {
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
-
-function firestoreQuery(...args: any[]) {
-    return (firestoreQuery as any).originalQuery(...args);
-}
-(firestoreQuery as any).originalQuery = firestoreQuery;

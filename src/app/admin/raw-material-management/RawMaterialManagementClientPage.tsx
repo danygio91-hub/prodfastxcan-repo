@@ -199,7 +199,7 @@ export default function RawMaterialManagementClientPage({
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
-  const [materialToDelete, setMaterialToDelete] = setMaterialToDeleteState<RawMaterial | null>(null);
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
@@ -322,7 +322,7 @@ export default function RawMaterialManagementClientPage({
         variant: result.success ? "default" : "destructive",
     });
     if (result.success) refreshData();
-    setMaterialToDeleteState(null);
+    setMaterialToDelete(null);
     setIsPending(false);
   };
 
@@ -330,10 +330,6 @@ export default function RawMaterialManagementClientPage({
     navigator.clipboard.writeText(text);
     toast({ title: "Copiato!", description: `"${text}" negli appunti.` });
   };
-
-  function setMaterialToDeleteState<T>(val: T) {
-      setMaterialToDelete(val as any);
-  }
 
   const groupedBatchMaterial: GroupedBatches | null = selectedMaterial ? {
     materialId: selectedMaterial.id,
@@ -383,7 +379,7 @@ export default function RawMaterialManagementClientPage({
                       <Truck className="mr-2 h-4 w-4" /> Ordini Fornitore
                     </Link>
                   </Button>
-                  <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n' }); setIsEditDialogOpen(true); }} size="sm">
+                  <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm">
                     <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Mat. Prima
                   </Button>
                 </div>
@@ -475,7 +471,7 @@ export default function RawMaterialManagementClientPage({
                                     <TestTube className="mr-2 h-4 w-4" /> Vedi Scarti
                                   </DropdownMenuItem>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuItem onSelect={() => setMaterialToDeleteState(m)} className="text-destructive">
+                                  <DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive">
                                     <Trash2 className="mr-2 h-4 w-4" /> Elimina
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -595,7 +591,7 @@ export default function RawMaterialManagementClientPage({
       )}
 
       {/* Dialog Conferma Eliminazione */}
-      <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDeleteState(null)}>
+      <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
