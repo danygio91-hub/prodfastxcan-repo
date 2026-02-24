@@ -1,6 +1,7 @@
+
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
+import { collection, doc, runTransaction, getDocs, query as firestoreQuery, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, PurchaseOrder } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -22,7 +23,7 @@ const batchFormSchema = z.object({
  */
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
     const col = collection(db, "purchaseOrders");
-    const q = query(col, where("materialCode", "==", materialCode));
+    const q = firestoreQuery(col, where("materialCode", "==", materialCode));
     const snapshot = await getDocs(q);
     const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
     
@@ -163,6 +164,6 @@ export async function reportNonConformity(data: z.infer<typeof ncReportSchema>):
 }
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const snap = await getDocs(query(collection(db, 'packaging'), orderBy("name")));
+  const snap = await getDocs(firestoreQuery(collection(db, 'packaging'), orderBy("name")));
   return snap.docs.map(doc => doc.data() as Packaging);
 }

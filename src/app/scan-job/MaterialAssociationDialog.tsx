@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -263,7 +264,7 @@ export default function MaterialAssociationDialog({
         </div>
         <div className="flex flex-col gap-2">
             <Button onClick={triggerScan} disabled={isProcessing || !hasPermission} className="w-full">
-                {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4" />}
+                {isProcessing ? <Loader2 className="h-4 w-4 animate-spin"/> : <Camera className="mr-2 h-4 w-4" />}
                 {isProcessing ? 'Scansionando...' : 'Scansiona Ora'}
             </Button>
              <Button variant="outline" onClick={() => setScanType(null)}>Annulla Scansione</Button>

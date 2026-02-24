@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -426,7 +427,7 @@ export default function RawMaterialManagementClientPage({
                             <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground" title={m.description}>
                               {m.description}
                             </TableCell>
-                            <TableCell className="font-semibold">
+                            <TableCell className="font-semibold text-nowrap">
                               {formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}
                               <span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span>
                             </TableCell>
