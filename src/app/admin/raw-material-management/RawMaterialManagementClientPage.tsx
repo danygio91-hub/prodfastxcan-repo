@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -580,7 +579,6 @@ export default function RawMaterialManagementClientPage({
       {isBatchDialogOpen && groupedBatchMaterial && (
         <BatchFormDialog 
           isOpen={isBatchDialogOpen} 
-          onOpenChange={setIsBatchDialogOpen}
           material={groupedBatchMaterial} 
           batch={null} 
           onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} 
