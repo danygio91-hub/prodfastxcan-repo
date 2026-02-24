@@ -1,19 +1,18 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 
-import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption } from '@/lib/mock-data';
-import { findLastWeightForLotto, searchRawMaterials, logTubiGuainaWithdrawal, getRawMaterialByCode, startMaterialSessionInJob } from './actions';
+import type { JobOrder, JobPhase, RawMaterial, ActiveMaterialSessionData, RawMaterialType, Packaging, MaterialConsumption } from '@/lib/mock-data';
+import { findLastWeightForLotto, logTubiGuainaWithdrawal, getRawMaterialByCode, startMaterialSessionInJob } from './actions';
 import { getPackagingItems } from '../inventory/actions';
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,8 +20,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '../ui/badge';
-import { QrCode, Loader2, Weight, Archive, Send, Package, Boxes, Check, ChevronsUpDown, Barcode, Play, Minus, Plus, Camera, AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { QrCode, Loader2, Weight, Archive, Send, Camera, AlertTriangle, Barcode, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
@@ -92,7 +91,6 @@ export default function MaterialAssociationDialog({
     }
   }, [selectedMaterial]);
 
-  // Debounced search for lotto weight when typing
   useEffect(() => {
     if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
         const timer = setTimeout(async () => {
@@ -141,7 +139,6 @@ export default function MaterialAssociationDialog({
     }
   };
 
-
   const handleScan = useCallback(async (scannedValue: string) => {
     if (scanType === 'material') {
       const materialResult = await getRawMaterialByCode(scannedValue);
@@ -165,7 +162,6 @@ export default function MaterialAssociationDialog({
     }
     setScanType(null); 
   }, [scanType, form, toast, selectedMaterial]);
-
 
   const onAvviaSessione = async () => {
     const values = form.getValues();

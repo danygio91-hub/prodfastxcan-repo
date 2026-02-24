@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -77,9 +76,7 @@ import {
   Loader2, 
   Truck, 
   Package, 
-  Link as LinkIcon,
   Copy,
-  BarChart3,
   Calendar,
   ClipboardList,
   Edit,
@@ -499,7 +496,6 @@ export default function RawMaterialManagementClientPage({
         </TabsContent>
       </Tabs>
 
-      {/* Dialog Modifica Mat. Prima */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
@@ -580,7 +576,6 @@ export default function RawMaterialManagementClientPage({
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Aggiungi Lotto */}
       {isBatchDialogOpen && groupedBatchMaterial && (
         <BatchFormDialog 
           isOpen={isBatchDialogOpen} 
@@ -590,7 +585,6 @@ export default function RawMaterialManagementClientPage({
         />
       )}
 
-      {/* Dialog Conferma Eliminazione */}
       <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -610,7 +604,6 @@ export default function RawMaterialManagementClientPage({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dialog Storico Movimenti */}
       <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
         <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
@@ -653,7 +646,6 @@ export default function RawMaterialManagementClientPage({
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Dettaglio Impegnato */}
       <Dialog open={isCommitmentDialogOpen} onOpenChange={setIsCommitmentDialogOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>

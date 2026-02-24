@@ -1,4 +1,3 @@
-
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
@@ -25,8 +24,6 @@ const batchFormSchema = z.object({
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
     const col = collection(db, "purchaseOrders");
     
-    // We fetch by material code (which has a standard index)
-    // and handle status filtering and ordering in memory to avoid "Query requires an index" error.
     const q = query(col, 
         where("materialCode", "==", materialCode)
     );
@@ -98,17 +95,14 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
-          // --- Purchase Order Update Logic ---
           if (purchaseOrderId) {
               const poRef = doc(db, "purchaseOrders", purchaseOrderId);
               const poSnap = await transaction.get(poRef);
               if (poSnap.exists()) {
                   const poData = poSnap.data() as PurchaseOrder;
                   const currentReceived = poData.receivedQuantity || 0;
-                  // Quantity added is always in the primary UOM of the material (which should match PO)
                   const newReceivedTotal = currentReceived + unitsToAdd;
-                  
-                  const isFullyReceived = newReceivedTotal >= poData.quantity - 0.001; // Tiny margin for floating point
+                  const isFullyReceived = newReceivedTotal >= poData.quantity - 0.001;
                   
                   transaction.update(poRef, {
                       receivedQuantity: newReceivedTotal,
