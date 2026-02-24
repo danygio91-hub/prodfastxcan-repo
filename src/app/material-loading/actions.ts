@@ -182,7 +182,7 @@ export async function reportNonConformity(data: z.infer<typeof ncReportSchema>):
         const ncCollectionRef = collection(db, "nonConformityReports");
         const reportData: Omit<NonConformityReport, 'id'> = {
             ...validated.data,
-            reportDate: Timestamp.now(),
+            reportDate: new Date(),
             status: 'pending',
         }
         await addDoc(ncCollectionRef, reportData);
