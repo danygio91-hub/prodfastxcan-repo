@@ -34,6 +34,8 @@ import type {
 } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
+export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number };
+
 /**
  * Helper to convert Firestore Timestamps to JS Dates
  */
@@ -477,8 +479,6 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
         return { success: true, message: 'Stornato con successo.' };
     } catch (e) { return { success: false, message: 'Errore durante lo storno.' }; }
 }
-
-export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number };
 
 export async function declareCommitmentFulfillment(
   commitmentId: string,

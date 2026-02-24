@@ -7,7 +7,7 @@ import * as z from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isPast } from 'date-fns';
 import Link from 'next/link';
 
 import { 
@@ -338,7 +338,7 @@ export default function RawMaterialManagementClientPage({
     unitOfMeasure: selectedMaterial.unitOfMeasure,
     currentStockUnits: selectedMaterial.currentStockUnits,
     currentWeightKg: selectedMaterial.currentWeightKg,
-    lots: [], // Not strictly needed for the form
+    lots: [], 
   } : null;
 
   return (
