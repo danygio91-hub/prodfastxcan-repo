@@ -52,20 +52,21 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 /**
- * LOGICA DI CALCOLO IMPEGNATO:
+ * LOGICA DI CALCOLO IMPEGNATO CERTIFICATA:
  * Trasforma il fabbisogno della BOM nell'unità di misura del magazzino (KG, MT o N).
+ * Gestisce correttamente la lunghezza di taglio e il rapporto KG/MT.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
     const qta = Number(jobQta) || 0;
     const bomQty = Number(bomItem.quantity) || 0;
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
     
-    // 1. Calcoliamo il fabbisogno base (Metri o Pezzi)
     let totalInBaseUnit = 0;
     let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
 
+    // 1. Calcolo del fabbisogno in base alla geometria (lunghezza)
     if (length > 0) {
-        totalInBaseUnit = (qta * bomQty * length) / 1000;
+        totalInBaseUnit = (qta * bomQty * length) / 1000; // Trasforma mm in Metri
         baseUnit = 'mt';
     } else {
         totalInBaseUnit = qta * bomQty;
@@ -73,15 +74,15 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
 
     if (!material) return totalInBaseUnit;
 
-    // 2. Se il materiale in magazzino è gestito in KG, convertiamo il fabbisogno base in peso
+    // 2. Trasformazione in KG se il magazzino è a peso
     if (material.unitOfMeasure === 'kg') {
         if (baseUnit === 'kg') return totalInBaseUnit;
 
-        if (baseUnit === 'mt') {
-            // METRI -> KG usando rapportoKgMt
+        if (baseUnit === 'mt' || length > 0) {
+            // Se abbiamo metri, usiamo il rapportoKgMt
             return totalInBaseUnit * (Number(material.rapportoKgMt) || 0);
         } else {
-            // PEZZI -> KG usando conversionFactor
+            // Se abbiamo pezzi, usiamo il conversionFactor
             return totalInBaseUnit * (Number(material.conversionFactor) || 0);
         }
     }
@@ -216,8 +217,10 @@ export type MaterialStatus = { id: string; code: string; description: string; st
 export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialStatus[]> {
     const materialsCol = collection(db, "rawMaterials");
     let mq;
-    if (searchTerm && searchTerm.length >= 2) {
-        mq = firestoreQuery(materialsCol, where("code_normalized", ">=", searchTerm.toLowerCase().trim()), where("code_normalized", "<=", searchTerm.toLowerCase().trim() + '\uf8ff'), limit(100));
+    const lowerSearch = (searchTerm || '').toLowerCase().trim();
+    
+    if (lowerSearch.length >= 2) {
+        mq = firestoreQuery(materialsCol, where("code_normalized", ">=", lowerSearch), where("code_normalized", "<=", lowerSearch + '\uf8ff'), limit(100));
     } else if (searchTerm !== undefined) { return []; }
     else { mq = firestoreQuery(materialsCol, orderBy("code_normalized"), limit(50)); }
 
@@ -256,24 +259,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         codeToMat.set(data.code.toLowerCase().trim(), mat);
     });
 
-    const wds = withdrawalsSnap.docs.map(d => {
-        const data = d.data();
-        return { materialId: data.materialId, units: data.consumedUnits || (data.unitsConsumed || 0), weight: data.consumedWeight || 0 };
-    });
-
-    materialsMap.forEach(m => {
-        const totalU = (m.batches || []).reduce((s, b) => s + (Number(b.netQuantity) || 0), 0);
-        const totalW = (m.batches || []).reduce((s, b) => s + (Number(b.grossWeight - b.tareWeight) || 0), 0);
-        const mwds = wds.filter(w => w.materialId === m.id);
-        const realU = totalU - mwds.reduce((s, w) => s + Number(w.units), 0);
-        const realW = totalW - mwds.reduce((s, w) => s + Number(w.weight), 0);
-        if (Math.abs((m.currentStockUnits || 0) - realU) > 0.001 || syncNeeded) {
-            syncBatch.update(doc(db, 'rawMaterials', m.id), { currentStockUnits: realU, currentWeightKg: realW, batches: m.batches });
-            syncNeeded = true; m.currentStockUnits = realU;
-        }
-    });
-    if (syncNeeded) await syncBatch.commit();
-
     const articlesMap = new Map();
     articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
 
@@ -306,11 +291,8 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
                 }
             });
         } else {
-            const code = artCode;
-            const mat = codeToMat.get(code);
-            if (mat) {
-                impMap.set(code, (impMap.get(code) || 0) + comm.quantity);
-            }
+            const mat = codeToMat.get(artCode);
+            if (mat) { impMap.set(artCode, (impMap.get(artCode) || 0) + comm.quantity); }
         }
     });
 
@@ -368,7 +350,7 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
             details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: comm.quantity, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
         }
     });
-    return details.sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate));
+    return details.sort((a, b) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''));
 }
 
 export async function searchMaterialsAndGetStatus(searchTerm: string) {

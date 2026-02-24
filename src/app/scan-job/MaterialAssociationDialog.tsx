@@ -96,7 +96,7 @@ export default function MaterialAssociationDialog({
     if (lottoValue && lottoValue.length >= 3 && selectedMaterial) {
         const timer = setTimeout(async () => {
             const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
-            if (lottoData) {
+            if (lottoData && lottoData.material) {
                 form.setValue('openingWeightManual', lottoData.netWeight);
                 form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
                 form.setValue('packagingId', lottoData.packagingId || 'none');
