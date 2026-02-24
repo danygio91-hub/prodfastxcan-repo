@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -127,15 +128,15 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const opSnap = await t.get(doc(db, "operators", opId));
         if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
         const mat = mSnap.data() as RawMaterial;
-        const consumedWeight = session.grossOpeningWeight - closing;
+        const consumedWeight = (session.grossOpeningWeight || 0) - closing;
         if (consumedWeight < 0) throw new Error("Peso chiusura errato: minore dell'apertura.");
         
         let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
         
         const wRef = doc(collection(db, "materialWithdrawals"));
-        const jobPFs = session.associatedJobs.map(j => j.jobOrderPF);
+        const jobPFs = (session.associatedJobs || []).map(j => j.jobOrderPF);
         
-        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: jobPFs, materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.set(wRef, { jobIds: (session.associatedJobs || []).map(j => j.jobId), jobOrderPFs: jobPFs, materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
         
         const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto)) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
@@ -144,7 +145,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
             if (gSnap.exists()) t.update(gSnap.ref, { phases: updateC(gSnap.data().phases) });
         }
-        for (const job of session.associatedJobs) {
+        for (const job of (session.associatedJobs || [])) {
             const jSnap = await t.get(doc(db, 'jobOrders', job.jobId));
             if (jSnap.exists()) t.update(jSnap.ref, { phases: updateC(jSnap.data().phases) });
         }
@@ -180,9 +181,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
         
         const wRef = doc(collection(db, "materialWithdrawals"));
-        const jobPFs = isG ? (item as any).jobOrderPFs : [(data.jobOrderPF as string) || item.ordinePF];
+        const jobPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF];
         
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: jobPFs, materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs, materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         
         const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
