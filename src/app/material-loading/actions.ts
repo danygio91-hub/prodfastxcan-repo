@@ -19,15 +19,10 @@ const batchFormSchema = z.object({
 
 /**
  * Fetches open purchase orders for a specific material code.
- * Optimized to avoid composite index requirement by filtering in memory.
  */
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
     const col = collection(db, "purchaseOrders");
-    
-    const q = query(col, 
-        where("materialCode", "==", materialCode)
-    );
-    
+    const q = query(col, where("materialCode", "==", materialCode));
     const snapshot = await getDocs(q);
     const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
     
@@ -41,19 +36,16 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   const validatedFields = batchFormSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
-    return { success: boolean; message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
+    return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
   const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId } = validatedFields.data;
-  
   const materialRef = doc(db, "rawMaterials", materialId);
   
   try {
       const finalMaterialState = await runTransaction(db, async (transaction) => {
           const docSnap = await transaction.get(materialRef);
-          if (!docSnap.exists()) {
-            throw new Error('Materia prima non trovata.');
-          }
+          if (!docSnap.exists()) throw new Error('Materia prima non trovata.');
 
           const material = docSnap.data() as RawMaterial;
           const existingBatches = material.batches || [];
@@ -72,20 +64,19 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           
           let netWeightKg: number;
           let unitsToAdd: number;
-          const netQuantityInput = quantity;
 
           if (unit === 'kg') {
-              netWeightKg = netQuantityInput;
+              netWeightKg = quantity;
               if (material.unitOfMeasure === 'kg') {
                   unitsToAdd = netWeightKg;
               } else {
                   if (!material.conversionFactor || material.conversionFactor <= 0) {
-                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure} senza un fattore di conversione per ${material.code}.`);
+                      throw new Error(`Impossibile convertire KG in ${material.unitOfMeasure} senza un fattore di conversione.`);
                   }
                   unitsToAdd = netWeightKg / material.conversionFactor;
               }
           } else { 
-              unitsToAdd = netQuantityInput;
+              unitsToAdd = quantity;
               if (material.unitOfMeasure === 'kg') {
                   netWeightKg = unitsToAdd;
               } else if (material.conversionFactor && material.conversionFactor > 0) {
@@ -100,10 +91,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               const poSnap = await transaction.get(poRef);
               if (poSnap.exists()) {
                   const poData = poSnap.data() as PurchaseOrder;
-                  const currentReceived = poData.receivedQuantity || 0;
-                  const newReceivedTotal = currentReceived + unitsToAdd;
+                  const newReceivedTotal = (poData.receivedQuantity || 0) + unitsToAdd;
                   const isFullyReceived = newReceivedTotal >= poData.quantity - 0.001;
-                  
                   transaction.update(poRef, {
                       receivedQuantity: newReceivedTotal,
                       status: isFullyReceived ? 'received' : 'partially_received'
@@ -112,7 +101,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
 
           const newBatch: RawMaterialBatch = {
-            id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            id: `batch-load-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
             netQuantity: unitsToAdd, 
@@ -120,12 +109,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             grossWeight: netWeightKg + tareWeight,
             lotto: lotto || null,
             purchaseOrderId: purchaseOrderId || undefined,
+            packagingId: validPackagingId
           };
           
-          if (validPackagingId) {
-            newBatch.packagingId = validPackagingId;
-          }
-
           const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
           const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
           
@@ -135,25 +121,16 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               currentWeightKg: newWeightKg,
           });
 
-          return { 
-              ...material, 
-              batches: [...existingBatches, newBatch], 
-              currentStockUnits: newStockUnits, 
-              currentWeightKg: newWeightKg,
-          };
+          return { ...material, batches: [...existingBatches, newBatch], currentStockUnits: newStockUnits, currentWeightKg: newWeightKg };
       });
       
       revalidatePath('/admin/raw-material-management');
       revalidatePath('/admin/purchase-orders');
-      revalidatePath('/admin/batch-management');
-      
-      return { success: true, message: 'Lotto aggiunto con successo. Stock e Ordine Fornitore aggiornati.', updatedMaterial: finalMaterialState as RawMaterial };
-
+      return { success: true, message: 'Lotto aggiunto con successo.', updatedMaterial: finalMaterialState as RawMaterial };
   } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
 
 const ncReportSchema = z.object({
     materialId: z.string(),
@@ -168,30 +145,24 @@ const ncReportSchema = z.object({
 
 export async function reportNonConformity(data: z.infer<typeof ncReportSchema>): Promise<{ success: boolean; message: string; }> {
     const validated = ncReportSchema.safeParse(data);
-    if (!validated.success) {
-        return { success: false, message: 'Dati per la segnalazione non validi.' };
-    }
+    if (!validated.success) return { success: false, message: 'Dati non validi.' };
     
     try {
         const ncCollectionRef = collection(db, "nonConformityReports");
         const reportData: Omit<NonConformityReport, 'id'> = {
             ...validated.data,
-            reportDate: new Date(),
+            reportDate: new Date().toISOString(),
             status: 'pending',
         }
         await addDoc(ncCollectionRef, reportData);
-        
         revalidatePath('/admin/non-conformity-reports');
-        return { success: true, message: 'Segnalazione inviata con successo.' };
+        return { success: true, message: 'Segnalazione inviata.' };
     } catch (error) {
-        return { success: false, message: "Impossibile salvare la segnalazione di non conformità." };
+        return { success: false, message: "Errore durante il salvataggio." };
     }
 }
 
-
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const packagingCol = collection(db, 'packaging');
-  const q = query(packagingCol, orderBy("name"));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => doc.data() as Packaging);
+  const snap = await getDocs(query(collection(db, 'packaging'), orderBy("name")));
+  return snap.docs.map(doc => doc.data() as Packaging);
 }
