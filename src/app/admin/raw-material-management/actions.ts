@@ -51,40 +51,37 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 /**
- * LOGICA CRITICA: Converte le unità della BOM nell'unità della materia prima (es. KG).
- * Se il materiale è in KG, trasforma i MT o i PEZZI della distinta base in peso reale.
+ * LOGICA DI CALCOLO IMPEGNATO:
+ * Trasforma il fabbisogno della BOM nell'unità di misura del magazzino (KG, MT o N).
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
-    const totalBomUnits = jobQta * (bomItem.quantity || 0);
-    if (!material) return totalBomUnits;
+    // 1. Calcoliamo il fabbisogno base (Metri o Pezzi)
+    let baseQty = 0;
+    const hasCuttingLength = bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0;
+    
+    if (hasCuttingLength) {
+        // Se c'è una lunghezza di taglio, il fabbisogno base è in METRI
+        baseQty = (jobQta * bomItem.quantity * bomItem.lunghezzaTaglioMm) / 1000;
+    } else {
+        // Altrimenti sono PEZZI (N)
+        baseQty = jobQta * bomItem.quantity;
+    }
 
-    // Se il materiale è gestito in KG, trasformiamo tutto in peso
+    if (!material) return baseQty;
+
+    // 2. Se il materiale in magazzino è gestito in KG, convertiamo il fabbisogno base in peso
     if (material.unitOfMeasure === 'kg') {
-        // Se la BOM è in Metri, usiamo il rapporto Kg/mt
-        if (bomItem.unit === 'mt') {
-            const factor = material.rapportoKgMt || 0;
-            return totalBomUnits * factor;
+        if (hasCuttingLength || bomItem.unit === 'mt') {
+            // METRI -> KG usando rapportoKgMt
+            return baseQty * (material.rapportoKgMt || 0);
+        } else {
+            // PEZZI -> KG usando conversionFactor
+            return baseQty * (material.conversionFactor || 0);
         }
-        // Se la BOM è in Pezzi (N), usiamo il fattore di conversione (peso unitario)
-        if (bomItem.unit === 'n') {
-            const factor = material.conversionFactor || 0;
-            return totalBomUnits * factor;
-        }
-        // Se è già in KG, ritorniamo il valore così com'è
-        return totalBomUnits;
     }
     
-    // Se il materiale è gestito in Metri (MT)
-    if (material.unitOfMeasure === 'mt') {
-        // Se la BOM indica pezzi ma ha una lunghezza di taglio, convertiamo in metri
-        if (bomItem.unit === 'n' && bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0) {
-            return (totalBomUnits * bomItem.lunghezzaTaglioMm) / 1000;
-        }
-        return totalBomUnits;
-    }
-    
-    // Default: gestito in Pezzi (N)
-    return totalBomUnits;
+    // Se il materiale è in metri e la BOM specifica pezzi con lunghezza, abbiamo già baseQty in metri
+    return baseQty;
 }
 
 export async function getDepartments(): Promise<Department[]> {

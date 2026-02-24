@@ -68,19 +68,16 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
     const bom = job.billOfMaterials || [];
     const bomMap = new Map<string, JobBillOfMaterialsItem>();
     
-    // Gli item passati nel syntheticJob di un gruppo hanno isFromTemplate: true
-    // e contengono la quantità UNITARIA.
     bom.forEach(item => {
       bomMap.set(item.component, { ...item, isFromTemplate: true });
     });
 
-    // Aggiungiamo eventuali consumi manuali rilevati nelle fasi
     withdrawnByComponent.forEach((data, materialCode) => {
         const material = materialsMap.get(materialCode);
         if (!bomMap.has(materialCode) && (data.units > 0 || data.hasActiveSession)) {
           bomMap.set(materialCode, {
             component: materialCode,
-            quantity: data.units, // Per i manuali, la quantità è il totale prelevato
+            quantity: data.units,
             unit: material?.unitOfMeasure || 'n',
             status: 'withdrawn',
             isFromTemplate: false,
@@ -131,9 +128,8 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   let totalRequirement = 0;
                   let displayUnit = item.unit;
 
-                  // CALCOLO FABBISOGNO REALE
+                  // CALCOLO FABBISOGNO REALE (Inclusa Lunghezza Taglio)
                   if (item.isFromTemplate) {
-                      // Se è da template, moltiplichiamo quantità unitaria per qta totale (job.qta è 640 nel gruppo)
                       if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
                           totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
                           displayUnit = 'mt';
@@ -142,15 +138,15 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                           displayUnit = item.unit;
                       }
                   } else {
-                      // Per aggiunte manuali, il fabbisogno è quanto è stato prelevato
                       totalRequirement = withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0);
                       displayUnit = material?.unitOfMeasure || 'n';
                   }
 
+                  // CALCOLO PESO STIMATO CORRETTO (Basato su rapportoKgMt o conversionFactor)
                   let estimatedWeight = 0;
                    if (material) {
-                      if (displayUnit === 'mt' && material.rapportoKgMt && material.rapportoKgMt > 0) {
-                          estimatedWeight = totalRequirement * material.rapportoKgMt;
+                      if (displayUnit === 'mt' || (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0)) {
+                          estimatedWeight = totalRequirement * (material.rapportoKgMt || 0);
                       } else if (material.unitOfMeasure === 'kg') {
                           estimatedWeight = totalRequirement;
                       } else if (material.conversionFactor && material.conversionFactor > 0) {
@@ -173,7 +169,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                         {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
                         <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
                         <TableCell>{displayUnit}</TableCell>
-                        <TableCell>{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
+                        <TableCell className="font-bold text-primary">{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
                         <TableCell className="text-center">
                             <TooltipProvider>
                                 <Tooltip>
