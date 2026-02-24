@@ -47,6 +47,39 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
+/**
+ * Core calculation logic for committed quantities based on material and BOM units.
+ */
+function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
+    const totalBomUnits = jobQta * bomItem.quantity;
+    
+    if (!material) return totalBomUnits;
+
+    // Case 1: Raw Material is managed in KG
+    if (material.unitOfMeasure === 'kg') {
+        // If BOM unit is Meters, use rapportoKgMt
+        if (bomItem.unit === 'mt' && material.rapportoKgMt) {
+            return totalBomUnits * material.rapportoKgMt;
+        }
+        // If BOM unit is Pieces (n), use conversionFactor (Kg/Piece)
+        if (bomItem.unit === 'n' && material.conversionFactor) {
+            return totalBomUnits * material.conversionFactor;
+        }
+        return totalBomUnits;
+    }
+    
+    // Case 2: Raw Material is managed in MT
+    if (material.unitOfMeasure === 'mt') {
+        if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0) {
+            return totalBomUnits * (bomItem.lunghezzaTaglioMm / 1000);
+        }
+        return totalBomUnits;
+    }
+    
+    // Case 3: Standard pieces or units match
+    return totalBomUnits;
+}
+
 export async function getDepartments(): Promise<Department[]> {
   const col = collection(db, "departments");
   const snapshot = await getDocs(col);
@@ -333,9 +366,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
             if (item.status !== 'withdrawn') {
                 const code = item.component.toLowerCase().trim();
                 const material = codeToMaterial.get(code);
-                let qty = (item.lunghezzaTaglioMm && material?.unitOfMeasure === 'mt') 
-                  ? (job.qta * item.quantity * item.lunghezzaTaglioMm / 1000) 
-                  : job.qta * item.quantity;
+                const qty = calculateCommitmentQty(job.qta, item, material);
                 impegniMap.set(code, (impegniMap.get(code) || 0) + qty);
             }
         });
@@ -349,9 +380,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
             art.billOfMaterials.forEach((bomItem: any) => {
                 const matCode = bomItem.component.toLowerCase().trim();
                 const material = codeToMaterial.get(matCode);
-                let qty = (bomItem.lunghezzaTaglioMm && material?.unitOfMeasure === 'mt') 
-                  ? (comm.quantity * bomItem.quantity * bomItem.lunghezzaTaglioMm / 1000) 
-                  : comm.quantity * bomItem.quantity;
+                const qty = calculateCommitmentQty(comm.quantity, bomItem, material);
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
@@ -412,7 +441,7 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         const job = docSnap.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === normCode && item.status !== 'withdrawn') {
-                let qty = (item.lunghezzaTaglioMm && material.unitOfMeasure === 'mt') ? (job.qta * item.quantity * item.lunghezzaTaglioMm / 1000) : job.qta * item.quantity;
+                const qty = calculateCommitmentQty(job.qta, item, material);
                 details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: qty, deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
             }
         });
@@ -424,7 +453,7 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         if (art && art.billOfMaterials) {
             art.billOfMaterials.forEach((bomItem: any) => {
                 if (bomItem.component.toLowerCase().trim() === normCode) {
-                    let qty = (bomItem.lunghezzaTaglioMm && material.unitOfMeasure === 'mt') ? (comm.quantity * bomItem.quantity * bomItem.lunghezzaTaglioMm / 1000) : comm.quantity * bomItem.quantity;
+                    const qty = calculateCommitmentQty(comm.quantity, bomItem, material);
                     details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: qty, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D (Impegno Manuale)', articleCode: comm.articleCode });
                 }
             });
