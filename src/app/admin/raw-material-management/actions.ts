@@ -478,11 +478,13 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
     } catch (e) { return { success: false, message: 'Errore durante lo storno.' }; }
 }
 
+export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number };
+
 export async function declareCommitmentFulfillment(
   commitmentId: string,
   goodPieces: number,
   scrapPieces: number,
-  lotSelections: { materialId: string; componentCode: string; lotto: string; consumed: number }[],
+  lotSelections: LotSelectionPayload[],
   uid: string
 ): Promise<{ success: boolean; message: string }> {
   try {
