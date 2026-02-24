@@ -33,7 +33,15 @@ import type {
 } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
-export type LotSelectionPayload = { materialId: string; componentCode: string; lotto: string; consumed: number };
+/**
+ * Payload per la selezione dei lotti durante l'evasione impegni.
+ */
+export type LotSelectionPayload = { 
+    materialId: string; 
+    componentCode: string; 
+    lotto: string; 
+    consumed: number 
+};
 
 /**
  * Helper to convert Firestore Timestamps to JS Dates
@@ -48,35 +56,38 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 /**
- * Core calculation logic for committed quantities based on material and BOM units.
+ * LOGICA CRITICA: Calcola la quantità impegnata convertendo sempre nell'unità di misura della materia prima.
+ * Se la materia prima è in KG, trasforma metri o pezzi in KG.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
-    const totalBomUnits = jobQta * bomItem.quantity;
+    const totalBomUnits = jobQta * bomItem.quantity; // Quantità richiesta in BOM (MT o Pezzi)
     
     if (!material) return totalBomUnits;
 
-    // Case 1: Raw Material is managed in KG
+    // Caso 1: Materia Prima gestita in KG
     if (material.unitOfMeasure === 'kg') {
-        // If BOM unit is Meters, use rapportoKgMt
-        if (bomItem.unit === 'mt' && material.rapportoKgMt) {
+        // Se la BOM chiede METRI, usiamo il rapportoKgMt (Kg al metro)
+        if (bomItem.unit === 'mt' && material.rapportoKgMt && material.rapportoKgMt > 0) {
             return totalBomUnits * material.rapportoKgMt;
         }
-        // If BOM unit is Pieces (n), use conversionFactor (Kg/Piece)
-        if (bomItem.unit === 'n' && material.conversionFactor) {
+        // Se la BOM chiede PEZZI (n), usiamo il conversionFactor (Kg al pezzo)
+        if (bomItem.unit === 'n' && material.conversionFactor && material.conversionFactor > 0) {
             return totalBomUnits * material.conversionFactor;
         }
+        // Già in KG o nessuna conversione disponibile
         return totalBomUnits;
     }
     
-    // Case 2: Raw Material is managed in MT
+    // Caso 2: Materia Prima gestita in MT
     if (material.unitOfMeasure === 'mt') {
+        // Se la BOM specifica una lunghezza di taglio, convertiamo i pezzi in metri
         if (bomItem.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0) {
-            return totalBomUnits * (bomItem.lunghezzaTaglioMm / 1000);
+            return (totalBomUnits * bomItem.lunghezzaTaglioMm) / 1000;
         }
         return totalBomUnits;
     }
     
-    // Case 3: Standard pieces or units match
+    // Altrimenti (es. pezzi vs pezzi) restituiamo il valore diretto
     return totalBomUnits;
 }
 
@@ -251,10 +262,20 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
   return snap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
 }
 
-export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
+export type MaterialStatus = { 
+    id: string; 
+    code: string; 
+    description: string; 
+    stock: number; 
+    impegnato: number; 
+    disponibile: number; 
+    ordinato: number; 
+    unitOfMeasure: 'n' | 'mt' | 'kg'; 
+};
 
 /**
  * Calculates stock status and performs auto-healing if discrepancies are found.
+ * Utilizza la logica di conversione corretta per l'impegnato.
  */
 export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialStatus[]> {
     const materialsCol = collection(db, "rawMaterials");
@@ -384,6 +405,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
                 impegniMap.set(matCode, (impegniMap.get(matCode) || 0) + qty);
             });
         } else {
+            const material = codeToMaterial.get(artCode);
             impegniMap.set(artCode, (impegniMap.get(artCode) || 0) + comm.quantity);
         }
     });

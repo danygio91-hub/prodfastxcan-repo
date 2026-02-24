@@ -41,7 +41,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   const validatedFields = batchFormSchema.safeParse(rawData);
 
   if (!validatedFields.success) {
-    return { success: false, message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
+    return { success: boolean; message: 'Dati del lotto non validi.', errors: validatedFields.error.flatten().fieldErrors };
   }
   
   const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId } = validatedFields.data;
