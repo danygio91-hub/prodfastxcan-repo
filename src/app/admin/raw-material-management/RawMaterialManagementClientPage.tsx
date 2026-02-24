@@ -21,6 +21,7 @@ import {
 
 import { 
   saveRawMaterial, 
+  deleteRawMaterial,
   getMaterialWithdrawalsForMaterial, 
   getScrapsForMaterial, 
   searchMaterialsAndGetStatus, 
@@ -42,10 +43,21 @@ import {
   DialogClose 
 } from '@/components/ui/dialog';
 import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { 
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
-  DropdownMenuTrigger 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
@@ -71,6 +83,8 @@ import {
   Calendar,
   ClipboardList,
   Edit,
+  Trash2,
+  PackagePlus,
   TestTube
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +97,8 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
 import CommitmentManagementClientPage from './CommitmentManagementClientPage';
+import BatchFormDialog from '../batch-management/BatchFormDialog';
+import { type GroupedBatches } from '../batch-management/actions';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
@@ -182,6 +198,8 @@ export default function RawMaterialManagementClientPage({
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
@@ -294,10 +312,34 @@ export default function RawMaterialManagementClientPage({
     }
   };
 
+  const handleDeleteMaterial = async () => {
+    if (!materialToDelete) return;
+    setIsPending(true);
+    const result = await deleteRawMaterial(materialToDelete.id);
+    toast({
+        title: result.success ? "Eliminato" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+    if (result.success) refreshData();
+    setMaterialToDelete(null);
+    setIsPending(false);
+  };
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: "Copiato!", description: `"${text}" negli appunti.` });
   };
+
+  const groupedBatchMaterial: GroupedBatches | null = selectedMaterial ? {
+    materialId: selectedMaterial.id,
+    materialCode: selectedMaterial.code,
+    materialDescription: selectedMaterial.description,
+    unitOfMeasure: selectedMaterial.unitOfMeasure,
+    currentStockUnits: selectedMaterial.currentStockUnits,
+    currentWeightKg: selectedMaterial.currentWeightKg,
+    lots: [], // Not strictly needed for the form
+  } : null;
 
   return (
     <div className="space-y-6">
@@ -419,11 +461,18 @@ export default function RawMaterialManagementClientPage({
                                   <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}>
                                     <Edit className="mr-2 h-4 w-4" /> Modifica
                                   </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}>
+                                    <PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto
+                                  </DropdownMenuItem>
                                   <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}>
                                     <History className="mr-2 h-4 w-4" /> Storico Movimenti
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}>
                                     <TestTube className="mr-2 h-4 w-4" /> Vedi Scarti
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive">
+                                    <Trash2 className="mr-2 h-4 w-4" /> Elimina
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -530,6 +579,36 @@ export default function RawMaterialManagementClientPage({
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog Aggiungi Lotto */}
+      {isBatchDialogOpen && groupedBatchMaterial && (
+        <BatchFormDialog 
+          isOpen={isBatchDialogOpen} 
+          onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} 
+          material={groupedBatchMaterial} 
+          batch={null} 
+        />
+      )}
+
+      {/* Dialog Conferma Eliminazione */}
+      <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Questa azione eliminerà permanentemente l'anagrafica di <strong>{materialToDelete?.code}</strong>. 
+              Tutti i lotti e i movimenti associati andranno persi.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Annulla</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteMaterial} className="bg-destructive hover:bg-destructive/90" disabled={isPending}>
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Sì, elimina tutto
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Dialog Storico Movimenti */}
       <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
