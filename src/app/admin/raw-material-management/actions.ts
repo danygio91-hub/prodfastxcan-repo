@@ -35,7 +35,6 @@ import type {
 } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
-// Exporting types needed by other components
 export type LotSelectionPayload = { 
     materialId: string; 
     componentCode: string; 
@@ -62,33 +61,32 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
     
     // 1. Calcoliamo il fabbisogno base (Metri o Pezzi)
-    let baseQty = 0;
+    let totalInBaseUnit = 0;
     let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
 
     if (length > 0) {
-        // Se c'è una lunghezza di taglio, il fabbisogno base è in METRI
-        baseQty = (qta * bomQty * length) / 1000;
+        totalInBaseUnit = (qta * bomQty * length) / 1000;
         baseUnit = 'mt';
     } else {
-        baseQty = qta * bomQty;
+        totalInBaseUnit = qta * bomQty;
     }
 
-    if (!material) return baseQty;
+    if (!material) return totalInBaseUnit;
 
     // 2. Se il materiale in magazzino è gestito in KG, convertiamo il fabbisogno base in peso
     if (material.unitOfMeasure === 'kg') {
-        if (baseUnit === 'kg') return baseQty;
+        if (baseUnit === 'kg') return totalInBaseUnit;
 
         if (baseUnit === 'mt') {
             // METRI -> KG usando rapportoKgMt
-            return baseQty * (Number(material.rapportoKgMt) || 0);
+            return totalInBaseUnit * (Number(material.rapportoKgMt) || 0);
         } else {
             // PEZZI -> KG usando conversionFactor
-            return baseQty * (Number(material.conversionFactor) || 0);
+            return totalInBaseUnit * (Number(material.conversionFactor) || 0);
         }
     }
     
-    return baseQty;
+    return totalInBaseUnit;
 }
 
 export async function getDepartments(): Promise<Department[]> {

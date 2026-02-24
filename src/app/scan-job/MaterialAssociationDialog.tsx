@@ -193,8 +193,8 @@ export default function MaterialAssociationDialog({
         materialCode: selectedMaterial.code,
         grossOpeningWeight: openingWeight + (selectedPackaging?.weightKg || 0),
         netOpeningWeight: openingWeight,
-        lottoBobina: values.lotto,
-        packagingId: values.packagingId,
+        lottoBobina: values.lotto || '',
+        packagingId: values.packagingId || 'none',
         tareWeight: selectedPackaging?.weightKg || 0,
     };
 
@@ -366,11 +366,11 @@ export default function MaterialAssociationDialog({
                     <FormField control={form.control} name="packagingId" render={({field}) => (
                         <FormItem>
                             <FormLabel className="flex items-center"><Archive className="mr-2 h-4 w-4" />Tara (Imballo)</FormLabel>
-                            <Select onValueChange={field.onChange} value={field.value}>
+                            <Select onValueChange={(val) => field.onChange(val || 'none')} value={field.value || 'none'}>
                                 <FormControl><SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
                                 <SelectContent>
                                     <SelectItem value="none">Nessuna Tara (0.00 kg)</SelectItem>
-                                    {packagingItems.filter(p => !selectedMaterial || p.associatedTypes?.includes(selectedMaterial.type)).map(item => (
+                                    {packagingItems.filter(p => !selectedMaterial || (p.associatedTypes && p.associatedTypes.includes(selectedMaterial.type))).map(item => (
                                         <SelectItem key={item.id} value={item.id}>{item.name} ({item.weightKg.toFixed(3)} kg)</SelectItem>
                                     ))}
                                 </SelectContent>

@@ -5,7 +5,6 @@ import { revalidatePath } from 'next/cache';
 import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction, getDocs, query as firestoreQuery, where, orderBy, limit, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
-import * as z from 'zod';
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
@@ -18,8 +17,8 @@ function convertTimestampsToDates(obj: any): any {
     return newObj;
 }
 
-export async function getRawMaterialByCode(code: string): Promise<RawMaterial | { error: string; title?: string }> {
-  const trimmed = code.trim();
+export async function getRawMaterialByCode(code: string | undefined): Promise<RawMaterial | { error: string; title?: string }> {
+  const trimmed = (code || '').trim();
   if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
   const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", trimmed.toLowerCase()));
   const snap = await getDocs(q);
@@ -47,7 +46,8 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 }
 
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
-  const sanitizedId = scannedData.ordinePF.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
+  if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
   const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
   if (!snap.exists()) return { error: `Commessa non trovata.`, title: 'Errore' };
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
@@ -75,7 +75,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 }
 
 export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
-  await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId, activePhaseName: phaseName, stato: jobId ? 'attivo' : 'inattivo' });
+  await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId || null, activePhaseName: phaseName || null, stato: jobId ? 'attivo' : 'inattivo' });
   return { success: true };
 }
 
@@ -128,18 +128,18 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const opSnap = await t.get(doc(db, "operators", opId));
         if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
         const mat = mSnap.data() as RawMaterial;
-        const consumedWeight = (session.grossOpeningWeight || 0) - closing;
-        if (consumedWeight < 0) throw new Error("Peso chiusura errato: minore dell'apertura.");
+        const consumedWeight = (session.grossOpeningWeight || 0) - (closing || 0);
+        if (consumedWeight < -0.001) throw new Error("Il peso finale è superiore all'apertura.");
         
-        let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
+        let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
         const wRef = doc(collection(db, "materialWithdrawals"));
-        const jobPFs = (session.associatedJobs || []).map(j => j.jobOrderPF);
+        const jobPFs = (session.associatedJobs || []).map(j => j.jobOrderPF).filter(Boolean);
         
-        t.set(wRef, { jobIds: (session.associatedJobs || []).map(j => j.jobId), jobOrderPFs: jobPFs, materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.set(wRef, { jobIds: (session.associatedJobs || []).map(j => j.jobId).filter(Boolean), jobOrderPFs: jobPFs, materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
         
-        const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto)) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
+        const updateC = (phases: JobPhase[]) => (phases || []).map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto)) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
         
         if (session.originatorJobId.startsWith('group-')) {
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
@@ -153,13 +153,14 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     revalidatePath('/scan-job');
     return { success: true, message: 'Sessione chiusa.' };
   } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore chiusura sessione.' }; 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore durante la chiusura.' }; 
   }
 }
 
 export async function logTubiGuainaWithdrawal(formData: FormData) {
   const data = Object.fromEntries(formData.entries());
   const jobId = data.jobId as string;
+  if (!jobId) return { success: false, message: 'ID Commessa mancante.' };
   const isG = jobId.startsWith('group-');
   try {
     await runTransaction(db, async (t) => {
@@ -176,16 +177,16 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         if (isNaN(qty) || qty <= 0) throw new Error("Quantità non valida.");
 
         let consumedWeight = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
-        let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor && mat.conversionFactor > 0 ? qty / mat.conversionFactor : qty) : qty;
         
         t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
         
         const wRef = doc(collection(db, "materialWithdrawals"));
-        const jobPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF];
+        const jobPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'];
         
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs, materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs.filter(Boolean), materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         
-        const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
+        const pIdx = (item.phases || []).findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
             const phases = [...item.phases];
             const mc = phases[pIdx].materialConsumptions || [];
@@ -196,7 +197,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         }
     });
     revalidatePath('/scan-job');
-    return { success: true, message: 'Registrato.' };
+    return { success: true, message: 'Scarico registrato.' };
   } catch (e) { 
       return { success: false, message: e instanceof Error ? e.message : 'Errore registrazione prelievo.' }; 
   }
@@ -211,7 +212,7 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
     const consumptions: any[] = [];
     jSnap.forEach(d => {
         const job = convertTimestampsToDates(d.data()) as JobOrder;
-        job.phases?.forEach(p => p.materialConsumptions?.forEach(c => {
+        (job.phases || []).forEach(p => (p.materialConsumptions || []).forEach(c => {
             if (c.materialId === mat!.id && c.lottoBobina === lotto && c.closingWeight !== undefined) {
                 const last = (p.workPeriods || []).reduce((lat, wp) => wp.end && (!lat || new Date(wp.end) > lat) ? new Date(wp.end) : lat, null as Date | null);
                 if (last) consumptions.push({ closingWeight: c.closingWeight, tareWeight: c.tareWeight || 0, packagingId: c.packagingId || 'none', completedAt: last });
@@ -234,10 +235,12 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
     await runTransaction(db, async (t) => {
         const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
         const data = convertTimestampsToDates(snap.data()) as JobOrder;
-        const phases = [...data.phases].sort((a, b) => a.sequence - b.sequence);
+        const phases = [...(data.phases || [])].sort((a, b) => a.sequence - b.sequence);
         const pIdx = phases.findIndex(p => p.id === phaseId);
+        if (pIdx === -1) throw new Error("Fase non trovata.");
         const phase = phases[pIdx];
         phase.status = 'in-progress';
+        if (!phase.workPeriods) phase.workPeriods = [];
         phase.workPeriods.push({ start: new Date(), end: null, operatorId: opId });
         const upData = { ...data, phases: updatePhasesMaterialReadiness(phases), status: 'production', overallStartTime: data.overallStartTime || new Date() };
         t.update(snap.ref, upData);
@@ -257,7 +260,7 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentGroupId?: st
     const jSnap = await getDoc(doc(db, isG ? 'workGroups' : 'jobOrders', op.activeJobId));
     let stillAct = false;
     if (jSnap.exists()) {
-        stillAct = (jSnap.data().phases || []).some((p: any) => p.status === 'in-progress' && p.workPeriods?.some((wp: any) => wp.operatorId === opId && wp.end === null));
+        stillAct = (jSnap.data().phases || []).some((p: any) => p.status === 'in-progress' && (p.workPeriods || []).some((wp: any) => wp.operatorId === opId && wp.end === null));
     }
     if (stillAct) return { available: false, activeJobId: op.activeJobId, activePhaseName: op.activePhaseName };
     await updateOperatorStatus(opId, null, null);
@@ -271,7 +274,7 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
             const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
             if (!snap.exists()) throw new Error("Commessa o Gruppo non trovato.");
             const item = snap.data() as JobOrder;
-            const phases = item.phases.map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
+            const phases = (item.phases || []).map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
             t.update(snap.ref, { phases });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
         });
@@ -283,7 +286,7 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
 }
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
-  await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions });
+  await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions || [] });
   return { success: true, message: 'OK' };
 }
 
@@ -292,16 +295,17 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
   await runTransaction(db, async (t) => {
     const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
     const item = snap.data() as JobOrder;
-    const phases = [...item.phases];
+    const phases = [...(item.phases || [])];
     const pIdx = phases.findIndex(p => p.id === phaseId);
+    if (pIdx === -1) throw new Error("Fase non trovata.");
     phases[pIdx].materialStatus = 'missing';
     phases[pIdx].materialReady = false;
     const opSnap = await getDoc(doc(db, "operators", uid));
     const up: any = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE', problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
     if (phases[pIdx].status === 'in-progress') {
-        const wpIdx = phases[pIdx].workPeriods.findIndex(wp => wp.operatorId === uid && wp.end === null);
+        const wpIdx = (phases[pIdx].workPeriods || []).findIndex(wp => wp.operatorId === uid && wp.end === null);
         if (wpIdx !== -1) phases[pIdx].workPeriods[wpIdx].end = new Date();
-        if (!phases[pIdx].workPeriods.some(wp => wp.end === null)) phases[pIdx].status = 'paused';
+        if (!(phases[pIdx].workPeriods || []).some(wp => wp.end === null)) phases[pIdx].status = 'paused';
         up.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
         await updateOperatorStatus(uid, null, null);
     }
@@ -314,7 +318,7 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
 
 export async function searchRawMaterials(term: string, types?: RawMaterialType[]) {
   const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("type", "in", types || ["BOB", "TUBI", "PF3V0", "GUAINA", "BARRA"])));
-  const termL = term.toLowerCase();
+  const termL = (term || '').toLowerCase();
   return snap.docs.map(d => ({ id: d.id, ...d.data() } as RawMaterial)).filter(m => m.code.toLowerCase().includes(termL) || m.description.toLowerCase().includes(termL)).slice(0, 10);
 }
 
@@ -335,8 +339,9 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
     return await runTransaction(db, async (t) => {
         const snap = await t.get(doc(db, jobId.startsWith('group-') ? 'workGroups' : 'jobOrders', jobId));
         const data = snap.data() as JobOrder;
-        const phases = [...data.phases];
+        const phases = [...(data.phases || [])];
         const pIdx = phases.findIndex(p => p.id === phaseId);
+        if (pIdx === -1) throw new Error("Fase non trovata.");
         const isPostponed = currentState === 'postponed';
         if (!isPostponed) {
             const lastProd = phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence).pop();
