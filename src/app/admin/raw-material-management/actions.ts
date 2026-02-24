@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -162,7 +163,6 @@ export type MaterialStatus = { id: string; code: string; description: string; st
 
 /**
  * Calculates stock status and performs auto-healing if discrepancies are found.
- * 132 MT vs 184 MT issue fix is handled here.
  */
 export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialStatus[]> {
     const materialsCol = collection(db, "rawMaterials");
@@ -207,7 +207,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         const mat = { ...data, id: docSnap.id };
         let matBatchesChanged = false;
         
-        // AUTO-HEALING: Restore original load values from Inventory Records if they were reduced
         const restoredBatches = (mat.batches || []).map(batch => {
             if (batch.inventoryRecordId && inventoryMap.has(batch.inventoryRecordId)) {
                 const originalInv = inventoryMap.get(batch.inventoryRecordId) as InventoryRecord;
@@ -219,7 +218,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
                     originalUnits = originalInv.inputQuantity;
                 }
 
-                // If saved batch netQuantity is lower than original load, restore it
                 if (Math.abs(batch.netQuantity - originalUnits) > 0.001) {
                     matBatchesChanged = true;
                     return { ...batch, netQuantity: originalUnits, grossWeight: originalInv.grossWeight, tareWeight: originalInv.tareWeight };
@@ -253,7 +251,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         const realStockUnits = totalLoadedUnits - totalWithdrawnUnits;
         const realWeightKg = totalLoadedWeight - totalWithdrawnWeight;
 
-        // Force database update if discrepancy is found (e.g. 184 vs 132)
         if (Math.abs((material.currentStockUnits || 0) - realStockUnits) > 0.001 || Math.abs((material.currentWeightKg || 0) - realWeightKg) > 0.001 || syncNeeded) {
             syncBatch.update(doc(db, 'rawMaterials', material.id), { 
               currentStockUnits: realStockUnits, 

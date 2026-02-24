@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -68,7 +69,9 @@ import {
   Copy,
   BarChart3,
   Calendar,
-  ClipboardList
+  ClipboardList,
+  Edit,
+  TestTube
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { 
