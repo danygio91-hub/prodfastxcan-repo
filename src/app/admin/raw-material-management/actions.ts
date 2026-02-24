@@ -123,8 +123,65 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           });
       });
       revalidatePath('/admin/raw-material-management');
+      revalidatePath('/admin/batch-management');
       return { success: true, message: 'Lotto aggiunto.' };
   } catch (error) { return { success: false, message: 'Errore durante il salvataggio.' }; }
+}
+
+export async function updateBatchInRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
+  const rawData = Object.fromEntries(formData.entries());
+  const materialId = rawData.materialId as string;
+  const batchId = rawData.batchId as string;
+  const materialRef = doc(db, "rawMaterials", materialId);
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const docSnap = await transaction.get(materialRef);
+      if (!docSnap.exists()) throw new Error('Materiale non trovato.');
+      const material = docSnap.data() as RawMaterial;
+      const batches = [...(material.batches || [])];
+      const batchIndex = batches.findIndex(b => b.id === batchId);
+      if (batchIndex === -1) throw new Error('Lotto non trovato.');
+
+      const oldBatch = batches[batchIndex];
+      const newNetQty = Number(rawData.netQuantity);
+      
+      let newNetWeight: number;
+      if (material.unitOfMeasure === 'kg') {
+        newNetWeight = newNetQty;
+      } else if (material.conversionFactor && material.conversionFactor > 0) {
+        newNetWeight = newNetQty * material.conversionFactor;
+      } else {
+        newNetWeight = 0;
+      }
+
+      const updatedBatch: RawMaterialBatch = {
+        ...oldBatch,
+        date: new Date(rawData.date as string).toISOString(),
+        ddt: (rawData.ddt as string) || oldBatch.ddt,
+        lotto: (rawData.lotto as string) || oldBatch.lotto,
+        netQuantity: newNetQty,
+        grossWeight: newNetWeight + (oldBatch.tareWeight || 0),
+      };
+
+      batches[batchIndex] = updatedBatch;
+
+      const diffUnits = newNetQty - oldBatch.netQuantity;
+      const diffWeight = newNetWeight - (oldBatch.grossWeight - (oldBatch.tareWeight || 0));
+
+      transaction.update(materialRef, {
+        batches: batches,
+        currentStockUnits: (material.currentStockUnits || 0) + diffUnits,
+        currentWeightKg: (material.currentWeightKg || 0) + diffWeight,
+      });
+    });
+    revalidatePath('/admin/raw-material-management');
+    revalidatePath('/admin/batch-management');
+    return { success: true, message: 'Lotto aggiornato con successo.' };
+  } catch (error) {
+    console.error("Error updating batch:", error);
+    return { success: false, message: 'Errore durante l\'aggiornamento del lotto.' };
+  }
 }
 
 export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; }> {
@@ -143,6 +200,7 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             });
         });
         revalidatePath('/admin/raw-material-management');
+        revalidatePath('/admin/batch-management');
         return { success: true, message: 'Lotto eliminato.' };
     } catch (e) { return { success: false, message: 'Errore.' }; }
 }
