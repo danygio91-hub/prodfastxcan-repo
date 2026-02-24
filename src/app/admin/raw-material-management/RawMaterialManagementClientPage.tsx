@@ -522,7 +522,7 @@ export default function RawMaterialManagementClientPage({
                   <FormItem>
                     <FormLabel>Tipo</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un ruolo" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="BOB">BOB (Bobina)</SelectItem>
                         <SelectItem value="TUBI">TUBI</SelectItem>

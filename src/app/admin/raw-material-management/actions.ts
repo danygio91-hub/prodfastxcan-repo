@@ -62,11 +62,13 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     
     // 1. Calcoliamo il fabbisogno base (Metri o Pezzi)
     let baseQty = 0;
+    let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
+
     if (length > 0) {
         // Se c'è una lunghezza di taglio, il fabbisogno base è in METRI
         baseQty = (qta * bomQty * length) / 1000;
+        baseUnit = 'mt';
     } else {
-        // Altrimenti usiamo la quantità definita (che può essere n o mt)
         baseQty = qta * bomQty;
     }
 
@@ -74,9 +76,9 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
 
     // 2. Se il materiale in magazzino è gestito in KG, convertiamo il fabbisogno base in peso
     if (material.unitOfMeasure === 'kg') {
-        if (bomItem.unit === 'kg') return baseQty;
+        if (baseUnit === 'kg') return baseQty;
 
-        if (length > 0 || bomItem.unit === 'mt') {
+        if (baseUnit === 'mt') {
             // METRI -> KG usando rapportoKgMt
             return baseQty * (Number(material.rapportoKgMt) || 0);
         } else {

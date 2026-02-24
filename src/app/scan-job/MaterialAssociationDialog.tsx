@@ -228,6 +228,7 @@ export default function MaterialAssociationDialog({
       formData.append('phaseId', phase.id);
       formData.append('quantity', String(values.quantityToWithdraw));
       formData.append('unit', inputUnit === 'kg' ? 'kg' : selectedMaterial.unitOfMeasure);
+      formData.append('lotto', values.lotto || '');
       
       const result = await logTubiGuainaWithdrawal(formData);
       toast({

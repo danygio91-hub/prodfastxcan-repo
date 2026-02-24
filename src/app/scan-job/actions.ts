@@ -128,14 +128,18 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
         const mat = mSnap.data() as RawMaterial;
         const consumedWeight = session.grossOpeningWeight - closing;
-        if (consumedWeight < 0) throw new Error("Peso chiusura errato.");
+        if (consumedWeight < 0) throw new Error("Peso chiusura errato: minore dell'apertura.");
+        
         let consumedUnits = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor ? consumedWeight / mat.conversionFactor : 0);
         
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        const jobPFs = session.associatedJobs.map(j => j.jobOrderPF);
+        
+        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: jobPFs, materialId: session.materialId, materialCode: session.materialCode, consumedWeight, consumedUnits, operatorId: opId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits });
         
-        const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && mc.lottoBobina === session.lotto && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
+        const updateC = (phases: JobPhase[]) => phases.map(p => ({ ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => mc.materialId === session.materialId && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto)) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc) }));
+        
         if (session.originatorJobId.startsWith('group-')) {
             const gSnap = await t.get(doc(db, 'workGroups', session.originatorJobId));
             if (gSnap.exists()) t.update(gSnap.ref, { phases: updateC(gSnap.data().phases) });
@@ -147,7 +151,9 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     });
     revalidatePath('/scan-job');
     return { success: true, message: 'Sessione chiusa.' };
-  } catch (e) { return { success: false, message: 'Errore.' }; }
+  } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore chiusura sessione.' }; 
+  }
 }
 
 export async function logTubiGuainaWithdrawal(formData: FormData) {
@@ -159,16 +165,24 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const mSnap = await t.get(doc(db, "rawMaterials", data.materialId as string));
         const itemSnap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
         const opSnap = await t.get(doc(db, "operators", data.operatorId as string));
-        if (!mSnap.exists() || !itemSnap.exists()) throw new Error("Dati non trovati.");
+        
+        if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
+        if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+        
         const mat = mSnap.data() as RawMaterial;
         const item = itemSnap.data() as JobOrder;
         const qty = Number(data.quantity);
+        if (isNaN(qty) || qty <= 0) throw new Error("Quantità non valida.");
+
         let consumedWeight = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
         let consumedUnits = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
         
         t.update(doc(db, "rawMaterials", mat.id), { currentStockUnits: (mat.currentStockUnits || 0) - consumedUnits, currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight });
+        
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: isG ? (item as any).jobOrderPFs : [data.jobOrderPF], materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now() });
+        const jobPFs = isG ? (item as any).jobOrderPFs : [(data.jobOrderPF as string) || item.ordinePF];
+        
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds : [jobId], jobOrderPFs: jobPFs, materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         
         const pIdx = item.phases.findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
@@ -182,7 +196,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
     });
     revalidatePath('/scan-job');
     return { success: true, message: 'Registrato.' };
-  } catch (e) { return { success: false, message: 'Errore.' }; }
+  } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore registrazione prelievo.' }; 
+  }
 }
 
 export async function findLastWeightForLotto(matId: string | undefined, lotto: string) {
@@ -249,15 +265,20 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentGroupId?: st
 
 export async function startMaterialSessionInJob(itemId: string, phaseId: string, consumption: MaterialConsumption) {
     const isG = itemId.startsWith('group-');
-    await runTransaction(db, async (t) => {
-        const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
-        const item = snap.data() as JobOrder;
-        const phases = item.phases.map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
-        t.update(snap.ref, { phases });
-        if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
-    });
-    revalidatePath('/scan-job');
-    return { success: true, message: 'Sessione avviata.' };
+    try {
+        await runTransaction(db, async (t) => {
+            const snap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', itemId));
+            if (!snap.exists()) throw new Error("Commessa o Gruppo non trovato.");
+            const item = snap.data() as JobOrder;
+            const phases = item.phases.map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
+            t.update(snap.ref, { phases });
+            if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases } as any);
+        });
+        revalidatePath('/scan-job');
+        return { success: true, message: 'Sessione avviata.' };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : 'Errore avvio sessione.' };
+    }
 }
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
