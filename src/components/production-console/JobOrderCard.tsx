@@ -47,6 +47,8 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import type { ProductionTimeData } from '@/app/admin/production-console/actions';
 import BOMDialog from './BOMDialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 
 
 interface ActivePhaseInfo {
@@ -129,6 +131,7 @@ export default function JobOrderCard({
     onOpenPhaseManager,
     onOpenMaterialManager,
     onRevertCompletionClick,
+    onUpdateDeliveryDate,
     isSelected,
     onSelect,
     overallStatus,
@@ -153,6 +156,7 @@ export default function JobOrderCard({
     onOpenPhaseManager: (item: JobOrder) => void;
     onOpenMaterialManager: (item: JobOrder) => void;
     onRevertCompletionClick: (jobId: string) => void;
+    onUpdateDeliveryDate: (itemId: string, newDate: string) => void;
     isSelected: boolean;
     onSelect: (jobId: string) => void;
     overallStatus: OverallStatus;
@@ -399,7 +403,8 @@ export default function JobOrderCard({
                                    {canForceFinish && (
                                       <AlertDialog>
                                           <AlertDialogTrigger asChild><DropdownMenuItem onSelect={(e) => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" />Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
-                                          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Conferma Azione</AlertDialogTitle><AlertDialogDescription>Forzare tutte le fasi di produzione a 'completata'?</AlertDialogDescription></AlertDialogHeader>
+                                          <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => onForceFinishClick(jobOrder.id)}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                       </AlertDialog>
                                   )}
                                    {isForcedToFinish && (
@@ -499,12 +504,33 @@ export default function JobOrderCard({
                               </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
-                        {deliveryDate && (
-                            <p className={cn("flex items-center gap-2 font-medium", isOverdue ? "text-destructive" : "text-muted-foreground")}>
-                                <Calendar className="h-4 w-4" />
-                                <span>Consegna: {format(deliveryDate, 'dd MMM yyyy', { locale: it })}</span>
-                            </p>
-                        )}
+                        
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <button 
+                                    className={cn(
+                                        "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
+                                        isOverdue ? "text-destructive" : "text-muted-foreground"
+                                    )}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <Calendar className="h-4 w-4" />
+                                    <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarPicker
+                                    mode="single"
+                                    selected={deliveryDate || undefined}
+                                    onSelect={(date) => {
+                                        if (date) {
+                                            onUpdateDeliveryDate(jobOrder.id, format(date, 'yyyy-MM-dd'));
+                                        }
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
                     </div>
                     <div className="text-right flex-shrink-0">
                         <div className="flex items-center gap-1 justify-end">

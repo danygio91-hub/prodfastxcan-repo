@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, JobBillOfMaterialsItem } from '@/lib/mock-data';
@@ -6,14 +5,14 @@ import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, ClipboardList } from 'lucide-react';
+import { Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, MoreVertical, FastForward, CornerUpLeft, CornerDownRight, ListOrdered, Boxes, Users, PowerOff, Unlink, View, Combine, User, EyeOff, ChevronDown, ClipboardList, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import React, { useState, useMemo } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +31,10 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import BOMDialog from './BOMDialog';
 import JobOrderCard from './JobOrderCard';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import { format, parseISO, isPast } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 interface ActivePhaseInfo { phaseId: string; phaseName: string; operators: { id: string; name: string }[]; }
 
@@ -47,9 +50,9 @@ function getPhaseIcon(status: JobPhase['status']) {
 }
 
 export default function WorkGroupCard({ 
-    group, jobsInGroup, allOperators, allRawMaterials, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
+    group, jobsInGroup, allOperators, allRawMaterials, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
 }: { 
-    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; allRawMaterials: RawMaterial[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void; onForcePauseClick: (groupId: string, operatorIds: string[]) => void; onForceCompleteClick: (groupId: string) => void; onDissolveGroupClick: (groupId: string) => void; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
+    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; allRawMaterials: RawMaterial[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void; onForcePauseClick: (groupId: string, operatorIds: string[]) => void; onForceCompleteClick: (groupId: string) => void; onDissolveGroupClick: (groupId: string) => void; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void; onUpdateDeliveryDate: (itemId: string, newDate: string) => void; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -92,6 +95,12 @@ export default function WorkGroupCard({
   const guaina = group.phases.find(p => p.name === "Taglio Guaina");
   const firstProd = group.phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence)[0];
   const isPostponed = guaina && firstProd && guaina.sequence > firstProd.sequence;
+
+  const deliveryDateString = group.dataConsegnaFinale;
+  const deliveryDate = deliveryDateString && /^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)
+    ? parseISO(deliveryDateString)
+    : null;
+  const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
 
   return (
     <>
@@ -138,7 +147,36 @@ export default function WorkGroupCard({
             </CardHeader>
             <CardContent className="flex-grow space-y-4 pt-0">
                 <div className="flex justify-between items-start gap-4 text-sm">
-                    <p className="flex items-center gap-2 text-muted-foreground"><Boxes className="h-4 w-4" />{group.details}</p>
+                    <div className="space-y-1">
+                        <p className="flex items-center gap-2 text-muted-foreground"><Boxes className="h-4 w-4" />{group.details}</p>
+                        
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <button 
+                                    className={cn(
+                                        "flex items-center gap-2 font-medium hover:text-primary transition-colors", 
+                                        isOverdue ? "text-destructive" : "text-muted-foreground"
+                                    )}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <Calendar className="h-4 w-4" />
+                                    <span>Consegna: {deliveryDate ? format(deliveryDate, 'dd MMM yyyy', { locale: it }) : 'N/D'}</span>
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <CalendarPicker
+                                    mode="single"
+                                    selected={deliveryDate || undefined}
+                                    onSelect={(date) => {
+                                        if (date) {
+                                            onUpdateDeliveryDate(group.id, format(date, 'yyyy-MM-dd'));
+                                        }
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
                     <div className="text-right"><span className="font-bold">{group.totalQuantity}</span><span className="text-muted-foreground text-xs ml-1">pz totali</span></div>
                 </div>
                 {activePhases.length > 0 && (
@@ -181,7 +219,7 @@ export default function WorkGroupCard({
       
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
           <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Dettaglio Commesse nel Gruppo</DialogTitle></DialogHeader>
-              <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{jobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}</div></ScrollArea>
+              <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{jobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}</div></ScrollArea>
           </DialogContent>
       </Dialog>
     </>

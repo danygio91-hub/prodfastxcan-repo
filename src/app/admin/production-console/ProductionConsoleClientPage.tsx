@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -40,7 +39,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData, updateJobDeliveryDate } from '@/app/admin/production-console/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -510,6 +509,16 @@ function ProductionConsoleView() {
     }
   };
 
+  const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => {
+    if (!user) return;
+    const result = await updateJobDeliveryDate(itemId, newDate, user.uid);
+    toast({
+        title: result.success ? "Data Aggiornata" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
+  };
+
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
@@ -744,6 +753,7 @@ function ProductionConsoleView() {
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(group)}
                   onToggleGuainaClick={handleToggleGuaina}
+                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
@@ -772,6 +782,7 @@ function ProductionConsoleView() {
                   onResetJobOrderClick={onResetJobOrderClick}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(job)}
+                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}

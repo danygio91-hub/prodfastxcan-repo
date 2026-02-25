@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -263,7 +262,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 
       const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
 
-      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", jobIds));
+      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", jobIds || []));
       const wSnap = await getDocs(withdrawalsQuery);
       
       const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
@@ -422,6 +421,33 @@ export async function forceFinishMultipleProduction(jobIds: string[], uid: strin
     } catch (e) {
         return { success: false, message: 'Errore durante la procedura massiva.' };
     }
+}
+
+export async function updateJobDeliveryDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const isGroup = itemId.startsWith('group-');
+    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+
+    await runTransaction(db, async (t) => {
+        const snap = await t.get(itemRef);
+        if (!snap.exists()) throw new Error("Elemento non trovato.");
+        
+        t.update(itemRef, { dataConsegnaFinale: newDate });
+        
+        if (isGroup) {
+            const data = snap.data() as WorkGroup;
+            (data.jobOrderIds || []).forEach(id => {
+                t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate });
+            });
+        }
+    });
+
+    revalidatePath('/admin/production-console');
+    return { success: true, message: "Data di consegna aggiornata." };
+  } catch (error) {
+    return { success: false, message: "Errore durante l'aggiornamento della data." };
+  }
 }
     
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
