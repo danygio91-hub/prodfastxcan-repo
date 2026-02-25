@@ -292,6 +292,8 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
     if (!mat) return null;
     const jSnap = await getDocs(collection(db, "jobOrders"));
     const cons: any[] = [];
+    let isInitialLoad = false;
+
     jSnap.forEach(d => {
         const job = convertTimestampsToDates(d.data()) as JobOrder;
         (job.phases || []).forEach(p => (p.materialConsumptions || []).forEach(c => {
@@ -301,12 +303,17 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
             }
         }));
     });
+
     if (cons.length > 0) {
         const last = cons.sort((a, b) => b.date.getTime() - a.date.getTime())[0];
-        return { grossWeight: last.weight, netWeight: last.weight - last.tare, packagingId: last.packId, material: mat };
+        return { grossWeight: last.weight, netWeight: last.weight - last.tare, packagingId: last.packId, material: mat, isInitialLoad: false };
     }
+    
     const batch = (mat.batches || []).find(b => b.lotto === lotto);
-    return batch ? { grossWeight: batch.grossWeight, netWeight: batch.grossWeight - batch.tareWeight, packagingId: batch.packagingId || 'none', material: mat } : null;
+    if (batch) {
+        return { grossWeight: batch.grossWeight, netWeight: batch.grossWeight - batch.tareWeight, packagingId: batch.packagingId || 'none', material: mat, isInitialLoad: true };
+    }
+    return null;
 }
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
