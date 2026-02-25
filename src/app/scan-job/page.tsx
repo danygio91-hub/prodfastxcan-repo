@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -938,11 +937,11 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && 'workGroupId' in result && result.workGroupId) {
+        if (result.success && 'workGroupId' in result) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId);
+            setActiveJobId(result.workGroupId!);
         } else {
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: (result as any).message || 'Errore sconosciuto.' });
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message || 'Errore sconosciuto.' });
         }
         
         setGroupScanList([]);
@@ -1478,7 +1477,7 @@ export default function ScanJobPage() {
                                 {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <QrCode className="h-6 w-6" />}
                                 <span className="ml-2 text-lg">Aggiungi</span>
                              </Button>
-                             <Button onClick={handleCreateWorkGroup} disabled={groupScanList.length < 2 || isPending} className="w-full sm:w-auto flex-1 h-14 bg-green-600 hover:bg-green-700">
+                             <Button onClick={handleCreateWorkGroup} disabled={groupScanList.length < 2 || isPending} className="w-full sm:w-auto flex-1 h-14 bg-teal-600 hover:bg-teal-700">
                                 <PlayCircle className="mr-2 h-6 w-6" />
                                 <span className="text-lg">Inizia Lavoro</span>
                              </Button>

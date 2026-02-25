@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -61,36 +60,28 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     const bomQty = Number(bomItem.quantity) || 0;
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
     
-    let baseMetri = 0;
-    let basePezzi = 0;
-    let baseKg = 0;
-
-    if (length > 0) {
-        baseMetri = (qta * bomQty * length) / 1000;
-    } else if (bomItem.unit === 'mt') {
-        baseMetri = qta * bomQty;
-    } else if (bomItem.unit === 'kg') {
-        baseKg = qta * bomQty;
-    } else {
-        basePezzi = qta * bomQty;
-    }
-
     if (material.unitOfMeasure === 'kg') {
-        if (baseKg > 0) return baseKg;
-        if (baseMetri > 0) {
-            const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
-            return baseMetri * ratio;
+        // Se gestito in KG ma richiesto in metri (tramite lunghezza taglio o unità BOM)
+        if (length > 0) {
+            const totalMeters = (qta * bomQty * length) / 1000;
+            return totalMeters * (material.rapportoKgMt || material.conversionFactor || 0);
         }
-        return basePezzi * (Number(material.conversionFactor) || 0);
+        if (bomItem.unit === 'mt') {
+            return (qta * bomQty) * (material.rapportoKgMt || material.conversionFactor || 0);
+        }
+        // Se gestito in KG e BOM in pezzi
+        return (qta * bomQty) * (material.conversionFactor || 0);
     }
     
     if (material.unitOfMeasure === 'mt') {
-        if (baseMetri > 0) return baseMetri;
-        if (baseKg > 0 && material.rapportoKgMt) return baseKg / material.rapportoKgMt;
-        return basePezzi; 
+        if (length > 0) return (qta * bomQty * length) / 1000;
+        if (bomItem.unit === 'mt') return qta * bomQty;
+        // Fallback pezzi se non c'è altro
+        return qta * bomQty;
     }
     
-    return basePezzi || baseMetri || baseKg;
+    // Gestione a pezzi (N)
+    return qta * bomQty;
 }
 
 export async function getDepartments(): Promise<Department[]> {

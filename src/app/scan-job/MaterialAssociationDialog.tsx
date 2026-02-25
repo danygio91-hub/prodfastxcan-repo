@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -98,7 +97,7 @@ export default function MaterialAssociationDialog({
             const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
             if (lottoData && lottoData.material) {
                 form.setValue('openingWeightManual', lottoData.netWeight);
-                form.setValue('ddt', 'Ultimo Storico');
+                form.setValue('ddt', 'Storico Lotto');
                 form.setValue('packagingId', lottoData.packagingId || 'none');
             }
         }, 800);
