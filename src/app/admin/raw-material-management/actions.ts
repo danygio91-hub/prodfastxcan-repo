@@ -51,9 +51,7 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 /**
- * LOGICA DI CALCOLO IMPEGNATO CERTIFICATA:
- * Trasforma il fabbisogno della BOM nell'unità di misura del magazzino (KG, MT o N).
- * Gestisce correttamente la lunghezza di taglio e il rapporto KG/MT.
+ * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
     if (!material) return 0;
@@ -62,31 +60,29 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     const bomQty = Number(bomItem.quantity) || 0;
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
     
-    let totalInBaseUnit = 0;
+    let requirementBase = 0;
     let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
 
     if (length > 0) {
-        totalInBaseUnit = (qta * bomQty * length) / 1000;
+        requirementBase = (qta * bomQty * length) / 1000; // Calcola metri totali
         baseUnit = 'mt';
     } else {
-        totalInBaseUnit = qta * bomQty;
+        requirementBase = qta * bomQty;
     }
 
-    // Se il magazzino è in KG, dobbiamo convertire qualsiasi unità (N o MT) in KG
     if (material.unitOfMeasure === 'kg') {
-        if (baseUnit === 'kg') return totalInBaseUnit;
+        if (baseUnit === 'kg') return requirementBase;
         
-        // Se abbiamo metri (perché definiti in BOM o derivanti da lunghezza taglio)
         if (baseUnit === 'mt' || length > 0) {
             const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
-            return totalInBaseUnit * ratio;
+            return requirementBase * ratio;
         } else {
-            // Conversione pezzi -> kg
-            return totalInBaseUnit * (Number(material.conversionFactor) || 0);
+            const factor = Number(material.conversionFactor) || 0;
+            return requirementBase * factor;
         }
     }
     
-    return totalInBaseUnit;
+    return requirementBase;
 }
 
 export async function getDepartments(): Promise<Department[]> {
@@ -260,7 +256,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
     } else if (searchTerm !== undefined) { return []; }
     else { mq = firestoreQuery(materialsCol, orderBy("code_normalized"), limit(50)); }
 
-    // FETCH NECESSARI PER IL CALCOLO DELL'IMPEGNATO
     const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
         getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(mq),
@@ -269,7 +264,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
-    // Mappa di TUTTE le materie prime per conversioni BOM accurate
     const allMaterialsSnap = await getDocs(collection(db, "rawMaterials"));
     const codeToMat = new Map<string, RawMaterial>();
     allMaterialsSnap.forEach(docSnap => {
@@ -282,7 +276,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
 
     const impMap = new Map<string, number>();
     
-    // 1. Impegnato da Commesse Standard
     jobsSnap.forEach(d => {
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
@@ -297,7 +290,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         });
     });
 
-    // 2. Impegnato da Impegni Manuali
     commitmentsSnap.forEach(d => {
         const comm = d.data() as ManualCommitment;
         const artCode = comm.articleCode.toLowerCase().trim();
@@ -441,7 +433,7 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             t.delete(ref);
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Stornato.' };
+        return { success: true, message: 'Stornato con successo.' };
     } catch (e) { 
       return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
     }
@@ -450,19 +442,15 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
 export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
   try {
     await ensureAdmin(uid);
-    
-    // READS
     const opSnap = await getDoc(doc(db, "operators", uid));
-    const cRef = doc(db, "manualCommitments", id);
-    const cSnap = await getDoc(cRef);
+    const op = opSnap.exists() ? opSnap.data() as Operator : null;
     
-    if (!opSnap.exists()) throw new Error("Profilo operatore non trovato.");
-    if (!cSnap.exists()) throw new Error("Impegno non trovato.");
-    
-    const op = opSnap.data() as Operator;
-    const c = cSnap.data() as ManualCommitment;
-
     await runTransaction(db, async (t) => {
+      const cRef = doc(db, "manualCommitments", id);
+      const cSnap = await t.get(cRef);
+      if (!cSnap.exists()) throw new Error("Impegno non trovato.");
+      const c = cSnap.data() as ManualCommitment;
+
       for (const s of sels) {
         const mRef = doc(db, "rawMaterials", s.materialId);
         const mSnap = await t.get(mRef);
@@ -485,7 +473,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             consumedWeight: w, 
             consumedUnits: s.consumed, 
             operatorId: uid, 
-            operatorName: op.nome, 
+            operatorName: op?.nome || 'Sconosciuto', 
             withdrawalDate: Timestamp.now(), 
             lotto: s.lotto, 
             commitmentId: id 
@@ -500,7 +488,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
               scrappedQuantity: scrap, 
               declaredAt: Timestamp.now(), 
               operatorId: uid, 
-              operatorName: op.nome 
+              operatorName: op?.nome || 'Sconosciuto' 
           });
       }
       
@@ -508,7 +496,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     });
     
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: "Evaso." };
+    return { success: true, message: "Evaso correttamente." };
   } catch (e) { 
     return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
   }
@@ -541,7 +529,7 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
             t.update(doc(db, "manualCommitments", id), { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField() });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Annullato." };
+        return { success: true, message: "Annullato con successo." };
     } catch (e) { 
       return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
     }
@@ -556,7 +544,7 @@ export async function saveManualCommitment(data: any, uid: string) {
         deliveryDate: data.deliveryDate.toISOString() 
     });
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Creato.' };
+    return { success: true, message: 'Creato con successo.' };
 }
 
 export async function deleteManualCommitment(id: string) {
@@ -580,7 +568,7 @@ export async function importManualCommitments(data: any[], uid: string) {
     });
     await batch.commit();
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Importati.' };
+    return { success: true, message: 'Importati con successo.' };
 }
 
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
