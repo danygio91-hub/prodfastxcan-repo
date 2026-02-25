@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -186,10 +185,7 @@ export default function RawMaterialManagementClientPage({
   initialCommitments, 
   initialDepartments 
 }: RawMaterialManagementClientPageProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const codeFromUrl = searchParams.get('code');
-
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -198,8 +194,11 @@ export default function RawMaterialManagementClientPage({
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
-  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
+  
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const codeFromUrl = searchParams.get('code');
   const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
   const [isPending, setIsPending] = useState(false);
   const [isCommitmentDialogOpen, setIsCommitmentDialogOpen] = useState(false);

@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -66,24 +65,19 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     let totalInBaseUnit = 0;
     let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
 
-    // 1. Calcolo del fabbisogno in base alla geometria (lunghezza)
     if (length > 0) {
-        totalInBaseUnit = (qta * bomQty * length) / 1000; // Trasforma mm in Metri
+        totalInBaseUnit = (qta * bomQty * length) / 1000;
         baseUnit = 'mt';
     } else {
         totalInBaseUnit = qta * bomQty;
     }
 
-    // 2. Trasformazione in KG se il magazzino è a peso
     if (material.unitOfMeasure === 'kg') {
         if (baseUnit === 'kg') return totalInBaseUnit;
-
         if (baseUnit === 'mt' || length > 0) {
-            // Se abbiamo metri, usiamo il rapportoKgMt (prioritario) o il conversionFactor come fallback
             const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
             return totalInBaseUnit * ratio;
         } else {
-            // Se abbiamo pezzi, usiamo il conversionFactor
             return totalInBaseUnit * (Number(material.conversionFactor) || 0);
         }
     }
@@ -233,7 +227,6 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
-    // Creiamo una mappa di TUTTI i materiali per avere i fattori di conversione sempre pronti
     const allMaterialsSnap = await getDocs(collection(db, "rawMaterials"));
     const codeToMat = new Map<string, RawMaterial>();
     allMaterialsSnap.forEach(docSnap => {
