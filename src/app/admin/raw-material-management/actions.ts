@@ -463,20 +463,24 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     const op = opSnap.exists() ? opSnap.data() as Operator : null;
     
     await runTransaction(db, async (t) => {
+      // 1. READ ALL NECESSARY DATA FIRST
       const cRef = doc(db, "manualCommitments", id);
       const cSnap = await t.get(cRef);
       if (!cSnap.exists()) throw new Error("Impegno non trovato.");
       const c = cSnap.data() as ManualCommitment;
 
+      const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
+      const mSnaps = await Promise.all(mRefs.map(ref => t.get(ref)));
+      const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
+
+      // 2. NOW PERFORM ALL WRITES
       for (const s of sels) {
-        const mRef = doc(db, "rawMaterials", s.materialId);
-        const mSnap = await t.get(mRef);
-        if (!mSnap.exists()) continue;
+        const m = mDataMap.get(s.materialId);
+        if (!m) continue;
         
-        const m = mSnap.data() as RawMaterial;
         let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
         
-        t.update(mRef, { 
+        t.update(doc(db, "rawMaterials", s.materialId), { 
             currentStockUnits: (m.currentStockUnits || 0) - s.consumed, 
             currentWeightKg: (m.currentWeightKg || 0) - w 
         });
@@ -522,19 +526,20 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
 export async function revertManualCommitmentFulfillment(id: string, uid: string) {
     await ensureAdmin(uid);
     try {
+        const wq = firestoreQuery(collection(db, "materialWithdrawals"), where("commitmentId", "==", id));
+        const sq = firestoreQuery(collection(db, "scrapRecords"), where("commitmentId", "==", id));
+        const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
+
         await runTransaction(db, async (t) => {
-            const wq = firestoreQuery(collection(db, "materialWithdrawals"), where("commitmentId", "==", id));
-            const sq = firestoreQuery(collection(db, "scrapRecords"), where("commitmentId", "==", id));
-            
-            const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
-            
+            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))];
+            const mSnaps = await Promise.all(mIds.map(mid => t.get(doc(db, "rawMaterials", mid))));
+            const mMap = new Map(mSnaps.map(s => [s.id, s.exists() ? s.data() as RawMaterial : null]));
+
             for (const wd of ws.docs) {
                 const w = wd.data() as MaterialWithdrawal;
-                const mRef = doc(db, "rawMaterials", w.materialId);
-                const mSnap = await t.get(mRef);
-                if (mSnap.exists()) {
-                    const m = mSnap.data() as RawMaterial;
-                    t.update(mRef, { 
+                const m = mMap.get(w.materialId);
+                if (m) {
+                    t.update(doc(db, "rawMaterials", w.materialId), { 
                         currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), 
                         currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight 
                     });
