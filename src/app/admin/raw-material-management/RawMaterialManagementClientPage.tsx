@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -252,11 +251,7 @@ export default function RawMaterialManagementClientPage({
 
     setIsPending(true);
     const result = await saveRawMaterial(formData);
-    toast({
-      title: result.success ? "Successo" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
+    toast({ title: result.success ? "Successo" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
 
     if (result.success) {
       refreshData();
@@ -273,22 +268,8 @@ export default function RawMaterialManagementClientPage({
     try {
       const withdrawals = await getMaterialWithdrawalsForMaterial(material.id);
       const combined: Movement[] = [
-        ...(material.batches || []).map((b): Movement => ({
-          type: 'Carico',
-          date: b.date,
-          description: b.inventoryRecordId ? `Inventario` : `Carico - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
-          quantity: Number(b.netQuantity) || 0,
-          unit: material.unitOfMeasure.toUpperCase(),
-          id: b.id
-        })),
-        ...withdrawals.map((w): Movement => ({
-          type: 'Scarico',
-          date: w.withdrawalDate.toISOString(),
-          description: w.jobOrderPFs?.join(', ') || 'Scarico Manuale',
-          quantity: -(w.consumedUnits || w.consumedWeight || 0),
-          unit: w.consumedUnits ? material.unitOfMeasure.toUpperCase() : 'KG',
-          id: w.id
-        }))
+        ...(material.batches || []).map((b): Movement => ({ type: 'Carico', date: b.date, description: b.inventoryRecordId ? `Inventario` : `Carico - Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`, quantity: Number(b.netQuantity) || 0, unit: material.unitOfMeasure.toUpperCase(), id: b.id })),
+        ...withdrawals.map((w): Movement => ({ type: 'Scarico', date: w.withdrawalDate.toISOString(), description: w.jobOrderPFs?.join(', ') || 'Scarico Manuale', quantity: -(w.consumedUnits || w.consumedWeight || 0), unit: w.consumedUnits ? material.unitOfMeasure.toUpperCase() : 'KG', id: w.id }))
       ];
       setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     } catch (error) {
@@ -304,7 +285,7 @@ export default function RawMaterialManagementClientPage({
       const details = await getMaterialCommitmentDetails(materialCode);
       setCommitmentDetails(details);
     } catch (e) {
-      toast({ variant: 'destructive', title: "Errore nel caricamento degli impegni." });
+      toast({ variant: 'destructive', title: "Errore nel caricamento." });
       setIsCommitmentDialogOpen(false);
     } finally {
       setIsLoadingCommitment(false);
@@ -315,11 +296,7 @@ export default function RawMaterialManagementClientPage({
     if (!materialToDelete) return;
     setIsPending(true);
     const result = await deleteRawMaterial(materialToDelete.id);
-    toast({
-        title: result.success ? "Materiale Eliminato" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
+    toast({ title: result.success ? "Materiale Eliminato" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     if (result.success) refreshData();
     setMaterialToDelete(null);
     setIsPending(false);
@@ -332,162 +309,50 @@ export default function RawMaterialManagementClientPage({
 
   const groupedBatchMaterial: GroupedBatches | null = useMemo(() => {
     if (!selectedMaterial) return null;
-    return {
-        materialId: selectedMaterial.id,
-        materialCode: selectedMaterial.code,
-        materialDescription: selectedMaterial.description,
-        unitOfMeasure: selectedMaterial.unitOfMeasure,
-        currentStockUnits: selectedMaterial.currentStockUnits,
-        currentWeightKg: selectedMaterial.currentWeightKg,
-        lots: [], 
-    };
+    return { materialId: selectedMaterial.id, materialCode: selectedMaterial.code, materialDescription: selectedMaterial.description, unitOfMeasure: selectedMaterial.unitOfMeasure, currentStockUnits: selectedMaterial.currentStockUnits, currentWeightKg: selectedMaterial.currentWeightKg, lots: [] };
   }, [selectedMaterial]);
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-          <Boxes className="h-8 w-8 text-primary" />
-          Gestione Materie Prime
-        </h1>
-      </header>
-
+      <header><h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><Boxes className="h-8 w-8 text-primary" />Gestione Materie Prime</h1></header>
       <Tabs defaultValue="list">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="list">Magazzino Live</TabsTrigger>
-          <TabsTrigger value="commitments">Impegni Manuali</TabsTrigger>
-        </TabsList>
-
+        <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="list">Magazzino Live</TabsTrigger><TabsTrigger value="commitments">Impegni Manuali</TabsTrigger></TabsList>
         <TabsContent value="list">
           <Card>
             <CardHeader>
               <div className="flex justify-between items-start flex-wrap gap-4">
-                <div className="space-y-1">
-                  <CardTitle>Magazzino Live</CardTitle>
-                  <CardDescription>Giacenze reali ricalcolate dai singoli movimenti storici.</CardDescription>
-                </div>
+                <div className="space-y-1"><CardTitle>Magazzino Live</CardTitle><CardDescription>Giacenze reali ricalcolate dai movimenti storici.</CardDescription></div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative w-full sm:w-auto">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Cerca materiale (min 2 car.)..." 
-                      className="pl-9 w-full sm:w-64" 
-                      value={searchTerm} 
-                      onChange={(e) => setSearchTerm(e.target.value)} 
-                    />
-                  </div>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href="/admin/purchase-orders">
-                      <Truck className="mr-2 h-4 w-4" /> Ordini Fornitore
-                    </Link>
-                  </Button>
-                  <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Mat. Prima
-                  </Button>
+                  <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca materiale..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                  <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini Fornitore</Link></Button>
+                  <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Mat. Prima</Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
                 <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Codice</TableHead>
-                      <TableHead>Descrizione</TableHead>
-                      <TableHead>Stock Attuale</TableHead>
-                      <TableHead>Impegnato</TableHead>
-                      <TableHead>Disponibile</TableHead>
-                      <TableHead>Ordinato</TableHead>
-                      <TableHead className="text-right">Azioni</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                  <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {isSearching ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center h-32">
-                          <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                            <span>Ricerca e ricalcolo stock in corso...</span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center h-32"><div className="flex flex-col items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-8 w-8 animate-spin text-primary" /><span>Ricerca in corso...</span></div></TableCell></TableRow>
                     ) : (rawMaterials.length > 0) ? (
                       rawMaterials.map((m) => {
                         const s = materialStatus.find(st => st.id === m.id);
                         return (
                           <TableRow key={m.id}>
-                            <TableCell className="font-bold">
-                              <ContextMenu>
-                                <ContextMenuTrigger className="cursor-help hover:text-primary">
-                                  {m.code}
-                                </ContextMenuTrigger>
-                                <ContextMenuContent>
-                                  <ContextMenuItem onSelect={() => handleCopy(m.code)}>
-                                    <Copy className="mr-2 h-4 w-4" /> Copia Codice
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            </TableCell>
-                            <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground" title={m.description}>
-                              {m.description}
-                            </TableCell>
-                            <TableCell className="font-semibold text-nowrap">
-                              {formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}
-                              <span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span>
-                            </TableCell>
-                            <TableCell>
-                              <button 
-                                onClick={() => handleOpenCommitmentDetails(m.code)} 
-                                className="text-amber-600 hover:underline font-medium"
-                              >
-                                {s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}
-                              </button>
-                            </TableCell>
-                            <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>
-                              {s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}
-                            </TableCell>
-                            <TableCell>
-                              <Link 
-                                href={`/admin/purchase-orders?materialCode=${encodeURIComponent(m.code)}`} 
-                                className="text-blue-600 hover:underline text-sm font-medium"
-                              >
-                                {s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}
-                              </Link>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}>
-                                    <Edit className="mr-2 h-4 w-4" /> Modifica
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}>
-                                    <PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}>
-                                    <History className="mr-2 h-4 w-4" /> Storico Movimenti
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}>
-                                    <TestTube className="mr-2 h-4 w-4" /> Vedi Scarti
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive">
-                                    <Trash2 className="mr-2 h-4 w-4" /> Elimina
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
+                            <TableCell className="font-bold"><ContextMenu><ContextMenuTrigger className="cursor-help hover:text-primary">{m.code}</ContextMenuTrigger><ContextMenuContent><ContextMenuItem onSelect={() => handleCopy(m.code)}><Copy className="mr-2 h-4 w-4" /> Copia Codice</ContextMenuItem></ContextMenuContent></ContextMenu></TableCell>
+                            <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground" title={m.description}>{m.description}</TableCell>
+                            <TableCell className="font-semibold text-nowrap">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}<span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span></TableCell>
+                            <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline font-medium">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
+                            <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
+                            <TableCell><Link href={`/admin/purchase-orders?materialCode=${encodeURIComponent(m.code)}`} className="text-blue-600 hover:underline text-sm font-medium">{s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</Link></TableCell>
+                            <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Vedi Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                           </TableRow>
                         )
                       })
                     ) : (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
-                          {searchTerm.length < 2 ? "Digita almeno 2 caratteri per cercare." : "Nessun materiale trovato."}
-                        </TableCell>
-                      </TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">{searchTerm.length < 2 ? "Digita almeno 2 caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -495,156 +360,55 @@ export default function RawMaterialManagementClientPage({
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="commitments">
-          <CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} />
-        </TabsContent>
+        <TabsContent value="commitments"><CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} /></TabsContent>
       </Tabs>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{selectedMaterial ? 'Modifica Materia Prima' : 'Nuova Materia Prima'}</DialogTitle>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
-              <FormField control={form.control} name="code" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Codice Materiale</FormLabel>
-                  <FormControl><Input {...field} placeholder="Es. BOB-TRECCIA-01" /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="description" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Descrizione</FormLabel>
-                  <FormControl><Textarea {...field} placeholder="Specifiche tecniche..." /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+          <DialogHeader><DialogTitle>{selectedMaterial ? 'Modifica Materia Prima' : 'Nuova Materia Prima'}</DialogTitle></DialogHeader>
+          <Form {...form}><form onSubmit={form.handleSubmit(onEditSubmit)} className="space-y-4 py-4">
+              <FormField control={form.control} name="code" render={({ field }) => ( <FormItem><FormLabel>Codice Materiale</FormLabel><FormControl><Input {...field} placeholder="Es. BOB-TRECCIA-01" /></FormControl><FormMessage /></FormItem> )} />
+              <FormField control={form.control} name="description" render={({ field }) => ( <FormItem><FormLabel>Descrizione</FormLabel><FormControl><Textarea {...field} placeholder="Specifiche tecniche..." /></FormControl><FormMessage /></FormItem> )} />
               <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="type" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tipo</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un tipo" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="BOB">BOB (Bobina)</SelectItem>
-                        <SelectItem value="TUBI">TUBI</SelectItem>
-                        <SelectItem value="PF3V0">PF3V0</SelectItem>
-                        <SelectItem value="GUAINA">GUAINA</SelectItem>
-                        <SelectItem value="BARRA">BARRA</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>UOM</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un'unità" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="n">N (Pezzi)</SelectItem>
-                        <SelectItem value="mt">MT (Metri)</SelectItem>
-                        <SelectItem value="kg">KG (Chili)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
+                <FormField control={form.control} name="type" render={({ field }) => ( <FormItem><FormLabel>Tipo</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger></FormControl><SelectContent><SelectItem value="BOB">BOB (Bobina)</SelectItem><SelectItem value="TUBI">TUBI</SelectItem><SelectItem value="PF3V0">PF3V0</SelectItem><SelectItem value="GUAINA">GUAINA</SelectItem><SelectItem value="BARRA">BARRA</SelectItem></SelectContent></Select></FormItem> )} />
+                <FormField control={form.control} name="unitOfMeasure" render={({ field }) => ( <FormItem><FormLabel>UOM</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue placeholder="UOM" /></SelectTrigger></FormControl><SelectContent><SelectItem value="n">N (Pezzi)</SelectItem><SelectItem value="mt">MT (Metri)</SelectItem><SelectItem value="kg">KG (Chili)</SelectItem></SelectContent></Select></FormItem> )} />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {watchedUOM === 'kg' ? (
-                  <FormField control={form.control} name="rapportoKgMt" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Rapporto Kg/mt</FormLabel>
-                      <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                  )} />
-                ) : (
-                  <FormField control={form.control} name="conversionFactor" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Fattore Conversione (Kg/U)</FormLabel>
-                      <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
-                    </FormItem>
-                  )} />
-                )}
+                {watchedUOM === 'kg' ? ( <FormField control={form.control} name="rapportoKgMt" render={({ field }) => ( <FormItem><FormLabel>Rapporto Kg/mt</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem> )} /> ) : ( <FormField control={form.control} name="conversionFactor" render={({ field }) => ( <FormItem><FormLabel>Fattore Conversione (Kg/U)</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem> )} /> )}
               </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button>
-                <Button type="submit" disabled={isPending}>
-                  {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                  {selectedMaterial ? 'Salva Modifiche' : 'Crea Materiale'}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
+              <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />} {selectedMaterial ? 'Salva Modifiche' : 'Crea Materiale'}</Button></DialogFooter>
+            </form></Form>
         </DialogContent>
       </Dialog>
 
       {isBatchDialogOpen && groupedBatchMaterial && (
-        <BatchFormDialog 
-          isOpen={isBatchDialogOpen} 
-          material={groupedBatchMaterial} 
-          batch={null} 
-          onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} 
-        />
+        <BatchFormDialog isOpen={isBatchDialogOpen} material={groupedBatchMaterial} batch={null} onClose={(refresh) => { setIsBatchDialogOpen(false); if(refresh) refreshData(); }} />
       )}
 
       <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Questa azione eliminerà permanentemente l'anagrafica di <strong>{materialToDelete?.code}</strong>. 
-              Tutti i lotti e i movimenti associati andranno persi.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isPending}>Annulla</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteMaterial} className="bg-destructive hover:bg-destructive/90" disabled={isPending}>
-              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Sì, elimina tutto
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Eliminerà permanentemente l'anagrafica di <strong>{materialToDelete?.code}</strong>.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel disabled={isPending}>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleDeleteMaterial} className="bg-destructive hover:bg-destructive/90" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Sì, elimina tutto</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
         <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Storico Movimenti: {selectedMaterial?.code}</DialogTitle>
-            <DialogDescription>Elenco cronologico di carichi e scarichi.</DialogDescription>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Storico: {selectedMaterial?.code}</DialogTitle></DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Descrizione/Origine</TableHead>
-                  <TableHead className="text-right">Quantità</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Tipo</TableHead><TableHead>Descrizione</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow></TableHeader>
               <TableBody>
                 {materialMovements.length > 0 ? (
                   materialMovements.map((m, idx) => (
                     <TableRow key={idx}>
                       <TableCell>{format(parseISO(m.date), 'dd/MM/yyyy HH:mm')}</TableCell>
-                      <TableCell>
-                        <Badge variant={m.type === 'Carico' ? 'default' : 'destructive'}>
-                          {m.type === 'Carico' ? <ArrowUpCircle className="mr-1 h-3 w-3" /> : <ArrowDownCircle className="mr-1 h-3 w-3" />}
-                          {m.type}
-                        </Badge>
-                      </TableCell>
+                      <TableCell><Badge variant={m.type === 'Carico' ? 'default' : 'destructive'}>{m.type}</Badge></TableCell>
                       <TableCell className="text-xs truncate max-w-sm" title={m.description}>{m.description}</TableCell>
-                      <TableCell className={cn("text-right font-mono font-bold", m.type === 'Carico' ? 'text-green-600' : 'text-destructive')}>
-                        {m.quantity.toFixed(2)} {m.unit}
-                      </TableCell>
+                      <TableCell className={cn("text-right font-mono font-bold", m.type === 'Carico' ? 'text-green-600' : 'text-destructive')}>{m.quantity.toFixed(2)} {m.unit}</TableCell>
                     </TableRow>
                   ))
-                ) : (
-                  <TableRow><TableCell colSpan={4} className="text-center h-24">Nessun movimento trovato.</TableCell></TableRow>
-                )}
+                ) : ( <TableRow><TableCell colSpan={4} className="text-center h-24">Nessun movimento trovato.</TableCell></TableRow> )}
               </TableBody>
             </Table>
           </ScrollArea>
@@ -653,57 +417,28 @@ export default function RawMaterialManagementClientPage({
 
       <Dialog open={isCommitmentDialogOpen} onOpenChange={setIsCommitmentDialogOpen}>
         <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="h-6 w-6 text-primary" />
-              Dettaglio Impegnato: {activeMaterialForDetails}
-            </DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-6 w-6 text-primary" />Dettaglio Impegnato: {activeMaterialForDetails}</DialogTitle></DialogHeader>
           <ScrollArea className="max-h-[60vh] mt-4">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Commessa</TableHead>
-                  <TableHead>Articolo</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead className="text-right">Quantità</TableHead>
-                  <TableHead>Consegna Prevista</TableHead>
-                </TableRow>
-              </TableHeader>
+              <TableHeader><TableRow><TableHead>Commessa</TableHead><TableHead>Articolo</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Quantità</TableHead><TableHead>Consegna Prevista</TableHead></TableRow></TableHeader>
               <TableBody>
-                {isLoadingCommitment ? (
-                  <TableRow><TableCell colSpan={5} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
-                ) : commitmentDetails.length > 0 ? (
+                {isLoadingCommitment ? ( <TableRow><TableCell colSpan={5} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow> ) : commitmentDetails.length > 0 ? (
                   commitmentDetails.map((det, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-mono font-bold">{det.jobId}</TableCell>
                       <TableCell className="text-xs">{det.articleCode}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">{det.type}</Badge>
-                      </TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px]">{det.type}</Badge></TableCell>
                       <TableCell className="text-right font-semibold">{det.quantity.toFixed(2)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Calendar className={cn("h-3 w-3", det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) ? "text-destructive" : "text-muted-foreground")} />
-                          <span className={cn(det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) && "text-destructive font-bold")}>
-                            {det.deliveryDate !== 'N/D' ? format(parseISO(det.deliveryDate), 'dd/MM/yyyy') : 'N/D'}
-                          </span>
-                        </div>
-                      </TableCell>
+                      <TableCell><div className="flex items-center gap-2"><Calendar className={cn("h-3 w-3", det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) ? "text-destructive" : "text-muted-foreground")} /><span>{det.deliveryDate !== 'N/D' ? format(parseISO(det.deliveryDate), 'dd/MM/yyyy') : 'N/D'}</span></div></TableCell>
                     </TableRow>
                   ))
-                ) : (
-                  <TableRow><TableCell colSpan={5} className="text-center h-24">Nessun impegno trovato per questo materiale.</TableCell></TableRow>
-                )}
+                ) : ( <TableRow><TableCell colSpan={5} className="text-center h-24">Nessun impegno trovato.</TableCell></TableRow> )}
               </TableBody>
             </Table>
           </ScrollArea>
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline">Chiudi</Button></DialogClose>
-          </DialogFooter>
+          <DialogFooter><DialogClose asChild><Button variant="outline">Chiudi</Button></DialogClose></DialogFooter>
         </DialogContent>
       </Dialog>
-
       <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
     </div>
   );
