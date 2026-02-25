@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc } from 'firebase/firestore';
+import { collection, query as firestoreQuery, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -62,13 +62,13 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
 }
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  const q = query(collection(db, "jobOrders"), where("status", "==", "planned"));
+  const q = firestoreQuery(collection(db, "jobOrders"), where("status", "==", "planned"));
   const snap = await getDocs(q);
   return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-    const q = query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
+    const q = firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
     const snap = await getDocs(q);
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
@@ -301,7 +301,7 @@ export async function deleteSelectedJobOrders(ids: string[]) {
 }
 
 export async function deleteAllPlannedJobOrders() {
-    const q = query(collection(db, "jobOrders"), where("status", "==", "planned"));
+    const q = firestoreQuery(collection(db, "jobOrders"), where("status", "==", "planned"));
     const snap = await getDocs(q);
     const batch = writeBatch(db);
     snap.docs.forEach(d => batch.delete(d.ref));
