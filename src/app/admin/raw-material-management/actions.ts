@@ -408,6 +408,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     await ensureAdmin(uid);
     
     await runTransaction(db, async (t) => {
+      // READS FIRST
       const opRef = doc(db, "operators", uid);
       const cRef = doc(db, "manualCommitments", id);
       const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
@@ -423,6 +424,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
       const opData = opSnap.exists() ? opSnap.data() as Operator : null;
       const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
 
+      // WRITES AFTER
       for (const s of sels) {
         const m = mDataMap.get(s.materialId);
         if (!m) throw new Error("Materia prima non trovata.");

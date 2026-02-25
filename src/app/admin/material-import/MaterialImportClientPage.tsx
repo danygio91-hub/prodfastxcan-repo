@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef, useMemo } from 'react';
@@ -10,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, Download, Loader2, List, Trash2, AlertTriangle, Send, ArrowLeft, FileUp, FileDown } from 'lucide-react';
+import { Upload, Download, Loader2, List, Trash2, AlertTriangle, Send, ArrowLeft, FileUp, FileDown, XCircle } from 'lucide-react';
 import { importCaricoFromFile, importScaricoFromFile } from './actions';
 import {
   AlertDialog,
@@ -25,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Packaging, RawMaterial } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 type Operation = 'carico' | 'scarico';
 
@@ -32,6 +32,7 @@ interface ParsedRow {
   [key: string]: string | number | undefined;
   __originalIndex?: number;
   'Unita'?: 'n' | 'mt' | 'kg';
+  reason?: string;
 }
 
 interface MaterialImportClientPageProps {
@@ -149,17 +150,21 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
     const action = operation === 'carico' ? importCaricoFromFile : importScaricoFromFile;
     const result = await action(parsedData, user.uid);
 
-    toast({
-        title: result.success ? 'Importazione Completata' : 'Importazione Parziale/Fallita',
-        description: result.message,
-        variant: result.success ? 'default' : 'destructive',
-        duration: 9000,
-    });
-    
     if (result.success) {
-      clearData();
+        toast({
+            title: 'Importazione Completata',
+            description: result.message,
+            variant: 'default',
+        });
+        clearData();
     } else {
-      setParsedData(result.failedRows || []);
+        toast({
+            title: 'Importazione Parziale/Fallita',
+            description: result.message,
+            variant: 'destructive',
+            duration: 9000,
+        });
+        setParsedData(result.failedRows || []);
     }
     
     setIsProcessing(false);
@@ -171,6 +176,8 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
   }
 
   const renderHeaderAndTable = () => {
+    const hasReasons = parsedData.some(r => r.reason);
+    
     if (operation === 'carico') {
         return (
             <>
@@ -178,7 +185,8 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
                     <TableHead>Codice Materiale</TableHead><TableHead>Lotto</TableHead><TableHead>DDT</TableHead>
                     <TableHead>Quantità Netta</TableHead>
                     <TableHead>Unità</TableHead>
-                    <TableHead>Data</TableHead><TableHead>Tara</TableHead>
+                    <TableHead>Data</TableHead>
+                    {hasReasons && <TableHead className="text-destructive">Errore</TableHead>}
                 </TableRow></TableHeader>
                 <TableBody>
                     {parsedData.map((row, index) => (
@@ -191,7 +199,7 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
                                 </Badge>
                              </TableCell>
                             <TableCell>{typeof row["Data"] === 'number' ? new Date(Date.UTC(1899, 11, 30 + (row["Data"] as number))).toLocaleDateString('it-IT') : new Date(row["Data"] as string).toLocaleDateString('it-IT')}</TableCell>
-                            <TableCell>{row["Tara (Imballo)"]}</TableCell>
+                            {row.reason && <TableCell className="text-destructive text-xs font-semibold">{row.reason}</TableCell>}
                         </TableRow>
                     ))}
                 </TableBody>
@@ -203,14 +211,16 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
                 <TableHeader className="sticky top-0 bg-muted"><TableRow>
                     <TableHead>Codice Materiale</TableHead><TableHead>Lotto</TableHead>
                     <TableHead>Q.tà da Scaricare</TableHead><TableHead>Unità</TableHead>
-                    <TableHead>Commessa</TableHead><TableHead>Note</TableHead>
+                    <TableHead>Commessa</TableHead>
+                    {hasReasons && <TableHead className="text-destructive">Errore</TableHead>}
                 </TableRow></TableHeader>
                 <TableBody>
                     {parsedData.map((row, index) => (
                         <TableRow key={row.__originalIndex ?? index}>
                             <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
                             <TableCell>{row["Quantita da Scaricare"]}</TableCell><TableCell>{row["Unita"]}</TableCell>
-                            <TableCell>{row["Commessa Associata"]}</TableCell><TableCell>{row["Note"]}</TableCell>
+                            <TableCell>{row["Commessa Associata"]}</TableCell>
+                            {row.reason && <TableCell className="text-destructive text-xs font-semibold">{row.reason}</TableCell>}
                         </TableRow>
                     ))}
                 </TableBody>
@@ -264,12 +274,20 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
           </Card>
 
           {parsedData.length > 0 && (
-            <Card>
+            <Card className={cn(parsedData.some(r => r.reason) && "border-destructive")}>
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <div className="space-y-1">
-                            <CardTitle className="flex items-center gap-2"><List className="h-6 w-6"/> Anteprima Dati</CardTitle>
-                            <CardDescription>Controlla i dati letti dal file. Se sono corretti, procedi con l'importazione.</CardDescription>
+                            <CardTitle className="flex items-center gap-2">
+                                {parsedData.some(r => r.reason) ? <XCircle className="text-destructive"/> : <List className="h-6 w-6"/>}
+                                Anteprima Dati
+                            </CardTitle>
+                            <CardDescription>
+                                {parsedData.some(r => r.reason) 
+                                    ? "Alcune righe presentano errori. Correggi il file Excel o procedi ignorando le righe errate." 
+                                    : "Controlla i dati letti dal file. Se sono corretti, procedi con l'importazione."
+                                }
+                            </CardDescription>
                         </div>
                         <Button variant="destructive" size="sm" onClick={clearData}>
                             <Trash2 className="mr-2"/>
@@ -278,23 +296,23 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="max-h-96 overflow-y-auto border rounded-lg">
+                    <ScrollArea className="h-96 border rounded-lg">
                         <Table>{renderHeaderAndTable()}</Table>
-                    </div>
+                    </ScrollArea>
                 </CardContent>
                 <CardFooter>
                      <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button className="w-full" disabled={isProcessing}>
+                          <Button className="w-full" disabled={isProcessing || parsedData.length === 0}>
                             {isProcessing ? <Loader2 className="mr-2 animate-spin"/> : <Send className="mr-2" />}
-                            Conferma e Importa {parsedData.length} righe
+                            Conferma e Importa {parsedData.filter(r => !r.reason).length} righe valide
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle/> Sei assolutamente sicuro?</AlertDialogTitle>
                             <AlertDialogDescription>
-                               Stai per eseguire un {operation} massivo per {parsedData.length} righe. L'operazione aggiornerà lo stock dei materiali. Questa azione non può essere annullata facilmente.
+                               Stai per eseguire un {operation} massivo per {parsedData.filter(r => !r.reason).length} righe. L'operazione aggiornerà lo stock dei materiali. Questa azione non può essere annullata facilmente.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

@@ -105,8 +105,6 @@ export async function getJobsReport() {
     });
 }
 
-export type getOperatorsReport = typeof getOperatorsReport;
-
 export async function getOperatorsReport(targetDateString?: string) {
     const operatorsSnapshot = await getDocs(collection(db, "operators"));
     const operators = operatorsSnapshot.docs.map(doc => doc.data() as Operator);
@@ -187,7 +185,7 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
     const dayStart = startOfDay(targetDate);
     const dayEnd = endOfDay(targetDate);
 
-    const jobsSnapshot = await getDocs(query(collection(db, "jobOrders")));
+    const jobsSnapshot = await getDocs(firestoreQuery(collection(db, "jobOrders")));
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const jobsWorkedOn: {

@@ -478,11 +478,11 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       
       const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
-      const idx = phases.findIndex(p => p.id === phaseId);
-      if (idx === -1) throw new Error("Fase non trovata.");
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+      if (phaseIndex === -1) throw new Error("Fase non trovata.");
       
-      phases[idx].materialStatus = 'missing';
-      phases[idx].materialReady = false;
+      phases[phaseIndex].materialStatus = 'missing';
+      phases[phaseIndex].materialReady = false;
 
       const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);

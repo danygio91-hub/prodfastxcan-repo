@@ -1,21 +1,20 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, runTransaction, getDocs, query, orderBy, arrayUnion, Timestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, runTransaction, getDocs, query as firestoreQuery, orderBy, arrayUnion, Timestamp, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
 export async function getPackagingItems(): Promise<Packaging[]> {
   const packagingCol = collection(db, 'packaging');
-  const q = query(packagingCol, orderBy("name"));
+  const q = firestoreQuery(packagingCol, orderBy("name"));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
 
 async function getOperatorByUid(uid: string): Promise<Operator | null> {
-    const q = query(collection(db, "operators"), where("uid", "==", uid));
+    const q = firestoreQuery(collection(db, "operators"), where("uid", "==", uid));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
         const operatorDoc = querySnapshot.docs[0];
@@ -57,13 +56,13 @@ export async function importCaricoFromFile(
     const packagingName = row['Tara (Imballo)']?.toLowerCase();
     
     if (!materialCode || !lotto || isNaN(netQuantity) || netQuantity <= 0) {
-      failedRows.push(row);
+      failedRows.push({ ...row, reason: "Dati obbligatori mancanti o quantità non valida." });
       continue;
     }
 
     const material = materialsMap.get(materialCode.toLowerCase());
     if (!material) {
-      failedRows.push(row);
+      failedRows.push({ ...row, reason: `Materiale "${materialCode}" non trovato in anagrafica.` });
       continue;
     }
 
@@ -90,6 +89,7 @@ export async function importCaricoFromFile(
     try {
         await runTransaction(db, async (transaction) => {
             const freshMaterialDoc = await transaction.get(materialRef);
+            if (!freshMaterialDoc.exists()) throw new Error("Documento materiale sparito dal DB.");
             const currentMaterial = freshMaterialDoc.data() as RawMaterial;
             
             let netWeightForCalc = currentMaterial.unitOfMeasure === 'kg' ? netQuantity : (currentMaterial.conversionFactor ? netQuantity * currentMaterial.conversionFactor : 0);
@@ -113,7 +113,7 @@ export async function importCaricoFromFile(
         });
         successCount++;
     } catch (e: any) {
-        failedRows.push(row);
+        failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore transazione." });
     }
   }
 
@@ -134,22 +134,29 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
   const failedRows: any[] = [];
 
   for (const row of data) {
-    const materialCode = row['Codice Materiale'];
-    const lotto = row['Lotto'];
+    const materialCode = row['Codice Materiale']?.toString().trim();
+    const lotto = row['Lotto']?.toString().trim();
     const quantity = parseFloat(row['Quantita da Scaricare']);
     const unit = row['Unita']?.toLowerCase();
     
-    if (!materialCode || !lotto || isNaN(quantity) || quantity <= 0) {
-      failedRows.push(row); continue;
+    if (!materialCode || isNaN(quantity) || quantity <= 0) {
+      failedRows.push({ ...row, reason: "Dati obbligatori (Codice/Quantità) mancanti o non validi." });
+      continue;
     }
 
     const materialLookup = materialsMap.get(materialCode.toLowerCase());
-    if (!materialLookup) { failedRows.push(row); continue; }
+    if (!materialLookup) {
+      failedRows.push({ ...row, reason: `Materiale "${materialCode}" non trovato in anagrafica.` });
+      continue;
+    }
 
     try {
       await runTransaction(db, async (transaction) => {
+        // READS FIRST
         const materialRef = doc(db, "rawMaterials", materialLookup.id);
         const materialDoc = await transaction.get(materialRef);
+        
+        if (!materialDoc.exists()) throw new Error(`Documento ID ${materialLookup.id} non trovato.`);
         const currentMaterial = materialDoc.data() as RawMaterial;
         
         let consumedUnits = 0;
@@ -157,12 +164,28 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
 
         if (unit === 'kg') {
           consumedWeight = quantity;
-          consumedUnits = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity / currentMaterial.conversionFactor : quantity;
+          if (currentMaterial.unitOfMeasure === 'kg') {
+              consumedUnits = quantity;
+          } else {
+              if (!currentMaterial.conversionFactor || currentMaterial.conversionFactor <= 0) {
+                  throw new Error(`Conversione KG in ${currentMaterial.unitOfMeasure} non configurata.`);
+              }
+              consumedUnits = quantity / currentMaterial.conversionFactor;
+          }
         } else {
           consumedUnits = quantity;
-          consumedWeight = (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) ? quantity * currentMaterial.conversionFactor : 0;
+          if (currentMaterial.unitOfMeasure === 'kg') {
+              consumedWeight = quantity;
+          } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
+              consumedWeight = quantity * currentMaterial.conversionFactor;
+          } else if (currentMaterial.unitOfMeasure === 'mt' && currentMaterial.rapportoKgMt) {
+              consumedWeight = quantity * currentMaterial.rapportoKgMt;
+          } else {
+              throw new Error(`Impossibile calcolare il peso in KG per l'unità ${unit}.`);
+          }
         }
 
+        // WRITES AFTER
         transaction.update(materialRef, { 
             currentStockUnits: (currentMaterial.currentStockUnits || 0) - consumedUnits, 
             currentWeightKg: (currentMaterial.currentWeightKg || 0) - consumedWeight 
@@ -171,8 +194,8 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
         const withdrawalRef = doc(collection(db, "materialWithdrawals"));
         transaction.set(withdrawalRef, {
             jobIds: [],
-            jobOrderPFs: row['Commessa Associata'] ? [row['Commessa Associata']] : ['SCARICO_DA_FILE'],
-            materialId: currentMaterial.id,
+            jobOrderPFs: row['Commessa Associata'] ? [row['Commessa Associata'].toString()] : ['SCARICO_DA_FILE'],
+            materialId: materialLookup.id,
             materialCode: currentMaterial.code,
             consumedWeight,
             consumedUnits: consumedUnits,
@@ -185,11 +208,11 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
       });
       successCount++;
     } catch (e: any) {
-        failedRows.push(row);
+        failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore critico durante lo scarico." });
     }
   }
 
   revalidatePath('/admin/raw-material-management');
   revalidatePath('/admin/reports');
-  return { success: failedRows.length === 0, message: `Completato. ${successCount} scarichi registrati.`, failedRows };
+  return { success: failedRows.length === 0, message: `Operazione terminata. ${successCount} scarichi registrati correttamente.`, failedRows };
 }
