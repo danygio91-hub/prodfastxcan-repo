@@ -1,5 +1,3 @@
-
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -33,12 +31,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData } from '@/app/admin/production-console/actions';
@@ -56,7 +48,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
 
 
@@ -107,9 +98,6 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  // This effect will listen for changes in the main data lists (jobOrders, workGroups)
-  // and update the state of the currently open dialog (`materialManagedItem`).
-  // This ensures the dialog content is always in sync with the real-time data.
   useEffect(() => {
     if (materialManagedItem) {
       const isGroup = materialManagedItem.id.startsWith('group-');
@@ -225,7 +213,6 @@ function ProductionConsoleView() {
   const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let filtered = items;
 
-      // Main filter logic
       if (showCompleted) {
           filtered = filtered.filter(item => getOverallStatus(item) === 'Completata');
           if (isDateFilterActive && completedDateFilter) {
@@ -244,7 +231,6 @@ function ProductionConsoleView() {
           }
       }
 
-      // Secondary filters
       if (showOnlyOverdue) {
           filtered = filtered.filter(isOverdue);
       }
@@ -305,7 +291,7 @@ function ProductionConsoleView() {
     
     const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
     const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
-    const canReset = statuses.every(status => status === 'Completata');
+    const canReset = selectedItems.length > 0;
 
     return { canForceFinish, canForceComplete, canReset };
   }, [selectedItems, isJobLive]);
@@ -348,10 +334,17 @@ function ProductionConsoleView() {
     if (result.success) setSelectedIds([]);
   };
   
-  const handleBulkReset = () => {
-     if (selectedIds.length === 0) return;
-     selectedIds.forEach(id => onResetJobOrderClick(id));
+  const handleBulkReset = async () => {
+     if (selectedIds.length === 0 || !user) return;
+     setIsLoading(true);
+     let successCount = 0;
+     for (const id of selectedIds) {
+         const res = await resetSingleCompletedJobOrder(id, user.uid);
+         if (res.success) successCount++;
+     }
+     toast({ title: "Reset Completato", description: `${successCount} elementi sono stati riportati allo stato pianificato.` });
      setSelectedIds([]);
+     setIsLoading(false);
   };
 
   const handleResolveProblem = async () => {
@@ -399,7 +392,7 @@ function ProductionConsoleView() {
       if (!user) return;
       const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
       toast({
-        title: result.success ? "Operazione Riuscita" : "Errore",
+        title: result.success ? "Operazione Eseguita" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
@@ -483,7 +476,6 @@ function ProductionConsoleView() {
         description: result.message,
         variant: result.success ? 'default' : 'destructive',
     });
-    // Realtime listener will handle the update
   };
   
   const handleMovePhase = (index: number, direction: 'up' | 'down') => {
@@ -561,7 +553,6 @@ function ProductionConsoleView() {
             title: "Errore Analisi Tempi",
             description: "Impossibile caricare i dati di analisi.",
         });
-        // Clear data for this job on error
         setAnalysisDataMap(prevMap => {
              const newMap = new Map(prevMap);
              newMap.set(job.id, null);
@@ -708,11 +699,11 @@ function ProductionConsoleView() {
                              <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                      <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta
+                                      <RefreshCcw className="mr-2 h-4 w-4" /> Annulla e Resetta
                                   </DropdownMenuItem>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
-                                    <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedIds.length} elementi allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock dei materiali. Questa operazione è definitiva.</AlertDialogDescription></AlertDialogHeader>
                                     <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive hover:bg-destructive/90">Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>

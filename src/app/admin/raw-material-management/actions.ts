@@ -52,31 +52,36 @@ function convertTimestampsToDates(obj: any): any {
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
+ * Se il materiale è in KG, trasforma i metri (anche da BOM) in KG usando il rapportoKgMt.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
     if (!material) return 0;
     
     const qta = Number(jobQta) || 0;
     const bomQty = Number(bomItem.quantity) || 0;
-    const length = Number(bomItem.lunghezzaTaglioMm) || 0;
+    const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
     
     if (material.unitOfMeasure === 'kg') {
-        // Se gestito in KG ma richiesto in metri (tramite lunghezza taglio o unità BOM)
-        if (length > 0) {
-            const totalMeters = (qta * bomQty * length) / 1000;
+        // Calcolo metri totali se applicabile
+        let totalMeters = 0;
+        if (lengthMm > 0) {
+            totalMeters = (qta * bomQty * lengthMm) / 1000;
+        } else if (bomItem.unit === 'mt') {
+            totalMeters = qta * bomQty;
+        }
+
+        if (totalMeters > 0) {
+            // Conversione Metri -> KG
             return totalMeters * (material.rapportoKgMt || material.conversionFactor || 0);
         }
-        if (bomItem.unit === 'mt') {
-            return (qta * bomQty) * (material.rapportoKgMt || material.conversionFactor || 0);
-        }
-        // Se gestito in KG e BOM in pezzi
+        
+        // Conversione Pezzi -> KG
         return (qta * bomQty) * (material.conversionFactor || 0);
     }
     
     if (material.unitOfMeasure === 'mt') {
-        if (length > 0) return (qta * bomQty * length) / 1000;
+        if (lengthMm > 0) return (qta * bomQty * lengthMm) / 1000;
         if (bomItem.unit === 'mt') return qta * bomQty;
-        // Fallback pezzi se non c'è altro
         return qta * bomQty;
     }
     

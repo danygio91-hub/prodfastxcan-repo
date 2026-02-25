@@ -6,6 +6,7 @@ import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
+import type { TimeTrackingSettings } from '../time-tracking-settings/actions';
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -129,7 +130,8 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
           updatedPhases[phaseIndex].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
           updatedPhases[phaseIndex].postponed = true;
         } else {
-          updatedPhases[phaseIndex].sequence = tSnap.exists() ? (tSnap.data() as WorkPhaseTemplate).sequence : 1;
+          const tData = tSnap.exists() ? (tSnap.data() as WorkPhaseTemplate) : null;
+          updatedPhases[phaseIndex].sequence = tData ? tData.sequence : 1;
           delete updatedPhases[phaseIndex].postponed;
         }
 
@@ -250,14 +252,17 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
 export async function resetSingleCompletedJobOrder(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = doc(db, "jobOrders", jobId);
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
     
     await runTransaction(db, async (transaction) => {
-      const jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists()) throw new Error("Non trovata.");
-      const jobData = jobSnap.data() as JobOrder;
+      const itemSnap = await transaction.get(itemRef);
+      if (!itemSnap.exists()) throw new Error("Non trovata.");
+      const itemData = itemSnap.data() as JobOrder | WorkGroup;
 
-      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains", jobId));
+      const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
+
+      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", jobIds));
       const wSnap = await getDocs(withdrawalsQuery);
       
       const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
@@ -276,27 +281,53 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
         transaction.delete(wd.ref);
       }
 
-      const updatedPhases: JobPhase[] = (jobData.phases || []).map(p => ({
-          ...p,
-          status: 'pending' as const,
-          workPeriods: [],
-          materialConsumptions: [],
-          qualityResult: null,
-          materialReady: p.isIndependent || p.type === 'preparation',
-      }));
-      
-      transaction.update(jobRef, {
-        status: 'planned',
-        overallStartTime: null,
-        overallEndTime: null,
-        isProblemReported: false,
-        phases: updatedPhases,
-        workGroupId: deleteField(),
-      });
+      if (isGroup) {
+          const gData = itemData as WorkGroup;
+          (gData.jobOrderIds || []).forEach(id => {
+              const jRef = doc(db, 'jobOrders', id);
+              const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({
+                  ...p,
+                  status: 'pending' as const,
+                  workPeriods: [],
+                  materialConsumptions: [],
+                  qualityResult: null,
+                  materialReady: p.isIndependent || p.type === 'preparation',
+              }));
+              transaction.update(jRef, {
+                  status: 'planned',
+                  overallStartTime: null,
+                  overallEndTime: null,
+                  isProblemReported: false,
+                  phases: updatedPhases,
+                  workGroupId: deleteField(),
+              });
+          });
+          transaction.delete(itemRef);
+      } else {
+          const jData = itemData as JobOrder;
+          const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({
+              ...p,
+              status: 'pending' as const,
+              workPeriods: [],
+              materialConsumptions: [],
+              qualityResult: null,
+              materialReady: p.isIndependent || p.type === 'preparation',
+          }));
+          
+          transaction.update(itemRef, {
+            status: 'planned',
+            overallStartTime: null,
+            overallEndTime: null,
+            isProblemReported: false,
+            phases: updatedPhases,
+            workGroupId: deleteField(),
+          });
+      }
     });
 
     revalidatePath('/admin/production-console');
-    return { success: true, message: `Commessa resettata.` };
+    revalidatePath('/admin/data-management');
+    return { success: true, message: `Elemento resettato.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
@@ -371,10 +402,25 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const batch = writeBatch(db);
-  jobIds.forEach(id => batch.update(doc(db, 'jobOrders', id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true }));
+  jobIds.forEach(id => {
+      const isG = id.startsWith('group-');
+      batch.update(doc(db, isG ? 'workGroups' : 'jobOrders', id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
+  });
   await batch.commit();
   revalidatePath('/admin/production-console');
   return { success: true, message: 'Completato.' };
+}
+
+export async function forceFinishMultipleProduction(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
+    await ensureAdmin(uid);
+    try {
+        for (const id of jobIds) {
+            await forceFinishProduction(id, uid);
+        }
+        return { success: true, message: 'Completato.' };
+    } catch (e) {
+        return { success: false, message: 'Errore durante la procedura massiva.' };
+    }
 }
     
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {

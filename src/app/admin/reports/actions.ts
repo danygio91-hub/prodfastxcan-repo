@@ -69,14 +69,10 @@ export async function getJobsReport() {
 
     const operatorsMap = new Map<string, Operator>();
     if (allOperatorIds.length > 0) {
-        // Firestore 'in' query is limited to 30 elements.
-        const chunks = [];
-        for (let i = 0; i < allOperatorIds.length; i += 30) {
-            chunks.push(allOperatorIds.slice(i, i + 30));
-        }
-
-        for (const chunk of chunks) {
-             if (chunk.length > 0) {
+        const CHUNK_SIZE = 30;
+        for (let i = 0; i < allOperatorIds.length; i += CHUNK_SIZE) {
+            const chunk = allOperatorIds.slice(i, i + 30);
+            if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
@@ -335,7 +331,7 @@ export async function getJobDetailReport(jobId: string) {
         const chunks = [];
         const CHUNK_SIZE = 30;
         for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
-            chunks.push(operatorIds.slice(i, i + CHUNK_SIZE));
+            chunks.push(operatorIds.slice(i, i + 30));
         }
         for (const chunk of chunks) {
              if (chunk.length > 0) {

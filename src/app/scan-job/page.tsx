@@ -937,9 +937,9 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && 'workGroupId' in result) {
+        if (result.success && 'workGroupId' in result && result.workGroupId) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId!);
+            setActiveJobId(result.workGroupId);
         } else {
             toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message || 'Errore sconosciuto.' });
         }
