@@ -185,6 +185,16 @@ export default function RawMaterialManagementClientPage({
   initialCommitments, 
   initialDepartments 
 }: RawMaterialManagementClientPageProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const codeFromUrl = searchParams.get('code');
+  
+  const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
+  const [isPending, setIsPending] = useState(false);
+  const [isCommitmentDialogOpen, setIsCommitmentDialogOpen] = useState(false);
+  const [commitmentDetails, setCommitmentDetails] = useState<CommitmentDetail[]>([]);
+  const [isLoadingCommitment, setIsLoadingCommitment] = useState(false);
+  const [activeMaterialForDetails, setActiveMaterialForDetails] = useState<string | null>(null);
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
@@ -196,16 +206,6 @@ export default function RawMaterialManagementClientPage({
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
   
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const codeFromUrl = searchParams.get('code');
-  const [searchTerm, setSearchTerm] = useState(codeFromUrl || '');
-  const [isPending, setIsPending] = useState(false);
-  const [isCommitmentDialogOpen, setIsCommitmentDialogOpen] = useState(false);
-  const [commitmentDetails, setCommitmentDetails] = useState<CommitmentDetail[]>([]);
-  const [isLoadingCommitment, setIsLoadingCommitment] = useState(false);
-  const [activeMaterialForDetails, setActiveMaterialForDetails] = useState<string | null>(null);
-
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof rawMaterialFormSchema>>({

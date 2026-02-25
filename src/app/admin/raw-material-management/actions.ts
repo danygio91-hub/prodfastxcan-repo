@@ -72,12 +72,16 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
         totalInBaseUnit = qta * bomQty;
     }
 
+    // Se il magazzino è in KG, dobbiamo convertire qualsiasi unità (N o MT) in KG
     if (material.unitOfMeasure === 'kg') {
         if (baseUnit === 'kg') return totalInBaseUnit;
+        
+        // Se abbiamo metri (perché definiti in BOM o derivanti da lunghezza taglio)
         if (baseUnit === 'mt' || length > 0) {
             const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
             return totalInBaseUnit * ratio;
         } else {
+            // Conversione pezzi -> kg
             return totalInBaseUnit * (Number(material.conversionFactor) || 0);
         }
     }
@@ -149,21 +153,35 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
       const newQty = Number(rawData.netQuantity);
       let newWeight = material.unitOfMeasure === 'kg' ? newQty : (material.conversionFactor ? newQty * material.conversionFactor : 0);
 
-      batches[idx] = { ...old, date: new Date(rawData.date as string).toISOString(), ddt: (rawData.ddt as string) || old.ddt, lotto: (rawData.lotto as string) || old.lotto, netQuantity: newQty, grossWeight: newWeight + (old.tareWeight || 0) };
+      batches[idx] = { 
+        ...old, 
+        date: new Date(rawData.date as string).toISOString(), 
+        ddt: (rawData.ddt as string) || old.ddt, 
+        lotto: (rawData.lotto as string) || old.lotto, 
+        netQuantity: newQty, 
+        grossWeight: newWeight + (old.tareWeight || 0) 
+      };
       
       const diffU = newQty - old.netQuantity;
       const diffW = newWeight - (old.grossWeight - (old.tareWeight || 0));
 
-      transaction.update(materialRef, { batches, currentStockUnits: (material.currentStockUnits || 0) + diffU, currentWeightKg: (material.currentWeightKg || 0) + diffW });
+      transaction.update(materialRef, { 
+        batches, 
+        currentStockUnits: (material.currentStockUnits || 0) + diffU, 
+        currentWeightKg: (material.currentWeightKg || 0) + diffW 
+      });
     });
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Lotto aggiornato.' };
-  } catch (e) { return { success: false, message: 'Errore aggiornamento.' }; }
+  } catch (e) { 
+    return { success: false, message: e instanceof Error ? e.message : 'Errore aggiornamento.' }; 
+  }
 }
 
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
-  const materialRef = doc(db, "rawMaterials", rawData.materialId as string);
+  const materialId = rawData.materialId as string;
+  const materialRef = doc(db, "rawMaterials", materialId);
   try {
       await runTransaction(db, async (transaction) => {
           const docSnap = await transaction.get(materialRef);
@@ -171,12 +189,28 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const material = docSnap.data() as RawMaterial;
           const netQty = Number(rawData.netQuantity);
           let netWeight = material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0);
-          const newBatch: RawMaterialBatch = { id: `batch-${Date.now()}`, date: new Date(rawData.date as string).toISOString(), ddt: (rawData.ddt as string) || 'CARICO_MANUALE', netQuantity: netQty, tareWeight: 0, grossWeight: netWeight, lotto: (rawData.lotto as string) || null };
-          transaction.update(materialRef, { batches: [...(material.batches || []), newBatch], currentStockUnits: (material.currentStockUnits || 0) + netQty, currentWeightKg: (material.currentWeightKg || 0) + netWeight });
+          
+          const newBatch: RawMaterialBatch = { 
+            id: `batch-${Date.now()}`, 
+            date: new Date(rawData.date as string).toISOString(), 
+            ddt: (rawData.ddt as string) || 'CARICO_MANUALE', 
+            netQuantity: netQty, 
+            tareWeight: 0, 
+            grossWeight: netWeight, 
+            lotto: (rawData.lotto as string) || null 
+          };
+          
+          transaction.update(materialRef, { 
+            batches: [...(material.batches || []), newBatch], 
+            currentStockUnits: (material.currentStockUnits || 0) + netQty, 
+            currentWeightKg: (material.currentWeightKg || 0) + netWeight 
+          });
       });
       revalidatePath('/admin/raw-material-management');
       return { success: true, message: 'Lotto aggiunto.' };
-  } catch (error) { return { success: false, message: 'Errore.' }; }
+  } catch (error) { 
+    return { success: false, message: error instanceof Error ? error.message : 'Errore.' }; 
+  }
 }
 
 export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; }> {
@@ -188,11 +222,18 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             const material = docSnap.data() as RawMaterial;
             const batch = (material.batches || []).find(b => b.id === batchId);
             if (!batch) throw new Error("Lotto non trovato.");
-            transaction.update(materialRef, { batches: material.batches.filter(b => b.id !== batchId), currentStockUnits: (material.currentStockUnits || 0) - batch.netQuantity, currentWeightKg: (material.currentWeightKg || 0) - (batch.grossWeight - batch.tareWeight) });
+            
+            transaction.update(materialRef, { 
+                batches: material.batches.filter(b => b.id !== batchId), 
+                currentStockUnits: (material.currentStockUnits || 0) - batch.netQuantity, 
+                currentWeightKg: (material.currentWeightKg || 0) - (batch.grossWeight - batch.tareWeight) 
+            });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Lotto eliminato.' };
-    } catch (e) { return { success: false, message: 'Errore.' }; }
+    } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
+    }
 }
 
 export async function deleteRawMaterial(id: string): Promise<{ success: boolean; message: string }> {
@@ -219,6 +260,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
     } else if (searchTerm !== undefined) { return []; }
     else { mq = firestoreQuery(materialsCol, orderBy("code_normalized"), limit(50)); }
 
+    // FETCH NECESSARI PER IL CALCOLO DELL'IMPEGNATO
     const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
         getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(mq),
@@ -227,6 +269,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
+    // Mappa di TUTTE le materie prime per conversioni BOM accurate
     const allMaterialsSnap = await getDocs(collection(db, "rawMaterials"));
     const codeToMat = new Map<string, RawMaterial>();
     allMaterialsSnap.forEach(docSnap => {
@@ -238,6 +281,8 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
     articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
 
     const impMap = new Map<string, number>();
+    
+    // 1. Impegnato da Commesse Standard
     jobsSnap.forEach(d => {
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
@@ -252,6 +297,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         });
     });
 
+    // 2. Impegnato da Impegni Manuali
     commitmentsSnap.forEach(d => {
         const comm = d.data() as ManualCommitment;
         const artCode = comm.articleCode.toLowerCase().trim();
@@ -267,7 +313,9 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
             });
         } else {
             const mat = codeToMat.get(artCode);
-            if (mat) { impMap.set(artCode, (impMap.get(artCode) || 0) + comm.quantity); }
+            if (mat) { 
+                impMap.set(artCode, (impMap.get(artCode) || 0) + comm.quantity); 
+            }
         }
     });
 
@@ -285,7 +333,16 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         const stock = m.currentStockUnits || 0;
         const imp = impMap.get(normCode) || 0;
         const ord = ordMap.get(normCode) || 0;
-        return { id: m.id, code: m.code, description: m.description, stock, impegnato: imp, disponibile: stock - imp, ordinato: ord, unitOfMeasure: m.unitOfMeasure };
+        return { 
+            id: m.id, 
+            code: m.code, 
+            description: m.description, 
+            stock, 
+            impegnato: imp, 
+            disponibile: stock - imp, 
+            ordinato: ord, 
+            unitOfMeasure: m.unitOfMeasure 
+        };
     });
 }
 
@@ -310,7 +367,14 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         const job = d.data() as JobOrder;
         (job.billOfMaterials || []).forEach(item => {
             if (item.component.toLowerCase().trim() === norm && item.status !== 'withdrawn') {
-                details.push({ jobId: job.ordinePF, type: 'PRODUZIONE', quantity: calculateCommitmentQty(job.qta, item, mat), deliveryDate: job.dataConsegnaFinale || 'N/D', client: job.cliente || 'N/D', articleCode: job.details });
+                details.push({ 
+                    jobId: job.ordinePF, 
+                    type: 'PRODUZIONE', 
+                    quantity: calculateCommitmentQty(job.qta, item, mat), 
+                    deliveryDate: job.dataConsegnaFinale || 'N/D', 
+                    client: job.cliente || 'N/D', 
+                    articleCode: job.details 
+                });
             }
         });
     });
@@ -320,11 +384,25 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         if (art && art.billOfMaterials) {
             art.billOfMaterials.forEach((bomItem: any) => {
                 if (bomItem.component.toLowerCase().trim() === norm) {
-                    details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: calculateCommitmentQty(comm.quantity, bomItem, mat), deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
+                    details.push({ 
+                        jobId: comm.jobOrderCode, 
+                        type: 'MANUALE', 
+                        quantity: calculateCommitmentQty(comm.quantity, bomItem, mat), 
+                        deliveryDate: comm.deliveryDate || 'N/D', 
+                        client: 'N/D', 
+                        articleCode: comm.articleCode 
+                    });
                 }
             });
         } else if (comm.articleCode.toLowerCase().trim() === norm) {
-            details.push({ jobId: comm.jobOrderCode, type: 'MANUALE', quantity: comm.quantity, deliveryDate: comm.deliveryDate || 'N/D', client: 'N/D', articleCode: comm.articleCode });
+            details.push({ 
+                jobId: comm.jobOrderCode, 
+                type: 'MANUALE', 
+                quantity: comm.quantity, 
+                deliveryDate: comm.deliveryDate || 'N/D', 
+                client: 'N/D', 
+                articleCode: comm.articleCode 
+            });
         }
     });
     return details.sort((a, b) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''));
@@ -349,42 +427,91 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             const wSnap = await t.get(ref);
             if (!wSnap.exists()) throw new Error("Prelievo non trovato.");
             const w = wSnap.data() as MaterialWithdrawal;
+            
             const mRef = doc(db, "rawMaterials", w.materialId);
             const mSnap = await t.get(mRef);
+            
             if (mSnap.exists()) {
                 const m = mSnap.data() as RawMaterial;
-                t.update(mRef, { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) });
+                t.update(mRef, { 
+                    currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, 
+                    currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) 
+                });
             }
             t.delete(ref);
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: 'Stornato.' };
-    } catch (e) { return { success: false, message: 'Errore.' }; }
+    } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
+    }
 }
 
 export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
   try {
     await ensureAdmin(uid);
-    const opDoc = await getDoc(doc(db, "operators", uid));
-    const op = opDoc.data() as Operator;
-    if (!op) throw new Error("Profilo operatore non trovato.");
+    
+    // READS
+    const opSnap = await getDoc(doc(db, "operators", uid));
+    const cRef = doc(db, "manualCommitments", id);
+    const cSnap = await getDoc(cRef);
+    
+    if (!opSnap.exists()) throw new Error("Profilo operatore non trovato.");
+    if (!cSnap.exists()) throw new Error("Impegno non trovato.");
+    
+    const op = opSnap.data() as Operator;
+    const c = cSnap.data() as ManualCommitment;
 
     await runTransaction(db, async (t) => {
-      const cRef = doc(db, "manualCommitments", id);
-      const c = (await t.get(cRef)).data() as ManualCommitment;
       for (const s of sels) {
         const mRef = doc(db, "rawMaterials", s.materialId);
-        const m = (await t.get(mRef)).data() as RawMaterial;
+        const mSnap = await t.get(mRef);
+        if (!mSnap.exists()) continue;
+        
+        const m = mSnap.data() as RawMaterial;
         let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
-        t.update(mRef, { currentStockUnits: (m.currentStockUnits || 0) - s.consumed, currentWeightKg: (m.currentWeightKg || 0) - w });
-        t.set(doc(collection(db, "materialWithdrawals")), { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: op.nome, withdrawalDate: Timestamp.now(), lotto: s.lotto, commitmentId: id });
+        
+        t.update(mRef, { 
+            currentStockUnits: (m.currentStockUnits || 0) - s.consumed, 
+            currentWeightKg: (m.currentWeightKg || 0) - w 
+        });
+        
+        const wRef = doc(collection(db, "materialWithdrawals"));
+        t.set(wRef, { 
+            jobOrderPFs: [c.jobOrderCode], 
+            jobIds: [], 
+            materialId: s.materialId, 
+            materialCode: s.componentCode, 
+            consumedWeight: w, 
+            consumedUnits: s.consumed, 
+            operatorId: uid, 
+            operatorName: op.nome, 
+            withdrawalDate: Timestamp.now(), 
+            lotto: s.lotto, 
+            commitmentId: id 
+        });
       }
-      if (scrap > 0) t.set(doc(collection(db, "scrapRecords")), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: Timestamp.now(), operatorId: uid, operatorName: op.nome });
+      
+      if (scrap > 0) {
+          t.set(doc(collection(db, "scrapRecords")), { 
+              commitmentId: id, 
+              jobOrderCode: c.jobOrderCode, 
+              articleCode: c.articleCode, 
+              scrappedQuantity: scrap, 
+              declaredAt: Timestamp.now(), 
+              operatorId: uid, 
+              operatorName: op.nome 
+          });
+      }
+      
       t.update(cRef, { status: 'fulfilled', fulfilledAt: Timestamp.now(), fulfilledBy: uid });
     });
+    
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: "Evaso." };
-  } catch (e) { return { success: false, message: e instanceof Error ? e.message : "Errore." }; }
+  } catch (e) { 
+    return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
+  }
 }
 
 export async function revertManualCommitmentFulfillment(id: string, uid: string) {
@@ -392,29 +519,42 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
     try {
         await runTransaction(db, async (t) => {
             const wq = firestoreQuery(collection(db, "materialWithdrawals"), where("commitmentId", "==", id));
-            const ws = await getDocs(wq);
+            const sq = firestoreQuery(collection(db, "scrapRecords"), where("commitmentId", "==", id));
+            
+            const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
+            
             for (const wd of ws.docs) {
                 const w = wd.data() as MaterialWithdrawal;
                 const mRef = doc(db, "rawMaterials", w.materialId);
                 const mSnap = await t.get(mRef);
                 if (mSnap.exists()) {
                     const m = mSnap.data() as RawMaterial;
-                    t.update(mRef, { currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight });
+                    t.update(mRef, { 
+                        currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), 
+                        currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight 
+                    });
                 }
                 t.delete(wd.ref);
             }
-            const sq = firestoreQuery(collection(db, "scrapRecords"), where("commitmentId", "==", id));
-            (await getDocs(sq)).forEach(d => t.delete(d.ref));
+            
+            ss.forEach(d => t.delete(d.ref));
             t.update(doc(db, "manualCommitments", id), { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField() });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Annullato." };
-    } catch (e) { return { success: false, message: "Errore." }; }
+    } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
+    }
 }
 
 export async function saveManualCommitment(data: any, uid: string) {
     await ensureAdmin(uid);
-    await setDoc(doc(collection(db, "manualCommitments")), { ...data, status: 'pending', createdAt: Timestamp.now(), deliveryDate: data.deliveryDate.toISOString() });
+    await setDoc(doc(collection(db, "manualCommitments")), { 
+        ...data, 
+        status: 'pending', 
+        createdAt: Timestamp.now(), 
+        deliveryDate: data.deliveryDate.toISOString() 
+    });
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Creato.' };
 }
@@ -429,7 +569,14 @@ export async function importManualCommitments(data: any[], uid: string) {
     await ensureAdmin(uid);
     const batch = writeBatch(db);
     data.forEach(r => {
-        batch.set(doc(collection(db, "manualCommitments")), { jobOrderCode: String(r.Commessa || ""), articleCode: String(r["Codice Articolo"] || ""), quantity: Number(r.Quantita || 0), deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), status: 'pending', createdAt: Timestamp.now() });
+        batch.set(doc(collection(db, "manualCommitments")), { 
+            jobOrderCode: String(r.Commessa || ""), 
+            articleCode: String(r["Codice Articolo"] || ""), 
+            quantity: Number(r.Quantita || 0), 
+            deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), 
+            status: 'pending', 
+            createdAt: Timestamp.now() 
+        });
     });
     await batch.commit();
     revalidatePath('/admin/raw-material-management');
@@ -449,7 +596,22 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     if (!mSnap.exists()) return [];
     const mat = mSnap.data() as RawMaterial;
     const wSnap = await getDocs(firestoreQuery(collection(db, "materialWithdrawals"), where("materialId", "==", materialId)));
-    const wByLotto = wSnap.docs.reduce((acc, d) => { const w = d.data(); const l = w.lotto || 'SENZA_LOTTO'; acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); return acc; }, {} as Record<string, number>);
-    const bByLotto = (mat.batches || []).reduce((acc, b) => { const l = b.lotto || 'SENZA_LOTTO'; if (!acc[l]) acc[l] = []; acc[l].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
-    return Object.entries(bByLotto).map(([lotto, batches]) => { const tL = batches.reduce((s, b) => s + b.netQuantity, 0); const tW = wByLotto[lotto] || 0; return { lotto, available: tL - tW, batches }; }).filter(l => l.available > 0.001);
+    const wByLotto = wSnap.docs.reduce((acc, d) => { 
+        const w = d.data(); 
+        const l = w.lotto || 'SENZA_LOTTO'; 
+        acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); 
+        return acc; 
+    }, {} as Record<string, number>);
+    const bByLotto = (mat.batches || []).reduce((acc, b) => { 
+        const l = b.lotto || 'SENZA_LOTTO'; 
+        if (!acc[l]) acc[l] = []; 
+        acc[l].push(b); 
+        return acc; 
+    }, {} as Record<string, RawMaterialBatch[]>);
+    
+    return Object.entries(bByLotto).map(([lotto, batches]) => { 
+        const tL = batches.reduce((s, b) => s + b.netQuantity, 0); 
+        const tW = wByLotto[lotto] || 0; 
+        return { lotto, available: tL - tW, batches }; 
+    }).filter(l => l.available > 0.001);
 }
