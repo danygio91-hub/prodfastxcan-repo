@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -62,7 +63,6 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     const lengthMm = Number(bomItem.lunghezzaTaglioMm) || 0;
     
     if (material.unitOfMeasure === 'kg') {
-        // Calcolo metri totali se applicabile
         let totalMeters = 0;
         if (lengthMm > 0) {
             totalMeters = (qta * bomQty * lengthMm) / 1000;
@@ -71,11 +71,9 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
         }
 
         if (totalMeters > 0) {
-            // Conversione Metri -> KG
             return totalMeters * (material.rapportoKgMt || material.conversionFactor || 0);
         }
         
-        // Conversione Pezzi -> KG
         return (qta * bomQty) * (material.conversionFactor || 0);
     }
     
@@ -85,7 +83,6 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
         return qta * bomQty;
     }
     
-    // Gestione a pezzi (N)
     return qta * bomQty;
 }
 
@@ -380,7 +377,6 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     await ensureAdmin(uid);
     
     await runTransaction(db, async (t) => {
-      // 1. ALL READS FIRST
       const opRef = doc(db, "operators", uid);
       const cRef = doc(db, "manualCommitments", id);
       const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
@@ -396,7 +392,6 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
       const opData = opSnap.exists() ? opSnap.data() as Operator : null;
       const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
 
-      // 2. ALL WRITES AFTER
       for (const s of sels) {
         const m = mDataMap.get(s.materialId);
         if (!m) throw new Error("Materia prima non trovata.");

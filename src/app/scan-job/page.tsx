@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -941,7 +942,7 @@ export default function ScanJobPage() {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
             setActiveJobId(result.workGroupId);
         } else {
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message || 'Errore sconosciuto.' });
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: ('message' in result ? result.message : 'Errore sconosciuto') });
         }
         
         setGroupScanList([]);
@@ -1378,7 +1379,7 @@ export default function ScanJobPage() {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                               <AlertDialogHeader>
-                                  <AlertDialogTitle>Sei sicuro di voler scollegare il gruppo?</AlertDialogTitle>
+                                  <AlertDialogTitle>Sei sicuro di voler scollega il gruppo?</AlertDialogTitle>
                                   <AlertDialogDescription>
                                       Questa azione è irreversibile. Le commesse torneranno individuali e verranno messe in pausa.
                                   </AlertDialogDescription>

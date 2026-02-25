@@ -1,11 +1,12 @@
+
 'use server';
 
-import { collection, getDocs, doc, getDoc, query as firestoreQuery, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query as firestoreQuery, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { getOverallStatus, type OverallStatus } from '@/lib/types';
+import { getOverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { TimeTrackingSettings } from '../time-tracking-settings/actions';
@@ -44,7 +45,6 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
     const start = new Date(period.start);
     if (isNaN(start.getTime())) return acc;
     
-    // If a period is still active, its end time is 'now'.
     const end = period.end ? new Date(period.end) : new Date();
     if (isNaN(end.getTime())) return acc;
 
@@ -60,7 +60,6 @@ export async function getJobsReport() {
     const jobsSnapshot = await getDocs(q);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
-    // Collect all unique operator IDs from all jobs
     const allOperatorIds = [...new Set(jobs.flatMap(job => 
         (job.phases || []).flatMap(phase => 
             (phase.workPeriods || []).map(wp => wp.operatorId)
@@ -324,16 +323,12 @@ export async function getJobDetailReport(jobId: string) {
     
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
 
-    // Operator mapping part
     const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))].filter(id => id && typeof id === 'string' && id.trim() !== '');
     const operatorsMap = new Map<string, string>();
     if (operatorIds.length > 0) {
-        const chunks = [];
         const CHUNK_SIZE = 30;
         for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
-            chunks.push(operatorIds.slice(i, i + 30));
-        }
-        for (const chunk of chunks) {
+            const chunk = operatorIds.slice(i, i + 30);
              if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where('id', 'in', chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
@@ -427,7 +422,6 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))].filter(id => id && typeof id === 'string' && id.trim() !== '');
     const materialIds = [...new Set(withdrawals.map(w => w.materialId))].filter(id => id && typeof id === 'string' && id.trim() !== '');
 
-    // Fetch operators (CHUNKED)
     const operatorsMap = new Map<string, Operator>();
     if (operatorIds.length > 0) {
         const CHUNK_SIZE = 30;
@@ -447,7 +441,6 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     });
 
 
-    // Fetch materials (CHUNKED)
     const materialsMap = new Map<string, RawMaterial>();
     if (materialIds.length > 0) {
         const CHUNK_SIZE = 30;
