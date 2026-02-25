@@ -79,8 +79,9 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
         if (baseUnit === 'kg') return totalInBaseUnit;
 
         if (baseUnit === 'mt' || length > 0) {
-            // Se abbiamo metri, usiamo il rapportoKgMt
-            return totalInBaseUnit * (Number(material.rapportoKgMt) || 0);
+            // Se abbiamo metri, usiamo il rapportoKgMt (prioritario) o il conversionFactor come fallback
+            const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
+            return totalInBaseUnit * ratio;
         } else {
             // Se abbiamo pezzi, usiamo il conversionFactor
             return totalInBaseUnit * (Number(material.conversionFactor) || 0);
@@ -232,8 +233,10 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
+    // Creiamo una mappa di TUTTI i materiali per avere i fattori di conversione sempre pronti
+    const allMaterialsSnap = await getDocs(collection(db, "rawMaterials"));
     const codeToMat = new Map<string, RawMaterial>();
-    materialsSnap.forEach(docSnap => {
+    allMaterialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
         codeToMat.set(data.code.toLowerCase().trim(), { ...data, id: docSnap.id });
     });
@@ -283,10 +286,12 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         if (rem > 0) ordMap.set(code, (ordMap.get(code) || 0) + rem);
     });
 
-    return Array.from(codeToMat.values()).map(m => {
+    return materialsSnap.docs.map(docSnap => {
+        const m = { ...docSnap.data(), id: docSnap.id } as RawMaterial;
+        const normCode = m.code.toLowerCase().trim();
         const stock = m.currentStockUnits || 0;
-        const imp = impMap.get(m.code.toLowerCase().trim()) || 0;
-        const ord = ordMap.get(m.code.toLowerCase().trim()) || 0;
+        const imp = impMap.get(normCode) || 0;
+        const ord = ordMap.get(normCode) || 0;
         return { id: m.id, code: m.code, description: m.description, stock, impegnato: imp, disponibile: stock - imp, ordinato: ord, unitOfMeasure: m.unitOfMeasure };
     });
 }

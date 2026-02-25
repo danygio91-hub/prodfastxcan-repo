@@ -165,7 +165,8 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     revalidatePath('/scan-job');
     return { success: true, message: 'Sessione chiusa.' };
   } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore durante la chiusura.' }; 
+      const msg = e instanceof Error ? e.message : 'Errore durante la chiusura.';
+      return { success: false, message: msg }; 
   }
 }
 
@@ -176,9 +177,13 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
   const isG = jobId.startsWith('group-');
   try {
     await runTransaction(db, async (t) => {
-        const mSnap = await t.get(doc(db, "rawMaterials", data.materialId as string));
+        const materialId = data.materialId as string;
+        const operatorId = data.operatorId as string;
+        if (!materialId || !operatorId) throw new Error("Dati materiale o operatore mancanti.");
+
+        const mSnap = await t.get(doc(db, "rawMaterials", materialId));
         const itemSnap = await t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId));
-        const opSnap = await t.get(doc(db, "operators", data.operatorId as string));
+        const opSnap = await t.get(doc(db, "operators", operatorId));
         
         if (!mSnap.exists()) throw new Error("Materia prima non trovata.");
         if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato.");
@@ -195,8 +200,9 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         
         const wRef = doc(collection(db, "materialWithdrawals"));
         const jobPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'];
+        const jobIds = isG ? (item as any).jobOrderIds || [] : [jobId];
         
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs.filter(Boolean), materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId as string, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
+        t.set(wRef, { jobIds: jobIds.filter(Boolean), jobOrderPFs: jobPFs.filter(Boolean), materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         
         const pIdx = (item.phases || []).findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {
@@ -211,7 +217,8 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
     revalidatePath('/scan-job');
     return { success: true, message: 'Scarico registrato.' };
   } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore registrazione prelievo.' }; 
+      const msg = e instanceof Error ? e.message : 'Errore registrazione prelievo.';
+      return { success: false, message: msg }; 
   }
 }
 
