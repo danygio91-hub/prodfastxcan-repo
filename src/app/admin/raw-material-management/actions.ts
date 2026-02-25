@@ -156,11 +156,11 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
   try {
     await runTransaction(db, async (transaction) => {
       const docSnap = await transaction.get(materialRef);
-      if (!docSnap.exists()) throw new Error('Materiale non trovato.');
+      if (!docSnap.exists()) throw new Error('Materia prima non trovata per ID: ' + materialId);
       const material = docSnap.data() as RawMaterial;
       const batches = [...(material.batches || [])];
       const idx = batches.findIndex(b => b.id === batchId);
-      if (idx === -1) throw new Error('Lotto non trovato.');
+      if (idx === -1) throw new Error('Lotto non trovato per ID: ' + batchId);
 
       const old = batches[idx];
       const newQty = Number(rawData.netQuantity);
@@ -185,9 +185,9 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
       });
     });
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Lotto aggiornato.' };
+    return { success: true, message: 'Lotto aggiornato con successo.' };
   } catch (e) { 
-    return { success: false, message: e instanceof Error ? e.message : 'Errore aggiornamento.' }; 
+    return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'aggiornamento del lotto.' }; 
   }
 }
 
@@ -198,7 +198,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   try {
       await runTransaction(db, async (transaction) => {
           const docSnap = await transaction.get(materialRef);
-          if (!docSnap.exists()) throw new Error('Materia prima non trovata.');
+          if (!docSnap.exists()) throw new Error('Materia prima non trovata per ID: ' + materialId);
           const material = docSnap.data() as RawMaterial;
           const netQty = Number(rawData.netQuantity);
           let netWeight = material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0);
@@ -220,9 +220,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           });
       });
       revalidatePath('/admin/raw-material-management');
-      return { success: true, message: 'Lotto aggiunto.' };
+      return { success: true, message: 'Lotto aggiunto con successo.' };
   } catch (error) { 
-    return { success: false, message: error instanceof Error ? error.message : 'Errore.' }; 
+    return { success: false, message: error instanceof Error ? error.message : 'Errore durante l\'aggiunta del lotto.' }; 
   }
 }
 
@@ -231,10 +231,10 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
     try {
         await runTransaction(db, async (transaction) => {
             const docSnap = await transaction.get(materialRef);
-            if (!docSnap.exists()) throw new Error("Materiale non trovato.");
+            if (!docSnap.exists()) throw new Error("Materia prima non trovata per ID: " + materialId);
             const material = docSnap.data() as RawMaterial;
             const batch = (material.batches || []).find(b => b.id === batchId);
-            if (!batch) throw new Error("Lotto non trovato.");
+            if (!batch) throw new Error("Lotto non trovato per ID: " + batchId);
             
             transaction.update(materialRef, { 
                 batches: material.batches.filter(b => b.id !== batchId), 
@@ -243,9 +243,9 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
             });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Lotto eliminato.' };
+        return { success: true, message: 'Lotto eliminato con successo.' };
     } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'eliminazione del lotto.' }; 
     }
 }
 
@@ -450,9 +450,9 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
             t.delete(ref);
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Stornato con successo.' };
+        return { success: true, message: 'Prelievo stornato e stock ripristinato.' };
     } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore durante lo storno.' }; 
     }
 }
 
@@ -460,23 +460,23 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
   try {
     await ensureAdmin(uid);
     const opSnap = await getDoc(doc(db, "operators", uid));
-    const op = opSnap.exists() ? opSnap.data() as Operator : null;
+    const opData = opSnap.exists() ? opSnap.data() as Operator : null;
     
     await runTransaction(db, async (t) => {
-      // 1. READ ALL NECESSARY DATA FIRST
+      // 1. ESECUZIONE TUTTE LE LETTURE ALL'INIZIO
       const cRef = doc(db, "manualCommitments", id);
       const cSnap = await t.get(cRef);
-      if (!cSnap.exists()) throw new Error("Impegno non trovato.");
+      if (!cSnap.exists()) throw new Error("Impegno manuale non trovato.");
       const c = cSnap.data() as ManualCommitment;
 
       const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
       const mSnaps = await Promise.all(mRefs.map(ref => t.get(ref)));
       const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
 
-      // 2. NOW PERFORM ALL WRITES
+      // 2. ESECUZIONE TUTTE LE SCRITTURE DOPO LE LETTURE
       for (const s of sels) {
         const m = mDataMap.get(s.materialId);
-        if (!m) continue;
+        if (!m) throw new Error("Materia prima non trovata per ID: " + s.materialId);
         
         let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
         
@@ -494,7 +494,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
             consumedWeight: w, 
             consumedUnits: s.consumed, 
             operatorId: uid, 
-            operatorName: op?.nome || 'Sconosciuto', 
+            operatorName: opData?.nome || 'Admin', 
             withdrawalDate: Timestamp.now(), 
             lotto: s.lotto, 
             commitmentId: id 
@@ -509,7 +509,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
               scrappedQuantity: scrap, 
               declaredAt: Timestamp.now(), 
               operatorId: uid, 
-              operatorName: op?.nome || 'Sconosciuto' 
+              operatorName: opData?.nome || 'Admin' 
           });
       }
       
@@ -517,9 +517,9 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     });
     
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: "Evaso correttamente." };
+    return { success: true, message: "Evasione registrata con successo." };
   } catch (e) { 
-    return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
+    return { success: false, message: e instanceof Error ? e.message : "Errore durante l'evasione." }; 
   }
 }
 
@@ -531,8 +531,8 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
         const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
 
         await runTransaction(db, async (t) => {
-            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))];
-            const mSnaps = await Promise.all(mIds.map(mid => t.get(doc(db, "rawMaterials", mid))));
+            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean);
+            const mSnaps = await Promise.all(mIds.map(mid => t.get(doc(db, "rawMaterials", mid!))));
             const mMap = new Map(mSnaps.map(s => [s.id, s.exists() ? s.data() as RawMaterial : null]));
 
             for (const wd of ws.docs) {
@@ -551,9 +551,9 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
             t.update(doc(db, "manualCommitments", id), { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField() });
         });
         revalidatePath('/admin/raw-material-management');
-        return { success: true, message: "Annullato con successo." };
+        return { success: true, message: "Evasione annullata correttamente." };
     } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : "Errore." }; 
+      return { success: false, message: e instanceof Error ? e.message : "Errore nell'annullamento dell'evasione." }; 
     }
 }
 
@@ -566,13 +566,13 @@ export async function saveManualCommitment(data: any, uid: string) {
         deliveryDate: data.deliveryDate.toISOString() 
     });
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Creato con successo.' };
+    return { success: true, message: 'Impegno manuale creato con successo.' };
 }
 
 export async function deleteManualCommitment(id: string) {
     await deleteDoc(doc(db, "manualCommitments", id));
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Eliminato.' };
+    return { success: true, message: 'Impegno eliminato.' };
 }
 
 export async function importManualCommitments(data: any[], uid: string) {
@@ -580,8 +580,8 @@ export async function importManualCommitments(data: any[], uid: string) {
     const batch = writeBatch(db);
     data.forEach(r => {
         batch.set(doc(collection(db, "manualCommitments")), { 
-            jobOrderCode: String(r.Commessa || ""), 
-            articleCode: String(r["Codice Articolo"] || ""), 
+            jobOrderCode: String(r.Commessa || "").trim(), 
+            articleCode: String(r["Codice Articolo"] || "").trim(), 
             quantity: Number(r.Quantita || 0), 
             deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), 
             status: 'pending', 
@@ -590,12 +590,11 @@ export async function importManualCommitments(data: any[], uid: string) {
     });
     await batch.commit();
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Importati con successo.' };
+    return { success: true, message: 'Importazione impegni completata.' };
 }
 
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
-    if (!codes.length) return [];
-    const validCodes = codes.filter(c => c && typeof c === 'string');
+    const validCodes = codes.filter(c => c && typeof c === 'string').map(c => c.trim());
     if (validCodes.length === 0) return [];
     const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", validCodes)));
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));

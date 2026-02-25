@@ -22,7 +22,7 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
   if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
   const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", trimmed.toLowerCase()));
   const snap = await getDocs(q);
-  if (snap.empty) return { error: `Materia prima non trovata.`, title: 'Materiale non Trovato' };
+  if (snap.empty) return { error: `Materia prima "${trimmed}" non trovata a sistema.`, title: 'Materiale non Trovato' };
   const material = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
   return JSON.parse(JSON.stringify(material));
 }
@@ -61,7 +61,7 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
   const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
-  if (!snap.exists()) return { error: `Commessa non trovata.`, title: 'Errore' };
+  if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
   if (job.workGroupId) {
     const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
@@ -93,7 +93,7 @@ export async function updateOperatorStatus(opId: string, jobId: string | null, p
 }
 
 export async function updateJob(job: JobOrder) {
-    if (!job || !job.id) return { success: false, message: 'Dati incompleti.' };
+    if (!job || !job.id) return { success: false, message: 'Dati commessa incompleti.' };
     job.phases = updatePhasesMaterialReadiness(job.phases || []);
     if (job.phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !job.isProblemReported) {
         job.status = 'completed';
@@ -101,73 +101,86 @@ export async function updateJob(job: JobOrder) {
     }
     await setDoc(doc(db, "jobOrders", job.id), JSON.parse(JSON.stringify(job)), { merge: true });
     revalidatePath('/scan-job');
-    return { success: true, message: 'Aggiornata.' };
+    return { success: true, message: 'Commessa aggiornata.' };
 }
 
 export async function updateWorkGroup(group: WorkGroup, opId: string) {
-    if (!group || !group.id) return { success: false, message: 'Dati incompleti.' };
+    if (!group || !group.id) return { success: false, message: 'Dati gruppo incompleti.' };
     const phases = group.phases || [];
     if (phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !group.isProblemReported) {
         return await dissolveWorkGroup(group.id, true);
     }
     group.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
-    await runTransaction(db, async (t) => {
-        // 1. ALL READS FIRST
-        const groupRef = doc(db, "workGroups", group.id);
-        const groupSnap = await t.get(groupRef);
-        if (!groupSnap.exists()) throw new Error("Gruppo non trovato.");
-
-        // 2. NOW WRITES
-        t.set(groupRef, JSON.parse(JSON.stringify(group)), { merge: true });
-        await propagateGroupUpdatesToJobs(t, group);
-    });
-    revalidatePath('/scan-job');
-    return { success: true, message: 'Gruppo aggiornato.' };
+    try {
+        await runTransaction(db, async (t) => {
+            const groupRef = doc(db, "workGroups", group.id);
+            const groupSnap = await t.get(groupRef);
+            if (!groupSnap.exists()) throw new Error("Gruppo non trovato: " + group.id);
+            t.set(groupRef, JSON.parse(JSON.stringify(group)), { merge: true });
+            await propagateGroupUpdatesToJobs(t, group);
+        });
+        revalidatePath('/scan-job');
+        return { success: true, message: 'Gruppo aggiornato.' };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'aggiornamento del gruppo.' };
+    }
 }
 
 export async function resolveJobProblem(jobId: string, uid: string) {
     await ensureAdmin(uid);
-    if (!jobId) return { success: false, message: 'ID non valido.' };
+    if (!jobId) return { success: false, message: 'ID Commessa non valido.' };
     const isG = jobId.startsWith('group-');
-    await runTransaction(db, async (t) => {
-        const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', jobId);
-        const snap = await t.get(itemRef);
-        if (!snap.exists()) throw new Error("Non trovato.");
-        const up: any = { isProblemReported: false, problemType: deleteField(), problemNotes: deleteField(), problemReportedBy: deleteField() };
-        t.update(itemRef, up);
-        if (isG) {
-            const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => { if(id) t.update(doc(db, 'jobOrders', id), up); });
-        }
-    });
-    revalidatePath('/scan-job');
-    return { success: true, message: 'Risolto.' };
+    try {
+        await runTransaction(db, async (t) => {
+            const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', jobId);
+            const snap = await t.get(itemRef);
+            if (!snap.exists()) throw new Error("Elemento non trovato: " + jobId);
+            const up: any = { isProblemReported: false, problemType: deleteField(), problemNotes: deleteField(), problemReportedBy: deleteField() };
+            t.update(itemRef, up);
+            if (isG) {
+                const data = snap.data() as WorkGroup;
+                (data.jobOrderIds || []).forEach(id => { if(id) t.update(doc(db, 'jobOrders', id), up); });
+            }
+        });
+        revalidatePath('/scan-job');
+        return { success: true, message: 'Problema risolto.' };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante la risoluzione del problema.' };
+    }
 }
 
 export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterialSessionData, closing: number, opId: string) {
-  if (!session || !opId) return { success: false, message: 'Dati mancanti.' };
+  if (!session || !opId) return { success: false, message: 'Dati sessione o operatore mancanti.' };
   try {
     const affectedRefs: any[] = [];
     if (session.originatorJobId) affectedRefs.push(doc(db, session.originatorJobId.startsWith('group-') ? 'workGroups' : 'jobOrders', session.originatorJobId));
-    (session.associatedJobs || []).forEach(j => { if (j.jobId && j.jobId !== session.originatorJobId) affectedRefs.push(doc(db, 'jobOrders', j.jobId)); });
+    (session.associatedJobs || []).forEach(j => { 
+        if (j.jobId && j.jobId !== session.originatorJobId) {
+            affectedRefs.push(doc(db, 'jobOrders', j.jobId));
+        }
+    });
 
     return await runTransaction(db, async (t) => {
-        // 1. ALL READS FIRST
+        // 1. TUTTE LE LETTURE ALL'INIZIO
+        const mRef = doc(db, "rawMaterials", session.materialId);
+        const opRef = doc(db, "operators", opId);
+        
         const [mSnap, opSnap, ...itemSnaps] = await Promise.all([
-            t.get(doc(db, "rawMaterials", session.materialId)), 
-            t.get(doc(db, "operators", opId)), 
+            t.get(mRef), 
+            t.get(opRef), 
             ...affectedRefs.map(ref => t.get(ref))
         ]);
         
-        if (!mSnap.exists()) throw new Error("Materiale non trovato.");
+        if (!mSnap.exists()) throw new Error("Materiale non trovato: " + session.materialCode);
         const mat = mSnap.data() as RawMaterial;
         const operatorName = opSnap.exists() ? opSnap.data().nome : 'Sconosciuto';
+        
         const consumedWeight = (session.grossOpeningWeight || 0) - (closing || 0);
-        if (consumedWeight < -0.001) throw new Error("Peso finale superiore all'apertura.");
+        if (consumedWeight < -0.001) throw new Error("Errore: il peso finale inserito (" + closing + "kg) è superiore a quello di apertura (" + session.grossOpeningWeight + "kg).");
         
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
-        // 2. NOW ALL WRITES
+        // 2. TUTTE LE SCRITTURE DOPO LE LETTURE
         const wRef = doc(collection(db, "materialWithdrawals"));
         t.set(wRef, { 
             jobIds: session.associatedJobs.map(j => j.jobId), 
@@ -182,7 +195,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             lotto: session.lotto || null 
         });
         
-        t.update(doc(db, "rawMaterials", session.materialId), { 
+        t.update(mRef, { 
             currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, 
             currentStockUnits: (mat.currentStockUnits || 0) - units 
         });
@@ -196,9 +209,11 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 t.update(snap.ref, { phases: phs });
             }
         });
-        return { success: true, message: 'Sessione chiusa.' };
+        return { success: true, message: 'Sessione chiusa e stock aggiornato.' };
     });
-  } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
+  } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore critico durante la chiusura della sessione.' }; 
+  }
 }
 
 export async function logTubiGuainaWithdrawal(formData: FormData) {
@@ -207,18 +222,24 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
   const materialId = data.materialId as string;
   const operatorId = data.operatorId as string;
   const phaseId = data.phaseId as string;
-  if (!jobId || !materialId || !operatorId) return { success: false, message: 'Dati incompleti.' };
+  if (!jobId || !materialId || !operatorId) return { success: false, message: 'Parametri obbligatori mancanti.' };
   
   const isG = jobId.startsWith('group-');
   try {
     return await runTransaction(db, async (t) => {
-        // 1. ALL READS FIRST
+        // 1. TUTTE LE LETTURE ALL'INIZIO
+        const mRef = doc(db, "rawMaterials", materialId);
+        const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', jobId);
+        const opRef = doc(db, "operators", operatorId);
+
         const [mSnap, itemSnap, opSnap] = await Promise.all([
-            t.get(doc(db, "rawMaterials", materialId)), 
-            t.get(doc(db, isG ? 'workGroups' : 'jobOrders', jobId)), 
-            t.get(doc(db, "operators", operatorId))
+            t.get(mRef), 
+            t.get(itemRef), 
+            t.get(opRef)
         ]);
-        if (!mSnap.exists() || !itemSnap.exists()) throw new Error("Materiale o Commessa non trovata.");
+
+        if (!mSnap.exists()) throw new Error("Materia prima non trovata: " + materialId);
+        if (!itemSnap.exists()) throw new Error("Commessa o Gruppo non trovato: " + jobId);
         
         const mat = mSnap.data() as RawMaterial;
         const item = itemSnap.data() as JobOrder;
@@ -226,16 +247,19 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const w = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
         const u = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
         
-        // 2. NOW ALL WRITES
-        t.update(doc(db, "rawMaterials", mat.id), { 
+        // 2. TUTTE LE SCRITTURE DOPO
+        t.update(mRef, { 
             currentStockUnits: (mat.currentStockUnits || 0) - u, 
             currentWeightKg: (mat.currentWeightKg || 0) - w 
         });
         
         const wRef = doc(collection(db, "materialWithdrawals"));
+        const jobIds = isG ? (item as any).jobOrderIds || [] : [jobId];
+        const jobOrderPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'];
+
         t.set(wRef, { 
-            jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], 
-            jobOrderPFs: isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'], 
+            jobIds, 
+            jobOrderPFs, 
             materialId: mat.id, 
             materialCode: mat.code, 
             consumedWeight: w, 
@@ -251,12 +275,14 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         if (idx !== -1) {
             phs[idx].materialConsumptions = [...(phs[idx].materialConsumptions || []), { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: u }];
             if (phs[idx].type === 'preparation') phs[idx].materialReady = true;
-            t.update(itemSnap.ref, { phases: phs });
+            t.update(itemRef, { phases: phs });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases: phs } as any);
         }
-        return { success: true, message: 'Scarico registrato.' };
+        return { success: true, message: 'Scarico materiale registrato.' };
     });
-  } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
+  } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore durante la registrazione dello scarico.' }; 
+  }
 }
 
 export async function findLastWeightForLotto(matId: string | undefined, lotto: string) {
@@ -284,25 +310,24 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
 }
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
-    if (!jobId || !phaseId || !opId) return { success: false, message: 'Dati mancanti.' };
+    if (!jobId || !phaseId || !opId) return { success: false, message: 'Dati scansione fase incompleti.' };
     const avail = await isOperatorActiveOnAnyJob(opId, jobId.startsWith('group-') ? jobId : undefined);
-    if (!avail.available) return { success: false, message: "Operatore occupato.", error: 'OPERATOR_BUSY' };
+    if (!avail.available) return { success: false, message: "Operatore già attivo su un'altra commessa.", error: 'OPERATOR_BUSY' };
     
     try {
         return await runTransaction(db, async (t) => {
-            // 1. READ ALL FIRST
             const isG = jobId.startsWith('group-');
             const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', jobId);
             const opRef = doc(db, 'operators', opId);
+            
             const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(opRef)]);
             
-            if (!snap.exists()) throw new Error("Non trovato.");
+            if (!snap.exists()) throw new Error("Commessa o Gruppo non trovato: " + jobId);
             const data = convertTimestampsToDates(snap.data()) as JobOrder;
             const phs = [...(data.phases || [])].sort((a, b) => a.sequence - b.sequence);
             const idx = phs.findIndex(p => p.id === phaseId);
-            if (idx === -1) throw new Error("Fase non trovata.");
+            if (idx === -1) throw new Error("Fase non trovata nell'ordine: " + phaseId);
             
-            // 2. NOW WRITES
             phs[idx].status = 'in-progress';
             if (!phs[idx].workPeriods) phs[idx].workPeriods = [];
             phs[idx].workPeriods.push({ start: new Date(), end: null, operatorId: opId });
@@ -312,9 +337,11 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
             if (isG) await propagateGroupUpdatesToJobs(t, up as any);
             t.update(opRef, { activeJobId: jobId, activePhaseName: phs[idx].name, stato: 'attivo' });
             
-            return { success: true, message: 'Avviata.' };
+            return { success: true, message: 'Fase avviata correttamente.' };
         });
-    } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
+    } catch (e) { 
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'avvio della fase.' }; 
+    }
 }
 
 export async function isOperatorActiveOnAnyJob(opId: string, currentId?: string) {
@@ -323,11 +350,19 @@ export async function isOperatorActiveOnAnyJob(opId: string, currentId?: string)
     if (!snap.exists()) return { available: true };
     const op = snap.data() as Operator;
     if (!op.activeJobId || (currentId && op.activeJobId === currentId)) return { available: true };
-    const jSnap = await getDoc(doc(db, op.activeJobId.startsWith('group-') ? 'workGroups' : 'jobOrders', op.activeJobId));
+    
+    const isGroup = op.activeJobId.startsWith('group-');
+    const jSnap = await getDoc(doc(db, isGroup ? 'workGroups' : 'jobOrders', op.activeJobId));
     let active = false;
-    if (jSnap.exists()) active = (jSnap.data().phases || []).some((p: any) => p.status === 'in-progress' && (p.workPeriods || []).some((wp: any) => wp.operatorId === opId && wp.end === null));
+    if (jSnap.exists()) {
+        active = (jSnap.data().phases || []).some((p: any) => p.status === 'in-progress' && (p.workPeriods || []).some((wp: any) => wp.operatorId === opId && wp.end === null));
+    }
     if (!active) await updateOperatorStatus(opId, null, null);
-    return { available: !active, activeJobId: active ? op.activeJobId : null, activePhaseName: active ? op.activePhaseName : null };
+    return { 
+        available: !active, 
+        activeJobId: active ? op.activeJobId : null, 
+        activePhaseName: active ? op.activePhaseName : null 
+    };
 }
 
 export async function startMaterialSessionInJob(itemId: string, phaseId: string, cons: MaterialConsumption) {
@@ -336,14 +371,16 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
         await runTransaction(db, async (t) => {
             const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', itemId);
             const snap = await t.get(itemRef);
-            if (!snap.exists()) throw new Error("Non trovato.");
+            if (!snap.exists()) throw new Error("Commessa o Gruppo non trovato: " + itemId);
             const item = snap.data() as JobOrder;
             const phs = (item.phases || []).map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), cons], materialReady: true } : p);
             t.update(itemRef, { phases: phs });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases: phs } as any);
         });
-        return { success: true, message: 'OK' };
-    } catch (e) { return { success: false, message: 'Errore.' }; }
+        return { success: true, message: 'Sessione materiale avviata.' };
+    } catch (e) { 
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'avvio della sessione.' }; 
+    }
 }
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
@@ -355,26 +392,26 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
   const isG = itemId.startsWith('group-');
   try {
     await runTransaction(db, async (t) => {
-        // READS
         const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', itemId);
         const opRef = doc(db, 'operators', uid);
         const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(opRef)]);
         
-        if (!snap.exists()) throw new Error("Non trovato.");
+        if (!snap.exists()) throw new Error("Elemento non trovato: " + itemId);
         const item = snap.data() as JobOrder;
         const phs = [...(item.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
-        if (idx === -1) throw new Error("Fase non trovata.");
+        if (idx === -1) throw new Error("Fase non trovata: " + phaseId);
         
-        // WRITES
         phs[idx].materialStatus = 'missing';
         phs[idx].materialReady = false;
+        
         if (phs[idx].status === 'in-progress') {
             const wpIdx = (phs[idx].workPeriods || []).findIndex(wp => wp.operatorId === uid && wp.end === null);
             if (wpIdx !== -1) phs[idx].workPeriods[wpIdx].end = new Date();
             if (!(phs[idx].workPeriods || []).some(wp => wp.end === null)) phs[idx].status = 'paused';
             t.update(opRef, { activeJobId: null, activePhaseName: null, stato: 'inattivo' });
         }
+        
         const up: any = { 
             phases: phs, 
             isProblemReported: true, 
@@ -386,27 +423,33 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
         t.update(itemRef, up);
         if (isG) (item.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
     });
-    return { success: true, message: 'OK' };
-  } catch (e) { return { success: false, message: 'Errore.' }; }
+    return { success: true, message: 'Mancanza materiale segnalata.' };
+  } catch (e) { 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore durante la segnalazione materiale.' }; 
+  }
 }
 
 export async function createWorkGroup(ids: string[], opId: string) {
-    if (!ids || ids.length < 2) return { success: false, message: 'Minimo 2 commesse.' };
-    const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'jobOrders', id))));
-    const jobs = docs.map(d => d.data() as JobOrder);
-    const first = jobs[0];
-    const gId = `group-${Date.now()}`;
-    const group: WorkGroup = { 
-        id: gId, jobOrderIds: ids, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opId, 
-        totalQuantity: jobs.reduce((s, j) => s + j.qta, 0), workCycleId: first.workCycleId || '', department: first.department, 
-        cliente: first.cliente, phases: first.phases, details: 'Multi-Commessa', numeroODLInterno: [...new Set(jobs.map(j => j.numeroODLInterno))].join(', '), 
-        numeroODL: [...new Set(jobs.map(j => j.numeroODL))].join(', '), dataConsegnaFinale: first.dataConsegnaFinale, ordinePF: jobs.map(j => j.ordinePF).join(', ') 
-    };
-    const batch = writeBatch(db);
-    batch.set(doc(db, 'workGroups', gId), group);
-    docs.forEach(d => batch.update(d.ref, { workGroupId: gId }));
-    await batch.commit();
-    return { success: true, message: 'OK', workGroupId: gId };
+    if (!ids || ids.length < 2) return { success: false, message: 'Selezionare almeno 2 commesse per creare un gruppo.' };
+    try {
+        const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'jobOrders', id))));
+        const jobs = docs.map(d => d.data() as JobOrder);
+        const first = jobs[0];
+        const gId = `group-${Date.now()}`;
+        const group: WorkGroup = { 
+            id: gId, jobOrderIds: ids, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opId, 
+            totalQuantity: jobs.reduce((s, j) => s + j.qta, 0), workCycleId: first.workCycleId || '', department: first.department, 
+            cliente: first.cliente, phases: first.phases, details: 'Multi-Commessa', numeroODLInterno: [...new Set(jobs.map(j => j.numeroODLInterno))].join(', '), 
+            numeroODL: [...new Set(jobs.map(j => j.numeroODL))].join(', '), dataConsegnaFinale: first.dataConsegnaFinale, ordinePF: jobs.map(j => j.ordinePF).join(', ') 
+        };
+        const batch = writeBatch(db);
+        batch.set(doc(db, 'workGroups', gId), group);
+        docs.forEach(d => batch.update(d.ref, { workGroupId: gId }));
+        await batch.commit();
+        return { success: true, message: 'Gruppo creato.', workGroupId: gId };
+    } catch (e) {
+        return { success: false, message: 'Errore durante la creazione del gruppo.' };
+    }
 }
 
 export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed') {
@@ -415,11 +458,11 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
             const isG = jobId.startsWith('group-');
             const itemRef = doc(db, isG ? 'workGroups' : 'jobOrders', jobId);
             const [snap, tSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'workPhaseTemplates', phaseId))]);
-            if (!snap.exists()) throw new Error("Non trovato.");
+            if (!snap.exists()) throw new Error("Elemento non trovato: " + jobId);
             const data = snap.data() as JobOrder;
             const phs = [...(data.phases || [])];
             const idx = phs.findIndex(p => p.id === phaseId);
-            if (idx === -1) throw new Error("Fase non trovata.");
+            if (idx === -1) throw new Error("Fase non trovata: " + phaseId);
             if (currentState === 'default') {
                 const lastProd = phs.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence).pop();
                 phs[idx].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
@@ -431,7 +474,9 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
             const up = { phases: updatePhasesMaterialReadiness(phs) };
             t.update(itemRef, up);
             if (isG) (data as any).jobOrderIds?.forEach((id: string) => { if(id) t.update(doc(db, 'jobOrders', id), up); });
-            return { success: true, message: 'OK' };
+            return { success: true, message: 'Fase spostata correttamente.' };
         });
-    } catch (e) { return { success: false, message: 'Errore.' }; }
+    } catch (e) { 
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante lo spostamento della fase.' }; 
+    }
 }

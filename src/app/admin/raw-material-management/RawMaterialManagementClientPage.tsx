@@ -225,7 +225,7 @@ export default function RawMaterialManagementClientPage({
         setRawMaterials(result.materials);
         setMaterialStatus(result.status);
       } catch (error) {
-        toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile caricare i dati.' });
+        toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile caricare i dati del magazzino.' });
       } finally {
         setIsSearching(false);
       }
@@ -292,7 +292,7 @@ export default function RawMaterialManagementClientPage({
       ];
       setMaterialMovements(combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Errore storico' });
+      toast({ variant: 'destructive', title: 'Errore nel caricamento dello storico.' });
     }
   };
 
@@ -304,7 +304,7 @@ export default function RawMaterialManagementClientPage({
       const details = await getMaterialCommitmentDetails(materialCode);
       setCommitmentDetails(details);
     } catch (e) {
-      toast({ variant: 'destructive', title: "Errore" });
+      toast({ variant: 'destructive', title: "Errore nel caricamento degli impegni." });
       setIsCommitmentDialogOpen(false);
     } finally {
       setIsLoadingCommitment(false);
@@ -316,7 +316,7 @@ export default function RawMaterialManagementClientPage({
     setIsPending(true);
     const result = await deleteRawMaterial(materialToDelete.id);
     toast({
-        title: result.success ? "Eliminato" : "Errore",
+        title: result.success ? "Materiale Eliminato" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
@@ -327,18 +327,21 @@ export default function RawMaterialManagementClientPage({
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copiato!", description: `"${text}" negli appunti.` });
+    toast({ title: "Copiato!", description: `"${text}" copiato negli appunti.` });
   };
 
-  const groupedBatchMaterial: GroupedBatches | null = selectedMaterial ? {
-    materialId: selectedMaterial.id,
-    materialCode: selectedMaterial.code,
-    materialDescription: selectedMaterial.description,
-    unitOfMeasure: selectedMaterial.unitOfMeasure,
-    currentStockUnits: selectedMaterial.currentStockUnits,
-    currentWeightKg: selectedMaterial.currentWeightKg,
-    lots: [], 
-  } : null;
+  const groupedBatchMaterial: GroupedBatches | null = useMemo(() => {
+    if (!selectedMaterial) return null;
+    return {
+        materialId: selectedMaterial.id,
+        materialCode: selectedMaterial.code,
+        materialDescription: selectedMaterial.description,
+        unitOfMeasure: selectedMaterial.unitOfMeasure,
+        currentStockUnits: selectedMaterial.currentStockUnits,
+        currentWeightKg: selectedMaterial.currentWeightKg,
+        lots: [], 
+    };
+  }, [selectedMaterial]);
 
   return (
     <div className="space-y-6">

@@ -66,7 +66,7 @@ export async function getJobsReport() {
         (job.phases || []).flatMap(phase => 
             (phase.workPeriods || []).map(wp => wp.operatorId)
         )
-    ))].filter(id => id && typeof id === 'string'); // CRITICAL: Filter out invalid IDs to prevent indexOf error
+    ))].filter(id => id && typeof id === 'string' && id.trim() !== '');
 
     const operatorsMap = new Map<string, Operator>();
     if (allOperatorIds.length > 0) {
@@ -271,7 +271,7 @@ export async function getJobDetailReport(jobId: string) {
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
 
     // Operator mapping part
-    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))].filter(id => id && typeof id === 'string');
+    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))].filter(id => id && typeof id === 'string' && id.trim() !== '');
     const operatorsMap = new Map<string, string>();
     if (operatorIds.length > 0) {
         const chunks = [];
@@ -369,8 +369,8 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     const snapshot = await getDocs(q);
     const withdrawals: EnrichedMaterialWithdrawal[] = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as EnrichedMaterialWithdrawal);
 
-    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))].filter(id => id && typeof id === 'string');
-    const materialIds = [...new Set(withdrawals.map(w => w.materialId))].filter(id => id && typeof id === 'string');
+    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))].filter(id => id && typeof id === 'string' && id.trim() !== '');
+    const materialIds = [...new Set(withdrawals.map(w => w.materialId))].filter(id => id && typeof id === 'string' && id.trim() !== '');
 
     // Fetch operators (CHUNKED)
     const operatorsMap = new Map<string, Operator>();
