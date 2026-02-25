@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, ClipboardList, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, Textarea, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw, ThumbsUp, ThumbsDown, MoveLeft, Unlock } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, ClipboardList, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, MoveLeft, ThumbsUp, ThumbsDown, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw, Unlock } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -31,17 +31,17 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, MaterialConsumption, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, WorkGroup } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem, dissolveWorkGroup } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
-import Link from 'next/link';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
+import { Textarea } from '@/components/ui/textarea';
 
 // Manual type declaration for BarcodeDetector API to ensure compilation
 interface BarcodeDetectorOptions { formats?: string[]; }
@@ -932,9 +932,9 @@ export default function ScanJobPage() {
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
         if (result.success && 'workGroupId' in result) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId as string);
+            setActiveJobId(result.workGroupId);
         } else {
-            const message = 'message' in result ? result.message : 'Errore sconosciuto';
+            const message = (result as { message?: string }).message || 'Errore sconosciuto';
             toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: message });
         }
         
