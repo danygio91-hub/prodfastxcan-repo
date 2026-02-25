@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -6,7 +7,6 @@ import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
-import type { TimeTrackingSettings } from '../time-tracking-settings/actions';
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;

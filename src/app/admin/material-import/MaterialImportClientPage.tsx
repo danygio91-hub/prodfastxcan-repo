@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useMemo } from 'react';
@@ -130,7 +131,7 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
         setParsedData(validData);
         toast({ title: 'File analizzato', description: `${validData.length} righe valide trovate.` });
       } catch (error) {
-        toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile leggere o analizzare il file.' });
+        toast({ variant: 'destructive', title: 'Errore', description: 'Impossibile leggere o analizzare le file.' });
       } finally {
         setIsProcessing(false);
       }

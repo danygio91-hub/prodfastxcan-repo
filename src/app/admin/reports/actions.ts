@@ -1,3 +1,4 @@
+
 'use server';
 
 import { collection, getDocs, doc, getDoc, query as firestoreQuery, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
@@ -161,7 +162,7 @@ export async function getOperatorsReport(targetDateString?: string) {
             id: op.id,
             name: op.nome,
             department: getDepartmentDisplay(op),
-            status: op.stato,
+            status: op.status || 'inattivo',
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
             timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),

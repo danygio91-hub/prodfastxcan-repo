@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -17,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { ListChecks, Upload, Loader2, Download, Trash2, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle, Search, CheckCircle2 } from 'lucide-react';
 import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
@@ -187,7 +190,7 @@ export default function DataManagementClientPage() {
           <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Le righe con articolo mancante sono state bloccate.</DialogDescription></DialogHeader>
           <Tabs defaultValue="valid" className="flex-1 overflow-hidden mt-4">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0 + (importReport?.jobsToUpdate.length || 0)})</TabsTrigger>
+              <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport ? (importReport.newJobs.length + importReport.jobsToUpdate.length) : 0})</TabsTrigger>
               <TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger>
             </TabsList>
             <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">

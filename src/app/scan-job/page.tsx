@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -644,7 +644,7 @@ export default function ScanJobPage() {
     if (myWorkPeriodIndex !== -1) {
         phaseToComplete.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
-        toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo su questa fase." });
+        toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo su questa fase da completare." });
         return;
     }
     
@@ -938,11 +938,11 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && 'workGroupId' in result && result.workGroupId) {
+        if (result.success && result.workGroupId) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
             setActiveJobId(result.workGroupId);
         } else {
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: ('message' in result ? result.message : 'Errore sconosciuto') });
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message || 'Errore sconosciuto' });
         }
         
         setGroupScanList([]);
