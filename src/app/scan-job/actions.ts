@@ -196,7 +196,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const wRef = doc(collection(db, "materialWithdrawals"));
         const jobPFs = isG ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'];
         
-        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs.filter(Boolean), materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
+        t.set(wRef, { jobIds: isG ? (item as any).jobOrderIds || [] : [jobId], jobOrderPFs: jobPFs.filter(Boolean), materialId: mat.id, materialCode: mat.code, consumedWeight, consumedUnits, operatorId: data.operatorId as string, operatorName: opSnap.exists() ? opSnap.data().nome : 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         
         const pIdx = (item.phases || []).findIndex(p => p.id === data.phaseId);
         if (pIdx !== -1) {

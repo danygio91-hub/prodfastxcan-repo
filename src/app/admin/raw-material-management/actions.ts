@@ -57,6 +57,8 @@ function convertTimestampsToDates(obj: any): any {
  * Gestisce correttamente la lunghezza di taglio e il rapporto KG/MT.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
+    if (!material) return 0;
+    
     const qta = Number(jobQta) || 0;
     const bomQty = Number(bomItem.quantity) || 0;
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
@@ -71,8 +73,6 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     } else {
         totalInBaseUnit = qta * bomQty;
     }
-
-    if (!material) return totalInBaseUnit;
 
     // 2. Trasformazione in KG se il magazzino è a peso
     if (material.unitOfMeasure === 'kg') {
@@ -224,39 +224,18 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
     } else if (searchTerm !== undefined) { return []; }
     else { mq = firestoreQuery(materialsCol, orderBy("code_normalized"), limit(50)); }
 
-    const [jobsSnap, materialsSnap, commitmentsSnap, withdrawalsSnap, articlesSnap, invSnap, posSnap] = await Promise.all([
+    const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
         getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(mq),
         getDocs(firestoreQuery(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
-        getDocs(collection(db, 'materialWithdrawals')),
         getDocs(collection(db, 'articles')),
-        getDocs(collection(db, 'inventoryRecords')),
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
 
-    const inventoryMap = new Map();
-    invSnap.forEach(doc => { if (doc.data().status === 'approved') inventoryMap.set(doc.id, doc.data()); });
-
-    const materialsMap = new Map<string, RawMaterial>();
     const codeToMat = new Map<string, RawMaterial>();
-    const syncBatch = writeBatch(db);
-    let syncNeeded = false;
-
     materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
-        const mat = { ...data, id: docSnap.id };
-        let changed = false;
-        const restored = (mat.batches || []).map(b => {
-            if (b.inventoryRecordId && inventoryMap.has(b.inventoryRecordId)) {
-                const inv = inventoryMap.get(b.inventoryRecordId);
-                let u = (mat.unitOfMeasure === 'kg') ? inv.netWeight : inv.netWeight / (mat.conversionFactor || 1);
-                if (Math.abs(b.netQuantity - u) > 0.001) { changed = true; return { ...b, netQuantity: u, grossWeight: inv.grossWeight, tareWeight: inv.tareWeight }; }
-            }
-            return b;
-        });
-        if (changed) { mat.batches = restored; syncNeeded = true; }
-        materialsMap.set(mat.id, mat);
-        codeToMat.set(data.code.toLowerCase().trim(), mat);
+        codeToMat.set(data.code.toLowerCase().trim(), { ...data, id: docSnap.id });
     });
 
     const articlesMap = new Map();
@@ -304,7 +283,7 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         if (rem > 0) ordMap.set(code, (ordMap.get(code) || 0) + rem);
     });
 
-    return Array.from(materialsMap.values()).map(m => {
+    return Array.from(codeToMat.values()).map(m => {
         const stock = m.currentStockUnits || 0;
         const imp = impMap.get(m.code.toLowerCase().trim()) || 0;
         const ord = ordMap.get(m.code.toLowerCase().trim()) || 0;
@@ -390,6 +369,8 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     await ensureAdmin(uid);
     const opDoc = await getDoc(doc(db, "operators", uid));
     const op = opDoc.data() as Operator;
+    if (!op) throw new Error("Profilo operatore non trovato.");
+
     await runTransaction(db, async (t) => {
       const cRef = doc(db, "manualCommitments", id);
       const c = (await t.get(cRef)).data() as ManualCommitment;
@@ -405,7 +386,7 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
     });
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: "Evaso." };
-  } catch (e) { return { success: false, message: "Errore." }; }
+  } catch (e) { return { success: false, message: e instanceof Error ? e.message : "Errore." }; }
 }
 
 export async function revertManualCommitmentFulfillment(id: string, uid: string) {
