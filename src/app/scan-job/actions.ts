@@ -489,3 +489,62 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
     return { success: false, message: "Errore." };
   }
 }
+
+export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
+  try {
+    const groupRef = doc(db, 'workGroups', groupId);
+    
+    await runTransaction(db, async (transaction) => {
+        const groupSnap = await transaction.get(groupRef);
+
+        if (!groupSnap.exists()) {
+          throw new Error("Gruppo di lavoro non trovato.");
+        }
+        
+        const groupData = groupSnap.data() as WorkGroup;
+        const jobOrderIds = groupData.jobOrderIds || [];
+        
+        if (jobOrderIds.length === 0) {
+            transaction.delete(groupRef);
+            return;
+        }
+
+        const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
+        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
+        
+        const isGroupCompleted = forceComplete;
+
+        for (const jobDoc of jobDocs) {
+             if (!jobDoc.exists()) continue;
+             
+             const newPhasesForJob: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
+             for (const phase of newPhasesForJob) {
+                phase.materialConsumptions = [];
+             }
+
+             const finalStatus = isGroupCompleted ? 'completed' : 'paused';
+                
+             transaction.update(jobDoc.ref, { 
+                workGroupId: deleteField(),
+                phases: newPhasesForJob,
+                status: finalStatus,
+                overallStartTime: groupData.overallStartTime || null,
+                overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
+                isProblemReported: groupData.isProblemReported || false,
+                problemType: groupData.problemType || deleteField(),
+                problemNotes: groupData.problemNotes || deleteField(),
+                problemReportedBy: groupData.problemReportedBy || deleteField(),
+            });
+        }
+        transaction.delete(groupRef);
+    });
+
+    revalidatePath('/admin/work-group-management');
+    revalidatePath('/admin/production-console');
+    revalidatePath('/scan-job');
+    
+    return { success: true, message: `Gruppo sciolto.` };
+  } catch (error) {
+    return { success: false, message: "Errore." };
+  }
+}

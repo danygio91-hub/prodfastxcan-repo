@@ -2,12 +2,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query, where, Timestamp, deleteField } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query as firestoreQuery, where, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkPhaseTemplate, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
-
 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
@@ -36,9 +35,6 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
     return analysisMap;
 }
 
-/**
- * Helper function to propagate state changes from a group to its member job orders.
- */
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
     
@@ -52,7 +48,6 @@ async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGrou
         transaction.update(jobRef, updatePayload);
     });
 }
-
 
 export async function forceFinishProduction(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -112,7 +107,6 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
     return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
 }
-
 
 export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
@@ -189,7 +183,6 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
     return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
 }
-
 
 export async function forcePauseOperators(jobId: string, operatorIdsToPause: string[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
@@ -344,7 +337,6 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
       return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
 }
-
 
 export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
   await ensureAdmin(uid);

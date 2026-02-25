@@ -98,7 +98,7 @@ export default function MaterialAssociationDialog({
             const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
             if (lottoData && lottoData.material) {
                 form.setValue('openingWeightManual', lottoData.netWeight);
-                form.setValue('ddt', 'Storico Lotto');
+                form.setValue('ddt', 'Ultimo Storico');
                 form.setValue('packagingId', lottoData.packagingId || 'none');
             }
         }, 800);

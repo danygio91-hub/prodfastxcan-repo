@@ -32,13 +32,12 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem, dissolveWorkGroup } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -357,7 +356,6 @@ export default function ScanJobPage() {
     } else {
         await updateJob(jobData as JobOrder);
     }
-    // After persisting, we should have a listener that updates the activeJob state automatically.
   }, [operator]);
   
   const stopCamera = useCallback(() => {
@@ -452,7 +450,6 @@ export default function ScanJobPage() {
     } else {
       stopCamera();
     }
-    // This is the cleanup function that will be called when the component unmounts or dependencies change
     return () => stopCamera();
   }, [step, isPhaseScanDialogOpen, startCamera, stopCamera]);
 
@@ -471,7 +468,6 @@ export default function ScanJobPage() {
   const handleLocalPhaseScanResult = async (scannedId: string) => {
       if (!activeJob || !operator || !phaseForPhaseScan) return;
   
-      // --- VALIDATION LOGIC ---
       if (scannedId.trim().toLowerCase() !== phaseForPhaseScan.name.toLowerCase()) {
           toast({
               variant: "destructive",
@@ -481,7 +477,6 @@ export default function ScanJobPage() {
           setIsCapturing(false);
           return;
       }
-      // --- END VALIDATION LOGIC ---
 
       setIsPhaseScanDialogOpen(false);
       stopCamera();
@@ -543,7 +538,7 @@ export default function ScanJobPage() {
     
 
     phaseToStart.status = 'in-progress';
-    phaseToStart.workstationScannedAndVerified = true; // Forced start implies verification
+    phaseToStart.workstationScannedAndVerified = true; 
     phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
     
     handleUpdateAndPersistJob(jobToUpdate);
@@ -738,7 +733,6 @@ export default function ScanJobPage() {
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
-    // Real-time listener will update the state
   };
 
 
@@ -746,7 +740,7 @@ export default function ScanJobPage() {
     if (!jobToFinalize) return;
     
     handleUpdateAndPersistJob(jobToFinalize);
-    setActiveJobId(null); // Clear current job to scan a new one
+    setActiveJobId(null); 
     
     const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
     const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
@@ -787,8 +781,7 @@ export default function ScanJobPage() {
             });
             return;
         }
-    } else if (!firstProductionPhase) { // Case where there might be no production phases
-        // Find the first non-preparation, non-completed phase and make it ready
+    } else if (!firstProductionPhase) { 
         const nextPhase = sortedPhases.find(p => p.type !== 'preparation' && p.status === 'pending');
         if (nextPhase) {
             nextPhase.materialReady = true;
@@ -809,10 +802,6 @@ export default function ScanJobPage() {
       description: `La commessa ${activeJob.id} è ora disponibile per la produzione.`,
       action: <ThumbsUp className="text-primary" />
     });
-    
-    if (operator.role !== 'supervisor') {
-      // Logic removed to prevent being kicked out
-    }
   };
 
   const handleConcludeOverallJob = () => {
@@ -874,14 +863,12 @@ export default function ScanJobPage() {
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
-    // The real-time listener will automatically update the job state.
   };
 
   const resetForNewScan = () => {
     setActiveJobId(null);
   };
     
-    // --- GROUP SCANNING LOGIC ---
     const handleGroupScan = async (data: string) => {
         const parts = data.split('@');
         if (parts.length !== 3) {
@@ -951,9 +938,9 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && 'workGroupId' in result) {
+        if (result.success && 'workGroupId' in result && result.workGroupId) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId!);
+            setActiveJobId(result.workGroupId);
         } else {
             toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: (result as any).message || 'Errore sconosciuto.' });
         }
