@@ -9,7 +9,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +21,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, CalendarDays, ClipboardList, Computer, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, LogOut, Barcode, Weight, ThumbsUp, ThumbsDown, UserCheck, ScanLine, Plus, Copy, PlusCircleIcon, Unlock, Camera, Search, MessageSquare, Users, MoveLeft, Archive, TestTube, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, ClipboardList, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, Textarea, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw, ThumbsUp, ThumbsDown, MoveLeft, Unlock } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -31,14 +31,12 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import type { JobOrder, JobPhase, WorkPeriod, RawMaterial, RawMaterialType, MaterialConsumption, Packaging, WorkGroup } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkPeriod, MaterialConsumption, WorkGroup } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem, dissolveWorkGroup } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import Link from 'next/link';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { useRouter } from 'next/navigation';
@@ -285,8 +283,8 @@ const PhaseCard = ({ phase, job, handlers }: {
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, isStatusBarHighlighted, setIsStatusBarHighlighted } = useActiveJob();
-  const { activeSessions, startSession, addJobToSession, closeSession, getSessionByMaterialId } = useActiveMaterialSession();
+  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, setIsStatusBarHighlighted } = useActiveJob();
+  const { activeSessions, startSession } = useActiveMaterialSession();
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading' | 'group_scanning'>('loading');
   const [isPending, startTransition] = useTransition();
   const [groupScanList, setGroupScanList] = useState<JobOrder[]>([]);
@@ -565,7 +563,7 @@ export default function ScanJobPage() {
       return;
     }
   
-    const myWorkPeriodIndex = phaseToPause.workPeriods.findIndex((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    const myWorkPeriodIndex = phaseToPause.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) {
       phaseToPause.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
@@ -573,7 +571,7 @@ export default function ScanJobPage() {
       return;
     }
   
-    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: WorkPeriod) => wp.end === null);
+    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: any) => wp.end === null);
     if (!isAnyoneElseWorking) {
       phaseToPause.status = 'paused';
     }
@@ -610,7 +608,7 @@ export default function ScanJobPage() {
         return;
       }
       
-      const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+      const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: any) => wp.operatorId === operator.id && wp.end === null);
       if (amIAlreadyWorking) {
         toast({ variant: "destructive", title: "Già al lavoro", description: `Stai già lavorando a questa fase.`});
         return;
@@ -640,7 +638,7 @@ export default function ScanJobPage() {
         return;
     }
 
-    const myWorkPeriodIndex = phaseToComplete.workPeriods.findIndex((wp: WorkPeriod) => wp.operatorId === operator.id && wp.end === null);
+    const myWorkPeriodIndex = phaseToComplete.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) {
         phaseToComplete.workPeriods[myWorkPeriodIndex].end = new Date();
     } else {
@@ -648,14 +646,14 @@ export default function ScanJobPage() {
         return;
     }
     
-    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: WorkPeriod) => wp.end === null);
+    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: any) => wp.end === null);
 
     if (!isAnyoneElseWorking) {
         phaseToComplete.status = 'completed';
     }
     
     const relevantSession = activeSessions.find(s => 
-        phaseToComplete.materialConsumptions?.some((mc: MaterialConsumption) => 
+        phaseToComplete.materialConsumptions?.some((mc: any) => 
             mc.materialId === s.materialId && mc.closingWeight === undefined
         )
     );
@@ -721,13 +719,7 @@ export default function ScanJobPage() {
   const handlePostponeQuality = async (phaseId: string) => {
     if (!activeJob) return;
 
-    const guainaPhase = activeJob.phases.find(p => p.id === phaseId);
-    if (!guainaPhase) return;
-
-    const firstProductionPhase = activeJob.phases.filter(p => p.type === 'production').sort((a,b) => a.sequence - b.sequence)[0];
-    const isGuainaPostponed = firstProductionPhase && guainaPhase.sequence > firstProductionPhase.sequence;
-
-    const result = await postponeQualityPhase(activeJob.id, phaseId, isGuainaPostponed ? 'postponed' : 'default');
+    const result = await postponeQualityPhase(activeJob.id, phaseId, 'default');
     toast({
         title: result.success ? "Operazione Eseguita" : "Errore",
         description: result.message,
@@ -742,8 +734,8 @@ export default function ScanJobPage() {
     handleUpdateAndPersistJob(jobToFinalize);
     setActiveJobId(null); 
     
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: any) => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: any) => mc.materialId === s.materialId));
     toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
     
     setJobToFinalize(null);
@@ -938,11 +930,12 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && result.workGroupId) {
+        if (result.success && 'workGroupId' in result) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId);
+            setActiveJobId(result.workGroupId as string);
         } else {
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message || 'Errore sconosciuto' });
+            const message = 'message' in result ? result.message : 'Errore sconosciuto';
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: message });
         }
         
         setGroupScanList([]);
@@ -964,7 +957,7 @@ export default function ScanJobPage() {
       }
     }
     
-    const handleMaterialMissing = (phaseId: string, notes: string) => {
+    const handleMaterialMissingAction = (phaseId: string, notes: string) => {
         if (!activeJob || !operator?.id) return;
         startTransition(async () => {
             const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid!, notes);
@@ -1280,8 +1273,8 @@ export default function ScanJobPage() {
 
   const renderContinueOrCloseDialog = () => {
     if (!jobToFinalize) return null;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: MaterialConsumption) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: MaterialConsumption) => mc.materialId === s.materialId));
+    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: any) => mc.closingWeight === undefined));
+    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: any) => mc.materialId === s.materialId));
 
 
     return (
@@ -1313,7 +1306,7 @@ export default function ScanJobPage() {
                 <Form {...problemForm}>
                     <form onSubmit={problemForm.handleSubmit((data) => {
                         if (materialMissingPhase) {
-                            handleMaterialMissing(materialMissingPhase.id, data.notes || '');
+                            handleMaterialMissingAction(materialMissingPhase.id, data.notes || '');
                         }
                     })}>
                         <DialogHeader>

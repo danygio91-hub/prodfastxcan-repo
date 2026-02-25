@@ -235,9 +235,10 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
 export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = doc(db, 'jobOrders', jobId);
+    const isGroup = jobId.startsWith('group-');
+    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
 
-    await updateDoc(jobRef, {
+    await updateDoc(itemRef, {
       status: 'completed',
       overallEndTime: Timestamp.now(),
       forcedCompletion: true,
@@ -469,7 +470,8 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
 
   try {
     await runTransaction(db, async (t) => {

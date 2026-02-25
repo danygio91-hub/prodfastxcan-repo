@@ -11,23 +11,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle, Search, CheckCircle2 } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle } from 'lucide-react';
 import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
-import { format, parse, isValid } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, deleteAllPlannedJobOrders, createODL, createMultipleODLs, cancelODL, cancelMultipleODLs, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
 import { useRouter } from 'next/navigation';
-import { cn } from '@/lib/utils';
 
 const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
@@ -38,7 +34,6 @@ export default function DataManagementClientPage() {
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
-  const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importReport, setImportReport] = useState<{
       newJobs: JobOrder[];
@@ -49,7 +44,6 @@ export default function DataManagementClientPage() {
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
-  const [productionSearchTerm, setProductionSearchTerm] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
