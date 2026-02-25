@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -8,25 +7,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -35,8 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ListChecks, Package, Upload, Loader2, Download, Trash2, FileText, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle, Search } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, AlertTriangle, Briefcase, XCircle, GitMerge, PlayCircle, Search, CheckCircle2 } from 'lucide-react';
 import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
 import { format, parse, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -45,9 +26,7 @@ import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrd
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
-const odlFormSchema = z.object({
-    manualOdlNumber: z.string().optional(),
-});
+const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
 
 export default function DataManagementClientPage() {
@@ -55,778 +34,197 @@ export default function DataManagementClientPage() {
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [selectedProductionRows, setSelectedProductionRows] = useState<string[]>([]);
-  const [pendingImport, setPendingImport] = useState<{ newJobs: JobOrder[]; jobsToUpdate: JobOrder[] } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
-  const router = useRouter();
-
   const [isImporting, setIsImporting] = useState(false);
+  const [importReport, setImportReport] = useState<{
+      newJobs: JobOrder[];
+      jobsToUpdate: JobOrder[];
+      blockedJobs: Array<{ row: any; reason: string }>;
+  } | null>(null);
+  
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   const [productionSearchTerm, setProductionSearchTerm] = useState('');
   
-  const form = useForm<OdlFormValues>({
-    resolver: zodResolver(odlFormSchema),
-  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+  const router = useRouter();
+  const form = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [planned, production, cycles] = await Promise.all([
-        getPlannedJobOrders(),
-        getProductionJobOrders(),
-        getWorkCycles(),
-      ]);
+      const [planned, production, cycles] = await Promise.all([getPlannedJobOrders(), getProductionJobOrders(), getWorkCycles()]);
       setPlannedJobOrders(planned);
       setProductionJobOrders(production);
       setWorkCycles(cycles);
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Errore nel Caricamento",
-        description: "Impossibile caricare i dati delle commesse.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+      toast({ variant: "destructive", title: "Errore nel Caricamento", description: "Impossibile caricare le commesse." });
+    } finally { setIsLoading(false); }
   }, [toast]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
   
-  const filteredPlannedJobs = useMemo(() => {
+  const filteredPlanned = useMemo(() => {
     if (!plannedSearchTerm) return plannedJobOrders;
-    const lowercasedFilter = plannedSearchTerm.toLowerCase();
-    return plannedJobOrders.filter(job =>
-      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
-      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
-      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.details.toLowerCase().includes(lowercasedFilter)
-    );
+    const l = plannedSearchTerm.toLowerCase();
+    return plannedJobOrders.filter(j => j.ordinePF.toLowerCase().includes(l) || j.details.toLowerCase().includes(l) || j.cliente.toLowerCase().includes(l));
   }, [plannedJobOrders, plannedSearchTerm]);
-
-  const filteredProductionJobs = useMemo(() => {
-    if (!productionSearchTerm) return productionJobOrders;
-    const lowercasedFilter = productionSearchTerm.toLowerCase();
-    return productionJobOrders.filter(job =>
-      (job.cliente?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.ordinePF.toLowerCase().includes(lowercasedFilter) ||
-      (job.numeroODL?.toLowerCase() || '').includes(lowercasedFilter) ||
-      (job.numeroODLInterno?.toLowerCase() || '').includes(lowercasedFilter) ||
-      job.details.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [productionJobOrders, productionSearchTerm]);
-
-  const workCyclesMap = useMemo(() => {
-    const map = new Map<string, string>();
-    workCycles.forEach(cycle => {
-      map.set(cycle.id, cycle.name);
-    });
-    return map;
-  }, [workCycles]);
-  
-  const refreshData = useCallback(() => {
-    fetchData();
-    setSelectedRows([]);
-    setSelectedProductionRows([]);
-  }, [fetchData]);
-
-  const handleExportPlanned = () => {
-    const dataToExport = filteredPlannedJobs.map(job => ({
-        'Cliente': job.cliente,
-        'Ordine PF': job.ordinePF,
-        'N° ODL': job.numeroODLInterno,
-        'Ordine Nr Est': job.numeroODL,
-        'Codice': job.details,
-        'Qta': job.qta,
-        'Data Consegna': job.dataConsegnaFinale,
-        'Reparto': job.department,
-        'Ciclo': job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D',
-    }));
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Commesse Pianificate");
-    XLSX.writeFile(wb, "commesse_pianificate.xlsx");
-  };
-
-  const handleExportProduction = () => {
-    const dataToExport = filteredProductionJobs.map(job => ({
-        'Cliente': job.cliente,
-        'Ordine PF': job.ordinePF,
-        'N° ODL Interno': job.numeroODLInterno,
-        'Ordine Nr Est': job.numeroODL,
-        'Codice': job.details,
-        'Qta': job.qta,
-        'Data Consegna': job.dataConsegnaFinale,
-        'Reparto': job.department,
-        'Ciclo': job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'N/D',
-    }));
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Commesse in Produzione");
-    XLSX.writeFile(wb, "commesse_in_produzione.xlsx");
-  };
-
-  
-  const handleSelectAll = (checked: boolean | 'indeterminate') => {
-    if (checked === true) {
-      setSelectedRows(filteredPlannedJobs.map(job => job.id));
-    } else {
-      setSelectedRows([]);
-    }
-  };
-
-  const handleSelectRow = (id: string) => {
-    setSelectedRows(prev =>
-      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
-    );
-  };
-
-  const handleSelectAllProduction = (checked: boolean | 'indeterminate') => {
-    if (checked === true) {
-      setSelectedProductionRows(filteredProductionJobs.map(job => job.id));
-    } else {
-      setSelectedProductionRows([]);
-    }
-  };
-
-  const handleSelectProductionRow = (id: string) => {
-    setSelectedProductionRows(prev =>
-      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
-    );
-  };
-  
-  const handleOpenCreateOdlDialog = (job: JobOrder) => {
-    setJobToProcess(job);
-    form.reset({ manualOdlNumber: '' });
-    setIsCreateOdlDialogOpen(true);
-  };
-
-  const onCreateOdlSubmit = async (data: OdlFormValues) => {
-    if (!jobToProcess) return;
-
-    const result = await createODL(jobToProcess.id, data.manualOdlNumber);
-    toast({
-      title: result.success ? "Operazione Riuscita" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-
-    if (result.success) {
-      refreshData();
-      setIsCreateOdlDialogOpen(false);
-    }
-  };
-
-  const handleCancelOdl = async (jobId: string) => {
-    const result = await cancelODL(jobId);
-    toast({
-      title: result.success ? "Operazione Riuscita" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-      refreshData();
-    }
-  };
-
-  const handleCreateSelectedOdls = async () => {
-    if (selectedRows.length === 0) return;
-    const result = await createMultipleODLs(selectedRows);
-    toast({
-        title: result.success ? "Operazione Riuscita" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-        refreshData();
-        setSelectedRows([]);
-    }
-  };
-
-   const handleCancelSelectedOdls = async () => {
-    if (selectedProductionRows.length === 0) return;
-    const result = await cancelMultipleODLs(selectedProductionRows);
-    toast({
-        title: result.success ? "Operazione Riuscita" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-        refreshData();
-        setSelectedProductionRows([]);
-    }
-  };
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsImporting(true);
-    
     try {
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) throw new Error("Nessun foglio di lavoro trovato nel file Excel.");
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: true });
       
-      const worksheet = workbook.Sheets[sheetName];
-      const json = XLSX.utils.sheet_to_json(worksheet, { raw: true });
-
-      const filteredData = json.filter((row: any) => row && Object.values(row).some(cell => cell !== null && cell !== ''));
-      if (filteredData.length === 0) {
-        toast({ variant: "destructive", title: "File Vuoto o Invalido", description: "Il file Excel non contiene righe di dati valide." });
-        return;
-      }
-
-      const headerMapping: { [key: string]: string } = {
-        'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'n° odl': 'numeroODLInternoImport',
-        'codice': 'details', 'qta': 'qta', 'data consegna': 'dataConsegnaFinale', 'data consegna prevista': 'dataConsegnaFinale',
-        'reparto': 'department', 'ciclo': 'workCycleName'
-      };
-
-      const mappedJson = filteredData.map((row: any) => {
-          const normalizedRow: { [key: string]: any } = {};
-          for (const key in row) {
-              const normalizedKey = key.trim().toLowerCase();
-              if (headerMapping[normalizedKey]) {
-                  const rawValue = row[key];
-                  if (rawValue !== null && rawValue !== undefined && rawValue !== '') {
-                      normalizedRow[headerMapping[normalizedKey]] = rawValue;
-                  }
-              }
-          }
-          if (!normalizedRow.ordinePF) return null;
+      const mapped = json.map((row: any) => {
+          const r: any = {};
+          const map: any = { 'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'n° odl': 'numeroODLInternoImport', 'codice': 'details', 'qta': 'qta', 'data consegna': 'dataConsegnaFinale', 'reparto': 'department', 'ciclo': 'workCycleName' };
+          Object.keys(row).forEach(k => { if(map[k.trim().toLowerCase()]) r[map[k.trim().toLowerCase()]] = row[k]; });
           
-          const rawDate = normalizedRow.dataConsegnaFinale;
-          if (rawDate) {
-              let parsedDate: Date | null = null;
-              if (typeof rawDate === 'number') {
-                  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                  parsedDate = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000 + new Date().getTimezoneOffset() * 60000);
-              } else if (typeof rawDate === 'string') {
-                  const formatsToTry = ['dd/MM/yyyy', 'd/M/yyyy', 'dd-MM-yyyy', 'd-M-yyyy', 'yyyy-MM-dd', 'yyyy/MM/dd', 'MM/dd/yyyy', 'M/d/yyyy'];
-                  for (const fmt of formatsToTry) {
-                      const tempDate = parse(rawDate, fmt, new Date());
-                      if (isValid(tempDate)) {
-                          parsedDate = tempDate;
-                          break;
-                      }
-                  }
-              }
-              normalizedRow.dataConsegnaFinale = parsedDate && isValid(parsedDate) ? format(parsedDate, 'yyyy-MM-dd') : undefined;
+          if (r.dataConsegnaFinale && typeof r.dataConsegnaFinale === 'number') {
+              const epoch = new Date(Date.UTC(1899, 11, 30));
+              r.dataConsegnaFinale = format(new Date(epoch.getTime() + r.dataConsegnaFinale * 86400 * 1000), 'yyyy-MM-dd');
           }
-          return normalizedRow;
-      }).filter(Boolean);
+          return r;
+      }).filter(r => r.ordinePF);
 
-      if (mappedJson.length === 0) {
-        toast({ variant: "destructive", title: "Dati non validi", description: "Nessuna riga valida trovata. Controllare che la colonna 'Ordine PF' sia presente."});
-        return;
-      }
-
-      const result = await processAndValidateImport(mappedJson as any[]);
-      
-      if (!result.success) {
-          toast({ variant: "destructive", title: "Errore Analisi File", description: result.message });
-          return;
-      }
-      
-      if (result.jobsToUpdate.length > 0) {
-          setPendingImport({ newJobs: result.newJobs, jobsToUpdate: result.jobsToUpdate });
-      } else {
-          const commitResult = await commitImportedJobOrders({ newJobs: result.newJobs, jobsToUpdate: [] });
-          toast({ title: "Importazione Completata", description: commitResult.message });
-          refreshData();
-      }
-    } catch (error) {
-       toast({ variant: "destructive", title: "Errore di Importazione", description: error instanceof Error ? error.message : "Si è verificato un errore sconosciuto." });
-    } finally {
-      setIsImporting(false);
-      if (event.target) event.target.value = "";
-    }
-  };
-  
-  const handleConfirmImport = async (overwrite: boolean) => {
-    if (!pendingImport) return;
-    const dataToCommit = {
-        newJobs: pendingImport.newJobs,
-        jobsToUpdate: overwrite ? pendingImport.jobsToUpdate : [],
-    };
-    if (dataToCommit.newJobs.length === 0 && dataToCommit.jobsToUpdate.length === 0) {
-        toast({ title: "Nessuna Azione", description: "Nessuna commessa da importare o aggiornare."});
-    } else {
-        const result = await commitImportedJobOrders(dataToCommit);
-        toast({ title: "Operazione Completata", description: result.message });
-        refreshData();
-    }
-    setPendingImport(null);
+      const result = await processAndValidateImport(mapped);
+      setImportReport(result);
+    } catch (e) {
+      toast({ variant: "destructive", title: "Errore Importazione", description: "Controlla il file Excel." });
+    } finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
-  const handleDeleteSelected = async () => {
-    if (selectedRows.length === 0) return;
-    const result = await deleteSelectedJobOrders(selectedRows);
-    if (result.success) {
-      toast({ title: "Operazione Riuscita", description: result.message });
-      refreshData();
-      setSelectedRows([]);
-    } else {
-      toast({ variant: "destructive", title: "Errore", description: result.message });
-    }
+  const handleConfirmCommit = async (overwrite: boolean) => {
+    if (!importReport) return;
+    const data = { newJobs: importReport.newJobs, jobsToUpdate: overwrite ? importReport.jobsToUpdate : [] };
+    const res = await commitImportedJobOrders(data);
+    toast({ title: "Completato", description: res.message });
+    setImportReport(null);
+    fetchData();
   };
 
-  const handleDeleteAll = async () => {
-    const result = await deleteAllPlannedJobOrders();
-    if (result.success) {
-      toast({ title: "Operazione Riuscita", description: result.message });
-      refreshData();
-      setSelectedRows([]);
-    } else {
-      toast({ variant: "destructive", title: "Errore", description: result.message });
-    }
+  const handleCreateOdl = async (values: OdlFormValues) => {
+    if (!jobToProcess) return;
+    const res = await createODL(jobToProcess.id, values.manualOdlNumber);
+    toast({ title: res.success ? "Successo" : "Bloccante", description: res.message, variant: res.success ? "default" : "destructive", duration: res.success ? 5000 : 9000 });
+    if (res.success) { setIsCreateOdlDialogOpen(false); fetchData(); }
   };
-  
-  const handleAssignCycle = async (jobId: string, cycleId: string) => {
-    const result = await updateJobOrderCycle(jobId, cycleId);
-    toast({
-      title: result.success ? "Operazione Riuscita" : "Errore",
-      description: result.message,
-      variant: result.success ? "default" : "destructive",
-    });
-    if (result.success) {
-      refreshData();
-    }
-  };
-  
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="ml-4 text-muted-foreground">Caricamento dati commesse...</p>
-      </div>
-    );
-  }
 
   return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-start gap-4 flex-wrap">
-            <header>
-                <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3">
-                    <ListChecks className="h-8 w-8 text-primary" />
-                    Gestione Dati Commesse
-                </h1>
-                <p className="text-muted-foreground mt-1">Importa, visualizza e invia le commesse in produzione.</p>
-            </header>
-            <div className="flex items-center gap-2 pt-2">
-                 <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept=".xlsx, .xls"
-                    className="hidden"
-                />
-                <Button onClick={handleImportClick} variant="outline" disabled={isImporting}>
-                {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                Importa da Excel
-                </Button>
-            </div>
+    <div className="space-y-6">
+      <header className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><ListChecks className="h-8 w-8 text-primary" />Gestione Dati Commesse</h1>
+          <p className="text-muted-foreground">Importa da Excel e invia le commesse in produzione.</p>
         </div>
+        <div className="flex gap-2">
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+          <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
+        </div>
+      </header>
 
-        <Tabs defaultValue="planned" className="mt-6">
+      <Tabs defaultValue="planned">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
+          <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
+        </TabsList>
+        <TabsContent value="planned">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} /></div>
+              {selectedRows.length > 0 && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: "Risultato Avvio", description: r.message, variant: r.success ? 'default' : 'destructive' }); fetchData(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ODL ({selectedRows.length})</Button>
+                  <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); fetchData(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina ({selectedRows.length})</Button>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Ciclo</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {filteredPlanned.map(j => (
+                    <TableRow key={j.id}>
+                      <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
+                      <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell>
+                      <TableCell>
+                        <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
+                          <SelectTrigger className="w-[180px] h-8"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+                          <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="production">
+           <Card><CardContent className="pt-6">
+              <Table>
+                <TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Codice</TableHead><TableHead>Qta</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {productionJobOrders.map(j => (
+                    <TableRow key={j.id}><TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell><TableCell className="text-right"><Button variant="destructive" size="sm" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-2 h-4 w-4" /> Annulla ODL</Button></TableCell></TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+           </CardContent></Card>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={!!importReport} onOpenChange={o => !o && setImportReport(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Le righe con articolo mancante sono state bloccate.</DialogDescription></DialogHeader>
+          <Tabs defaultValue="valid" className="flex-1 overflow-hidden mt-4">
             <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="planned">
-                    <ListChecks className="mr-2 h-4 w-4" />
-                    Commesse Pianificate
-                </TabsTrigger>
-                <TabsTrigger value="production">
-                    <Briefcase className="mr-2 h-4 w-4" />
-                    Commesse in Produzione
-                </TabsTrigger>
+              <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0 + (importReport?.jobsToUpdate.length || 0)})</TabsTrigger>
+              <TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger>
             </TabsList>
-            <TabsContent value="planned">
-                <Card className="shadow-lg">
-                <CardHeader>
-                    <div className="flex items-center justify-between flex-wrap gap-4">
-                        <div>
-                            <CardTitle className="font-headline">Elenco Commesse Pianificate</CardTitle>
-                            <CardDescription>Commesse importate e pronte per essere avviate in produzione.</CardDescription>
-                        </div>
-                        <div className="relative w-full sm:w-auto">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Cerca..."
-                                className="pl-9 w-full sm:w-64"
-                                value={plannedSearchTerm}
-                                onChange={(e) => setPlannedSearchTerm(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap pt-4">
-                        <Button variant="outline" size="sm" onClick={handleExportPlanned} disabled={plannedJobOrders.length === 0}>
-                            <Download className="mr-2 h-4 w-4" />
-                            Esporta
-                        </Button>
-                        {selectedRows.length > 0 && (
-                        <>
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white">
-                                        <PlayCircle className="mr-2 h-4 w-4" />
-                                        Avvia ODL Selezionate ({selectedRows.length})
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                    <AlertDialogTitle>Conferma Avvio ODL</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        Verrà creato o utilizzato un ODL per ciascuna delle {selectedRows.length} commesse selezionate, spostandole in produzione. Sei sicuro di voler continuare?
-                                    </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleCreateSelectedOdls}>Conferma e Avvia</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                            <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm">
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Elimina Selezionate ({selectedRows.length})
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Questa azione non può essere annullata. Verranno eliminate definitivamente {selectedRows.length} commesse pianificate.
-                                </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive hover:bg-destructive/90">Continua</AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                            </AlertDialog>
-                        </>
-                        )}
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm" disabled={plannedJobOrders.length === 0}>
-                                Svuota Elenco
-                            </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                Questa azione non può essere annullata. Verranno eliminate tutte le {plannedJobOrders.length} commesse pianificate.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDeleteAll} className="bg-destructive hover:bg-destructive/90">Sì, svuota elenco</AlertDialogAction>
-                            </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    {filteredPlannedJobs.length > 0 ? (
-                    <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader>
-                        <TableRow>
-                            <TableHead padding="checkbox">
-                            <Checkbox
-                                checked={selectedRows.length > 0 ? (selectedRows.length === filteredPlannedJobs.length ? true : 'indeterminate') : false}
-                                onCheckedChange={(checked) => handleSelectAll(checked as boolean)}
-                                aria-label="Seleziona tutte"
-                            />
-                            </TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Ordine PF</TableHead>
-                            <TableHead>N° ODL</TableHead>
-                            <TableHead>Ordine Nr Est</TableHead>
-                            <TableHead>Codice</TableHead>
-                            <TableHead>Qta</TableHead>
-                            <TableHead>Data Consegna</TableHead>
-                            <TableHead>Reparto</TableHead>
-                            <TableHead>Ciclo</TableHead>
-                            <TableHead>Azioni</TableHead>
-                        </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                        {filteredPlannedJobs.map((job) => (
-                            <TableRow key={job.id} data-state={selectedRows.includes(job.id) ? "selected" : undefined}>
-                            <TableCell padding="checkbox">
-                                <Checkbox
-                                checked={selectedRows.includes(job.id)}
-                                onCheckedChange={() => handleSelectRow(job.id)}
-                                aria-label={`Seleziona commessa ${job.id}`}
-                                />
-                            </TableCell>
-                            <TableCell>{job.cliente}</TableCell>
-                            <TableCell className="font-medium">{job.ordinePF}</TableCell>
-                            <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
-                            <TableCell>{job.numeroODL}</TableCell>
-                            <TableCell>{job.details}</TableCell>
-                            <TableCell>{job.qta}</TableCell>
-                            <TableCell>
-                                {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
-                            </TableCell>
-                            <TableCell>{job.department}</TableCell>
-                            <TableCell>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" className={cn("w-full justify-between", !job.workCycleId && "text-destructive")}>
-                                            {job.workCycleId ? workCyclesMap.get(job.workCycleId) : 'Seleziona...'}
-                                             <GitMerge className="ml-2 h-4 w-4 opacity-50" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        {workCycles.map((cycle) => (
-                                            <DropdownMenuItem key={cycle.id} onSelect={() => handleAssignCycle(job.id, cycle.id)}>
-                                                {cycle.name}
-                                            </DropdownMenuItem>
-                                        ))}
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </TableCell>
-                            <TableCell>
-                                <Button variant="outline" size="sm" onClick={() => handleOpenCreateOdlDialog(job)}>
-                                <PlayCircle className="mr-2 h-4 w-4" />
-                                {job.numeroODLInterno ? 'Avvia ODL' : 'Crea ODL'}
-                                </Button>
-                            </TableCell>
-                            </TableRow>
-                        ))}
-                        </TableBody>
-                    </Table>
-                    </div>
-                    ) : (
-                    <div className="flex flex-col items-center justify-center py-10 text-center">
-                        <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                        <p className="text-lg font-semibold text-muted-foreground">
-                            {plannedJobOrders.length === 0 ? 'Nessuna commessa trovata.' : 'Nessuna commessa corrisponde alla ricerca.'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                            Usa l'importazione da file Excel per iniziare.
-                        </p>
-                    </div>
-                    )}
-                </CardContent>
-                </Card>
-            </TabsContent>
-            <TabsContent value="production">
-                <Card className="shadow-lg">
-                    <CardHeader>
-                    <div className="flex items-center justify-between flex-wrap gap-4">
-                         <div>
-                            <CardTitle className="font-headline">Commesse in Produzione</CardTitle>
-                            <CardDescription>Elenco delle commesse attualmente in lavorazione o sospese.</CardDescription>
-                         </div>
-                        <div className="relative w-full sm:w-auto">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Cerca..."
-                                className="pl-9 w-full sm:w-64"
-                                value={productionSearchTerm}
-                                onChange={(e) => setProductionSearchTerm(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                     <div className="flex items-center gap-2 flex-wrap pt-4">
-                        <Button variant="outline" size="sm" onClick={handleExportProduction} disabled={productionJobOrders.length === 0}>
-                            <Download className="mr-2 h-4 w-4" />
-                            Esporta
-                        </Button>
-                        {selectedProductionRows.length > 0 && (
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm">
-                                    <XCircle className="mr-2 h-4 w-4" />
-                                    Annulla ODL Selezionati ({selectedProductionRows.length})
-                                </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Sei sicuro di voler annullare gli ODL selezionati?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Questa azione riporterà le {selectedProductionRows.length} commesse selezionate allo stato di "Pianificata".
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleCancelSelectedOdls} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
-                                </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        )}
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                    {filteredProductionJobs.length > 0 ? (
-                        <div className="overflow-x-auto">
-                        <Table>
-                            <TableHeader>
-                            <TableRow>
-                                <TableHead padding="checkbox">
-                                <Checkbox
-                                    checked={selectedProductionRows.length > 0 ? (selectedProductionRows.length === filteredProductionJobs.length ? true : 'indeterminate') : false}
-                                    onCheckedChange={(checked) => handleSelectAllProduction(checked as boolean)}
-                                    aria-label="Seleziona tutte"
-                                />
-                                </TableHead>
-                                <TableHead>Cliente</TableHead>
-                                <TableHead>Ordine PF</TableHead>
-                                <TableHead>N° ODL Interno</TableHead>
-                                <TableHead>Ordine Nr Est</TableHead>
-                                <TableHead>Codice</TableHead>
-                                <TableHead>Qta</TableHead>
-                                <TableHead>Data Consegna</TableHead>
-                                <TableHead>Reparto</TableHead>
-                                <TableHead>Azioni</TableHead>
-                            </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                            {filteredProductionJobs.map((job) => (
-                                <TableRow key={job.id} data-state={selectedProductionRows.includes(job.id) ? "selected" : undefined}>
-                                    <TableCell padding="checkbox">
-                                    <Checkbox
-                                    checked={selectedProductionRows.includes(job.id)}
-                                    onCheckedChange={() => handleSelectProductionRow(job.id)}
-                                    aria-label={`Seleziona commessa ${job.id}`}
-                                    />
-                                </TableCell>
-                                <TableCell>{job.cliente}</TableCell>
-                                <TableCell className="font-medium">{job.ordinePF}</TableCell>
-                                <TableCell className="font-mono">{job.numeroODLInterno}</TableCell>
-                                <TableCell>{job.numeroODL}</TableCell>
-                                <TableCell>{job.details}</TableCell>
-                                <TableCell>{job.qta}</TableCell>
-                                <TableCell>
-                                    {job.dataConsegnaFinale && isValid(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date())) ? format(parse(job.dataConsegnaFinale, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: it }) : 'N/D'}
-                                </TableCell>
-                                <TableCell>{job.department}</TableCell>
-                                <TableCell>
-                                    <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" size="sm">
-                                        <XCircle className="mr-2 h-4 w-4" />
-                                        Annulla ODL
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                        <AlertDialogTitle>Sei sicuro di voler annullare l'ODL?</AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            Questa azione riporterà la commessa '{job.id}' allo stato di "Pianificata" e la rimuoverà dalla Console di Produzione.
-                                        </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                        <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleCancelOdl(job.id)} className="bg-destructive hover:bg-destructive/90">Sì, annulla ODL</AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                    </AlertDialog>
-                                </TableCell>
-                                </TableRow>
-                            ))}
-                            </TableBody>
-                        </Table>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-10 text-center">
-                        <Package className="h-16 w-16 text-muted-foreground mb-4" />
-                        <p className="text-lg font-semibold text-muted-foreground">
-                            {productionJobOrders.length === 0 ? 'Nessuna commessa in produzione.' : 'Nessuna commessa corrisponde alla ricerca.'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                            Crea un ODL dalla tabella delle commesse pianificate per vederle qui.
-                        </p>
-                        </div>
-                    )}
-                    </CardContent>
-                </Card>
-            </TabsContent>
-            </Tabs>
-        
-        <AlertDialog open={!!pendingImport} onOpenChange={(open) => !open && setPendingImport(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle className="flex items-center">
-                        <AlertTriangle className="mr-2 h-6 w-6 text-yellow-500"/>
-                        Duplicati Trovati
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                        L'importazione ha trovato {pendingImport?.jobsToUpdate.length || 0} commesse che sono già presenti nel sistema. 
-                        Vuoi sovrascrivere i dati di queste commesse con quelli del file Excel? Le nuove commesse verranno comunque aggiunte.
-                    </AlertDialogDescription>
-                    {pendingImport && pendingImport.jobsToUpdate.length > 0 && (
-                        <div className="pt-2">
-                            <Label className="font-semibold">Commesse duplicate:</Label>
-                            <ScrollArea className="h-20 mt-1 rounded-md border p-2">
-                                <ul className="text-sm text-muted-foreground list-disc pl-5">
-                                    {pendingImport.jobsToUpdate.map(job => <li key={job.id}>{job.id}</li>)}
-                                </ul>
-                            </ScrollArea>
-                        </div>
-                    )}
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <Button variant="outline" onClick={() => handleConfirmImport(false)}>Importa solo nuove</Button>
-                    <AlertDialogAction onClick={() => handleConfirmImport(true)}>Sovrascrivi e Importa</AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+            <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
+                <Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead><TableHead>Stato</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell><Badge>Nuova</Badge></TableCell></TableRow>)}
+                  {importReport?.jobsToUpdate.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell><Badge variant="outline">Duplicata</Badge></TableCell></TableRow>)}
+                </TableBody></Table>
+            </ScrollArea></TabsContent>
+            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
+                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell className="font-mono">{b.row.ordinePF || 'N/D'} - {b.row.details || 'N/D'}</TableCell><TableCell className="text-destructive font-semibold">{b.reason}</TableCell></TableRow>)}
+                </TableBody></Table>
+            </ScrollArea></TabsContent>
+          </Tabs>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
+            <Button onClick={() => handleConfirmCommit(true)} disabled={!importReport?.newJobs.length && !importReport?.jobsToUpdate.length}>Carica Commesse Valide</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>{jobToProcess?.numeroODLInterno ? 'Avvia Ordine di Lavoro (ODL)' : 'Crea Ordine di Lavoro (ODL)'}</DialogTitle>
-                    <DialogDescription>
-                        Stai per avviare la commessa <span className="font-bold">{jobToProcess?.id}</span>.
-                        {jobToProcess?.numeroODLInterno 
-                            ? ` Verrà utilizzato l'ODL N° ${jobToProcess.numeroODLInterno}.` 
-                            : ' Lascia il campo vuoto per generare un numero automatico, oppure inserisci un numero per forzarlo.'
-                        }
-                    </DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onCreateOdlSubmit)} className="space-y-4 py-4">
-                        {!jobToProcess?.numeroODLInterno && (
-                          <FormField
-                              control={form.control}
-                              name="manualOdlNumber"
-                              render={({ field }) => (
-                                  <FormItem>
-                                      <FormLabel>Numero ODL Manuale (Opzionale)</FormLabel>
-                                      <FormControl>
-                                          <Input type="number" placeholder="Es. 150" {...field} />
-                                      </FormControl>
-                                      <FormMessage />
-                                  </FormItem>
-                              )}
-                          />
-                        )}
-                        <DialogFooter>
-                           <Button type="button" variant="outline" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button>
-                           <Button type="submit">Conferma e Avvia</Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
-      </div>
+      <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
+        <DialogContent><DialogHeader><DialogTitle>Avvia Ordine di Lavoro</DialogTitle></DialogHeader>
+          <Form {...form}><form onSubmit={form.handleSubmit(handleCreateOdl)} className="space-y-4">
+            <div className="p-4 bg-muted rounded-lg space-y-1">
+                <p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p>
+                <p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p>
+            </div>
+            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => (
+              <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+            )} />
+            <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma e Avvia</Button></DialogFooter>
+          </form></Form>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

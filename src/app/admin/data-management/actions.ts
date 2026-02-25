@@ -1,33 +1,21 @@
-
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, deleteDoc, updateDoc, Timestamp, orderBy, limit, runTransaction } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkCycle, MaterialWithdrawal, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
 import * as z from 'zod';
 
 // Helper function to sanitize Firestore document IDs
 function sanitizeDocumentId(id: string): string {
-  // Replace slashes with dashes, and remove other invalid characters for Firestore IDs
   return id.replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
 }
 
-// Helper function to convert Firestore Timestamps to Dates in nested objects
+// Helper function to convert Firestore Timestamps to Dates
 function convertTimestampsToDates(obj: any): any {
-    if (obj === null || typeof obj !== 'object') {
-        return obj;
-    }
-
-    if (obj.toDate && typeof obj.toDate === 'function') {
-        return obj.toDate();
-    }
-    
-    if (Array.isArray(obj)) {
-        return obj.map(item => convertTimestampsToDates(item));
-    }
-
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();
+    if (Array.isArray(obj)) return obj.map(item => convertTimestampsToDates(item));
     const newObj: { [key: string]: any } = {};
     for (const key in obj) {
         newObj[key] = convertTimestampsToDates(obj[key]);
@@ -37,71 +25,51 @@ function convertTimestampsToDates(obj: any): any {
 
 async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     if (!cycleId) return [];
-    
     const cycleRef = doc(db, "workCycles", cycleId);
     const cycleSnap = await getDoc(cycleRef);
-    if (!cycleSnap.exists()) {
-        console.warn(`Work cycle with id ${cycleId} not found.`);
-        return [];
-    }
+    if (!cycleSnap.exists()) return [];
+    
     const cycle = cycleSnap.data() as WorkCycle;
     const phaseTemplateIds = cycle.phaseTemplateIds;
-
-    if (!phaseTemplateIds || phaseTemplateIds.length === 0) {
-        return [];
-    }
+    if (!phaseTemplateIds || phaseTemplateIds.length === 0) return [];
     
-    const templatesQuery = query(collection(db, "workPhaseTemplates"));
-    const templatesSnap = await getDocs(templatesQuery);
+    const templatesSnap = await getDocs(collection(db, "workPhaseTemplates"));
     const allTemplatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));
 
-    const phases: JobPhase[] = phaseTemplateIds.map((templateId, index): JobPhase | null => {
+    return phaseTemplateIds.map((templateId, index): JobPhase | null => {
         const template = allTemplatesMap.get(templateId);
-        if (!template) {
-            console.warn(`Phase template with id ${templateId} not found in a work cycle.`);
-            return null;
-        }
-
-        const isIndependent = template.isIndependent || false;
-        const requiresMaterialAssociation = template.requiresMaterialAssociation || false;
-
+        if (!template) return null;
         return {
             id: template.id,
             name: template.name,
             status: 'pending' as const,
-            materialReady: isIndependent || requiresMaterialAssociation || template.type === 'preparation',
+            materialReady: template.isIndependent || template.requiresMaterialAssociation || template.type === 'preparation',
             workPeriods: [],
             sequence: index + 1, 
             type: template.type || 'production',
             tracksTime: template.tracksTime !== false, 
             requiresMaterialScan: template.requiresMaterialScan,
             requiresMaterialSearch: template.requiresMaterialSearch,
-            requiresMaterialAssociation: requiresMaterialAssociation,
+            requiresMaterialAssociation: template.requiresMaterialAssociation,
             allowedMaterialTypes: template.allowedMaterialTypes || [],
             materialConsumptions: [],
             qualityResult: null,
             departmentCodes: template.departmentCodes || [],
-            isIndependent,
+            isIndependent: template.isIndependent || false,
         };
     }).filter((p): p is JobPhase => p !== null);
-    
-    return phases;
 }
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  const jobsRef = collection(db, "jobOrders");
-  const q = query(jobsRef, where("status", "==", "planned"));
-  const querySnapshot = await getDocs(q);
-  const jobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-  return jobs;
+  const q = query(collection(db, "jobOrders"), where("status", "==", "planned"));
+  const snap = await getDocs(q);
+  return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "suspended"]));
-    const querySnapshot = await getDocs(q);
-    const jobs = querySnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
-    return jobs;
+    const q = query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function processAndValidateImport(data: any[]): Promise<{
@@ -109,530 +77,252 @@ export async function processAndValidateImport(data: any[]): Promise<{
     message: string;
     newJobs: JobOrder[];
     jobsToUpdate: JobOrder[];
-    skippedCount: number;
+    blockedJobs: Array<{ row: any; reason: string }>;
 }> {
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
-    let skippedCount = 0;
+    const blockedJobs: Array<{ row: any; reason: string }> = [];
 
-    // Fetch all work cycles and articles once to create a lookup map
-    const workCyclesSnap = await getDocs(collection(db, "workCycles"));
-    const workCyclesMap = new Map(workCyclesSnap.docs.map(doc => {
-        const cycleData = doc.data() as Omit<WorkCycle, 'id'>;
-        return [cycleData.name, { ...cycleData, id: doc.id }];
-    }));
+    // 1. Fetch all articles and work cycles for validation
+    const [articlesSnap, cyclesSnap] = await Promise.all([
+        getDocs(collection(db, "articles")),
+        getDocs(collection(db, "workCycles"))
+    ]);
     
-    const articlesSnap = await getDocs(collection(db, "articles"));
-    const articlesMap = new Map(articlesSnap.docs.map(d => [d.id, d.data() as Article]));
-
+    const articlesMap = new Map(articlesSnap.docs.map(d => [d.data().code.toUpperCase(), { ...d.data(), id: d.id } as Article]));
+    const cyclesMap = new Map(cyclesSnap.docs.map(d => [d.data().name.toUpperCase(), { ...d.data(), id: d.id } as WorkCycle]));
 
     const importSchema = z.object({
+      ordinePF: z.coerce.string().min(1, "ID Commessa obbligatorio."),
+      details: z.coerce.string().min(1, "Codice Articolo obbligatorio."),
+      qta: z.coerce.number().positive("Quantità non valida."),
       cliente: z.coerce.string().optional(),
-      ordinePF: z.coerce.string().min(1, "ID Commessa (ordinePF) è obbligatorio."),
       numeroODL: z.coerce.string().optional(),
       numeroODLInternoImport: z.any().optional(),
-      details: z.coerce.string().optional(),
-      qta: z.coerce.number().positive("La quantità deve essere un numero positivo.").optional(),
       dataConsegnaFinale: z.string().optional(),
       department: z.coerce.string().optional(),
       workCycleName: z.coerce.string().optional(),
     });
 
     const now = new Date();
-    const year = now.getFullYear();
-    const shortYear = year.toString().slice(-2);
+    const shortYear = now.getFullYear().toString().slice(-2);
     
     for (const row of data) {
         const validated = importSchema.safeParse(row);
         if (!validated.success) {
-            skippedCount++;
+            blockedJobs.push({ row, reason: "Dati mancanti o formato errato (Ordine PF / Codice / Qta)." });
             continue;
         }
         
         const { data: validData } = validated;
-        if (!validData.ordinePF) {
-            skippedCount++;
+        const articleCode = validData.details.toUpperCase().trim();
+        const articleData = articlesMap.get(articleCode);
+
+        // RULE 1: Article MUST exist in anagrafica
+        if (!articleData) {
+            blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica Articoli.` });
             continue;
         }
+
         const sanitizedId = sanitizeDocumentId(validData.ordinePF);
-        
         const jobRef = doc(db, "jobOrders", sanitizedId);
         const docSnap = await getDoc(jobRef);
         
-        const workCycle = validData.workCycleName ? workCyclesMap.get(validData.workCycleName.trim()) : undefined;
-        const workCycleId = workCycle?.id;
-        const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
+        const workCycle = validData.workCycleName ? cyclesMap.get(validData.workCycleName.toUpperCase().trim()) : undefined;
+        const phases = workCycle ? await createPhasesFromCycle(workCycle.id) : [];
 
-        // --- BOM Population Logic ---
-        const articleCode = validData.details || '';
-        const articleData = articlesMap.get(articleCode);
-        let jobBOM: JobBillOfMaterialsItem[] = [];
-
-        if (articleData && articleData.billOfMaterials) {
-            jobBOM = articleData.billOfMaterials
-                .filter(item => item.component && item.quantity > 0)
-                .map(item => ({
-                    ...item,
-                    // Store the per-piece quantity from the article template.
-                    quantity: item.quantity,
-                    status: 'pending',
-                    isFromTemplate: true,
-                }));
-        }
-        // --- End BOM Logic ---
+        // BOM Population
+        const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || [])
+            .filter(item => item.component && item.quantity > 0)
+            .map(item => ({
+                ...item,
+                status: 'pending',
+                isFromTemplate: true,
+            }));
 
         let odlToAssign: string | null = null;
         if (validData.numeroODLInternoImport) {
             const odlString = String(validData.numeroODLInternoImport);
-            // Handle scientific notation from Excel (e.g., 2.02401e+6)
-            if (odlString.toLowerCase().includes('e+')) {
-                const num = parseFloat(odlString);
-                if (!isNaN(num)) {
-                    odlToAssign = `${Math.round(num)}/${shortYear}`;
-                }
-            } else {
-                const match = odlString.match(/\d+/); // Extract first sequence of digits
-                if (match) {
-                     odlToAssign = `${match[0]}/${shortYear}`;
-                }
-            }
+            const match = odlString.match(/\d+/);
+            if (match) odlToAssign = `${match[0]}/${shortYear}`;
         }
         
         if (docSnap.exists()) {
-            // We only update planned jobs. Production jobs are not updated via import.
             const existingJob = convertTimestampsToDates(docSnap.data()) as JobOrder;
             if (existingJob.status === 'planned') {
-                const updatedJob: JobOrder = {
+                jobsToUpdate.push({
                     ...existingJob,
                     ...validData,
                     id: sanitizedId,
-                    ordinePF: validData.ordinePF,
-                    qta: validData.qta ?? existingJob.qta,
-                    cliente: validData.cliente ?? existingJob.cliente,
-                    numeroODL: validData.numeroODL ?? existingJob.numeroODL,
-                    numeroODLInterno: odlToAssign ?? existingJob.numeroODLInterno,
-                    details: validData.details ?? existingJob.details,
-                    department: validData.department ?? existingJob.department,
-                    dataConsegnaFinale: validData.dataConsegnaFinale ?? existingJob.dataConsegnaFinale,
-                    workCycleId: workCycleId ?? existingJob.workCycleId,
+                    billOfMaterials: jobBOM,
                     phases: phases.length > 0 ? phases : existingJob.phases,
-                    billOfMaterials: jobBOM.length > 0 ? jobBOM : existingJob.billOfMaterials || [],
-                    status: 'planned', // Always ensure status is planned on update from import
-                };
-                jobsToUpdate.push(updatedJob);
+                    workCycleId: workCycle?.id || existingJob.workCycleId,
+                    numeroODLInterno: odlToAssign || existingJob.numeroODLInterno,
+                });
             } else {
-                skippedCount++; // Skip updating jobs already in production
+                blockedJobs.push({ row, reason: "Commessa già esistente e in produzione/conclusa." });
             }
         } else {
-            if (validData.qta === undefined) {
-                skippedCount++;
-                continue; 
-            }
-            const department = validData.department || "Reparto Generico";
-            const newJob: JobOrder = {
+            newJobs.push({
                 id: sanitizedId,
-                status: 'planned', // Always import as planned
+                status: 'planned',
                 postazioneLavoro: 'Da Assegnare',
-                phases: phases,
                 cliente: validData.cliente || "N/D",
                 ordinePF: validData.ordinePF,
                 numeroODL: validData.numeroODL || "N/D",
                 numeroODLInterno: odlToAssign,
-                details: validData.details || "N/D",
+                details: articleCode,
                 qta: validData.qta,
                 billOfMaterials: jobBOM,
+                phases: phases,
                 dataConsegnaFinale: validData.dataConsegnaFinale || '',
-                department: department,
-                workCycleId: workCycleId || '',
-            };
-            newJobs.push(newJob);
+                department: validData.department || "N/D",
+                workCycleId: workCycle?.id || '',
+            });
         }
     }
     
-    let message = `Analisi completata. Trovate ${newJobs.length} nuove commesse pianificate e ${jobsToUpdate.length} da aggiornare.`;
-    if (skippedCount > 0) {
-        message += ` ${skippedCount} righe sono state ignorate.`;
-    }
-
     return { 
         success: true, 
-        message: message,
+        message: "Analisi completata.",
         newJobs, 
         jobsToUpdate, 
-        skippedCount
+        blockedJobs
     };
 }
-
 
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }): Promise<{ success: boolean; message: string; }> {
     const batch = writeBatch(db);
-    let newCount = data.newJobs.length;
-    let updatedCount = data.jobsToUpdate.length;
-
-    data.newJobs.forEach(job => {
-        const docRef = doc(db, "jobOrders", job.id);
-        batch.set(docRef, job);
-    });
-    
-    data.jobsToUpdate.forEach(job => {
-        const docRef = doc(db, "jobOrders", job.id);
-        batch.set(docRef, job, { merge: true });
-    });
-    
-    if(newCount > 0 || updatedCount > 0) {
-        await batch.commit();
-    }
-
-    revalidatePath('/admin/data-management');
-    revalidatePath('/admin/production-console');
-    return {
-        success: true,
-        message: `Importazione completata. ${newCount} pianificate create, ${updatedCount} aggiornate.`
-    };
-}
-
-
-export async function deleteSelectedJobOrders(ids: string[]): Promise<{ success: boolean; message: string }> {
-  if (ids.length === 0) {
-    return { success: false, message: 'Nessun ID fornito.' };
-  }
-  const batch = writeBatch(db);
-  ids.forEach(id => {
-    const docRef = doc(db, "jobOrders", id);
-    batch.delete(docRef);
-  });
-
-  await batch.commit();
-  revalidatePath('/admin/data-management');
-  return { success: true, message: `${ids.length} commesse eliminate con successo.` };
-}
-
-export async function deleteAllPlannedJobOrders(): Promise<{ success: boolean; message: string }> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "==", "planned"));
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) {
-        return { success: false, message: 'Nessuna commessa pianificata da eliminare.' };
-    }
-
-    const batch = writeBatch(db);
-    let deletedCount = 0;
-    querySnapshot.docs.forEach(docSnap => {
-        batch.delete(docSnap.ref);
-        deletedCount++;
-    });
-
+    data.newJobs.forEach(j => batch.set(doc(db, "jobOrders", j.id), j));
+    data.jobsToUpdate.forEach(j => batch.set(doc(db, "jobOrders", j.id), j, { merge: true }));
     await batch.commit();
     revalidatePath('/admin/data-management');
-    return { success: true, message: `Tutte le ${deletedCount} commesse pianificate sono state eliminate.` };
+    return { success: true, message: `Importati: ${data.newJobs.length} nuovi, ${data.jobsToUpdate.length} aggiornati.` };
 }
 
 export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {
-  const jobRef = doc(db, "jobOrders", jobId);
-  
   try {
+    const jobRef = doc(db, "jobOrders", jobId);
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
-    
-    const jobSnap = await getDoc(jobRef);
-     if (!jobSnap.exists() || jobSnap.data().status !== 'planned') {
-        throw new Error(`Commessa ${jobId} non trovata o non è in stato 'pianificata'.`);
-    }
-    const jobData = jobSnap.data() as JobOrder;
 
-    // Use existing ODL if present
-    if (jobData.numeroODLInterno) {
-        await updateDoc(jobRef, { status: 'production', odlCreationDate: Timestamp.fromDate(now) });
-        revalidatePath('/admin/data-management');
-        revalidatePath('/admin/production-console');
-        return { success: true, message: `Commessa ${jobId} avviata con ODL esistente #${jobData.numeroODLInterno}.` };
-    }
+    const result = await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(jobRef);
+      if (!snap.exists()) throw new Error("Commessa non trovata.");
+      const job = snap.data() as JobOrder;
 
-    // If a manual ODL number is provided, perform a pre-transaction check for uniqueness.
-    if (manualOdlNumberStr && manualOdlNumberStr.trim() !== '') {
-      const manualOdlNumber = parseInt(manualOdlNumberStr, 10);
-      if (isNaN(manualOdlNumber) || manualOdlNumber <= 0) {
-        return { success: false, message: "Il numero ODL manuale fornito non è un numero valido." };
-      }
-      const manualOdlId = `${manualOdlNumber}/${shortYear}`;
+      if (job.status !== 'planned') throw new Error("Solo commesse pianificate possono essere avviate.");
       
-      const q = query(collection(db, "jobOrders"), where("numeroODLInterno", "==", manualOdlId));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        return { success: false, message: `Errore: L'ODL ${manualOdlId} è già stato utilizzato.` };
-      }
-    }
-
-    const newOdlData = await runTransaction(db, async (transaction) => {
-      // Re-fetch inside transaction
-      const freshDocSnap = await transaction.get(jobRef);
-      if (!freshDocSnap.exists() || freshDocSnap.data().status !== 'planned') {
-        throw new Error(`Commessa ${jobId} non trovata o non è in stato 'pianificata'.`);
-      }
-      const freshJobData = freshDocSnap.data() as JobOrder;
-
-      // 2. Validate it has a work cycle
-      if (!freshJobData.phases || freshJobData.phases.length === 0) {
-        throw new Error(`La commessa ${jobId} non ha un ciclo di lavorazione associato. Impossibile creare ODL.`);
+      // RULE 2: BOM MUST BE POPULATED
+      if (!job.billOfMaterials || job.billOfMaterials.length === 0) {
+          throw new Error("IMPOSSIBILE AVVIARE: La Distinta Base è vuota. Definisci i componenti nell'Anagrafica Articoli.");
       }
 
-      // 3. Get the counter for the current year
+      if (!job.phases || job.phases.length === 0) throw new Error("La commessa non ha un ciclo di lavoro associato.");
+
       const counterRef = doc(db, "counters", `odl_${year}`);
-      const counterDoc = await transaction.get(counterRef);
-      const currentCounter = counterDoc.data()?.value || 0;
+      const counterSnap = await transaction.get(counterRef);
+      const currentCounter = counterSnap.data()?.value || 0;
 
       let newOdlId: string;
       let newCounterValue: number;
 
-      if (manualOdlNumberStr && manualOdlNumberStr.trim() !== '') {
+      if (manualOdlNumberStr) {
         newCounterValue = parseInt(manualOdlNumberStr, 10);
         newOdlId = `${newCounterValue}/${shortYear}`;
+      } else if (job.numeroODLInterno) {
+        newOdlId = job.numeroODLInterno;
+        newCounterValue = currentCounter;
       } else {
         newCounterValue = currentCounter + 1;
         newOdlId = `${newCounterValue}/${shortYear}`;
       }
+
+      transaction.update(jobRef, { 
+          status: 'production', 
+          odlCreationDate: Timestamp.fromDate(now),
+          numeroODLInterno: newOdlId,
+          odlCounter: newCounterValue
+      });
       
-      // 4. Prepare update data
-      const dataToUpdate = {
-        status: 'production' as const,
-        odlCreationDate: Timestamp.fromDate(now),
-        numeroODLInterno: newOdlId,
-        odlCounter: newCounterValue,
-      };
-      
-      // 5. Perform writes within the transaction
-      transaction.update(jobRef, dataToUpdate);
       if (newCounterValue > currentCounter) {
         transaction.set(counterRef, { value: newCounterValue });
       }
       
-      return { newOdlId };
+      return newOdlId;
     });
 
     revalidatePath('/admin/data-management');
     revalidatePath('/admin/production-console');
-    return { success: true, message: `ODL #${newOdlData.newOdlId} creato per la commessa ${jobId}. La commessa è ora in produzione.` };
-
+    return { success: true, message: `ODL #${result} creato. Commessa in produzione.` };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la creazione dell'ODL.";
-    console.error("Failed to create ODL:", error);
-    return { success: false, message: errorMessage };
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante la creazione dell'ODL." };
   }
 }
 
 export async function createMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
-    if (!jobIds || jobIds.length === 0) {
-        return { success: false, message: 'Nessuna commessa selezionata.' };
+    let successCount = 0;
+    let errors: string[] = [];
+
+    for (const id of jobIds) {
+        const res = await createODL(id);
+        if (res.success) successCount++;
+        else errors.push(`${id}: ${res.message}`);
     }
 
-    let createdCount = 0;
-    let startedCount = 0;
-    let noCycleCount = 0;
-    let alreadyInProdCount = 0;
-
-    const now = new Date();
-    const year = now.getFullYear();
-    const shortYear = year.toString().slice(-2);
-    const counterRef = doc(db, 'counters', `odl_${year}`);
-
-    try {
-        const jobsSnaps = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
-        const jobsDataMap = new Map(jobsSnaps.docs.map(d => [d.id, d.data() as JobOrder]));
-
-        const jobsToCreateOdlFor: string[] = [];
-        const jobsToStart: string[] = [];
-
-        for (const jobId of jobIds) {
-            const jobData = jobsDataMap.get(jobId);
-            if (jobData && jobData.status === 'planned') {
-                if (!jobData.phases || jobData.phases.length === 0) {
-                    noCycleCount++;
-                } else if (jobData.numeroODLInterno) {
-                    jobsToStart.push(jobId);
-                } else {
-                    jobsToCreateOdlFor.push(jobId);
-                }
-            } else {
-                alreadyInProdCount++;
-            }
-        }
-        
-        let newOdlCounter = 0;
-        if (jobsToCreateOdlFor.length > 0) {
-            const counterDoc = await runTransaction(db, async (transaction) => {
-                const counterSnap = await transaction.get(counterRef);
-                const currentCounter = counterSnap.data()?.value || 0;
-                newOdlCounter = currentCounter + jobsToCreateOdlFor.length;
-                transaction.set(counterRef, { value: newOdlCounter });
-                return newOdlCounter;
-            });
-            newOdlCounter = newOdlCounter - jobsToCreateOdlFor.length; // Start from the correct number
-        }
-
-        const batch = writeBatch(db);
-        
-        jobsToStart.forEach(jobId => {
-            batch.update(doc(db, "jobOrders", jobId), { status: 'production', odlCreationDate: Timestamp.fromDate(now) });
-            startedCount++;
-        });
-        
-        jobsToCreateOdlFor.forEach(jobId => {
-            newOdlCounter++;
-            batch.update(doc(db, "jobOrders", jobId), {
-                status: 'production',
-                odlCreationDate: Timestamp.fromDate(now),
-                numeroODLInterno: `${newOdlCounter}/${shortYear}`,
-                odlCounter: newOdlCounter
-            });
-            createdCount++;
-        });
-
-        if (startedCount > 0 || createdCount > 0) {
-            await batch.commit();
-        }
-
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante la creazione degli ODL.";
-        return { success: false, message: `Operazione fallita a causa di un errore di sistema: ${errorMessage}` };
-    }
-
-    if ((createdCount + startedCount) > 0) {
-        revalidatePath('/admin/data-management');
-        revalidatePath('/admin/production-console');
-    }
-    
-    let messageParts: string[] = [];
-    if (startedCount > 0) messageParts.push(`${startedCount} commesse avviate.`);
-    if (createdCount > 0) messageParts.push(`${createdCount} ODL creati e avviati.`);
-    if (noCycleCount > 0) messageParts.push(`${noCycleCount} commesse ignorate perché senza ciclo.`);
-    if (alreadyInProdCount > 0) messageParts.push(`${alreadyInProdCount} commesse già in produzione.`);
-
-    const message = messageParts.length > 0 ? messageParts.join(' ') : 'Nessuna operazione eseguita sulle commesse selezionate.';
-    
-    if (createdCount + startedCount === 0 && (noCycleCount > 0 || alreadyInProdCount > 0)) {
-        return { success: false, message };
-    }
-    
-    return { success: true, message };
+    const msg = `${successCount} ODL avviati.${errors.length > 0 ? ` Errori in ${errors.length} commesse (es. Distinta Vuota).` : ""}`;
+    return { success: successCount > 0, message: msg };
 }
-
 
 export async function cancelODL(jobId: string): Promise<{ success: boolean; message: string }> {
-  const jobRef = doc(db, "jobOrders", jobId);
-  
-  try {
-    const docSnap = await getDoc(jobRef);
-    
-    if (!docSnap.exists() || docSnap.data().status !== 'production') {
-      return { success: false, message: `Commessa ${jobId} non trovata o non è in produzione.` };
-    }
-
-    // When canceling, we keep the ODL number for historical reference, but reset status
-    await updateDoc(jobRef, { status: 'planned', odlCreationDate: null });
-    
-    revalidatePath('/admin/data-management');
-    revalidatePath('/admin/production-console');
-    return { success: true, message: `ODL per la commessa ${jobId} annullato. La commessa è di nuovo pianificata.` };
-  } catch (error) {
-     const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'annullamento dell'ODL.";
-     return { success: false, message: errorMessage };
-  }
+  await updateDoc(doc(db, "jobOrders", jobId), { status: 'planned', odlCreationDate: null });
+  revalidatePath('/admin/data-management');
+  revalidatePath('/admin/production-console');
+  return { success: true, message: 'ODL annullato.' };
 }
 
-
 export async function cancelMultipleODLs(jobIds: string[]): Promise<{ success: boolean; message: string }> {
-  if (jobIds.length === 0) {
-    return { success: false, message: 'Nessun ID fornito.' };
-  }
-  
   const batch = writeBatch(db);
-  let canceledCount = 0;
-  let failedCount = 0;
+  jobIds.forEach(id => batch.update(doc(db, "jobOrders", id), { status: 'planned', odlCreationDate: null }));
+  await batch.commit();
+  revalidatePath('/admin/data-management');
+  revalidatePath('/admin/production-console');
+  return { success: true, message: 'ODL annullati.' };
+}
 
-  // We can't use a transaction here for reads as we are doing a write batch,
-  // so we fetch all documents first.
-  const jobDocs = await getDocs(query(collection(db, "jobOrders"), where("__name__", "in", jobIds)));
+export async function deleteSelectedJobOrders(ids: string[]) {
+  const batch = writeBatch(db);
+  ids.forEach(id => batch.delete(doc(db, "jobOrders", id)));
+  await batch.commit();
+  revalidatePath('/admin/data-management');
+  return { success: true, message: 'Eliminate.' };
+}
 
-  for (const docSnap of jobDocs.docs) {
-    if (docSnap.exists() && docSnap.data().status === 'production') {
-      batch.update(docSnap.ref, { status: 'planned', odlCreationDate: null });
-      canceledCount++;
-    } else {
-      failedCount++;
-    }
-  }
-
-  if (canceledCount > 0) {
+export async function deleteAllPlannedJobOrders() {
+    const q = query(collection(db, "jobOrders"), where("status", "==", "planned"));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
     await batch.commit();
     revalidatePath('/admin/data-management');
-    revalidatePath('/admin/production-console');
-  }
+    return { success: true, message: 'Svuotato.' };
+}
 
-  let message = '';
-  if (canceledCount > 0) {
-    message += `${canceledCount} ODL annullati con successo.`;
-  }
-  if (failedCount > 0) {
-    message += ` ${failedCount} commesse non sono state processate perché non trovate o non in produzione.`;
-  }
-  
-  if (canceledCount === 0 && failedCount > 0) {
-      return { success: false, message: `Nessun ODL annullato. Le commesse selezionate non sono valide per questa operazione.` };
-  }
-  
-  return { success: true, message: message.trim() };
+export async function updateJobOrderCycle(jobId: string, cycleId: string) {
+    const phases = await createPhasesFromCycle(cycleId);
+    await updateDoc(doc(db, "jobOrders", jobId), { workCycleId: cycleId, phases });
+    revalidatePath('/admin/data-management');
+    return { success: true, message: 'Ciclo aggiornato.' };
+}
+
+export async function getJobDetailReport(jobId: string) {
+    const snap = await getDoc(doc(db, "jobOrders", jobId));
+    if (!snap.exists()) return null;
+    return convertTimestampsToDates(snap.data()) as JobOrder;
 }
 
 export async function getWorkCycles(): Promise<WorkCycle[]> {
-  const cyclesCol = collection(db, 'workCycles');
-  const snapshot = await getDocs(cyclesCol);
-  const list = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
-  return list;
-}
-
-
-export async function updateJobOrderCycle(jobId: string, workCycleId: string): Promise<{ success: boolean; message: string; }> {
-    const jobRef = doc(db, "jobOrders", jobId);
-    const cycleRef = doc(db, "workCycles", workCycleId);
-
-    try {
-        const jobSnap = await getDoc(jobRef);
-        const cycleSnap = await getDoc(cycleRef);
-
-        if (!jobSnap.exists()) {
-            return { success: false, message: "Commessa non trovata." };
-        }
-        if (!cycleSnap.exists()) {
-            return { success: false, message: "Ciclo di lavorazione non trovato." };
-        }
-
-        const newPhases = await createPhasesFromCycle(workCycleId);
-
-        await updateDoc(jobRef, {
-            workCycleId: workCycleId,
-            phases: newPhases,
-        });
-
-        revalidatePath('/admin/data-management');
-        return { success: true, message: 'Ciclo di lavorazione aggiornato con successo.' };
-
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'aggiornamento del ciclo.";
-        console.error("Failed to update job order cycle:", error);
-        return { success: false, message: errorMessage };
-    }
-}
-
-export async function getJobDetailReport(jobId: string): Promise<JobOrder | null> {
-    const jobRef = doc(db, "jobOrders", jobId);
-    const docSnap = await getDoc(jobRef);
-
-    if (!docSnap.exists()) {
-        return null;
-    }
-
-    // Convert Firestore Timestamps to JS Dates
-    return convertTimestampsToDates(docSnap.data()) as JobOrder;
+  const snap = await getDocs(collection(db, 'workCycles'));
+  return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
 }
