@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -522,7 +523,7 @@ export default function RawMaterialManagementClientPage({
                   <FormItem>
                     <FormLabel>Tipo</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un ruolo" /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un tipo" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="BOB">BOB (Bobina)</SelectItem>
                         <SelectItem value="TUBI">TUBI</SelectItem>

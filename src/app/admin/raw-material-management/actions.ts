@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -52,6 +53,7 @@ function convertTimestampsToDates(obj: any): any {
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
+ * Gestisce correttamente la lunghezza di taglio e i rapporti di conversione.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
     if (!material) return 0;
@@ -60,29 +62,44 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
     const bomQty = Number(bomItem.quantity) || 0;
     const length = Number(bomItem.lunghezzaTaglioMm) || 0;
     
-    let requirementBase = 0;
-    let baseUnit: 'n' | 'mt' | 'kg' = bomItem.unit || 'n';
+    let requirementInMetri = 0;
+    let requirementInPezzi = 0;
+    let requirementInKg = 0;
 
+    // 1. Determiniamo la base del fabbisogno dalla BOM
     if (length > 0) {
-        requirementBase = (qta * bomQty * length) / 1000; // Calcola metri totali
-        baseUnit = 'mt';
+        requirementInMetri = (qta * bomQty * length) / 1000;
+    } else if (bomItem.unit === 'mt') {
+        requirementInMetri = qta * bomQty;
+    } else if (bomItem.unit === 'kg') {
+        requirementInKg = qta * bomQty;
     } else {
-        requirementBase = qta * bomQty;
+        requirementInPezzi = qta * bomQty;
     }
 
+    // 2. Convertiamo la base nell'unità gestita dal magazzino
     if (material.unitOfMeasure === 'kg') {
-        if (baseUnit === 'kg') return requirementBase;
+        if (requirementInKg > 0) return requirementInKg;
         
-        if (baseUnit === 'mt' || length > 0) {
+        // Se abbiamo metri, usiamo rapportoKgMt (prioritario) o conversionFactor
+        if (requirementInMetri > 0) {
             const ratio = Number(material.rapportoKgMt) || Number(material.conversionFactor) || 0;
-            return requirementBase * ratio;
-        } else {
-            const factor = Number(material.conversionFactor) || 0;
-            return requirementBase * factor;
+            return requirementInMetri * ratio;
         }
+        
+        // Se abbiamo pezzi, usiamo il conversionFactor
+        const factor = Number(material.conversionFactor) || 0;
+        return requirementInPezzi * factor;
     }
     
-    return requirementBase;
+    if (material.unitOfMeasure === 'mt') {
+        if (requirementInMetri > 0) return requirementInMetri;
+        if (requirementInKg > 0 && material.rapportoKgMt) return requirementInKg / material.rapportoKgMt;
+        return requirementInPezzi; // Fallback pezzi = metri se non specificato
+    }
+    
+    // Default: Pezzi (N)
+    return requirementInPezzi || requirementInMetri || requirementInKg;
 }
 
 export async function getDepartments(): Promise<Department[]> {
@@ -573,7 +590,9 @@ export async function importManualCommitments(data: any[], uid: string) {
 
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
     if (!codes.length) return [];
-    const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", codes)));
+    const validCodes = codes.filter(c => c && typeof c === 'string');
+    if (validCodes.length === 0) return [];
+    const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", validCodes)));
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
 }
 

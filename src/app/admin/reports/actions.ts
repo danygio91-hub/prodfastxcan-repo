@@ -1,5 +1,4 @@
 
-
 'use server';
 
 import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
@@ -67,18 +66,18 @@ export async function getJobsReport() {
         (job.phases || []).flatMap(phase => 
             (phase.workPeriods || []).map(wp => wp.operatorId)
         )
-    ))];
+    ))].filter(id => id && typeof id === 'string'); // CRITICAL: Filter out invalid IDs to prevent indexOf error
 
     const operatorsMap = new Map<string, Operator>();
     if (allOperatorIds.length > 0) {
-        // Firestore 'in' query is limited to 30 elements. If there are more, we need to chunk the requests.
+        // Firestore 'in' query is limited to 30 elements.
         const chunks = [];
         for (let i = 0; i < allOperatorIds.length; i += 30) {
             chunks.push(allOperatorIds.slice(i, i + 30));
         }
 
         for (const chunk of chunks) {
-             if (chunk.length > 0) { // Ensure chunk is not empty
+             if (chunk.length > 0) {
                 const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
@@ -271,8 +270,8 @@ export async function getJobDetailReport(jobId: string) {
     
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
 
-    // Operator mapping part, remains the same
-    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))];
+    // Operator mapping part
+    const operatorIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))].filter(id => id && typeof id === 'string');
     const operatorsMap = new Map<string, string>();
     if (operatorIds.length > 0) {
         const chunks = [];
@@ -315,7 +314,7 @@ export async function updateWorkPeriodsForPhase(
   uid: string
 ): Promise<{ success: boolean; message: string }> {
   try {
-    await ensureAdmin(uid); // Ensure only admin/supervisor can perform this action
+    await ensureAdmin(uid);
 
     const jobRef = doc(db, "jobOrders", jobId);
 
@@ -330,31 +329,22 @@ export async function updateWorkPeriodsForPhase(
       const phaseIndex = phases.findIndex(p => p.id === phaseId);
 
       if (phaseIndex === -1) {
-        throw new Error("Fase non trovata all'interno della commessa.");
+        throw new Error("Fase non trovata.");
       }
 
-      // Replace the old work periods with the newly edited ones
       phases[phaseIndex].workPeriods = updatedPeriods;
-      
-      // Update the entire phases array
       transaction.update(jobRef, { phases: phases });
     });
 
-    // Revalidate paths to update data across the app
     revalidatePath(`/admin/reports/${jobId}`);
     revalidatePath(`/admin/reports`);
     revalidatePath(`/admin/production-time-analysis`);
-    
-    // We also need to revalidate any operator report pages that might be affected,
-    // although this is less direct. A layout revalidation is a broad but effective way.
     revalidatePath('/admin/reports/operator', 'layout');
 
-
-    return { success: true, message: "Tempi di lavorazione aggiornati con successo." };
+    return { success: true, message: "Tempi aggiornati." };
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
-    console.error("Error updating work periods:", error);
+    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto.";
     return { success: false, message: errorMessage };
   }
 }
@@ -379,10 +369,10 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     const snapshot = await getDocs(q);
     const withdrawals: EnrichedMaterialWithdrawal[] = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as EnrichedMaterialWithdrawal);
 
-    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))];
-    const materialIds = [...new Set(withdrawals.map(w => w.materialId))];
+    const operatorIds = [...new Set(withdrawals.map(w => w.operatorId))].filter(id => id && typeof id === 'string');
+    const materialIds = [...new Set(withdrawals.map(w => w.materialId))].filter(id => id && typeof id === 'string');
 
-    // Fetch operators to enrich the report (CHUNKED)
+    // Fetch operators (CHUNKED)
     const operatorsMap = new Map<string, Operator>();
     if (operatorIds.length > 0) {
         const CHUNK_SIZE = 30;
@@ -402,7 +392,7 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     });
 
 
-    // Fetch materials to get their type for grouping (CHUNKED)
+    // Fetch materials (CHUNKED)
     const materialsMap = new Map<string, RawMaterial>();
     if (materialIds.length > 0) {
         const CHUNK_SIZE = 30;
@@ -433,12 +423,15 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
   }
   
   try {
+    const validIds = ids.filter(id => id && typeof id === 'string');
+    if (validIds.length === 0) throw new Error("ID non validi.");
+
     const withdrawalsRef = collection(db, "materialWithdrawals");
-    const q = query(withdrawalsRef, where("__name__", "in", ids));
+    const q = query(withdrawalsRef, where("__name__", "in", validIds));
     const withdrawalsSnapshot = await getDocs(q);
     
     if (withdrawalsSnapshot.empty) {
-      return { success: false, message: 'Nessun prelievo valido da eliminare.' };
+      return { success: false, message: 'Nessun prelievo valido trovato.' };
     }
 
     const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as MaterialWithdrawal);
@@ -464,44 +457,30 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
         }
 
         const materialIds = Array.from(materialUpdates.keys());
-        if (materialIds.length > 0) {
-            const materialRefs = materialIds.map(id => doc(db, 'rawMaterials', id));
-            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-            
-            for (let i = 0; i < materialDocs.length; i++) {
-                const materialDoc = materialDocs[i];
-                if (materialDoc.exists()) {
-                    const materialData = materialDoc.data() as RawMaterial;
-                    const updates = materialUpdates.get(materialDoc.id)!;
-                    
-                    let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
-                    let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
-
-                    transaction.update(materialDoc.ref, { 
-                        currentWeightKg: newWeight,
-                        currentStockUnits: newUnits,
-                    });
-                }
+        const materialDocs = await Promise.all(materialIds.map(id => transaction.get(doc(db, 'rawMaterials', id))));
+        
+        for (let i = 0; i < materialDocs.length; i++) {
+            const materialDoc = materialDocs[i];
+            if (materialDoc.exists()) {
+                const materialData = materialDoc.data() as RawMaterial;
+                const updates = materialUpdates.get(materialDoc.id)!;
+                let newWeight = (materialData.currentWeightKg || 0) + updates.consumedWeight;
+                let newUnits = (materialData.currentStockUnits || 0) + updates.consumedUnits;
+                transaction.update(materialDoc.ref, { currentWeightKg: newWeight, currentStockUnits: newUnits });
             }
         }
         
-        if (jobUpdates.size > 0) {
-          for (const [jobId, withdrawalIdsToRemove] of jobUpdates.entries()) {
-              const jobRef = doc(db, 'jobOrders', jobId);
-              const jobSnap = await transaction.get(jobRef);
-              if (jobSnap.exists()) {
-                  const jobData = jobSnap.data() as JobOrder;
-                  const updatedPhases = jobData.phases.map(phase => {
-                      const consumptions = phase.materialConsumptions || [];
-                      const updatedConsumptions = consumptions.filter(c => !withdrawalIdsToRemove.includes(c.withdrawalId!));
-                      if (updatedConsumptions.length < consumptions.length) {
-                           return { ...phase, materialConsumptions: updatedConsumptions };
-                      }
-                      return phase;
-                  });
-                  transaction.update(jobRef, { phases: updatedPhases });
-              }
-          }
+        for (const [jobId, withdrawalIdsToRemove] of jobUpdates.entries()) {
+            const jobRef = doc(db, 'jobOrders', jobId);
+            const jobSnap = await transaction.get(jobRef);
+            if (jobSnap.exists()) {
+                const jobData = jobSnap.data() as JobOrder;
+                const updatedPhases = (jobData.phases || []).map(phase => ({
+                    ...phase,
+                    materialConsumptions: (phase.materialConsumptions || []).filter(c => !withdrawalIdsToRemove.includes(c.withdrawalId!))
+                }));
+                transaction.update(jobRef, { phases: updatedPhases });
+            }
         }
         
         for (const withdrawalDoc of withdrawalsSnapshot.docs) {
@@ -511,25 +490,17 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
 
     revalidatePath('/admin/reports');
     revalidatePath('/admin/raw-material-management');
-    revalidatePath('/scan-job');
-    return { success: true, message: `${withdrawals.length} prelievi eliminati e stock ripristinato.` };
+    return { success: true, message: `${withdrawals.length} prelievi eliminati.` };
   
   } catch(error) {
-    const errorMessage = error instanceof Error ? error.message : "Errore sconosciuto durante l'eliminazione dei prelievi.";
-    return { success: false, message: errorMessage };
+    return { success: false, message: error instanceof Error ? error.message : "Errore durante l'eliminazione." };
   }
 }
 
 export async function deleteAllWithdrawals(): Promise<{ success: boolean; message: string }> {
-    const withdrawalsRef = collection(db, "materialWithdrawals");
-    const q = query(withdrawalsRef);
-    const querySnapshot = await getDocs(q);
-    
-    if (querySnapshot.empty) {
-        return { success: true, message: 'Nessun prelievo da eliminare.' };
-    }
-    const idsToDelete = querySnapshot.docs.map(doc => doc.id);
-    return await deleteSelectedWithdrawals(idsToDelete);
+    const querySnapshot = await getDocs(collection(db, "materialWithdrawals"));
+    if (querySnapshot.empty) return { success: true, message: 'Nessun prelievo.' };
+    return await deleteSelectedWithdrawals(querySnapshot.docs.map(doc => doc.id));
 }
 
 // --- Production Time Analysis ---
@@ -550,7 +521,7 @@ export type ProductionTimeAnalysisReport = {
         qta: number;
         totalTimeMinutes: number;
         minutesPerPiece: number;
-        isTimeCalculationReliable: boolean; // New field
+        isTimeCalculationReliable: boolean;
         phases: Array<{
             name: string;
             totalTimeMinutes: number;
@@ -589,21 +560,17 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
 
     if (job.workGroupId && groupSnap && groupSnap.exists()) {
         const group = convertTimestampsToDates(groupSnap.data()) as WorkGroup;
-        isReliable = false; // Always unreliable if it was part of a group
-
+        isReliable = false; 
         const groupPhases = group.phases || [];
         phasesWithDetails = groupPhases.map(groupPhase => {
             const totalGroupTimeMs = getPhaseTimeMilliseconds(groupPhase);
             const phaseTimeMs = group.totalQuantity > 0 ? (totalGroupTimeMs / group.totalQuantity) * job.qta : 0;
             totalMs += phaseTimeMs;
-            // We need to return the phase data from the group, as that's where time was tracked
             return { phase: groupPhase, timeMs: phaseTimeMs };
         });
     } else {
-        // Fallback for standalone jobs OR jobs where the group has been dissolved
         const individualPhases = job.phases || [];
         const timeTrackingPhases = individualPhases.filter(p => p.tracksTime !== false);
-        
         const wasAnyPhaseForced = timeTrackingPhases.some(p => p.forced);
         const areAllPhasesCompleted = timeTrackingPhases.length > 0 && timeTrackingPhases.every(p => p.status === 'completed');
         const hasAnomalousShortPhase = timeTrackingPhases.some(p => {
@@ -611,31 +578,21 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
             const phaseDuration = getPhaseTimeMilliseconds(p);
             return phaseDuration > 0 && phaseDuration < MINIMUM_VALID_PHASE_DURATION_MS;
         });
-        
         isReliable = areAllPhasesCompleted && !wasAnyPhaseForced && !hasAnomalousShortPhase;
-        
-        if (job.workGroupId) { // If it was part of a group, even if dissolved, it's not reliable
-          isReliable = false;
-        }
-
+        if (job.workGroupId) isReliable = false;
         phasesWithDetails = individualPhases.map(phase => {
             const phaseTimeMs = getPhaseTimeMilliseconds(phase);
-            if (phase.tracksTime !== false) {
-                 totalMs += phaseTimeMs;
-            }
+            if (phase.tracksTime !== false) totalMs += phaseTimeMs;
             return { phase, timeMs: phaseTimeMs };
         });
     }
-
     return { totalMs, isReliable, phasesWithDetails };
 }
 
 
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
-    const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["completed", "production", "suspended", "paused"]));
-    const jobsSnapshot = await getDocs(q);
+    const jobsSnapshot = await getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["completed", "production", "suspended", "paused"])));
     const jobsToAnalyze = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const settingsDoc = await getDoc(doc(db, 'configuration', 'timeTrackingSettings'));
@@ -644,42 +601,26 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
 
     const templatesSnapshot = await getDocs(collection(db, "workPhaseTemplates"));
     const phaseTypeMap = new Map<string, WorkPhaseTemplate['type']>();
-    templatesSnapshot.forEach(doc => {
-      const template = doc.data() as WorkPhaseTemplate;
-      phaseTypeMap.set(template.name, template.type);
-    });
+    templatesSnapshot.forEach(doc => phaseTypeMap.set(doc.data().name, doc.data().type));
 
     const analysisByArticle: { [articleCode: string]: ProductionTimeAnalysisReport } = {};
     const phaseDataByArticle: { [articleCode: string]: { [phaseName: string]: { totalMinutes: number; totalQuantity: number; type: WorkPhaseTemplate['type'] } } } = {};
 
     for (const job of jobsToAnalyze) {
         const articleCode = job.details;
-        if (!articleCode) continue;
+        if (!articleCode || job.qta <= 0) continue;
 
         if (!analysisByArticle[articleCode]) {
-            analysisByArticle[articleCode] = {
-                articleCode: articleCode,
-                totalJobs: 0,
-                totalQuantity: 0,
-                averageMinutesPerPiece: 0,
-                averagePhaseTimes: [],
-                jobs: [],
-            };
+            analysisByArticle[articleCode] = { articleCode, totalJobs: 0, totalQuantity: 0, averageMinutesPerPiece: 0, averagePhaseTimes: [], jobs: [] };
             phaseDataByArticle[articleCode] = {};
         }
 
         const { totalMs, isReliable, phasesWithDetails } = await getJobTimeData(job);
         const totalTimeMinutes = totalMs / (1000 * 60);
-        
-        if (job.qta <= 0) continue;
-        
         const minutesPerPiece = totalTimeMinutes / job.qta;
         
-        const phaseDetailsForReport = phasesWithDetails
-          .filter(p => p.phase.tracksTime !== false)
-          .map(p => {
+        const phaseDetails = phasesWithDetails.filter(p => p.phase.tracksTime !== false).map(p => {
             const phaseTimeMinutes = p.timeMs / (1000 * 60);
-            
             if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MINIMUM_VALID_PHASE_DURATION_MS) {
                  if (!phaseDataByArticle[articleCode][p.phase.name]) {
                     phaseDataByArticle[articleCode][p.phase.name] = { totalMinutes: 0, totalQuantity: 0, type: phaseTypeMap.get(p.phase.name) || 'production' };
@@ -687,57 +628,23 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
                 phaseDataByArticle[articleCode][p.phase.name].totalMinutes += phaseTimeMinutes;
                 phaseDataByArticle[articleCode][p.phase.name].totalQuantity += job.qta;
             }
-
-             return {
-                name: p.phase.name,
-                totalTimeMinutes: phaseTimeMinutes,
-                minutesPerPiece: job.qta > 0 ? phaseTimeMinutes / job.qta : 0,
-            };
+             return { name: p.phase.name, totalTimeMinutes: phaseTimeMinutes, minutesPerPiece: phaseTimeMinutes / job.qta };
         });
 
-        const report = analysisByArticle[articleCode];
-        report.totalJobs += 1;
-        report.totalQuantity += job.qta;
-        report.jobs.push({
-            id: job.ordinePF,
-            cliente: job.cliente,
-            qta: job.qta,
-            totalTimeMinutes: totalTimeMinutes,
-            minutesPerPiece: minutesPerPiece,
-            isTimeCalculationReliable: isReliable,
-            phases: phaseDetailsForReport,
-        });
+        analysisByArticle[articleCode].totalJobs += 1;
+        analysisByArticle[articleCode].totalQuantity += job.qta;
+        analysisByArticle[articleCode].jobs.push({ id: job.ordinePF, cliente: job.cliente, qta: job.qta, totalTimeMinutes, minutesPerPiece, isTimeCalculationReliable: isReliable, phases: phaseDetails });
     }
 
-    // Calculate the final averages
     for (const articleCode in analysisByArticle) {
         const report = analysisByArticle[articleCode];
-        if (report.jobs.length === 0) {
-            delete analysisByArticle[articleCode];
-            continue;
-        }
-        
         const reliableJobs = report.jobs.filter(j => j.isTimeCalculationReliable);
-        const totalMinutesFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.totalTimeMinutes, 0);
-        const totalQuantityFromReliableJobs = reliableJobs.reduce((sum, j) => sum + j.qta, 0);
-
-        if (totalQuantityFromReliableJobs > 0) {
-            report.averageMinutesPerPiece = totalMinutesFromReliableJobs / totalQuantityFromReliableJobs;
-        } else {
-            report.averageMinutesPerPiece = 0; 
+        if (reliableJobs.length > 0) {
+            report.averageMinutesPerPiece = reliableJobs.reduce((s, j) => s + j.totalTimeMinutes, 0) / reliableJobs.reduce((s, j) => s + j.qta, 0);
         }
-        
-        const phaseData = phaseDataByArticle[articleCode];
-        report.averagePhaseTimes = Object.entries(phaseData).map(([phaseName, data]) => ({
-            name: phaseName,
-            averageMinutesPerPiece: data.totalQuantity > 0 ? data.totalMinutes / data.totalQuantity : 0,
-            type: data.type,
+        report.averagePhaseTimes = Object.entries(phaseDataByArticle[articleCode]).map(([name, data]) => ({
+            name, averageMinutesPerPiece: data.totalQuantity > 0 ? data.totalMinutes / data.totalQuantity : 0, type: data.type,
         })).sort((a, b) => a.name.localeCompare(b.name));
     }
-
     return Object.values(analysisByArticle).sort((a, b) => a.articleCode.localeCompare(b.articleCode));
 }
-
-  
-
-    
