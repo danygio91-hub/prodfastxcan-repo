@@ -1,7 +1,7 @@
 
 'use server';
 
-import { collection, getDocs, doc, getDoc, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, query as firestoreQuery, query, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, ProductionProblemReport, WorkGroup, WorkPhaseTemplate } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
@@ -57,7 +57,7 @@ export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 
 export async function getJobsReport() {
     const jobsRef = collection(db, "jobOrders");
-    const q = query(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
+    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
     const jobsSnapshot = await getDocs(q);
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
@@ -78,7 +78,7 @@ export async function getJobsReport() {
 
         for (const chunk of chunks) {
              if (chunk.length > 0) {
-                const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
+                const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
                     operatorsMap.set(doc.data().id, doc.data() as Operator);
@@ -280,7 +280,7 @@ export async function getJobDetailReport(jobId: string) {
         }
         for (const chunk of chunks) {
              if (chunk.length > 0) {
-                const operatorsQuery = query(collection(db, "operators"), where('id', 'in', chunk));
+                const operatorsQuery = firestoreQuery(collection(db, "operators"), where('id', 'in', chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
                     operatorsMap.set(doc.data().id, (doc.data() as Operator).nome);
@@ -357,13 +357,13 @@ export type EnrichedMaterialWithdrawal = MaterialWithdrawal & {
 
 export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Date }): Promise<EnrichedMaterialWithdrawal[]> {
     const withdrawalsRef = collection(db, "materialWithdrawals");
-    let q = query(withdrawalsRef);
+    let q = firestoreQuery(withdrawalsRef);
 
     if (dateRange && dateRange.from) {
-        q = query(q, where("withdrawalDate", ">=", Timestamp.fromDate(startOfDay(dateRange.from))));
+        q = firestoreQuery(q, where("withdrawalDate", ">=", Timestamp.fromDate(startOfDay(dateRange.from))));
     }
     if (dateRange && dateRange.to) {
-        q = query(q, where("withdrawalDate", "<=", Timestamp.fromDate(endOfDay(dateRange.to))));
+        q = firestoreQuery(q, where("withdrawalDate", "<=", Timestamp.fromDate(endOfDay(dateRange.to))));
     }
 
     const snapshot = await getDocs(q);
@@ -379,7 +379,7 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
         for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
             const chunk = operatorIds.slice(i, i + CHUNK_SIZE);
             if (chunk.length > 0) {
-                const operatorsQuery = query(collection(db, "operators"), where("id", "in", chunk));
+                const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
                 operatorsSnapshot.forEach(doc => {
                     operatorsMap.set(doc.data().id, doc.data() as Operator);
@@ -399,7 +399,7 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
          for (let i = 0; i < materialIds.length; i += CHUNK_SIZE) {
             const chunk = materialIds.slice(i, i + CHUNK_SIZE);
              if (chunk.length > 0) {
-                const materialsQuery = query(collection(db, "rawMaterials"), where("__name__", "in", chunk));
+                const materialsQuery = firestoreQuery(collection(db, "rawMaterials"), where("__name__", "in", chunk));
                 const materialsSnapshot = await getDocs(materialsQuery);
                 materialsSnapshot.forEach(doc => {
                     materialsMap.set(doc.id, doc.data() as RawMaterial);
@@ -427,7 +427,7 @@ export async function deleteSelectedWithdrawals(ids: string[]): Promise<{ succes
     if (validIds.length === 0) throw new Error("ID non validi.");
 
     const withdrawalsRef = collection(db, "materialWithdrawals");
-    const q = query(withdrawalsRef, where("__name__", "in", validIds));
+    const q = firestoreQuery(withdrawalsRef, where("__name__", "in", validIds));
     const withdrawalsSnapshot = await getDocs(q);
     
     if (withdrawalsSnapshot.empty) {

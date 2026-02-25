@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -175,7 +176,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const operatorName = opSnap.exists() ? opSnap.data().nome : 'Sconosciuto';
         
         const consumedWeight = (session.grossOpeningWeight || 0) - (closing || 0);
-        if (consumedWeight < -0.001) throw new Error("Peso finale (" + closing + "kg) superiore a apertura (" + session.grossOpeningWeight + "kg).");
+        if (consumedWeight < -0.001) throw new Error("Peso finale superiore a apertura.");
         
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
@@ -208,10 +209,10 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 t.update(snap.ref, { phases: phs });
             }
         });
-        return { success: true, message: 'Sessione chiusa e stock aggiornato.' };
+        return { success: true, message: 'Sessione chiusa.' };
     });
   } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore durante la chiusura.' }; 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
   }
 }
 
@@ -280,7 +281,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         return { success: true, message: 'Scarico registrato.' };
     });
   } catch (e) { 
-      return { success: false, message: e instanceof Error ? e.message : 'Errore durante lo scarico.' }; 
+      return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
   }
 }
 
@@ -380,4 +381,104 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
   if (!opId) return;
   await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions || [] });
+}
+
+export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed') {
+    const isGroup = jobId.startsWith('group-');
+    try {
+        await runTransaction(db, async (t) => {
+            const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
+            const snap = await t.get(itemRef);
+            if (!snap.exists()) throw new Error("Non trovato.");
+            const data = snap.data() as JobOrder;
+            const phs = [...data.phases];
+            const idx = phs.findIndex(p => p.id === phaseId);
+            if (idx === -1) throw new Error("Fase non trovata.");
+            
+            if (currentState === 'default') {
+                const lastProd = phs.filter(p => p.type === 'production').sort((a, b) => a.sequence - b.sequence).pop();
+                phs[idx].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
+                phs[idx].postponed = true;
+            } else {
+                const tSnap = await t.get(doc(db, 'workPhaseTemplates', phaseId));
+                phs[idx].sequence = tSnap.exists() ? tSnap.data().sequence : 1;
+                delete phs[idx].postponed;
+            }
+            
+            const up = { phases: updatePhasesMaterialReadiness(phs) };
+            t.update(itemRef, up);
+            if (isGroup) {
+                const gData = snap.data() as WorkGroup;
+                (gData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+            }
+        });
+        revalidatePath('/scan-job');
+        return { success: true, message: 'Operazione completata.' };
+    } catch (e) { return { success: false, message: 'Errore.' }; }
+}
+
+export async function createWorkGroup(jobIds: string[], opId: string) {
+    if (!jobIds || jobIds.length < 2) return { success: false, message: 'Selezionare almeno 2 commesse.' };
+    try {
+        return await runTransaction(db, async (t) => {
+            const opSnap = await t.get(doc(db, 'operators', opId));
+            const jobSnaps = await Promise.all(jobIds.map(id => t.get(doc(db, 'jobOrders', id))));
+            
+            const jobs = jobSnaps.map(s => convertTimestampsToDates(s.data()) as JobOrder);
+            const first = jobs[0];
+            const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
+            
+            const groupRef = doc(collection(db, 'workGroups'));
+            const groupData: WorkGroup = {
+                id: groupRef.id,
+                jobOrderIds: jobIds,
+                jobOrderPFs: jobs.map(j => j.ordinePF),
+                status: 'paused',
+                createdAt: new Date(),
+                createdBy: opSnap.data()?.nome || 'Operatore',
+                totalQuantity: totalQta,
+                workCycleId: first.workCycleId || '',
+                department: first.department,
+                cliente: first.cliente,
+                phases: JSON.parse(JSON.stringify(first.phases)), // Copy structure
+                details: first.details,
+            };
+            
+            t.set(groupRef, JSON.parse(JSON.stringify(groupData)));
+            jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id, status: 'paused' }));
+            
+            return { success: true, workGroupId: groupRef.id };
+        });
+    } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
+}
+
+export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const isGroup = itemId.startsWith('group-');
+  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+
+  try {
+    await runTransaction(db, async (t) => {
+      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
+      if (!snap.exists()) throw new Error("Non trovato.");
+      
+      const itemData = snap.data() as JobOrder;
+      const phases = [...itemData.phases];
+      const idx = phases.findIndex(p => p.id === phaseId);
+      if (idx === -1) throw new Error("Fase non trovata.");
+      
+      phases[idx].materialStatus = 'missing';
+      phases[idx].materialReady = false;
+
+      const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
+      t.update(itemRef, up);
+      if (isGroup) {
+        (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+      }
+    });
+    revalidatePath('/admin/production-console');
+    return { success: true, message: 'Segnalato.' };
+  } catch (e) {
+    return { success: false, message: "Errore." };
+  }
 }

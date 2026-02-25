@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -240,7 +241,9 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
 export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
   try {
     await ensureAdmin(uid);
-    await updateDoc(doc(db, 'jobOrders', jobId), {
+    const jobRef = doc(db, 'jobOrders', jobId);
+
+    await updateDoc(jobRef, {
       status: 'completed',
       overallEndTime: Timestamp.now(),
       forcedCompletion: true,
