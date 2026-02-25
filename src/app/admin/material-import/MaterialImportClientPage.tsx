@@ -25,6 +25,7 @@ import {
 import type { Packaging, RawMaterial } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 type Operation = 'carico' | 'scarico';
 
