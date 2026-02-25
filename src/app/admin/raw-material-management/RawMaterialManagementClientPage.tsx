@@ -430,7 +430,7 @@ export default function RawMaterialManagementClientPage({
                       <TableCell className="text-xs">{det.articleCode}</TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px]">{det.type}</Badge></TableCell>
                       <TableCell className="text-right font-semibold">{det.quantity.toFixed(2)}</TableCell>
-                      <TableCell><div className="flex items-center gap-2"><Calendar className={cn("h-3 w-3", det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) ? "text-destructive" : "text-muted-foreground")} /><span>{det.deliveryDate !== 'N/D' ? format(parseISO(det.deliveryDate), 'dd/MM/yyyy') : 'N/D'}</span></div></TableCell>
+                      <TableCell><div className="flex items-center gap-2"><Calendar className={cn(det.deliveryDate !== 'N/D' && isPast(new Date(det.deliveryDate)) ? "text-destructive" : "text-muted-foreground", "h-3 w-3")} /><span>{det.deliveryDate !== 'N/D' ? format(parseISO(det.deliveryDate), 'dd/MM/yyyy') : 'N/D'}</span></div></TableCell>
                     </TableRow>
                   ))
                 ) : ( <TableRow><TableCell colSpan={5} className="text-center h-24">Nessun impegno trovato.</TableCell></TableRow> )}

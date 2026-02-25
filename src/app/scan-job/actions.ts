@@ -6,7 +6,6 @@ import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction,
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { dissolveWorkGroup } from '../admin/work-group-management/actions';
 
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -108,7 +107,8 @@ export async function updateWorkGroup(group: WorkGroup, opId: string) {
     if (!group || !group.id) return { success: false, message: 'Dati gruppo incompleti.' };
     const phases = group.phases || [];
     if (phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !group.isProblemReported) {
-        return await dissolveWorkGroup(group.id, true);
+        const result = await dissolveWorkGroup(group.id, true);
+        return result;
     }
     group.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
     try {
@@ -292,7 +292,6 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
     if (!mat) return null;
     const jSnap = await getDocs(collection(db, "jobOrders"));
     const cons: any[] = [];
-    let isInitialLoad = false;
 
     jSnap.forEach(d => {
         const job = convertTimestampsToDates(d.data()) as JobOrder;
@@ -306,12 +305,12 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
 
     if (cons.length > 0) {
         const last = cons.sort((a, b) => b.date.getTime() - a.date.getTime())[0];
-        return { grossWeight: last.weight, netWeight: last.weight - last.tare, packagingId: last.packId, material: mat, isInitialLoad: false };
+        return { grossWeight: last.weight, netWeight: last.weight - last.tare, packagingId: last.packId, material: mat };
     }
     
     const batch = (mat.batches || []).find(b => b.lotto === lotto);
     if (batch) {
-        return { grossWeight: batch.grossWeight, netWeight: batch.grossWeight - batch.tareWeight, packagingId: batch.packagingId || 'none', material: mat, isInitialLoad: true };
+        return { grossWeight: batch.grossWeight, netWeight: batch.grossWeight - batch.tareWeight, packagingId: batch.packagingId || 'none', material: mat };
     }
     return null;
 }
@@ -390,7 +389,7 @@ export async function updateOperatorMaterialSessions(opId: string, sessions: Act
   await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions || [] });
 }
 
-export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed') {
+export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
     const isGroup = jobId.startsWith('group-');
     try {
         await runTransaction(db, async (t) => {
@@ -424,7 +423,7 @@ export async function postponeQualityPhase(jobId: string, phaseId: string, curre
     } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
-export async function createWorkGroup(jobIds: string[], opId: string) {
+export async function createWorkGroup(jobIds: string[], opId: string): Promise<{ success: boolean; workGroupId?: string; message?: string }> {
     if (!jobIds || jobIds.length < 2) return { success: false, message: 'Selezionare almeno 2 commesse.' };
     try {
         return await runTransaction(db, async (t) => {
@@ -462,7 +461,8 @@ export async function createWorkGroup(jobIds: string[], opId: string) {
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
+  const itemRef = doc(db, collectionName, itemId);
 
   try {
     await runTransaction(db, async (t) => {
@@ -471,11 +471,11 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       
       const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
-      const idx = phases.findIndex(p => p.id === phaseId);
-      if (idx === -1) throw new Error("Fase non trovata.");
+      const phaseIndex = phases.findIndex(p => p.id === phaseId);
+      if (phaseIndex === -1) throw new Error("Fase non trovata.");
       
-      phases[idx].materialStatus = 'missing';
-      phases[idx].materialReady = false;
+      phases[phaseIndex].materialStatus = 'missing';
+      phases[phaseIndex].materialReady = false;
 
       const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);

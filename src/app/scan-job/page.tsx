@@ -585,7 +585,7 @@ export default function ScanJobPage() {
   
     updateOperatorStatus(operator.id, jobToUpdate.id, null);
     handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è in pausa.` });
+    toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è stata messa in pausa.` });
   };
 
   const handleResumePhase = async (phaseId: string) => {
@@ -951,11 +951,11 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && result.workGroupId) {
+        if (result.success && 'workGroupId' in result) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId);
+            setActiveJobId(result.workGroupId!);
         } else {
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: result.message });
+            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: (result as any).message || 'Errore sconosciuto.' });
         }
         
         setGroupScanList([]);
@@ -1272,19 +1272,11 @@ export default function ScanJobPage() {
     </Card>
   );
 
-  const renderScanDialog = (title: string, onScan: (data: string) => void) => (
-    <div className="py-4 space-y-4">
-      <DialogTitle>{title}</DialogTitle>
-      {renderScanArea(onScan)}
-      <Button variant="outline" className="w-full" onClick={() => { setIsPhaseScanDialogOpen(false); }}>Annulla</Button>
-    </div>
-  );
-
   const renderPhaseScanDialog = () => (
     <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
         <DialogContent>
             <DialogHeader>
-                <DialogTitle>Scansiona QR Code Fase</DialogTitle>
+                <DialogTitle>Scansione QR Code Fase</DialogTitle>
                 <DialogDescription>Inquadra il QR Code con il nome della fase per avviarla.</DialogDescription>
             </DialogHeader>
             {renderScanArea(handleLocalPhaseScanResult)}
@@ -1496,7 +1488,7 @@ export default function ScanJobPage() {
                          </CardContent>
                         <CardFooter className="flex-col sm:flex-row gap-2">
                              <Button onClick={() => triggerScan(handleGroupScan)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-14">
-                                {isCapturing ? <Loader2 className="h-6 w-6 animate-spin"/> : <QrCode className="h-6 w-6" />}
+                                {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <QrCode className="h-6 w-6" />}
                                 <span className="ml-2 text-lg">Aggiungi</span>
                              </Button>
                              <Button onClick={handleCreateWorkGroup} disabled={groupScanList.length < 2 || isPending} className="w-full sm:w-auto flex-1 h-14 bg-green-600 hover:bg-green-700">

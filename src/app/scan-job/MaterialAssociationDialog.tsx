@@ -98,7 +98,7 @@ export default function MaterialAssociationDialog({
             const lottoData = await findLastWeightForLotto(selectedMaterial.id, lottoValue);
             if (lottoData && lottoData.material) {
                 form.setValue('openingWeightManual', lottoData.netWeight);
-                form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
+                form.setValue('ddt', 'Storico Lotto');
                 form.setValue('packagingId', lottoData.packagingId || 'none');
             }
         }, 800);
@@ -154,7 +154,7 @@ export default function MaterialAssociationDialog({
         handleMaterialSelect(lottoData.material);
         form.setValue('lotto', scannedValue);
         form.setValue('openingWeightManual', lottoData.netWeight);
-        form.setValue('ddt', lottoData.isInitialLoad ? 'Carico Iniziale' : 'Ultima Chiusura');
+        form.setValue('ddt', 'Storico Lotto');
         form.setValue('packagingId', lottoData.packagingId || 'none');
       } else {
         form.setValue('lotto', scannedValue);

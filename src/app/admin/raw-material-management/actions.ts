@@ -382,21 +382,25 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
 export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
   try {
     await ensureAdmin(uid);
-    const opSnap = await getDoc(doc(db, "operators", uid));
-    const opData = opSnap.exists() ? opSnap.data() as Operator : null;
     
     await runTransaction(db, async (t) => {
-      // READS
+      // 1. ALL READS FIRST
+      const opRef = doc(db, "operators", uid);
       const cRef = doc(db, "manualCommitments", id);
-      const cSnap = await t.get(cRef);
+      const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
+      
+      const [opSnap, cSnap, ...mSnaps] = await Promise.all([
+          t.get(opRef),
+          t.get(cRef),
+          ...mRefs.map(ref => t.get(ref))
+      ]);
+
       if (!cSnap.exists()) throw new Error("Impegno non trovato.");
       const c = cSnap.data() as ManualCommitment;
-
-      const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
-      const mSnaps = await Promise.all(mRefs.map(ref => t.get(ref)));
+      const opData = opSnap.exists() ? opSnap.data() as Operator : null;
       const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
 
-      // WRITES
+      // 2. ALL WRITES AFTER
       for (const s of sels) {
         const m = mDataMap.get(s.materialId);
         if (!m) throw new Error("Materia prima non trovata.");
@@ -421,7 +425,7 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
         const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
 
         await runTransaction(db, async (t) => {
-            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean);
+            const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
             const mSnaps = await Promise.all(mIds.map(mid => t.get(doc(db, "rawMaterials", mid!))));
             const mMap = new Map(mSnaps.map(s => [s.id, s.exists() ? s.data() as RawMaterial : null]));
 

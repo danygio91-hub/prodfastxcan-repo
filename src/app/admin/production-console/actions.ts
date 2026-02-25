@@ -265,10 +265,10 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
       if (!jobSnap.exists()) throw new Error("Non trovata.");
       const jobData = jobSnap.data() as JobOrder;
 
-      const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("jobIds", "array-contains", jobId));
+      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains", jobId));
       const wSnap = await getDocs(withdrawalsQuery);
       
-      const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean);
+      const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
       const matSnaps = await Promise.all(matIds.map(id => transaction.get(doc(db, 'rawMaterials', id))));
       const matMap = new Map(matSnaps.map(s => [s.id, s.data() as RawMaterial]));
 
