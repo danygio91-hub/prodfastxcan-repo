@@ -31,6 +31,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { it } from 'date-fns/locale';
 import type { JobOrder, JobPhase, WorkPeriod, WorkGroup } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, createWorkGroup, updateWorkGroup, postponeQualityPhase, reportMaterialMissing, updateOperatorStatus, resolveJobProblem, dissolveWorkGroup } from './actions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -930,7 +931,7 @@ export default function ScanJobPage() {
         }
         
         const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && 'workGroupId' in result) {
+        if (result.success && result.workGroupId) {
             toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
             setActiveJobId(result.workGroupId);
         } else {

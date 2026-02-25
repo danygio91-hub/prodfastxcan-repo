@@ -162,7 +162,7 @@ export async function getOperatorsReport(targetDateString?: string) {
             id: op.id,
             name: op.nome,
             department: getDepartmentDisplay(op),
-            status: op.status || 'inattivo',
+            status: op.stato || 'inattivo',
             timeToday: formatDuration(getTimeInInterval(todayInterval)),
             timeWeek: formatDuration(getTimeInInterval(thisWeekInterval)),
             timeMonth: formatDuration(getTimeInInterval(thisMonthInterval)),
