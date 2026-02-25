@@ -542,7 +542,7 @@ export default function RawMaterialManagementClientPage({
                   <FormItem>
                     <FormLabel>UOM</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <FormControl><SelectTrigger><SelectValue placeholder="Seleziona un'unità" /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="n">N (Pezzi)</SelectItem>
                         <SelectItem value="mt">MT (Metri)</SelectItem>

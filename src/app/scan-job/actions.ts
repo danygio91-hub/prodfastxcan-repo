@@ -260,7 +260,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         t.set(wRef, { 
             jobIds, 
             jobOrderPFs, 
-            materialId: mat.id, 
+            materialId: mSnap.id, 
             materialCode: mat.code, 
             consumedWeight: w, 
             consumedUnits: u, 
@@ -273,7 +273,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const phs = [...(item.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
         if (idx !== -1) {
-            phs[idx].materialConsumptions = [...(phs[idx].materialConsumptions || []), { withdrawalId: wRef.id, materialId: mat.id, materialCode: mat.code, pcs: u }];
+            phs[idx].materialConsumptions = [...(phs[idx].materialConsumptions || []), { withdrawalId: wRef.id, materialId: mSnap.id, materialCode: mat.code, pcs: u }];
             if (phs[idx].type === 'preparation') phs[idx].materialReady = true;
             t.update(itemRef, { phases: phs });
             if (isG) await propagateGroupUpdatesToJobs(t, { ...item, phases: phs } as any);
