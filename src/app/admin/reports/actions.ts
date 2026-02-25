@@ -1,4 +1,3 @@
-
 'use server';
 
 import { collection, getDocs, doc, getDoc, query as firestoreQuery, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
@@ -70,7 +69,7 @@ export async function getJobsReport() {
     if (allOperatorIds.length > 0) {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < allOperatorIds.length; i += CHUNK_SIZE) {
-            const chunk = allOperatorIds.slice(i, i + 30);
+            const chunk = allOperatorIds.slice(i, i + CHUNK_SIZE);
             if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
@@ -328,7 +327,7 @@ export async function getJobDetailReport(jobId: string) {
     if (operatorIds.length > 0) {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
-            const chunk = operatorIds.slice(i, i + 30);
+            const chunk = operatorIds.slice(i, i + CHUNK_SIZE);
              if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where('id', 'in', chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);
@@ -426,7 +425,7 @@ export async function getMaterialWithdrawals(dateRange?: { from?: Date; to?: Dat
     if (operatorIds.length > 0) {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < operatorIds.length; i += CHUNK_SIZE) {
-            const chunk = operatorIds.slice(i, i + 30);
+            const chunk = operatorIds.slice(i, i + CHUNK_SIZE);
             if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);

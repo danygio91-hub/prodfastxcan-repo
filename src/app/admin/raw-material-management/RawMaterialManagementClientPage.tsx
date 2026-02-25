@@ -26,7 +26,9 @@ import {
   searchMaterialsAndGetStatus, 
   type MaterialStatus, 
   getMaterialCommitmentDetails, 
-  type CommitmentDetail 
+  type CommitmentDetail,
+  getMaterialOrderedDetails,
+  type OrderedDetail
 } from './actions';
 
 import { Button } from '@/components/ui/button';
@@ -196,6 +198,12 @@ export default function RawMaterialManagementClientPage({
   const [commitmentDetails, setCommitmentDetails] = useState<CommitmentDetail[]>([]);
   const [isLoadingCommitment, setIsLoadingCommitment] = useState(false);
   const [activeMaterialForDetails, setActiveMaterialForDetails] = useState<string | null>(null);
+  
+  const [isOrderedDialogOpen, setIsOrderedDialogOpen] = useState(false);
+  const [orderedDetails, setOrderedDetails] = useState<OrderedDetail[]>([]);
+  const [isLoadingOrdered, setIsLoadingOrdered] = useState(false);
+  const [activeMaterialForOrderedDetails, setActiveMaterialForOrderedDetails] = useState<string | null>(null);
+
   const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
@@ -292,6 +300,21 @@ export default function RawMaterialManagementClientPage({
     }
   };
 
+  const handleOpenOrderedDetails = async (materialCode: string) => {
+    setActiveMaterialForOrderedDetails(materialCode);
+    setIsLoadingOrdered(true);
+    setIsOrderedDialogOpen(true);
+    try {
+      const details = await getMaterialOrderedDetails(materialCode);
+      setOrderedDetails(details);
+    } catch (e) {
+      toast({ variant: 'destructive', title: "Errore nel caricamento." });
+      setIsOrderedDialogOpen(false);
+    } finally {
+      setIsLoadingOrdered(false);
+    }
+  };
+
   const handleDeleteMaterial = async () => {
     if (!materialToDelete) return;
     setIsPending(true);
@@ -346,7 +369,15 @@ export default function RawMaterialManagementClientPage({
                             <TableCell className="font-semibold text-nowrap">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}<span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span></TableCell>
                             <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline font-medium">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                             <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
-                            <TableCell><Link href={`/admin/purchase-orders?materialCode=${encodeURIComponent(m.code)}`} className="text-blue-600 hover:underline text-sm font-medium">{s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</Link></TableCell>
+                            <TableCell>
+                                <button 
+                                    onClick={() => handleOpenOrderedDetails(m.code)} 
+                                    className="text-blue-600 hover:underline text-sm font-medium"
+                                    disabled={!s || s.ordinato <= 0}
+                                >
+                                    {s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}
+                                </button>
+                            </TableCell>
                             <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Vedi Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                           </TableRow>
                         )
@@ -439,6 +470,33 @@ export default function RawMaterialManagementClientPage({
           <DialogFooter><DialogClose asChild><Button variant="outline">Chiudi</Button></DialogClose></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isOrderedDialogOpen} onOpenChange={setIsOrderedDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Truck className="h-6 w-6 text-primary" />Dettaglio Ordinato: {activeMaterialForOrderedDetails}</DialogTitle></DialogHeader>
+          <ScrollArea className="max-h-[60vh] mt-4">
+            <Table>
+              <TableHeader><TableRow><TableHead>N° Ordine</TableHead><TableHead>Fornitore</TableHead><TableHead>Quantità Tot.</TableHead><TableHead>Ricevuto</TableHead><TableHead>Residuo</TableHead><TableHead>Data Prevista</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {isLoadingOrdered ? ( <TableRow><TableCell colSpan={6} className="text-center h-32"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow> ) : orderedDetails.length > 0 ? (
+                  orderedDetails.map((det, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-mono font-bold">{det.orderNumber}</TableCell>
+                      <TableCell className="text-xs">{det.supplierName}</TableCell>
+                      <TableCell>{det.quantity} {det.unit.toUpperCase()}</TableCell>
+                      <TableCell className="text-green-600 font-medium">{det.receivedQuantity} {det.unit.toUpperCase()}</TableCell>
+                      <TableCell className="font-bold text-primary">{(det.quantity - det.receivedQuantity).toFixed(2)} {det.unit.toUpperCase()}</TableCell>
+                      <TableCell><div className="flex items-center gap-2"><Calendar className="h-3 w-3 text-muted-foreground" /><span>{format(parseISO(det.expectedDeliveryDate), 'dd/MM/yyyy')}</span></div></TableCell>
+                    </TableRow>
+                  ))
+                ) : ( <TableRow><TableCell colSpan={6} className="text-center h-24">Nessun ordine fornitore in corso.</TableCell></TableRow> )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+          <DialogFooter><DialogClose asChild><Button variant="outline">Chiudi</Button></DialogClose></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
     </div>
   );

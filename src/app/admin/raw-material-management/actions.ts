@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -53,7 +52,6 @@ function convertTimestampsToDates(obj: any): any {
 
 /**
  * Calcola il fabbisogno di materiale convertendolo nell'unità del magazzino (KG, MT o N).
- * Se il materiale è in KG, trasforma i metri (anche da BOM) in KG usando il rapportoKgMt.
  */
 function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMaterial | undefined): number {
     if (!material) return 0;
@@ -338,6 +336,39 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
         }
     });
     return details.sort((a, b) => (a.deliveryDate || '').localeCompare(b.deliveryDate || ''));
+}
+
+export type OrderedDetail = {
+    id: string;
+    orderNumber: string;
+    supplierName: string;
+    quantity: number;
+    receivedQuantity: number;
+    expectedDeliveryDate: string;
+    status: string;
+    unit: string;
+};
+
+export async function getMaterialOrderedDetails(materialCode: string): Promise<OrderedDetail[]> {
+    const q = firestoreQuery(
+        collection(db, "purchaseOrders"),
+        where("materialCode", "==", materialCode),
+        where("status", "in", ["pending", "partially_received"])
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => {
+        const data = doc.data() as PurchaseOrder;
+        return {
+            id: doc.id,
+            orderNumber: data.orderNumber,
+            supplierName: data.supplierName || 'N/D',
+            quantity: data.quantity,
+            receivedQuantity: data.receivedQuantity || 0,
+            expectedDeliveryDate: data.expectedDeliveryDate,
+            status: data.status,
+            unit: data.unitOfMeasure
+        };
+    }).sort((a, b) => a.expectedDeliveryDate.localeCompare(b.expectedDeliveryDate));
 }
 
 export async function searchMaterialsAndGetStatus(searchTerm: string) {
