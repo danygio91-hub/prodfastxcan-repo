@@ -69,7 +69,7 @@ export async function getJobsReport() {
     if (allOperatorIds.length > 0) {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < allOperatorIds.length; i += CHUNK_SIZE) {
-            const chunk = allOperatorIds.slice(i, i + CHUNK_SIZE);
+            const chunk = operatorIds.slice(i, i + CHUNK_SIZE);
             if (chunk.length > 0) {
                 const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
                 const operatorsSnapshot = await getDocs(operatorsQuery);

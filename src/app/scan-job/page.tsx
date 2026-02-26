@@ -1334,7 +1334,7 @@ export default function ScanJobPage() {
                         <DialogFooter>
                             <Button type="button" variant="ghost" onClick={() => { setMaterialMissingPhase(null); problemForm.reset({notes: ""}); }}>Annulla</Button>
                             <Button type="submit" variant="destructive" disabled={isPending}>
-                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
+                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
                                 Conferma Segnalazione
                             </Button>
                         </DialogFooter>

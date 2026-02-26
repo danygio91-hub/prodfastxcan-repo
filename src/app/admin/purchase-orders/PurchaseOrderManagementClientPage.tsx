@@ -1,9 +1,8 @@
-
 "use client";
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { format, parseISO, isValid, parse } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -12,17 +11,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save, ChevronsUpDown, Check, MoreVertical, XCircle, CheckCircle2, Pencil } from 'lucide-react';
+import { Truck, PlusCircle, Search, Trash2, Download, Upload, Loader2, Calendar as CalendarIcon, Save, ChevronsUpDown, Check, MoreVertical, XCircle, CheckCircle2, Pencil, Plus, X } from 'lucide-react';
 import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder, closePurchaseOrder } from './actions';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import { type PurchaseOrder, type RawMaterial } from '@/lib/mock-data';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { cn } from '@/lib/utils';
@@ -30,17 +29,20 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSearchParams } from 'next/navigation';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 
-const orderSchema = z.object({
-  id: z.string().optional(),
-  orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
-  supplierName: z.string().optional(),
+const itemSchema = z.object({
   materialCode: z.string().min(1, "Il codice materiale è obbligatorio."),
   quantity: z.coerce.number().positive("La quantità deve essere positiva."),
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   expectedDeliveryDate: z.date({ required_error: "La data di consegna è obbligatoria." }),
 });
 
-type OrderFormValues = z.infer<typeof orderSchema>;
+const orderFormSchema = z.object({
+  orderNumber: z.string().min(1, "Il numero ordine è obbligatorio."),
+  supplierName: z.string().optional(),
+  items: z.array(itemSchema).min(1, "Aggiungere almeno un materiale."),
+});
+
+type OrderFormValues = z.infer<typeof orderFormSchema>;
 
 export default function PurchaseOrderManagementClientPage({ 
   initialOrders,
@@ -56,9 +58,8 @@ export default function PurchaseOrderManagementClientPage({
   const [searchTerm, setSearchTerm] = useState(materialCodeParam || '');
   const [isImporting, setIsImporting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isMaterialPopoverOpen, setIsMaterialPopoverOpen] = useState(false);
+  const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -71,36 +72,25 @@ export default function PurchaseOrderManagementClientPage({
   }, [materialCodeParam]);
 
   const form = useForm<OrderFormValues>({
-    resolver: zodResolver(orderSchema),
+    resolver: zodResolver(orderFormSchema),
     defaultValues: {
-      unitOfMeasure: 'n',
+      orderNumber: '',
       supplierName: '',
+      items: [{ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
     }
   });
 
-  const handleOpenDialog = (order: PurchaseOrder | null = null) => {
-    setEditingOrder(order);
-    if (order) {
-      form.reset({
-        id: order.id,
-        orderNumber: order.orderNumber,
-        supplierName: order.supplierName || '',
-        materialCode: order.materialCode,
-        quantity: order.quantity,
-        unitOfMeasure: order.unitOfMeasure,
-        expectedDeliveryDate: new Date(order.expectedDeliveryDate),
-      });
-    } else {
-      form.reset({
-        id: undefined,
-        orderNumber: '',
-        supplierName: '',
-        materialCode: '',
-        quantity: 0,
-        unitOfMeasure: 'n',
-        expectedDeliveryDate: undefined,
-      });
-    }
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "items"
+  });
+
+  const handleOpenDialog = () => {
+    form.reset({
+      orderNumber: '',
+      supplierName: '',
+      items: [{ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() }]
+    });
     setIsDialogOpen(true);
   };
 
@@ -162,14 +152,20 @@ export default function PurchaseOrderManagementClientPage({
   const onManualSubmit = async (values: OrderFormValues) => {
     if (!user) return;
     setIsSaving(true);
-    const result = await savePurchaseOrder({
-      ...values,
+    
+    const payload = {
+      orderNumber: values.orderNumber,
       supplierName: values.supplierName || '',
-      expectedDeliveryDate: values.expectedDeliveryDate.toISOString(),
-    }, user.uid);
+      items: values.items.map(item => ({
+        ...item,
+        expectedDeliveryDate: item.expectedDeliveryDate.toISOString(),
+      }))
+    };
+
+    const result = await savePurchaseOrder(payload, user.uid);
 
     if (result.success) {
-      toast({ title: editingOrder ? "Ordine Aggiornato" : "Ordine Creato", description: `L'ordine ${values.orderNumber} è stato salvato.` });
+      toast({ title: "Ordini Salvati", description: `L'ordine ${values.orderNumber} con ${values.items.length} materiali è stato registrato.` });
       const updated = await getPurchaseOrders();
       setOrders(updated);
       setIsDialogOpen(false);
@@ -219,105 +215,134 @@ export default function PurchaseOrderManagementClientPage({
           <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting}>
             {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />} Carica Excel
           </Button>
-          <Button size="sm" onClick={() => handleOpenDialog()}>
+          <Button size="sm" onClick={handleOpenDialog}>
             <PlusCircle className="mr-2 h-4 w-4" /> Crea Ordine
           </Button>
         </div>
       </header>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editingOrder ? 'Modifica Ordine Fornitore' : 'Nuovo Ordine Fornitore'}</DialogTitle>
-            <DialogDescription>Inserisci i dettagli del materiale in arrivo.</DialogDescription>
+            <DialogTitle>Nuovo Ordine Fornitore</DialogTitle>
+            <DialogDescription>Inserisci i dettagli del materiale in arrivo. Puoi aggiungere più righe per lo stesso ordine.</DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onManualSubmit)} className="space-y-4 py-4">
-              <FormField control={form.control} name="orderNumber" render={({ field }) => (
-                <FormItem><FormLabel>N° Ordine</FormLabel><FormControl><Input placeholder="Es. ORD-2024-001" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={form.control} name="supplierName" render={({ field }) => (
-                <FormItem><FormLabel>Fornitore (Opzionale)</FormLabel><FormControl><Input placeholder="Es. Rossi Metalli" {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              
-              <FormField control={form.control} name="materialCode" render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Codice Materiale</FormLabel>
-                  <Popover open={isMaterialPopoverOpen} onOpenChange={setIsMaterialPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                          {field.value ? rawMaterials.find(m => m.code === field.value)?.code : "Seleziona materiale..."}
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                      <Command>
-                        <CommandInput placeholder="Cerca materiale..." />
-                        <CommandEmpty>Nessun materiale trovato.</CommandEmpty>
-                        <CommandGroup>
-                          <ScrollArea className="h-64">
-                            {rawMaterials.map((material) => (
-                              <CommandItem
-                                value={material.code}
-                                key={material.id}
-                                onSelect={() => {
-                                  form.setValue("materialCode", material.code);
-                                  form.setValue("unitOfMeasure", material.unitOfMeasure);
-                                  setIsMaterialPopoverOpen(false);
-                                }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4", material.code === field.value ? "opacity-100" : "opacity-0")} />
-                                {material.code}
-                              </CommandItem>
-                            ))}
-                          </ScrollArea>
-                        </CommandGroup>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              )} />
-
-              <div className="grid grid-cols-2 gap-4">
-                <FormField control={form.control} name="quantity" render={({ field }) => (
-                  <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
+            <form onSubmit={form.handleSubmit(onManualSubmit)} className="flex-1 overflow-hidden flex flex-col">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 border-b">
+                <FormField control={form.control} name="orderNumber" render={({ field }) => (
+                  <FormItem><FormLabel>N° Ordine</FormLabel><FormControl><Input placeholder="Es. ORD-2024-001" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (
-                  <FormItem><FormLabel>Unità</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent><SelectItem value="n">N</SelectItem><SelectItem value="mt">MT</SelectItem><SelectItem value="kg">KG</SelectItem></SelectContent>
-                    </Select>
-                  </FormItem>
+                <FormField control={form.control} name="supplierName" render={({ field }) => (
+                  <FormItem><FormLabel>Fornitore (Opzionale)</FormLabel><FormControl><Input placeholder="Es. Rossi Metalli" {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
               </div>
-              <FormField control={form.control} name="expectedDeliveryDate" render={({ field }) => (
-                <FormItem className="flex flex-col">
-                  <FormLabel>Data Consegna Prevista</FormLabel>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <FormControl>
-                        <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
-                          {field.value ? format(field.value, "dd/MM/yyyy") : <span>Scegli una data</span>}
-                          <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+
+              <ScrollArea className="flex-1 py-4">
+                <div className="space-y-4">
+                  <h4 className="font-semibold flex items-center gap-2"><Boxes className="h-4 w-4"/> Righe Materiale</h4>
+                  {fields.map((item, index) => (
+                    <div key={item.id} className="p-4 border rounded-lg relative bg-muted/30 grid grid-cols-12 gap-3 items-end">
+                      <div className="col-span-12 sm:col-span-4">
+                        <FormField control={form.control} name={`items.${index}.materialCode`} render={({ field }) => (
+                          <FormItem className="flex flex-col">
+                            <FormLabel>Codice Materiale</FormLabel>
+                            <Popover open={openComboboxIndex === index} onOpenChange={(open) => setOpenComboboxIndex(open ? index : null)}>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
+                                    {field.value || "Scrivi per cercare..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                                <Command>
+                                  <CommandInput placeholder="Digita codice..." />
+                                  <CommandList>
+                                    <CommandEmpty>Nessun materiale trovato.</CommandEmpty>
+                                    <CommandGroup>
+                                      {rawMaterials.map((material) => (
+                                        <CommandItem
+                                          key={material.id}
+                                          value={material.code}
+                                          onSelect={() => {
+                                            form.setValue(`items.${index}.materialCode`, material.code);
+                                            form.setValue(`items.${index}.unitOfMeasure`, material.unitOfMeasure);
+                                            setOpenComboboxIndex(null);
+                                          }}
+                                        >
+                                          <Check className={cn("mr-2 h-4 w-4", material.code === field.value ? "opacity-100" : "opacity-0")} />
+                                          {material.code}
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+
+                      <div className="col-span-6 sm:col-span-2">
+                        <FormField control={form.control} name={`items.${index}.quantity`} render={({ field }) => (
+                          <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" step="any" {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                      </div>
+
+                      <div className="col-span-6 sm:col-span-2">
+                        <FormField control={form.control} name={`items.${index}.unitOfMeasure`} render={({ field }) => (
+                          <FormItem><FormLabel>Unità</FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                              <SelectContent><SelectItem value="n">N</SelectItem><SelectItem value="mt">MT</SelectItem><SelectItem value="kg">KG</SelectItem></SelectContent>
+                            </Select>
+                          </FormItem>
+                        )} />
+                      </div>
+
+                      <div className="col-span-10 sm:col-span-3">
+                        <FormField control={form.control} name={`items.${index}.expectedDeliveryDate`} render={({ field }) => (
+                          <FormItem className="flex flex-col">
+                            <FormLabel>Consegna</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <FormControl>
+                                  <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                    {field.value ? format(field.value, "dd/MM/yy") : <span>Data</span>}
+                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                  </Button>
+                                </FormControl>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                              </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-1 flex justify-center pb-1">
+                        <Button type="button" variant="ghost" size="icon" className="text-destructive" onClick={() => remove(index)} disabled={fields.length === 1}>
+                          <X className="h-4 w-4" />
                         </Button>
-                      </FormControl>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                    </PopoverContent>
-                  </Popover>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <DialogFooter>
+                      </div>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" className="w-full border-dashed" onClick={() => append({ materialCode: '', quantity: 0, unitOfMeasure: 'n', expectedDeliveryDate: new Date() })}>
+                    <Plus className="mr-2 h-4 w-4"/> Aggiungi riga materiale
+                  </Button>
+                </div>
+              </ScrollArea>
+
+              <DialogFooter className="pt-4 border-t">
                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Annulla</Button>
                 <Button type="submit" disabled={isSaving}>
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}
-                  {editingOrder ? 'Salva Modifiche' : 'Crea Ordine'}
+                  Registra Ordine
                 </Button>
               </DialogFooter>
             </form>
@@ -378,9 +403,6 @@ export default function PurchaseOrderManagementClientPage({
                                 <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4"/></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => handleOpenDialog(order)}>
-                                    <Pencil className="mr-2 h-4 w-4"/> Modifica
-                                </DropdownMenuItem>
                                 {isPending && (
                                     <>
                                         <AlertDialog>

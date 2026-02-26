@@ -327,7 +327,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 
     revalidatePath('/admin/production-console');
     revalidatePath('/admin/data-management');
-    return { success: true, message: `Elemento resettato.` };
+    return { success: true, message: `Resettato.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
@@ -396,7 +396,7 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
   try {
       for (const id of jobIds) await forceFinishProduction(id, uid);
       return { success: true, message: 'Completato.' };
-  } catch (e) { return { success: false, message: 'Errore parziale.' }; }
+  } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
@@ -419,7 +419,7 @@ export async function forceFinishMultipleProduction(jobIds: string[], uid: strin
         }
         return { success: true, message: 'Completato.' };
     } catch (e) {
-        return { success: false, message: 'Errore durante la procedura massiva.' };
+        return { success: false, message: 'Errore.' };
     }
 }
 
@@ -431,7 +431,7 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
 
     await runTransaction(db, async (t) => {
         const snap = await t.get(itemRef);
-        if (!snap.exists()) throw new Error("Elemento non trovato.");
+        if (!snap.exists()) throw new Error("Non trovato.");
         
         t.update(itemRef, { dataConsegnaFinale: newDate });
         
@@ -444,9 +444,9 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
     });
 
     revalidatePath('/admin/production-console');
-    return { success: true, message: "Data di consegna aggiornata." };
+    return { success: true, message: "Data aggiornata." };
   } catch (error) {
-    return { success: false, message: "Errore durante l'aggiornamento della data." };
+    return { success: false, message: "Errore." };
   }
 }
     

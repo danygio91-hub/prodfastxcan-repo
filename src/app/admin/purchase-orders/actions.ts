@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -24,32 +23,48 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
 }
 
-export async function savePurchaseOrder(data: Partial<PurchaseOrder>, uid: string): Promise<{ success: boolean; message: string }> {
-  await ensureAdmin(uid);
-  const id = data.id || `po-${Date.now()}`;
-  const docRef = doc(db, "purchaseOrders", id);
-  
-  const dataToSave = {
-    ...data,
-    id,
-    createdAt: Timestamp.now(),
-    status: data.status || 'pending',
-    receivedQuantity: data.receivedQuantity || 0,
-  };
-
+export async function savePurchaseOrder(data: {
+  orderNumber: string;
+  supplierName: string;
+  items: Array<{
+    materialCode: string;
+    quantity: number;
+    unitOfMeasure: 'n' | 'mt' | 'kg';
+    expectedDeliveryDate: string;
+  }>;
+}, uid: string): Promise<{ success: boolean; message: string }> {
   try {
-    await setDoc(docRef, dataToSave, { merge: true });
+    await ensureAdmin(uid);
+    const batch = writeBatch(db);
+    
+    for (const item of data.items) {
+      const id = `po-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const docRef = doc(db, "purchaseOrders", id);
+      
+      batch.set(docRef, {
+        id,
+        orderNumber: data.orderNumber,
+        supplierName: data.supplierName || '',
+        materialCode: item.materialCode,
+        quantity: item.quantity,
+        receivedQuantity: 0,
+        unitOfMeasure: item.unitOfMeasure,
+        expectedDeliveryDate: item.expectedDeliveryDate,
+        status: 'pending',
+        createdAt: Timestamp.now()
+      });
+    }
+
+    await batch.commit();
     revalidatePath('/admin/purchase-orders');
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Ordine salvato con successo.' };
+    return { success: true, message: 'Ordini salvati con successo.' };
   } catch (e) {
+    console.error("Error saving purchase orders:", e);
     return { success: false, message: 'Errore durante il salvataggio.' };
   }
 }
 
-/**
- * Manually closes a purchase order (e.g., when the supplier won't send the remaining items).
- */
 export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
     try {
