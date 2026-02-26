@@ -2,10 +2,10 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, AlertTriangle, BarChart3, Copy, ClipboardList } from 'lucide-react';
+import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, RefreshCcw, BarChart3, Copy, ClipboardList, ChevronDown } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -31,15 +31,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData } from '@/app/admin/production-console/actions';
+import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData, updateJobDeliveryDate } from '@/app/admin/production-console/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -52,11 +46,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { StatusBadge } from '@/components/production-console/StatusBadge';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { useRouter } from 'next/navigation';
-
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -105,9 +95,6 @@ function ProductionConsoleView() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  // This effect will listen for changes in the main data lists (jobOrders, workGroups)
-  // and update the state of the currently open dialog (`materialManagedItem`).
-  // This ensures the dialog content is always in sync with the real-time data.
   useEffect(() => {
     if (materialManagedItem) {
       const isGroup = materialManagedItem.id.startsWith('group-');
@@ -223,7 +210,6 @@ function ProductionConsoleView() {
   const applyFilters = <T extends JobOrder | WorkGroup>(items: T[]): T[] => {
       let filtered = items;
 
-      // Main filter logic
       if (showCompleted) {
           filtered = filtered.filter(item => getOverallStatus(item) === 'Completata');
           if (isDateFilterActive && completedDateFilter) {
@@ -242,7 +228,6 @@ function ProductionConsoleView() {
           }
       }
 
-      // Secondary filters
       if (showOnlyOverdue) {
           filtered = filtered.filter(isOverdue);
       }
@@ -303,7 +288,7 @@ function ProductionConsoleView() {
     
     const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
     const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
-    const canReset = statuses.every(status => status === 'Completata');
+    const canReset = selectedItems.length > 0;
 
     return { canForceFinish, canForceComplete, canReset };
   }, [selectedItems, isJobLive]);
@@ -346,10 +331,17 @@ function ProductionConsoleView() {
     if (result.success) setSelectedIds([]);
   };
   
-  const handleBulkReset = () => {
-     if (selectedIds.length === 0) return;
-     selectedIds.forEach(id => onResetJobOrderClick(id));
+  const handleBulkReset = async () => {
+     if (selectedIds.length === 0 || !user) return;
+     setIsLoading(true);
+     let successCount = 0;
+     for (const id of selectedIds) {
+         const res = await resetSingleCompletedJobOrder(id, user.uid);
+         if (res.success) successCount++;
+     }
+     toast({ title: "Reset Completato", description: `${successCount} elementi sono stati riportati allo stato pianificato.` });
      setSelectedIds([]);
+     setIsLoading(false);
   };
 
   const handleResolveProblem = async () => {
@@ -397,7 +389,7 @@ function ProductionConsoleView() {
       if (!user) return;
       const result = await toggleGuainaPhasePosition(jobId, phaseId, currentState);
       toast({
-        title: result.success ? "Operazione Riuscita" : "Errore",
+        title: result.success ? "Operazione Eseguita" : "Errore",
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
@@ -481,7 +473,6 @@ function ProductionConsoleView() {
         description: result.message,
         variant: result.success ? 'default' : 'destructive',
     });
-    // Realtime listener will handle the update
   };
   
   const handleMovePhase = (index: number, direction: 'up' | 'down') => {
@@ -507,6 +498,16 @@ function ProductionConsoleView() {
     if (result.success) {
       setPhaseManagedItem(null);
     }
+  };
+
+  const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => {
+    if (!user) return;
+    const result = await updateJobDeliveryDate(itemId, newDate, user.uid);
+    toast({
+        title: result.success ? "Data Aggiornata" : "Errore",
+        description: result.message,
+        variant: result.success ? "default" : "destructive",
+    });
   };
 
   const handleCopy = (text: string) => {
@@ -559,7 +560,6 @@ function ProductionConsoleView() {
             title: "Errore Analisi Tempi",
             description: "Impossibile caricare i dati di analisi.",
         });
-        // Clear data for this job on error
         setAnalysisDataMap(prevMap => {
              const newMap = new Map(prevMap);
              newMap.set(job.id, null);
@@ -706,11 +706,11 @@ function ProductionConsoleView() {
                              <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive focus:text-destructive">
-                                      <Trash2 className="mr-2 h-4 w-4" /> Annulla e Resetta
+                                      <RefreshCcw className="mr-2 h-4 w-4" /> Annulla e Resetta
                                   </DropdownMenuItem>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
-                                    <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedIds.length} commesse allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock.</AlertDialogDescription></AlertDialogHeader>
+                                    <AlertDialogHeader><AlertDialogTitle>Sei assolutamente sicuro?</AlertDialogTitle><AlertDialogDescription>Stai per resettare {selectedIds.length} elementi allo stato 'pianificata', azzerando ogni lavorazione e ripristinando lo stock dei materiali. Questa operazione è definitiva.</AlertDialogDescription></AlertDialogHeader>
                                     <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive hover:bg-destructive/90">Sì, Annulla e Resetta</AlertDialogAction></AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
@@ -744,6 +744,7 @@ function ProductionConsoleView() {
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(group)}
                   onToggleGuainaClick={handleToggleGuaina}
+                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
@@ -772,6 +773,7 @@ function ProductionConsoleView() {
                   onResetJobOrderClick={onResetJobOrderClick}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(job)}
+                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}
@@ -882,7 +884,7 @@ function ProductionConsoleView() {
                      <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button size="sm" variant={isMissing ? 'secondary' : 'destructive'} disabled={phase.status !== 'pending'}>
-                           {isMissing ? <Unlock className="mr-2 h-4 w-4" /> : <AlertTriangle className="mr-2 h-4 w-4" />}
+                           {isMissing ? <Unlock className="mr-2 h-4 w-4" /> : <PlayCircle className="mr-2 h-4 w-4" />}
                            {isMissing ? 'Risolvi' : 'Manca Materiale'}
                         </Button>
                       </AlertDialogTrigger>

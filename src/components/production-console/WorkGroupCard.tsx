@@ -52,7 +52,7 @@ function getPhaseIcon(status: JobPhase['status']) {
 export default function WorkGroupCard({ 
     group, jobsInGroup, allOperators, allRawMaterials, onProblemClick, onForceFinishClick, onForcePauseClick, onForceCompleteClick, onDissolveGroupClick, onOpenPhaseManager, onOpenMaterialManager, onToggleGuainaClick, onUpdateDeliveryDate, isSelected, onSelect, overallStatus, getOverallStatus, onNavigateToAnalysis, onCopyArticleCode,
 }: { 
-    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; allRawMaterials: RawMaterial[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void; onForcePauseClick: (groupId: string, operatorIds: string[]) => void; onForceCompleteClick: (groupId: string) => void; onDissolveGroupClick: (groupId: string) => void; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void; onUpdateDeliveryDate: (itemId: string, newDate: string) => void; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
+    group: WorkGroup; jobsInGroup: JobOrder[]; allOperators: Operator[]; allRawMaterials: RawMaterial[]; onProblemClick: () => void; onForceFinishClick: (groupId: string) => void | Promise<void>; onForcePauseClick: (groupId: string, operatorIds: string[]) => void | Promise<void>; onForceCompleteClick: (groupId: string) => void | Promise<void>; onDissolveGroupClick: (groupId: string) => void | Promise<void>; onOpenPhaseManager: (item: JobOrder | WorkGroup) => void; onOpenMaterialManager: (item: JobOrder | WorkGroup) => void; onToggleGuainaClick: (itemId: string, phaseId: string, currentState: 'default' | 'postponed') => void | Promise<void>; onUpdateDeliveryDate: (itemId: string, newDate: string) => void | Promise<void>; isSelected: boolean; onSelect: (groupId: string) => void; overallStatus: OverallStatus; getOverallStatus: (job: JobOrder) => OverallStatus; onNavigateToAnalysis: (articleCode: string) => void; onCopyArticleCode: (articleCode: string) => void;
 }) {
   const [isPauseDialogOpen, setIsPauseDialogOpen] = useState(false);
   const [isExplodeViewOpen, setIsExplodeViewOpen] = useState(false);
@@ -213,7 +213,7 @@ export default function WorkGroupCard({
                       </div>
                   ))}
               </div>
-              <DialogFooter><Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button><Button onClick={() => { onForcePauseClick(group.id, selectedOperators); setIsPauseDialogOpen(false); }} disabled={selectedOperators.length === 0}>Conferma</Button></DialogFooter>
+              <DialogFooter><Button variant="outline" onClick={() => setIsPauseDialogOpen(false)}>Annulla</Button><Button onClick={() => { const res = onForcePauseClick(group.id, selectedOperators); if (res instanceof Promise) res.then(() => setIsPauseDialogOpen(false)); else setIsPauseDialogOpen(false); }} disabled={selectedOperators.length === 0}>Conferma</Button></DialogFooter>
           </DialogContent>
       </Dialog>
       
