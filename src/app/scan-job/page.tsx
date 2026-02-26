@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useTransition } from 'react';
@@ -21,7 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, MoveLeft, ThumbsUp, ThumbsDown, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw, Unlock, Users } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, Package, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, MoveLeft, ThumbsDown, ThumbsUp, Link as LinkIcon, Unlink, ArchiveRestore, EyeOff, RefreshCcw, Unlock, Users } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -30,6 +29,7 @@ import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import type { JobOrder, JobPhase, WorkPeriod, WorkGroup } from '@/lib/mock-data';
@@ -42,53 +42,25 @@ import { useCameraStream } from '@/hooks/use-camera-stream';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
-import { Textarea } from '@/components/ui/textarea';
-
-// Manual type declaration for BarcodeDetector API to ensure compilation
-interface BarcodeDetectorOptions { formats?: string[]; }
-interface DetectedBarcode { rawValue: string; }
-declare class BarcodeDetector {
-  constructor(options?: BarcodeDetectorOptions);
-  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-}
 
 const problemReportSchema = z.object({
   problemType: z.enum(["FERMO_MACCHINA", "MANCA_MATERIALE", "PROBLEMA_QUALITA", "ALTRO"]).optional(),
-  notes: z.string().max(150, { message: "Le note non possono superare i 150 caratteri." }).optional(),
+  notes: z.string().max(150, { message: "Max 150 caratteri." }).optional(),
 });
 type ProblemReportFormValues = z.infer<typeof problemReportSchema>;
 
-
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
-  let totalMilliseconds = 0;
-  workPeriods.forEach(period => {
-    if (period.end) {
-      totalMilliseconds += new Date(period.end).getTime() - new Date(period.start).getTime();
-    }
-  });
-
-  if (totalMilliseconds === 0 && !workPeriods.some(p => p.end === null)) return "0s";
-  if (totalMilliseconds === 0 && workPeriods.some(p => p.end === null)) return "Iniziata (0s effettivi)";
-
-
-  const hours = Math.floor(totalMilliseconds / (1000 * 60 * 60));
-  const minutes = Math.floor((totalMilliseconds / (1000 * 60)) % 60);
-  const seconds = Math.floor((totalMilliseconds / 1000) % 60);
-
-  let formattedTime = "";
-  if (hours > 0) formattedTime += `${hours}h `;
-  if (minutes > 0 || hours > 0) formattedTime += `${minutes}m `;
-  formattedTime += `${seconds}s`;
-  
-  return formattedTime.trim();
+  let total = 0;
+  workPeriods.forEach(p => { if (p.end) total += new Date(p.end).getTime() - new Date(p.start).getTime(); });
+  if (total === 0) return workPeriods.some(p => p.end === null) ? "Iniziata" : "0s";
+  const h = Math.floor(total / 3600000);
+  const m = Math.floor((total % 3600000) / 60000);
+  const s = Math.floor((total % 60000) / 1000);
+  return `${h > 0 ? h + 'h ' : ''}${m > 0 ? m + 'm ' : ''}${s}s`;
 }
 
 function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qualityResult']) {
-  if (status === 'completed') {
-    if (qualityResult === 'passed') return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
-    if (qualityResult === 'failed') return <ThumbsDown className="h-4 w-4 text-destructive" />;
-    return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
-  }
+  if (status === 'completed') return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
     case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
@@ -98,188 +70,41 @@ function getPhaseIcon(status: JobPhase['status'], qualityResult?: JobPhase['qual
   }
 }
 
-const PhaseCard = ({ phase, job, handlers }: {
-    phase: JobPhase,
-    job: JobOrder,
-    handlers: {
-        handleOpenPhaseScanDialog: (phase: JobPhase) => void,
-        handleMaterialMissing: () => void,
-        handlePausePhase: (phaseId: string) => void,
-        handleResumePhase: (phaseId: string) => void,
-        handleCompletePhase: (phaseId: string) => void,
-        handleQualityPhaseResult?: (phaseId: string, result: 'passed' | 'failed', notes?: string) => void,
-        handleForceStartPhase?: (phaseId: string) => void,
-        handlePostponeQuality: (phaseId: string) => void,
-        openQualityProblemDialog: (isOpen: boolean) => void,
-        setPhaseForQualityProblem: (phase: JobPhase) => void,
-        handleOpenMaterialAssociationDialog: (phase: JobPhase) => void,
-    }
-}) => {
+const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, handlers: any }) => {
     const { operator } = useAuth();
     if (!operator) return null;
-
-    const isSuperadvisor = operator.role === 'supervisor';
+    const isSuper = operator.role === 'supervisor';
     const operatorReparti = operator.reparto || [];
-
-    const operatorHasPermissionForDepartment = isSuperadvisor || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
-    const isPhaseOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
-
-    const canStartPhase = operatorHasPermissionForDepartment && phase.status === 'pending' && phase.materialReady;
-    const canPausePhase = !job.isProblemReported && phase.status === 'in-progress' && isPhaseOwner;
-    const canResumePhase = operatorHasPermissionForDepartment && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isPhaseOwner));
-    const canCompletePhase = (phase.status === 'in-progress' || phase.status === 'paused') && isPhaseOwner;
-    const anyOperatorActive = (phase.workPeriods || []).some(wp => wp.end === null);
-    const otherOperatorsActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
+    const hasPerm = isSuper || (phase.departmentCodes || []).some(dc => operatorReparti.includes(dc));
+    const isOwner = (phase.workPeriods || []).some(wp => wp.operatorId === operator.id && wp.end === null);
+    const canStart = hasPerm && phase.status === 'pending' && phase.materialReady;
+    const canPause = !job.isProblemReported && phase.status === 'in-progress' && isOwner;
+    const canResume = hasPerm && !job.isProblemReported && (phase.status === 'paused' || (phase.status === 'in-progress' && !isOwner));
+    const canComplete = (phase.status === 'in-progress' || phase.status === 'paused') && isOwner;
+    const otherActive = (phase.workPeriods || []).some(wp => wp.operatorId !== operator.id && wp.end === null);
     
-    const canAssociateMaterial = operatorHasPermissionForDepartment && phase.type === 'preparation' && ['pending', 'in-progress', 'paused'].includes(phase.status);
-
-
-    const lastActiveWorkPeriod = (phase.workPeriods || []).length > 0 ? (phase.workPeriods || [])[(phase.workPeriods || []).length - 1] : null;
-
-    const openProblemDialog = () => {
-        handlers.setPhaseForQualityProblem(phase);
-        handlers.openQualityProblemDialog(true);
-    };
-
     return (
-      <Card key={phase.id} className={`p-4 bg-card/50 ${!operatorHasPermissionForDepartment && 'opacity-60 bg-muted/30'}`}>
+      <Card className={cn("p-4 bg-card/50", !hasPerm && 'opacity-60 bg-muted/30')}>
           <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center">
-              {getPhaseIcon(phase.status, phase.qualityResult)}
-              <span className={`font-semibold ${!operatorHasPermissionForDepartment && 'text-muted-foreground'}`}>{phase.name} (Seq: {phase.sequence})</span>
+            <div className="flex items-center">{getPhaseIcon(phase.status, phase.qualityResult)}<span className="font-semibold ml-2">{phase.name}</span></div>
+            <div className="flex items-center space-x-2"><Label className="text-sm">Mat. Pronto:</Label>{phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}</div>
           </div>
-          <div className="flex items-center space-x-2">
-              <Label htmlFor={`material-${phase.id}`} className="text-sm">Mat. Pronto:</Label>
-              <Switch id={`material-${phase.id}`} checked={phase.materialReady} disabled={true} />
-              {phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}
+          {isOwner && <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1"><UserCheck className="h-4 w-4" />Stai lavorando qui.</p>}
+          {otherActive && <p className="text-xs text-blue-500 font-semibold mt-2">Altri operatori attivi.</p>}
+          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+            {(phase.materialConsumptions || []).map((mc, i) => <p key={i} className="bg-primary/5 p-1 rounded">Materiale: {mc.materialCode} {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}</p>)}
+            {phase.type !== 'quality' && <p>Tempo effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
           </div>
+          <div className="mt-3 flex gap-2">
+            {hasPerm && phase.type === 'preparation' && <Button size="sm" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa Materiale</Button>}
+            {canStart && phase.type !== 'quality' && <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline"><QrCode className="mr-2 h-4 w-4" /> Avvia</Button>}
+            {canPause && <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500">Pausa</Button>}
+            {canResume && <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500">Riprendi</Button>}
+            {canComplete && <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700">Completa</Button>}
           </div>
-          
-          {!operatorHasPermissionForDepartment && (
-          <p className="text-xs text-amber-600 dark:text-amber-500 font-semibold mt-2">
-              Fase non di competenza del tuo reparto.
-          </p>
-          )}
-          {isPhaseOwner && (
-          <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">
-              <UserCheck className="h-4 w-4" />
-              Stai lavorando a questa fase.
-          </p>
-          )}
-          {otherOperatorsActive && (
-            <p className="text-xs text-blue-500 font-semibold mt-2 flex items-center gap-1">
-              <Users className="h-4 w-4" />
-              Altri operatori sono attivi su questa fase.
-            </p>
-          )}
-
-
-          {phase.qualityResult && (
-              <div className="mt-2">
-                  <Badge variant={phase.qualityResult === 'passed' ? 'default' : 'destructive'}>
-                      Esito: {phase.qualityResult === 'passed' ? 'Superato' : 'Fallito'}
-                  </Badge>
-              </div>
-          )}
-
-          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-          {(phase.materialConsumptions || []).map((mc, index) => (
-              <p key={index} className="font-semibold text-primary/90 text-xs bg-primary/10 p-2 rounded-md">
-                  Materiale: {mc.materialCode} 
-                  {mc.grossOpeningWeight !== undefined && ` (Aperto: ${mc.grossOpeningWeight} kg)`}
-                  {mc.closingWeight !== undefined && ` (Chiuso: ${mc.closingWeight} kg)`}
-                  {mc.pcs !== undefined && ` (Pezzi: ${mc.pcs})`}
-                  {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}
-              </p>
-          ))}
-          {lastActiveWorkPeriod?.start && (
-              <p>Ultimo avvio: {format(new Date(lastActiveWorkPeriod.start), "dd/MM/yyyy HH:mm:ss")}</p>
-          )}
-          {phase.status === 'paused' && lastActiveWorkPeriod?.end && (
-              <p>Messa in pausa il: {format(new Date(lastActiveWorkPeriod.end), "dd/MM/yyyy HH:mm:ss")}</p>
-          )}
-          {phase.type !== 'quality' && <p>Tempo di lavorazione effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
-          </div>
-          
-        <div className="mt-3 flex items-start gap-2">
-            <div className="flex-grow space-y-2">
-                {canAssociateMaterial && (
-                  <Button size="sm" className="w-full" onClick={() => handlers.handleOpenMaterialAssociationDialog(phase)}>Associa/Preleva Materiale</Button>
-                )}
-                {canStartPhase && phase.type !== 'quality' && (
-                    <Button size="sm" onClick={() => handlers.handleOpenPhaseScanDialog(phase)} variant="outline" className="w-full border-primary text-primary hover:bg-primary/10">
-                        <QrCode className="mr-2 h-4 w-4" /> Scansiona Fase per Avviare
-                    </Button>
-                )}
-            </div>
-          <Button size="icon" variant="destructive" onClick={handlers.handleMaterialMissing} className="shrink-0">
-            <AlertTriangle className="h-5 w-5" />
-            <span className="sr-only">Manca Materiale</span>
-          </Button>
-        </div>
-           
-           {canStartPhase && phase.type === 'quality' && handlers.handleQualityPhaseResult && (
-                <div className="flex gap-2 mt-3">
-                    <Button size="sm" className="bg-green-600 hover:bg-green-700 h-12 w-16 flex-col" onClick={() => handlers.handleQualityPhaseResult?.(phase.id, 'passed')}>
-                        <ThumbsUp className="h-5 w-5" />
-                        <span className="text-xs">OK</span>
-                    </Button>
-                    <Button size="sm" variant="destructive" className="h-12 w-16 flex-col" onClick={openProblemDialog}>
-                        <ThumbsDown className="h-5 w-5" />
-                        <span className="text-xs">NC</span>
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-12 w-16 flex-col border-amber-500 text-amber-500 hover:bg-amber-500/10 hover:text-amber-500" onClick={() => handlers.handlePostponeQuality(phase.id)}>
-                        <ArchiveRestore className="h-5 w-5" />
-                        <span className="text-xs">Posticipa</span>
-                    </Button>
-                </div>
-            )}
-            
-            {isSuperadvisor && phase.status === 'pending' && handlers.handleForceStartPhase && (
-                 <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button size="sm" variant="destructive" disabled={!operatorHasPermissionForDepartment} className="mt-3 w-full">
-                            <AlertTriangle className="mr-2 h-4 w-4" /> Forza Avvio Fase
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Sei sicuro di forzare l'avvio?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                Questa azione avvierà la fase "{phase.name}" senza rispettare la sequenza prevista. Usare con cautela.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Annulla</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handlers.handleForceStartPhase?.(phase.id)}>
-                                Sì, forza avvio
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            )}
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {canPausePhase && (
-                  <Button size="sm" onClick={() => handlers.handlePausePhase(phase.id)} variant="outline" className="text-orange-500 border-orange-500 hover:bg-orange-500/10 hover:text-orange-500">
-                  <PausePhaseIcon className="mr-2 h-4 w-4" /> Metti in Pausa
-                  </Button>
-              )}
-              {canResumePhase && (
-                  <Button size="sm" onClick={() => handlers.handleResumePhase(phase.id)} variant="outline" className="text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500">
-                  <PlayCircle className="mr-2 h-4 w-4" /> {anyOperatorActive ? "Partecipa alla Fase" : "Riprendi Fase"}
-                  </Button>
-              )}
-              {canCompletePhase && (
-                  <Button size="sm" onClick={() => handlers.handleCompletePhase(phase.id)} className="bg-green-600 hover:bg-green-700 text-primary-foreground" disabled={(job.isProblemReported && phase.status !== 'completed')}>
-                  <PhaseCompletedIcon className="mr-2 h-4 w-4" /> Completa la tua Attività
-                  </Button>
-              )}
-            </div>
-
       </Card>
     );
-  }
+};
 
 export default function ScanJobPage() {
   const { toast } = useToast();
@@ -289,1220 +114,150 @@ export default function ScanJobPage() {
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading' | 'group_scanning'>('loading');
   const [isPending, startTransition] = useTransition();
   const [groupScanList, setGroupScanList] = useState<JobOrder[]>([]);
-
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState(true);
   const [manualCode, setManualCode] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  
   const [isProblemReportDialogOpen, setIsProblemReportDialogOpen] = useState(false);
-  const [isQualityProblemDialogOpen, setIsQualityProblemDialogOpen] = useState(false);
-  const [phaseForQualityProblem, setPhaseForQualityProblem] = useState<JobPhase | null>(null);
-  
   const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
   const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
-
   const [isContinueOrCloseDialogOpen, setIsContinueOrCloseDialogOpen] = useState(false);
   const [jobToFinalize, setJobToFinalize] = useState<JobOrder | null>(null);
-  
   const [materialMissingPhase, setMaterialMissingPhase] = useState<JobPhase | null>(null);
-
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
-  const problemForm = useForm<ProblemReportFormValues>({
-    resolver: zodResolver(problemReportSchema),
-    defaultValues: { notes: "" }
-  });
+  const problemForm = useForm<ProblemReportFormValues>({ resolver: zodResolver(problemReportSchema) });
 
   const forceJobDataRefresh = useCallback(async (jobId: string) => {
-    const freshJobData = await getJobOrderById(jobId);
-    if (freshJobData) {
-      setActiveJob(freshJobData);
-    }
+    const fresh = await getJobOrderById(jobId);
+    if (fresh) setActiveJob(fresh);
   }, [setActiveJob]);
-  
-  useEffect(() => {
-    if (activeJob) {
-      forceJobDataRefresh(activeJob.id);
-    }
-     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  useEffect(() => {
-    if (!isJobLoading) {
-      if (activeJob) {
-        if (activeJob.status === 'completed') {
-          setStep('finished');
-        } else {
-          setStep('processing');
-        }
-      } else {
-        setStep('initial');
-      }
-    } else {
-      setStep('loading');
-    }
-  }, [isJobLoading, activeJob]);
+  useEffect(() => { if (!isJobLoading) setStep(activeJob ? (activeJob.status === 'completed' ? 'finished' : 'processing') : 'initial'); }, [isJobLoading, activeJob]);
 
-  const handleUpdateAndPersistJob = useCallback(async (jobData: JobOrder | WorkGroup) => {
-    if (!operator) return;
-    const isGroup = jobData.id.startsWith('group-');
-    if (isGroup) {
-        await updateWorkGroup(jobData as WorkGroup, operator.id);
-    } else {
-        await updateJob(jobData as JobOrder);
-    }
-  }, [operator]);
-  
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }
-  }, []);
-
-  const handleScannedData = useCallback(async (data: string) => {
-    stopCamera();
-    setStep('initial');
-    const parts = data.split('@');
-    if (parts.length !== 3) {
-        toast({ variant: 'destructive', title: 'QR Code non Valido', description: 'Formato del QR code non corretto. Atteso: "Ordine PF@Codice@Qta"' });
-        return;
-    }
-    const [ordinePF, codice, qta] = parts;
-    if (!ordinePF || !codice || !qta) {
-        toast({ variant: 'destructive', title: 'QR Code Incompleto', description: 'Dati mancanti nel QR Code.' });
-        return;
-    }
-
-    toast({ title: "QR Code Rilevato", description: "Verifica commessa in corso..." });
-    const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
-
-    if ('error' in result) {
-        toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-    } else {
-        toast({ title: "Commessa Verificata!", description: `Pronto per la lavorazione di ${result.id}.`, action: <CheckCircle className="text-green-500"/> });
-        setActiveJobId(result.id);
-    }
-  }, [toast, stopCamera, setActiveJobId]);
-  
   const startCamera = useCallback(async () => {
     setHasCameraPermission(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+    } catch (error) { setHasCameraPermission(false); toast({ variant: 'destructive', title: 'Errore Fotocamera' }); }
+  }, [toast]);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-    } catch (error) {
-      setHasCameraPermission(false);
-      console.error('Error accessing camera:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Errore Fotocamera',
-        description: 'Accesso negato o non disponibile. Controlla i permessi del browser.',
-      });
-      stopCamera();
-    }
-  }, [stopCamera, toast]);
-  
+  const stopCamera = useCallback(() => { if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; } }, []);
+
   const triggerScan = useCallback(async (onScan: (data: string) => void) => {
-      if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
-          toast({ variant: 'destructive', title: 'Fotocamera non Pronta' });
-          return;
-      }
-      if (!('BarcodeDetector' in window)) {
-          toast({ variant: 'destructive', title: 'Funzionalità non Supportata' });
-          return;
-      }
-
+      if (!videoRef.current || videoRef.current.readyState < 2) return;
       setIsCapturing(true);
       try {
-          const barcodeDetector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13', 'code_39'] });
-          const barcodes = await barcodeDetector.detect(videoRef.current);
-          if (barcodes.length > 0) {
-              onScan(barcodes[0].rawValue);
-          } else {
-              toast({ variant: 'destructive', title: 'Nessun Codice Trovato' });
-          }
-      } catch (error) {
-          toast({ variant: 'destructive', title: 'Errore di Scansione' });
-      } finally {
-          setIsCapturing(false);
-      }
+          const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
+          const codes = await detector.detect(videoRef.current);
+          if (codes.length > 0) onScan(codes[0].rawValue);
+          else toast({ variant: 'destructive', title: 'Nessun Codice' });
+      } catch (e) { toast({ variant: 'destructive', title: 'Errore Scansione' }); }
+      finally { setIsCapturing(false); }
   }, [toast]);
-  
 
-  useEffect(() => {
-    const shouldStartCamera =
-      step === 'scanning' ||
-      step === 'group_scanning' ||
-      isPhaseScanDialogOpen;
+  const handleScannedData = useCallback(async (data: string) => {
+    stopCamera();
+    const parts = data.split('@');
+    if (parts.length !== 3) { toast({ variant: 'destructive', title: 'QR non Valido' }); return; }
+    const result = await verifyAndGetJobOrder({ ordinePF: parts[0], codice: parts[1], qta: parts[2] });
+    if ('error' in result) toast({ variant: 'destructive', title: result.title, description: result.error });
+    else setActiveJobId(result.id);
+  }, [toast, stopCamera, setActiveJobId]);
 
-    if (shouldStartCamera) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => stopCamera();
-  }, [step, isPhaseScanDialogOpen, startCamera, stopCamera]);
-
-
-  const handleOpenPhaseScanDialog = (phase: JobPhase) => {
-    setPhaseForPhaseScan(phase);
-    setIsPhaseScanDialogOpen(true);
-  };
-  
-  const handleOpenMaterialAssociationDialog = (phase: JobPhase) => {
-    setPhaseForMaterialAssociation(phase);
-    setIsMaterialAssociationDialogOpen(true);
-  };
-
-
-  const handleLocalPhaseScanResult = async (scannedId: string) => {
-      if (!activeJob || !operator || !phaseForPhaseScan) return;
-  
-      if (scannedId.trim().toLowerCase() !== phaseForPhaseScan.name.toLowerCase()) {
-          toast({
-              variant: "destructive",
-              title: "Scansione Fase Errata",
-              description: `Prevista: "${phaseForPhaseScan.name}". Scansionata: "${scannedId.trim()}".`,
-          });
-          setIsCapturing(false);
-          return;
-      }
-
-      setIsPhaseScanDialogOpen(false);
-      stopCamera();
-  
-      const result = await handlePhaseScanResult(activeJob.id, phaseForPhaseScan.id, operator.id);
-  
-      if (result.success) {
-          toast({
-              title: "Fase Avviata!",
-              description: `Fase "${phaseForPhaseScan.name}" avviata con successo.`,
-              action: <CheckCircle className="text-green-500" />,
-          });
-      } else {
-           if (result.error === 'OPERATOR_BUSY') {
-                toast({
-                    variant: 'destructive',
-                    title: 'Azione bloccata',
-                    description: 'Completa o metti in pausa l\'attività precedente (indicata sotto).',
-                });
-                setIsStatusBarHighlighted(true);
-            } else {
-                toast({
-                    variant: "destructive",
-                    title: "Errore Avvio Fase",
-                    description: result.message,
-                });
-            }
-      }
-  };
-
-  const handleForceStartPhase = (phaseId: string) => {
-    if (!activeJob || !operator || operator.role !== 'supervisor') {
-        toast({ variant: 'destructive', title: 'Permesso Negato', description: "Solo un supervisore può forzare l'avvio di una fase." });
-        return;
-    }
-
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToStart = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
-    if (!phaseToStart) {
-        toast({ variant: 'destructive', title: 'Errore', description: 'Fase non trovata.' });
-        return;
-    }
-
-    if (jobToUpdate.isProblemReported) {
-        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Un problema è stato segnalato. Impossibile forzare l'avvio." });
-        return;
-    }
-    
-    if (phaseToStart.status !== 'pending') {
-        toast({ variant: 'destructive', title: 'Stato non valido', description: 'Si può forzare solo l\'avvio di fasi in attesa.' });
-        return;
-    }
-    
-    if (!phaseToStart.materialReady) {
-        toast({ variant: "destructive", title: "Errore Materiale", description: `Materiale non pronto per la fase "${phaseToStart.name}".` });
-        return;
-    }
-    
-
-    phaseToStart.status = 'in-progress';
-    phaseToStart.workstationScannedAndVerified = true; 
-    phaseToStart.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-    
-    handleUpdateAndPersistJob(jobToUpdate);
-    
-    toast({
-        title: "Fase Avviata con Forza!",
-        description: `Fase "${phaseToStart.name}" avviata correttamente.`,
-        action: <CheckCircle className="text-green-500" />,
-    });
-  };
-
-
-  const handlePausePhase = (phaseId: string) => {
+  const handlePausePhase = (id: string) => {
     if (!activeJob || !operator) return;
-    const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
-    const phaseToPause = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-  
-    if (jobToUpdate.isProblemReported) {
-      toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile mettere in pausa, problema segnalato." });
-      return;
-    }
-    if (!phaseToPause || phaseToPause.status !== 'in-progress') {
-      toast({ variant: "destructive", title: "Errore", description: "La fase non è in lavorazione." });
-      return;
-    }
-  
-    const myWorkPeriodIndex = phaseToPause.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) {
-      phaseToPause.workPeriods[myWorkPeriodIndex].end = new Date();
-    } else {
-      toast({ variant: "destructive", title: "Errore", description: "Non stai lavorando attivamente a questa fase." });
-      return;
-    }
-  
-    const isAnyoneElseWorking = phaseToPause.workPeriods.some((wp: any) => wp.end === null);
-    if (!isAnyoneElseWorking) {
-      phaseToPause.status = 'paused';
-    }
-  
-    updateOperatorStatus(operator.id, jobToUpdate.id, null);
-    handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase in Pausa", description: `La tua attività sulla fase "${phaseToPause.name}" è stata messa in pausa.` });
+    const job = JSON.parse(JSON.stringify(activeJob));
+    const p = job.phases.find((p:any) => p.id === id);
+    if (!p || p.status !== 'in-progress') return;
+    const wpIdx = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
+    if (wpIdx !== -1) { p.workPeriods[wpIdx].end = new Date(); if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; }
+    updateOperatorStatus(operator.id, job.id, null);
+    updateJob(job);
   };
 
-  const handleResumePhase = async (phaseId: string) => {
+  const handleResumePhase = async (id: string) => {
       if (!activeJob || !operator) return;
-      
-      const isGroup = activeJob.id.startsWith('group-');
-      const availability = await isOperatorActiveOnAnyJob(operator.id, isGroup ? activeJob.id : undefined);
-      if (!availability.available) {
-        toast({
-            variant: 'destructive',
-            title: 'Azione bloccata',
-            description: `Sei già attivo sulla commessa ${availability.activeJobId} (fase: ${availability.activePhaseName}). Completa o metti in pausa l\'attività precedente.`,
-          });
-          setIsStatusBarHighlighted(true);
-          return;
-      }
-
-      const jobToUpdate: JobOrder | WorkGroup = JSON.parse(JSON.stringify(activeJob));
-      const phaseToResume = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
-      if (jobToUpdate.isProblemReported) {
-        toast({ variant: "destructive", title: "Lavorazione Bloccata", description: "Impossibile riprendere, problema segnalato." });
-        return;
-      }
-      if (!phaseToResume || (phaseToResume.status !== 'paused' && phaseToResume.status !== 'in-progress')) {
-        toast({ variant: "destructive", title: "Errore", description: "La fase non è in pausa o in lavorazione per potervi partecipare." });
-        return;
-      }
-      
-      const amIAlreadyWorking = phaseToResume.workPeriods.some((wp: any) => wp.operatorId === operator.id && wp.end === null);
-      if (amIAlreadyWorking) {
-        toast({ variant: "destructive", title: "Già al lavoro", description: `Stai già lavorando a questa fase.`});
-        return;
-      }
-
-      phaseToResume.status = 'in-progress';
-      jobToUpdate.status = 'production';
-      if (!phaseToResume.workPeriods) {
-        phaseToResume.workPeriods = [];
-      }
-      phaseToResume.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
-      
-      await updateOperatorStatus(operator.id, jobToUpdate.id, phaseToResume.name);
-
-      handleUpdateAndPersistJob(jobToUpdate);
-      toast({ title: "Fase Ripresa", description: `Hai iniziato a lavorare sulla fase "${phaseToResume.name}".` });
+      const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id.startsWith('group-') ? activeJob.id : undefined);
+      if (!avail.available) { setIsStatusBarHighlighted(true); return; }
+      const job = JSON.parse(JSON.stringify(activeJob));
+      const p = job.phases.find((p:any) => p.id === id);
+      p.status = 'in-progress'; job.status = 'production';
+      if (!p.workPeriods) p.workPeriods = [];
+      p.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+      await updateOperatorStatus(operator.id, job.id, p.name);
+      updateJob(job);
   };
 
-  const handleCompletePhase = (phaseId: string) => {
+  const handleCompletePhase = (id: string) => {
     if (!activeJob || !operator) return;
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToComplete = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
-    if (!phaseToComplete || (phaseToComplete.status !== 'in-progress' && phaseToComplete.status !== 'paused')) {
-        toast({ variant: "destructive", title: "Errore", description: "La fase non è né in lavorazione né in pausa." });
-        return;
-    }
-
-    const myWorkPeriodIndex = phaseToComplete.workPeriods.findIndex((wp: any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) {
-        phaseToComplete.workPeriods[myWorkPeriodIndex].end = new Date();
-    } else {
-        toast({ variant: "destructive", title: "Nessuna attività da completare", description: "Non hai un periodo di lavoro attivo su questa fase da completare." });
-        return;
-    }
-    
-    const isAnyoneElseWorking = phaseToComplete.workPeriods.some((wp: any) => wp.end === null);
-
-    if (!isAnyoneElseWorking) {
-        phaseToComplete.status = 'completed';
-    }
-    
-    const relevantSession = activeSessions.find(s => 
-        phaseToComplete.materialConsumptions?.some((mc: any) => 
-            mc.materialId === s.materialId && mc.closingWeight === undefined
-        )
-    );
-    
-    const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-    const currentPhaseIndex = sortedPhases.findIndex((p: JobPhase) => p.id === phaseToComplete.id);
-    const nextPhase = sortedPhases[currentPhaseIndex + 1];
-
-    if (nextPhase && nextPhase.status === 'pending' && nextPhase.type !== 'preparation') {
-      const allPreviousPhasesCompleted = sortedPhases.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
-      if (allPreviousPhasesCompleted) {
-        nextPhase.materialReady = true;
-      }
-    }
-    
-    updateOperatorStatus(operator.id, activeJob.id, null);
-
-    if (phaseToComplete.type === 'preparation' && relevantSession && operator && (operator.role === 'supervisor' || (Array.isArray(operator.reparto) && operator.reparto.includes('MAG')))) {
-        setJobToFinalize(jobToUpdate);
-        setIsContinueOrCloseDialogOpen(true);
-        return;
-    }
-
-    handleUpdateAndPersistJob(jobToUpdate);
-    toast({ title: "Fase Completata", description: `La tua attività sulla fase "${phaseToComplete.name}" è terminata.`, action: <PhaseCompletedIcon className="text-green-500"/> });
-  };
-  
-  const handleQualityPhaseResult = (phaseId: string, result: 'passed' | 'failed', notes?: string) => {
-    if (!activeJob || !operator) return;
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const phaseToUpdate = jobToUpdate.phases.find((p: JobPhase) => p.id === phaseId);
-
-    if (!phaseToUpdate || phaseToUpdate.type !== 'quality') return;
-
-    phaseToUpdate.status = 'completed';
-    phaseToUpdate.qualityResult = result;
-    phaseToUpdate.workPeriods.push({ start: new Date(), end: new Date(), operatorId: operator.id });
-
-    if (result === 'passed') {
-        const sortedPhasesInJob = [...jobToUpdate.phases].sort((a,b) => a.sequence - b.sequence);
-        const currentPhaseIndex = sortedPhasesInJob.findIndex(p => p.id === phaseToUpdate.id);
-        const nextPhaseInJob = sortedPhasesInJob[currentPhaseIndex + 1];
-
-        if (nextPhaseInJob && nextPhaseInJob.status === 'pending' && nextPhaseInJob.type !== 'preparation') {
-            const allPreviousPhasesCompleted = sortedPhasesInJob.slice(0, currentPhaseIndex + 1).every(p => p.status === 'completed');
-            if (allPreviousPhasesCompleted) {
-                nextPhaseInJob.materialReady = true;
-            }
-        }
-        toast({ title: "Collaudo Superato", description: `La fase "${phaseToUpdate.name}" è stata approvata.`, action: <CheckCircle className="text-green-500"/> });
-    } else {
-        jobToUpdate.isProblemReported = true;
-        jobToUpdate.problemType = 'PROBLEMA_QUALITA';
-        jobToUpdate.problemNotes = notes || 'Esito collaudo negativo.';
-        jobToUpdate.problemReportedBy = operator.nome;
-        toast({ variant: "destructive", title: "Collaudo Fallito", description: `La fase "${phaseToUpdate.name}" non ha superato il controllo. La commessa è bloccata.` });
-    }
-    
-    handleUpdateAndPersistJob(jobToUpdate);
-  };
-  
-  const handlePostponeQuality = async (phaseId: string) => {
-    if (!activeJob) return;
-
-    const result = await postponeQualityPhase(activeJob.id, phaseId, 'default');
-    toast({
-        title: result.success ? "Operazione Eseguita" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
+    const job = JSON.parse(JSON.stringify(activeJob));
+    const p = job.phases.find((p:any) => p.id === id);
+    const wpIdx = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
+    if (wpIdx !== -1) p.workPeriods[wpIdx].end = new Date();
+    if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'completed';
+    updateOperatorStatus(operator.id, job.id, null);
+    updateJob(job);
   };
 
-
-  const handleContinueWithMaterial = () => {
-    if (!jobToFinalize) return;
-    
-    handleUpdateAndPersistJob(jobToFinalize);
-    setActiveJobId(null); 
-    
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: any) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: any) => mc.materialId === s.materialId));
-    toast({ title: "Pronto per la prossima commessa", description: `La sessione con il materiale ${relevantSession?.materialCode} rimane attiva.` });
-    
-    setJobToFinalize(null);
-    setIsContinueOrCloseDialogOpen(false);
-  };
-
-  const handleRequestMaterialClosure = () => {
-    if (!jobToFinalize) return;
-    handleUpdateAndPersistJob(jobToFinalize);
-    toast({ title: "Fase Completata", description: `Ora puoi chiudere la sessione del materiale dalla barra in basso.`});
-    setJobToFinalize(null);
-    setIsContinueOrCloseDialogOpen(false);
-  };
-  
-  const handleCompletePreparation = () => {
-    if (!activeJob || !operator) return;
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    const sortedPhases = [...jobToUpdate.phases].sort((a: JobPhase, b: JobPhase) => a.sequence - b.sequence);
-    
-    const firstProductionPhase = sortedPhases.find((p: JobPhase) => p.type === 'production');
-
-    if (firstProductionPhase && firstProductionPhase.status === 'pending') {
-        const allPrepCompleted = jobToUpdate.phases
-            .filter((p: JobPhase) => p.type === 'preparation')
-            .every((p: JobPhase) => p.status === 'completed');
-
-        if (allPrepCompleted) {
-             firstProductionPhase.materialReady = true;
-        } else {
-            toast({
-                variant: "destructive",
-                title: "Preparazione non completa",
-                description: "Tutte le fasi di preparazione devono essere completate prima di liberare la commessa."
-            });
-            return;
-        }
-    } else if (!firstProductionPhase) { 
-        const nextPhase = sortedPhases.find(p => p.type !== 'preparation' && p.status === 'pending');
-        if (nextPhase) {
-            nextPhase.materialReady = true;
-        } else {
-             toast({
-                variant: "destructive",
-                title: "Nessuna Fase Successiva",
-                description: "Impossibile liberare la commessa perché non ci sono fasi successive in attesa."
-            });
-            return;
-        }
-    }
-    
-    handleUpdateAndPersistJob(jobToUpdate);
-
-    toast({
-      title: "Preparazione Completata",
-      description: `La commessa ${activeJob.id} è ora disponibile per la produzione.`,
-      action: <ThumbsUp className="text-primary" />
-    });
-  };
-
-  const handleConcludeOverallJob = () => {
-    if (!activeJob) return;
-    if (activeJob.isProblemReported) {
-      toast({
-        variant: "destructive",
-        title: "Lavorazione Bloccata",
-        description: "Impossibile concludere la commessa, problema segnalato.",
-      });
-      return;
-    }
-    
-    const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-    jobToUpdate.overallEndTime = new Date();
-    jobToUpdate.status = 'completed';
-
-    handleUpdateAndPersistJob(jobToUpdate);
-    toast({
-      title: "Commessa Conclusa",
-      description: `Lavorazione per commessa ${jobToUpdate.id} terminata con successo.`,
-      action: <PowerOff className="text-primary" />
-    });
-  };
-
-  const onProblemSubmit = (values: ProblemReportFormValues) => {
-    if (activeJob && operator && values.problemType) {
-      const jobToUpdate = JSON.parse(JSON.stringify(activeJob));
-      jobToUpdate.isProblemReported = true;
-      jobToUpdate.problemType = values.problemType;
-      jobToUpdate.problemNotes = values.notes;
-      jobToUpdate.problemReportedBy = operator.nome;
-      
-      const activePhase = jobToUpdate.phases.find((p: JobPhase) => p.status === 'in-progress');
-      if (activePhase) {
-        const lastWorkPeriod = activePhase.workPeriods[activePhase.workPeriods.length - 1];
-        if (lastWorkPeriod && !lastWorkPeriod.end) {
-            lastWorkPeriod.end = new Date();
-        }
-        activePhase.status = 'paused';
-      }
-
-      handleUpdateAndPersistJob(jobToUpdate);
-
-      toast({
-        variant: "destructive",
-        title: "Problema Segnalato per Commessa",
-        description: `La commessa ${activeJob.id} è stata contrassegnata con un problema.`,
-      });
-    }
-    setIsProblemReportDialogOpen(false);
-  };
-  
-  const handleResolveProblem = async () => {
-    if (!activeJob || !operator?.uid) return;
-    const result = await resolveJobProblem(activeJob.id, operator.uid);
-    toast({
-        title: result.success ? "Problema Risolto" : "Errore",
-        description: result.message,
-        variant: result.success ? "default" : "destructive",
-    });
-  };
-
-  const resetForNewScan = () => {
-    setActiveJobId(null);
-  };
-    
-    const handleGroupScan = async (data: string) => {
-        const parts = data.split('@');
-        if (parts.length !== 3) {
-            toast({ variant: 'destructive', title: 'QR Code non Valido' });
-            return;
-        }
-        const [ordinePF, codice, qta] = parts;
-        const result = await verifyAndGetJobOrder({ ordinePF, codice, qta });
-        
-        if ('error' in result) {
-            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-            return;
-        }
-        
-        if (result.workGroupId) {
-            toast({ variant: "destructive", title: "Commessa già in un gruppo", description: `La commessa ${result.id} fa già parte del gruppo ${result.workGroupId}.` });
-            return;
-        }
-        
-        if (groupScanList.some(j => j.id === result.id)) {
-            toast({ variant: "default", title: "Commessa già presente", description: "Questa commessa è già stata aggiunta al gruppo." });
-            return;
-        }
-        
-        const getJobProgressSignature = (job: JobOrder): string => {
-            const sortedPhases = [...(job.phases || [])].sort((a, b) => a.sequence - b.sequence);
-            const completedPhaseIds = sortedPhases
-                .filter(p => p.status === 'completed')
-                .map(p => p.id)
-                .join(',');
-            
-            const hasAnyWorkPeriods = sortedPhases.some(p => p.workPeriods && p.workPeriods.length > 0);
-
-            return `${completedPhaseIds}|workStarted:${hasAnyWorkPeriods}`;
-        };
-
-        if (groupScanList.length > 0) {
-            const firstJob = groupScanList[0];
-            
-            if (result.workCycleId !== firstJob.workCycleId || result.department !== firstJob.department || result.cliente !== firstJob.cliente) {
-                toast({ variant: "destructive", title: "Commessa non Compatibile", description: "Le commesse devono avere lo stesso Ciclo, Reparto e Cliente per essere concatenate." });
-                return;
-            }
-            
-            const firstJobSignature = getJobProgressSignature(firstJob);
-            const newJobSignature = getJobProgressSignature(result);
-
-            if (firstJobSignature !== newJobSignature) {
-                toast({
-                    variant: "destructive",
-                    title: "Avanzamento Diverso",
-                    description: "Le commesse da raggruppare devono trovarsi allo stesso identico punto del ciclo, senza alcuna lavorazione già avviata su nessuna di esse.",
-                    duration: 9000,
-                });
-                return;
-            }
-        }
-        
-        setGroupScanList(prev => [...prev, result]);
-        toast({ title: "Commessa Aggiunta", description: `${result.id} aggiunto al gruppo.` });
-    };
-
-    const handleCreateWorkGroup = async () => {
-        if (!operator || groupScanList.length < 2) {
-            toast({variant: 'destructive', title: "Azione non possibile", description: "Aggiungi almeno due commesse per creare un gruppo."});
-            return;
-        }
-        
-        const result = await createWorkGroup(groupScanList.map(j => j.id), operator.id);
-        if (result.success && result.workGroupId) {
-            toast({ title: "Gruppo Creato!", description: "Ora puoi iniziare la lavorazione del gruppo." });
-            setActiveJobId(result.workGroupId);
-        } else {
-            const message = (result as { message?: string }).message || 'Errore sconosciuto';
-            toast({ variant: 'destructive', title: "Errore Creazione Gruppo", description: message });
-        }
-        
-        setGroupScanList([]);
-        setStep('initial');
-    };
-
-    const handleDissolveGroup = async () => {
-      if (!activeJob || !activeJob.workGroupId) return;
-
-      const result = await dissolveWorkGroup(activeJob.workGroupId);
-       toast({
-          title: result.success ? "Gruppo Scollegato" : "Errore",
-          description: result.message,
-          variant: result.success ? "default" : "destructive",
-      });
-      
-      if(result.success) {
-        setActiveJobId(null);
-      }
-    }
-    
-    const handleMaterialMissingAction = (phaseId: string, notes: string) => {
-        if (!activeJob || !operator?.id) return;
-        startTransition(async () => {
-            const result = await reportMaterialMissing(activeJob.id, phaseId, operator.uid!, notes);
-            toast({
-                title: result.success ? "Segnalazione Inviata" : "Errore",
-                description: result.message,
-                variant: result.success ? "default" : "destructive",
-            });
-            if (result.success) {
-                problemForm.reset({notes: ""});
-                setMaterialMissingPhase(null);
-            }
-        });
-    };
-
-  if (step === 'loading') {
-    return (
-      <AppShell>
-        <div className="flex items-center justify-center h-full">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-      </AppShell>
-    )
-  }
-
-  const isAnyPhaseActiveForMe = activeJob?.phases.some(p => p.workPeriods.some(wp => wp.operatorId === operator?.id && wp.end === null));
-  const isAnyPhaseActiveAtAll = activeJob?.phases.some(p => p.status === 'in-progress');
-  const allPhasesCompleted = activeJob?.phases.every(p => p.status === 'completed');
-
-  const renderInitialView = () => (
-     <Card>
-        <CardHeader>
-            <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" /> Scansione Commessa</CardTitle>
-            <CardDescription>Avvia la scansione per iniziare una lavorazione.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-            {!hasCameraPermission && (
-                <Alert variant="destructive" className="mb-4">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Errore Fotocamera</AlertTitle>
-                    <AlertDescription>Accesso negato o non disponibile. Controlla i permessi del browser.</AlertDescription>
-                </Alert>
-            )}
-            <Button onClick={() => setStep('scanning')} className="w-full" size="lg" disabled={!hasCameraPermission}>
-                <QrCode className="mr-2 h-5 w-5" />
-                Avvia Scansione
-            </Button>
-            <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
-                <Keyboard className="mr-2 h-5 w-5" />
-                Inserisci Codice Manualmente
-            </Button>
-            <Button onClick={() => setStep('group_scanning')} className="w-full bg-teal-500 text-white hover:bg-teal-500/90">
-                <LinkIcon className="mr-2 h-5 w-5" />
-                Avvia Lavorazione Multi-Commessa
-            </Button>
-        </CardContent>
-    </Card>
-  );
-
-  const renderScanArea = (onScan: (data: string) => void) => (
-    <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
-        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-        <div className="absolute inset-0 grid place-items-center pointer-events-none">
-            <div className="w-5/6 h-2/5 relative">
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-            </div>
-        </div>
-    </div>
-  );
-
-  const renderJobDetailsCard = (job: JobOrder) => {
-    return (
-      <Card className="mt-6 shadow-lg">
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center">
-              <Package className="mr-3 h-7 w-7 text-primary shrink-0" />
-              <div>
-                <CardTitle className="font-headline">
-                  Dettagli Commessa: {job.ordinePF}
-                </CardTitle>
-                <CardDescription>Reparto: {job.department}</CardDescription>
-              </div>
-            </div>
-             <AlertDialog open={isProblemReportDialogOpen} onOpenChange={setIsProblemReportDialogOpen}>
-              <AlertDialogTrigger asChild>
-                <Button 
-                    variant={job.isProblemReported ? "destructive" : "outline"} 
-                    size="icon"
-                    title={job.isProblemReported ? "Problema Segnalato! Visualizza/Modifica" : "Segnala Problema"}
-                    className={`ml-auto shrink-0 ${job.isProblemReported ? "hover:bg-destructive/90" : "text-yellow-500 border-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-500"}`}
-                >
-                    <ShieldAlert className="h-5 w-5" />
-                    <span className="sr-only">{job.isProblemReported ? "Problema già segnalato" : "Segnala un problema"}</span>
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Gestione Problema</AlertDialogTitle>
-                    {job.isProblemReported ? (
-                        <AlertDialogDescription asChild>
-                             <div className="space-y-2 text-sm pt-2">
-                                <p><strong className="text-foreground">Tipo:</strong> <span className="text-destructive">{job.problemType?.replace(/_/g, ' ') || 'N/D'}</span></p>
-                                <p><strong className="text-foreground">Segnalato da:</strong> {job.problemReportedBy || 'N/D'}</p>
-                                <div>
-                                    <p className="font-bold text-foreground">Note Operatore:</p>
-                                    <p className="text-muted-foreground p-2 bg-muted rounded-md">{job.problemNotes || 'Nessuna nota fornita.'}</p>
-                                </div>
-                            </div>
-                        </AlertDialogDescription>
-                    ) : (
-                        <AlertDialogDescription>
-                            Segnala un problema per questa commessa. Questo metterà in pausa la fase attiva.
-                        </AlertDialogDescription>
-                    )}
-                </AlertDialogHeader>
-                {job.isProblemReported ? (
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                        { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
-                          <AlertDialogAction onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
-                             <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
-                          </AlertDialogAction>
-                        )}
-                    </AlertDialogFooter>
-                ) : (
-                     <Form {...problemForm}>
-                        <form onSubmit={problemForm.handleSubmit(onProblemSubmit)}>
-                            <div className="py-4 space-y-4">
-                                <FormField control={problemForm.control} name="problemType" render={({ field }) => ( <FormItem className="space-y-3"><FormLabel>Tipo di Problema</FormLabel><FormControl><RadioGroup onValueChange={field.onChange} defaultValue={field.value} className="grid grid-cols-2 gap-2"><FormItem><RadioGroupItem value="FERMO_MACCHINA" id="r1" className="peer sr-only" /><Label htmlFor="r1" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">FERMO MACCHINA</Label></FormItem><FormItem><RadioGroupItem value="MANCA_MATERIALE" id="r2" className="peer sr-only" /><Label htmlFor="r2" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">MANCA MATERIALE</Label></FormItem><FormItem><RadioGroupItem value="PROBLEMA_QUALITA" id="r3" className="peer sr-only" /><Label htmlFor="r3" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">PROBLEMA QUALITÀ</Label></FormItem><FormItem><RadioGroupItem value="ALTRO" id="r4" className="peer sr-only" /><Label htmlFor="r4" className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer">ALTRO</Label></FormItem></RadioGroup></FormControl><FormMessage /></FormItem>)} />
-                                <FormField control={problemForm.control} name="notes" render={({ field }) => ( <FormItem><FormLabel>Note Aggiuntive</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
-                            </div>
-                            <DialogFooter>
-                                <Button type="button" variant="ghost" onClick={() => setIsProblemReportDialogOpen(false)}>Annulla</Button>
-                                <Button type="submit" variant="destructive" disabled={problemForm.formState.isSubmitting}>Invia Segnalazione</Button>
-                            </DialogFooter>
-                        </form>
-                    </Form>
-                )}
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-           {job.isProblemReported && (
-            <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Attendere intervento per risoluzione.
-            </p>
-           )}
-          {job.overallStartTime && (
-            <CardDescription className="text-xs text-muted-foreground mt-1">
-              Iniziata il: {format(new Date(job.overallStartTime), "dd/MM/yyyy HH:mm:ss")}
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <Label htmlFor="ordinePF" className="text-sm text-muted-foreground">Ordine PF</Label>
-                    <p id="ordinePF" className="font-medium">{job.ordinePF}</p>
-                </div>
-                <div>
-                    <Label htmlFor="ordineNrEst" className="text-sm text-muted-foreground">Ordine Nr Est</Label>
-                    <p id="ordineNrEst">{job.numeroODL}</p>
-                </div>
-                 <div>
-                    <Label htmlFor="numeroODLInterno" className="text-sm text-muted-foreground">N° ODL</Label>
-                    <p id="numeroODLInterno">{job.numeroODLInterno || 'N/D'}</p>
-                </div>
-                <div>
-                    <Label htmlFor="dataConsegnaFinale" className="text-sm text-muted-foreground">Data Consegna</Label>
-                    <p id="dataConsegnaFinale">{job.dataConsegnaFinale || 'N/D'}</p>
-                </div>
-                <div className="md:col-span-2">
-                    <Label htmlFor="codiceArticolo" className="text-sm text-muted-foreground">Codice Articolo</Label>
-                    <p id="codiceArticolo">{job.details}</p>
-                </div>
-                 <div>
-                    <Label htmlFor="qta" className="text-sm text-muted-foreground">Qta</Label>
-                    <p id="qta" className="font-bold text-lg">{job.qta}</p>
-                </div>
-            </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const renderPhasesManagement = () => {
-    if (!activeJob) return null;
-    
-    const preparationPhases = (activeJob.phases || []).filter(p => (p.type ?? 'production') === 'preparation');
-    const allPreparationPhasesCompleted = preparationPhases.length > 0 && preparationPhases.every(p => p.status === 'completed');
-    
-    const productionAndQualityPhases = (activeJob.phases || []).filter(p => p.type === 'production' || p.type === 'quality' || p.type === 'packaging');
-    
-    const isMagazzinoOrSuperadvisor = operator?.role === 'supervisor' || (Array.isArray(operator?.reparto) && operator.reparto.includes('MAG'));
-
-    const sortedPhases = [...activeJob.phases].sort((a,b) => a.sequence - b.sequence);
-    const firstProductionPhase = sortedPhases.find(p => p.type === 'production');
-    
-    const showReleaseButton = allPreparationPhasesCompleted && 
-                              firstProductionPhase && 
-                              !firstProductionPhase.materialReady &&
-                              isMagazzinoOrSuperadvisor &&
-                              activeJob.phases.some(p => p.type === 'production' && p.status === 'pending');
-
-    return (
-    <Card className="mt-6 shadow-lg">
-      <CardHeader>
-        <CardTitle className="font-headline flex items-center">
-          <ListChecks className="mr-3 h-7 w-7 text-primary" />
-          Fasi di Lavorazione Commessa: {activeJob?.id}
-        </CardTitle>
-        <CardDescription>Gestisci l'avanzamento delle fasi.</CardDescription>
-        {activeJob?.isProblemReported && (
-           <p className="text-sm text-destructive font-semibold mt-2 flex items-center">
-              <ShieldAlert className="mr-2 h-4 w-4" /> Problema segnalato! Attendere intervento per risoluzione.
-            </p>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {preparationPhases.length > 0 && (
-          <>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-muted-foreground">Fasi Preparazione</span>
-              <Separator className="flex-1" />
-            </div>
-            <div className="space-y-4">
-                {preparationPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                    <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialAssociationDialog}} />
-                ))}
-            </div>
-          </>
-        )}
-        
-        {showReleaseButton && (
-            <div className="pt-4">
-                <Button onClick={handleCompletePreparation} className="w-full bg-green-600 hover:bg-green-700" size="lg">
-                    <ThumbsUp className="mr-2 h-5 w-5" />
-                    Completa Preparazione e Libera Commessa
-                </Button>
-            </div>
-        )}
-        
-        {productionAndQualityPhases.length > 0 && (
-          <>
-            <div className="flex items-center gap-2 pt-4">
-              <span className="text-sm font-semibold text-muted-foreground">Fasi Produzione e Qualità</span>
-              <Separator className="flex-1" />
-            </div>
-             <div className="space-y-4">
-                {productionAndQualityPhases.sort((a,b) => a.sequence - b.sequence).map(phase => (
-                     <PhaseCard key={phase.id} phase={phase} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(phase), handlePausePhase, handleResumePhase, handleCompletePhase, handleQualityPhaseResult, handleForceStartPhase, openQualityProblemDialog: setIsQualityProblemDialogOpen, setPhaseForQualityProblem, handlePostponeQuality, handleOpenMaterialAssociationDialog}} />
-                ))}
-            </div>
-          </>
-        )}
-
-
-        {allPhasesCompleted && !activeJob?.overallEndTime && (
-          <Button 
-            onClick={handleConcludeOverallJob} 
-            className="w-full mt-4 bg-primary text-primary-foreground"
-            disabled={activeJob?.isProblemReported || isPending}
-          >
-            <PowerOff className="mr-2 h-5 w-5" /> Concludi Commessa
-          </Button>
-        )}
-         {activeJob?.overallEndTime && (
-          <p className="mt-4 text-center text-green-500 font-semibold">Commessa conclusa il: {format(new Date(activeJob.overallEndTime), "dd/MM/yyyy HH:mm:ss")}</p>
-        )}
-      </CardContent>
-    </Card>
-  )};
-
-  const renderFinishedView = () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>Lavorazione Completata</CardTitle>
-        <CardDescription>La commessa {activeJob?.id} è stata conclusa con successo.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col items-center gap-4">
-        <CheckCircle className="h-16 w-16 text-green-500"/>
-        <p>Pronto per la prossima lavorazione.</p>
-        <Button onClick={resetForNewScan}>
-            <QrCode className="mr-2 h-4 w-4"/>
-            Scansiona Nuova Commessa
-        </Button>
-      </CardContent>
-    </Card>
-  );
-
-  const renderPhaseScanDialog = () => (
-    <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Scansione QR Code Fase</DialogTitle>
-                <DialogDescription>Inquadra il QR Code con il nome della fase per avviarla.</DialogDescription>
-            </DialogHeader>
-            {renderScanArea(handleLocalPhaseScanResult)}
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button onClick={() => triggerScan(handleLocalPhaseScanResult)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-12">
-                   {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
-                   <span className="ml-2">Scansiona Fase</span>
-                </Button>
-                <Button variant="outline" onClick={() => setIsPhaseScanDialogOpen(false)}>Annulla</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-  );
-
-  const renderContinueOrCloseDialog = () => {
-    if (!jobToFinalize) return null;
-    const phaseThatTriggered = jobToFinalize.phases.find(p => p.status === 'completed' && p.materialConsumptions?.some((mc: any) => mc.closingWeight === undefined));
-    const relevantSession = activeSessions.find(s => phaseThatTriggered?.materialConsumptions?.some((mc: any) => mc.materialId === s.materialId));
-
-
-    return (
-        <AlertDialog open={isContinueOrCloseDialogOpen} onOpenChange={setIsContinueOrCloseDialogOpen}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-            <AlertDialogTitle>Lavorazione per questa commessa completata</AlertDialogTitle>
-            <AlertDialogDescription>
-                Vuoi continuare a lavorare con il materiale <span className="font-bold">{relevantSession?.materialCode}</span> su un'altra commessa, oppure hai terminato e vuoi registrare la chiusura finale del materiale?
-            </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
-            <AlertDialogAction onClick={handleContinueWithMaterial}>
-                Lavora su altra Commessa
-            </AlertDialogAction>
-            <AlertDialogAction onClick={handleRequestMaterialClosure} className="bg-destructive hover:bg-destructive/90">
-                Registra Chiusura Materiale
-            </AlertDialogAction>
-            <AlertDialogCancel>Annulla</AlertDialogCancel>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-        </AlertDialog>
-    );
-  };
-  
-    const renderMaterialMissingDialog = () => (
-        <Dialog open={!!materialMissingPhase} onOpenChange={(open) => { if (!open) { setMaterialMissingPhase(null); problemForm.reset({notes: ""}); }}}>
-            <DialogContent>
-                <Form {...problemForm}>
-                    <form onSubmit={problemForm.handleSubmit((data) => {
-                        if (materialMissingPhase) {
-                            handleMaterialMissingAction(materialMissingPhase.id, data.notes || '');
-                        }
-                    })}>
-                        <DialogHeader>
-                            <DialogTitle>Segnala Materiale Mancante</DialogTitle>
-                            <DialogDescription>
-                                Stai segnalando la mancanza di materiale per la fase <span className="font-bold">{materialMissingPhase?.name}</span>.
-                                La lavorazione verrà bloccata. Aggiungi una nota per specificare cosa manca.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="py-4">
-                            <FormField
-                                control={problemForm.control}
-                                name="notes"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Note (es. codice, quantità mancante)</FormLabel>
-                                        <FormControl>
-                                            <Textarea {...field} placeholder="Specifica quale materiale manca..." />
-                                        </FormControl>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
-                        </div>
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => { setMaterialMissingPhase(null); problemForm.reset({notes: ""}); }}>Annulla</Button>
-                            <Button type="submit" variant="destructive" disabled={isPending}>
-                                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
-                                Conferma Segnalazione
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
-    );
+  if (step === 'loading') return <AppShell><div className="flex items-center justify-center h-full"><Loader2 className="h-12 w-12 animate-spin text-primary" /></div></AppShell>;
 
   return (
     <AuthGuard>
       <AppShell>
         <div className="space-y-6 max-w-4xl mx-auto">
-          
-           {step === 'processing' && !allPhasesCompleted && (
-                <div className="mb-4 space-y-2">
-                     <Button 
-                      className="w-full bg-orange-500 hover:bg-orange-600 text-white" 
-                      onClick={resetForNewScan}
-                      disabled={isAnyPhaseActiveForMe}
-                     >
-                        <MoveLeft className="mr-2 h-4 w-4" />
-                        Abbandona e Scansiona Altra Commessa
-                    </Button>
-                    {activeJob?.workGroupId && (
-                      <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                              <Button
-                                className="w-full bg-teal-600 hover:bg-teal-700 text-white"
-                                disabled={isAnyPhaseActiveAtAll}
-                              >
-                                  <Unlink className="mr-2 h-4 w-4" />
-                                  Scollega Gruppo Commesse
-                              </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                              <AlertDialogHeader>
-                                  <AlertDialogTitle>Sei sicuro di voler scollega il gruppo?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                      Questa azione è irreversibile. Le commesse torneranno individuali e verranno messe in pausa.
-                                  </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                  <AlertDialogCancel>Chiudi</AlertDialogCancel>
-                                  <AlertDialogAction onClick={handleDissolveGroup}>Sì, scollega gruppo</AlertDialogAction>
-                              </AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                </div>
-            )}
-                
-                {step === 'initial' && <div className="mt-8">{renderInitialView()}</div>}
-                
-                {step === 'scanning' && (
-                  <Card>
-                      <CardHeader>
-                          <CardTitle className="flex items-center gap-3"><ScanLine className="h-7 w-7 text-primary" />Scansiona Commessa</CardTitle>
-                          <CardDescription>Inquadra il QR code della commessa per iniziare.</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                           {renderScanArea(handleScannedData)}
-                      </CardContent>
-                      <CardFooter className="flex-col gap-2">
-                           <Button onClick={() => triggerScan(handleScannedData)} disabled={isCapturing} className="w-full h-14">
-                              {isCapturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
-                              <span className="ml-2 text-lg">{isCapturing ? 'Scansionando...' : 'Scansiona'}</span>
-                           </Button>
-                          <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
-                      </CardFooter>
-                  </Card>
-                )}
-                 {step === 'manual_input' && (
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Inserimento Manuale</CardTitle>
-                                <CardDescription>Digita il codice della commessa (Ordine PF) da avviare.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="relative">
-                                    <Label htmlFor="manualCode">Ordine PF</Label>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <Input
-                                            id="manualCode"
-                                            value={manualCode}
-                                            onChange={(e) => setManualCode(e.target.value)}
-                                            placeholder="Es. Comm-123/24"
-                                            autoFocus
-                                            autoComplete="off"
-                                        />
-                                        <Button onClick={() => handleScannedData(manualCode)} disabled={!manualCode || isSearching}>
-                                            {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                            <span className="sr-only">Cerca</span>
-                                        </Button>
-                                    </div>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex-col gap-4">
-                                <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
-                            </CardFooter>
-                        </Card>
-                    )}
-
-                {step === 'processing' && activeJob && (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {renderJobDetailsCard(activeJob)}
-                    {renderPhasesManagement()}
-                  </div>
-                )}
-
-                {step === 'finished' && activeJob && renderFinishedView()}
-            
-                 {step === 'group_scanning' && (
-                    <Card>
-                        <CardHeader>
-                             <CardTitle className="flex items-center gap-3"><LinkIcon className="h-7 w-7 text-primary" /> Concatena Commesse</CardTitle>
-                             <CardDescription>Scansiona i QR code delle commesse da raggruppare. Devono avere lo stesso ciclo, reparto, cliente e stato di avanzamento.</CardDescription>
-                        </CardHeader>
-                         <CardContent className="space-y-4">
-                            {renderScanArea(handleGroupScan)}
-                            <div className="space-y-2 pt-4">
-                                <Label>Commesse nel Gruppo ({groupScanList.length})</Label>
-                                <div className="p-2 border rounded-md min-h-[50px] bg-muted/50 space-y-1">
-                                    {groupScanList.length > 0 ? (
-                                        groupScanList.map(j => <Badge key={j.id}>{j.id}</Badge>)
-                                    ) : (
-                                        <p className="text-xs text-muted-foreground italic">Nessuna commessa ancora aggiunta.</p>
-                                    )}
-                                </div>
-                            </div>
-                         </CardContent>
-                        <CardFooter className="flex-col sm:flex-row gap-2">
-                             <Button onClick={() => triggerScan(handleGroupScan)} disabled={isCapturing} className="w-full sm:w-auto flex-1 h-14">
-                                {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <QrCode className="h-6 w-6" />}
-                                <span className="ml-2 text-lg">Aggiungi</span>
-                             </Button>
-                             <Button onClick={handleCreateWorkGroup} disabled={groupScanList.length < 2 || isPending} className="w-full sm:w-auto flex-1 h-14 bg-teal-600 hover:bg-teal-700">
-                                <PlayCircle className="mr-2 h-6 w-6" />
-                                <span className="text-lg">Inizia Lavoro</span>
-                             </Button>
-                        </CardFooter>
-                    </Card>
-                )}
-          
-          {renderPhaseScanDialog()}
-          {renderContinueOrCloseDialog()}
-          {renderMaterialMissingDialog()}
-          {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
-            <MaterialAssociationDialog
-              isOpen={isMaterialAssociationDialogOpen}
-              onOpenChange={setIsMaterialAssociationDialogOpen}
-              phase={phaseForMaterialAssociation}
-              job={activeJob}
-              onSessionStart={(sessionData, type) => {
-                startSession(sessionData, type);
-                setIsMaterialAssociationDialogOpen(false);
-              }}
-              onWithdrawalComplete={() => {
-                if (activeJob) {
-                  forceJobDataRefresh(activeJob.id);
-                }
-                setIsMaterialAssociationDialogOpen(false);
-              }}
-            />
+          {step === 'initial' && (
+            <Card><CardHeader><CardTitle>Scansione Commessa</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <Button onClick={() => setStep('scanning')} className="w-full" size="lg"><QrCode className="mr-2" /> Avvia Scansione</Button>
+                <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full"><Keyboard className="mr-2" /> Manuale</Button>
+              </CardContent>
+            </Card>
           )}
+          {step === 'scanning' && (
+            <Card><CardContent className="pt-6">{renderScanArea(handleScannedData)}<Button onClick={() => triggerScan(handleScannedData)} className="w-full mt-4 h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button></CardContent></Card>
+          )}
+          {step === 'processing' && activeJob && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card><CardHeader><CardTitle>{activeJob.ordinePF}</CardTitle><CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription></CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <p>ODL: {activeJob.numeroODLInterno || 'N/D'}</p><p>Qta: <strong>{activeJob.qta}</strong></p>
+                </CardContent>
+              </Card>
+              <Card><CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  {activeJob.phases.sort((a,b) => a.sequence - b.sequence).map(p => (
+                    <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handleMaterialMissing: () => setMaterialMissingPhase(p), handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          {step === 'finished' && <Card><CardHeader><CardTitle>Completata</CardTitle></CardHeader><CardFooter><Button onClick={() => setActiveJobId(null)}>Nuova Scansione</Button></CardFooter></Card>}
         </div>
+        <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
+          <DialogContent><DialogHeader><DialogTitle>Scansione Fase</DialogTitle></DialogHeader>
+            {renderScanArea((val) => { if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); setIsPhaseScanDialogOpen(false); } })}
+            <Button onClick={() => triggerScan((val) => { if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); setIsPhaseScanDialogOpen(false); } })}>Scansiona</Button>
+          </DialogContent>
+        </Dialog>
+        {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
+          <MaterialAssociationDialog isOpen={isMaterialAssociationDialogOpen} onOpenChange={setIsMaterialAssociationDialogOpen} phase={phaseForMaterialAssociation} job={activeJob} onSessionStart={(sd, t) => { startSession(sd, t); setIsMaterialAssociationDialogOpen(false); }} onWithdrawalComplete={() => { forceJobDataRefresh(activeJob!.id); setIsMaterialAssociationDialogOpen(false); }} />
+        )}
       </AppShell>
     </AuthGuard>
   );
+
+  function renderScanArea(onScan: any) {
+    return (
+      <div className="relative aspect-video bg-black rounded overflow-hidden">
+        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+        <div className="absolute inset-0 border-2 border-primary/50 m-8 rounded" />
+      </div>
+    );
+  }
 }

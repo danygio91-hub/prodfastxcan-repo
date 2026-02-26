@@ -36,12 +36,10 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
 
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    
     const updatePayload: { [key: string]: any } = {
         phases: groupData.phases,
         status: groupData.status,
     };
-
     const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
     jobRefs.forEach(jobRef => {
         transaction.update(jobRef, updatePayload);
@@ -52,24 +50,19 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
   try {
     await ensureAdmin(uid);
     const jobRef = doc(db, 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
         const jobSnap = await transaction.get(jobRef);
         if (!jobSnap.exists()) throw new Error('Commessa non trovata.');
-        
         const job = jobSnap.data() as JobOrder;
-
         const updatedPhases = job.phases.map(phase => {
           if (phase.type === 'production' && phase.status !== 'completed') {
             return { ...phase, status: 'completed' as const, forced: true };
           }
           return phase;
         });
-        
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
         transaction.update(jobRef, { phases: finalPhases });
     });
-
     revalidatePath('/admin/production-console');
     return { success: true, message: `Produzione forzata.` };
   } catch (error) {
@@ -81,13 +74,10 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
   try {
     await ensureAdmin(uid);
     const jobRef = doc(db, 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists()) throw new Error('Commessa non trovata.');
-      
       const job = jobSnap.data() as JobOrder;
-
       let updatedPhases = job.phases.map(phase => {
         if (phase.forced) {
           const { forced, ...rest } = phase;
@@ -95,11 +85,9 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
         }
         return phase;
       });
-
       updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
       transaction.update(jobRef, { phases: updatedPhases });
     });
-
     revalidatePath('/admin/production-console');
     return { success: true, message: `Annullata forzatura.` };
   } catch (error) {
@@ -112,18 +100,13 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
     const isGroup = itemId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
     const templateRef = doc(db, 'workPhaseTemplates', phaseId);
-    
     await runTransaction(db, async (transaction) => {
         const [itemSnap, tSnap] = await Promise.all([transaction.get(itemRef), transaction.get(templateRef)]);
-
         if (!itemSnap.exists()) throw new Error('Non trovato.');
-
         const itemData = itemSnap.data() as JobOrder | WorkGroup;
         const updatedPhases = [...(itemData.phases || [])];
         const phaseIndex = updatedPhases.findIndex(p => p.id === phaseId);
-
         if (phaseIndex === -1) throw new Error('Fase non trovata.');
-
         if (currentState === 'default') {
           const lastProd = updatedPhases.filter(p => p.type === 'production').sort((a, b) => a.sequence - b.sequence).pop();
           updatedPhases[phaseIndex].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
@@ -133,17 +116,12 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
           updatedPhases[phaseIndex].sequence = tData ? tData.sequence : 1;
           delete updatedPhases[phaseIndex].postponed;
         }
-
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
-
         transaction.update(itemRef, { phases: finalPhases });
-        if (isGroup) {
-            await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup);
-        }
+        if (isGroup) { await propagateGroupUpdatesToJobs(transaction, { ...itemData, phases: finalPhases } as WorkGroup); }
     });
-    
     revalidatePath('/admin/production-console');
-    return { success: true, message: `Posizione fase aggiornata.` };
+    return { success: true, message: `Posizione aggiornata.` };
   } catch (error) {
     return { success: false, message: error instanceof Error ? error.message : "Errore." };
   }
@@ -153,30 +131,19 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
   try {
     await ensureAdmin(uid);
     const jobRef = doc(db, 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists()) throw new Error('Commessa non trovata.');
-      
       const jobData = jobSnap.data() as JobOrder;
       const phases = [...(jobData.phases || [])];
       const idx = phases.findIndex(p => p.id === phaseId);
-      
       if (idx === -1) throw new Error('Fase non trovata.');
       if (phases[idx].status !== 'completed') throw new Error('Fase non completata.');
-      
       phases[idx].status = 'paused';
       phases[idx].qualityResult = null;
-      
       const revertedPhases = updatePhasesMaterialReadiness(phases);
-
-      transaction.update(jobRef, { 
-          phases: revertedPhases,
-          status: 'production',
-          overallEndTime: deleteField()
-      });
+      transaction.update(jobRef, { phases: revertedPhases, status: 'production', overallEndTime: deleteField() });
     });
-
     revalidatePath('/admin/production-console');
     return { success: true, message: `Fase riaperta.` };
   } catch (error) {
@@ -189,11 +156,9 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-
     await runTransaction(db, async (transaction) => {
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists()) throw new Error('Non trovato.');
-      
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
       const updatedPhases = itemData.phases.map(phase => {
         if (phase.status === 'in-progress') {
@@ -208,22 +173,18 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
         }
         return phase;
       });
-      
       const isAnyActive = updatedPhases.some(p => p.status === 'in-progress');
       const newStatus = isAnyActive ? 'production' : 'paused';
-      
       transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
       if (isGroup) {
         (itemData.jobOrderIds || []).forEach(id => {
             transaction.update(doc(db, 'jobOrders', id), { phases: updatedPhases, status: newStatus });
         });
       }
-      
       operatorIdsToPause.forEach(opId => {
           transaction.update(doc(db, "operators", opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null });
       });
     });
-    
     revalidatePath('/admin/production-console');
     return { success: true, message: `Operatori messi in pausa.` };
   } catch (error) {
@@ -236,12 +197,7 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-
-    await updateDoc(itemRef, {
-      status: 'completed',
-      overallEndTime: Timestamp.now(),
-      forcedCompletion: true,
-    });
+    await updateDoc(itemRef, { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Commessa chiusa.` };
   } catch (error) {
@@ -254,21 +210,16 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists()) throw new Error("Non trovata.");
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
-
       const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
-
       const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", jobIds || []));
       const wSnap = await getDocs(withdrawalsQuery);
-      
       const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
       const matSnaps = await Promise.all(matIds.map(id => transaction.get(doc(db, 'rawMaterials', id))));
       const matMap = new Map(matSnaps.map(s => [s.id, s.data() as RawMaterial]));
-
       for (const wd of wSnap.docs) {
         const w = wd.data() as MaterialWithdrawal;
         const m = matMap.get(w.materialId);
@@ -280,81 +231,44 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
         }
         transaction.delete(wd.ref);
       }
-
       if (isGroup) {
           const gData = itemData as WorkGroup;
           (gData.jobOrderIds || []).forEach(id => {
               const jRef = doc(db, 'jobOrders', id);
               const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({
-                  ...p,
-                  status: 'pending' as const,
-                  workPeriods: [],
-                  materialConsumptions: [],
-                  qualityResult: null,
+                  ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null,
                   materialReady: p.isIndependent || p.type === 'preparation',
               }));
-              transaction.update(jRef, {
-                  status: 'planned',
-                  overallStartTime: null,
-                  overallEndTime: null,
-                  isProblemReported: false,
-                  phases: updatedPhases,
-                  workGroupId: deleteField(),
-              });
+              transaction.update(jRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
           });
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
           const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({
-              ...p,
-              status: 'pending' as const,
-              workPeriods: [],
-              materialConsumptions: [],
-              qualityResult: null,
+              ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null,
               materialReady: p.isIndependent || p.type === 'preparation',
           }));
-          
-          transaction.update(itemRef, {
-            status: 'planned',
-            overallStartTime: null,
-            overallEndTime: null,
-            isProblemReported: false,
-            phases: updatedPhases,
-            workGroupId: deleteField(),
-          });
+          transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
       }
     });
-
     revalidatePath('/admin/production-console');
-    revalidatePath('/admin/data-management');
     return { success: true, message: `Resettato.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function revertCompletion(itemId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
-
   try {
       await runTransaction(db, async (transaction) => {
           const itemSnap = await transaction.get(itemRef);
           if (!itemSnap.exists()) throw new Error("Non trovato.");
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
-
           if (!itemData.forcedCompletion) throw new Error("Solo chiusure forzate riapribili.");
-          
           const isAct = (itemData.phases || []).some(p => p.status === 'in-progress');
           const newStatus = isAct ? 'production' : 'paused';
-
-          transaction.update(itemRef, {
-              status: newStatus,
-              overallEndTime: deleteField(),
-              forcedCompletion: deleteField(),
-          });
-          
+          transaction.update(itemRef, { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() });
           if (isGroup) {
               (itemData.jobOrderIds || []).forEach(id => {
                   transaction.update(doc(db, 'jobOrders', id), { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() });
@@ -363,18 +277,14 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
       });
       revalidatePath('/admin/production-console');
       return { success: true, message: "Riaperta." };
-  } catch (error) {
-      return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
   await ensureAdmin(uid);
   const isGroup = jobId.startsWith('group-');
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-  
   const finalPhases = updatePhasesMaterialReadiness(phases.map((p, i) => ({ ...p, sequence: i + 1 })));
-
   try {
     await updateDoc(itemRef, { phases: finalPhases });
     if (isGroup) {
@@ -386,9 +296,7 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
     }
     revalidatePath('/admin/production-console');
     return { success: true, message: 'Fasi aggiornate.' };
-  } catch (error) {
-    return { success: false, message: "Errore." };
-  }
+  } catch (error) { return { success: false, message: "Errore." }; }
 }
 
 export async function forceFinishMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
@@ -403,24 +311,12 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
   await ensureAdmin(uid);
   const batch = writeBatch(db);
   jobIds.forEach(id => {
-      const isG = id.startsWith('group-');
-      batch.update(doc(db, isG ? 'workGroups' : 'jobOrders', id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
+      const isGroup = id.startsWith('group-');
+      batch.update(doc(db, isGroup ? 'workGroups' : 'jobOrders', id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
   });
   await batch.commit();
   revalidatePath('/admin/production-console');
   return { success: true, message: 'Completato.' };
-}
-
-export async function forceFinishMultipleProduction(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
-    await ensureAdmin(uid);
-    try {
-        for (const id of jobIds) {
-            await forceFinishProduction(id, uid);
-        }
-        return { success: true, message: 'Completato.' };
-    } catch (e) {
-        return { success: false, message: 'Errore.' };
-    }
 }
 
 export async function updateJobDeliveryDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
@@ -428,32 +324,23 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
     await ensureAdmin(uid);
     const isGroup = itemId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
-
     await runTransaction(db, async (t) => {
         const snap = await t.get(itemRef);
         if (!snap.exists()) throw new Error("Non trovato.");
-        
         t.update(itemRef, { dataConsegnaFinale: newDate });
-        
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => {
-                t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate });
-            });
+            (data.jobOrderIds || []).forEach(id => { t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate }); });
         }
     });
-
     revalidatePath('/admin/production-console');
     return { success: true, message: "Data aggiornata." };
-  } catch (error) {
-    return { success: false, message: "Errore." };
-  }
+  } catch (error) { return { success: false, message: "Errore." }; }
 }
     
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
     const sorted = [...phases].sort((a, b) => a.sequence - b.sequence);
     const allPrepDone = sorted.filter(p => p.type === 'preparation' && !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
-
     for (let i = 0; i < sorted.length; i++) {
         const curr = sorted[i];
         if (curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
@@ -469,71 +356,48 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-  const itemRef = doc(db, collectionName, itemId);
-
+  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
   try {
     await runTransaction(db, async (t) => {
       const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
       if (!snap.exists()) throw new Error("Non trovato.");
-      
       const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
-      const phaseIndex = phases.findIndex(p => p.id === phaseId);
-      if (phaseIndex === -1) throw new Error("Fase non trovata.");
-      
-      phases[phaseIndex].materialStatus = 'missing';
-      phases[phaseIndex].materialReady = false;
-
+      const idx = phases.findIndex(p => p.id === phaseId);
+      if (idx === -1) throw new Error("Fase non trovata.");
+      phases[idx].materialStatus = 'missing';
+      phases[idx].materialReady = false;
       const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);
-      if (isGroup) {
-        (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
-      }
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: 'Segnalato.' };
-  } catch (e) {
-    return { success: false, message: "Errore." };
-  }
+  } catch (e) { return { success: false, message: "Errore." }; }
 }
 
 export async function resolveMaterialMissing(itemId: string, phaseId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
-
   try {
     await runTransaction(db, async (t) => {
       const snap = await t.get(itemRef);
       if (!snap.exists()) throw new Error("Non trovato.");
-      
       const itemData = snap.data() as JobOrder;
       let phases = [...itemData.phases];
       const idx = phases.findIndex(p => p.id === phaseId);
       if (idx === -1) throw new Error("Fase non trovata.");
-      
       phases[idx].materialStatus = 'available';
       phases = updatePhasesMaterialReadiness(phases);
-      
       const anyLeft = phases.some(p => p.materialStatus === 'missing');
       const otherProb = itemData.problemType && itemData.problemType !== 'MANCA_MATERIALE';
-
       const up: any = { phases };
-      if (!anyLeft && !otherProb) {
-        up.isProblemReported = false;
-        up.problemType = deleteField();
-        up.problemReportedBy = deleteField();
-      }
-
+      if (!anyLeft && !otherProb) { up.isProblemReported = false; up.problemType = deleteField(); up.problemReportedBy = deleteField(); }
       t.update(itemRef, up);
-      if (isGroup) {
-        (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
-      }
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: 'Risolto.' };
-  } catch (e) {
-    return { success: false, message: "Errore." };
-  }
+  } catch (e) { return { success: false, message: "Errore." }; }
 }

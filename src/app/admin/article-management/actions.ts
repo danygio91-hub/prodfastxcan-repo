@@ -23,9 +23,6 @@ const articleSchema = z.object({
 export async function getArticles(): Promise<Article[]> {
   const articlesCol = collection(db, 'articles');
   const articlesSnapshot = await getDocs(articlesCol);
-  
-  // Return ONLY the articles present in the dedicated collection.
-  // We no longer automatically pull in codes from existing jobs to ensure data quality.
   const articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
   return articles.sort((a, b) => a.code.localeCompare(b.code));
 }
@@ -36,7 +33,6 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 
   const { code, billOfMaterials } = validatedFields.data;
   
-  // Validation: Check if components exist
   const materialsSnap = await getDocs(collection(db, "rawMaterials"));
   const materialCodes = new Set(materialsSnap.docs.map(doc => doc.data().code.toUpperCase()));
   
@@ -67,7 +63,12 @@ export async function deleteArticle(id: string): Promise<{ success: boolean; mes
 export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
     const materialsSnap = await getDocs(collection(db, "rawMaterials"));
     const validCodes = new Set(materialsSnap.docs.map(doc => doc.data().code.toUpperCase()));
-    const validArticles: Omit<Article, 'id'>[] = [];
+    
+    const existingArticlesSnap = await getDocs(collection(db, "articles"));
+    const existingCodes = new Set(existingArticlesSnap.docs.map(doc => doc.data().code.toUpperCase()));
+
+    const newArticles: Omit<Article, 'id'>[] = [];
+    const updatedArticles: Omit<Article, 'id'>[] = [];
     const invalidArticles: { code: string; errors: string[] }[] = [];
 
     for (const art of articles) {
@@ -79,10 +80,18 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
                 if (!validCodes.has(item.component.toUpperCase())) errors.push(`Componente riga ${idx+1} non in anagrafica: ${item.component}`);
             });
         }
-        if (errors.length > 0) invalidArticles.push({ code: art.code || 'N/D', errors });
-        else validArticles.push(art);
+        
+        if (errors.length > 0) {
+            invalidArticles.push({ code: art.code || 'N/D', errors });
+        } else {
+            if (existingCodes.has(art.code.toUpperCase())) {
+                updatedArticles.push(art);
+            } else {
+                newArticles.push(art);
+            }
+        }
     }
-    return { success: true, validArticles, invalidArticles };
+    return { success: true, newArticles, updatedArticles, invalidArticles };
 }
 
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
@@ -93,5 +102,5 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     });
     await batch.commit();
     revalidatePath('/admin/article-management');
-    return { success: true, message: `${articles.length} articoli importati.` };
+    return { success: true, message: `${articles.length} articoli elaborati.` };
 }

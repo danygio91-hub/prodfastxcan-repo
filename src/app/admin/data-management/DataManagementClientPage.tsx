@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -83,7 +82,6 @@ export default function DataManagementClientPage() {
           const r: any = {};
           const map: any = { 'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'n° odl': 'numeroODLInternoImport', 'codice': 'details', 'qta': 'qta', 'data consegna': 'dataConsegnaFinale', 'reparto': 'department', 'ciclo': 'workCycleName' };
           Object.keys(row).forEach(k => { if(map[k.trim().toLowerCase()]) r[map[k.trim().toLowerCase()]] = row[k]; });
-          
           if (r.dataConsegnaFinale && typeof r.dataConsegnaFinale === 'number') {
               const epoch = new Date(Date.UTC(1899, 11, 30));
               r.dataConsegnaFinale = format(new Date(epoch.getTime() + r.dataConsegnaFinale * 86400 * 1000), 'yyyy-MM-dd');
@@ -105,13 +103,6 @@ export default function DataManagementClientPage() {
     toast({ title: "Completato", description: res.message });
     setImportReport(null);
     fetchData();
-  };
-
-  const handleCreateOdl = async (values: OdlFormValues) => {
-    if (!jobToProcess) return;
-    const res = await createODL(jobToProcess.id, values.manualOdlNumber);
-    toast({ title: res.success ? "Successo" : "Bloccante", description: res.message, variant: res.success ? "default" : "destructive", duration: res.success ? 5000 : 9000 });
-    if (res.success) { setIsCreateOdlDialogOpen(false); fetchData(); }
   };
 
   return (
@@ -181,7 +172,7 @@ export default function DataManagementClientPage() {
 
       <Dialog open={!!importReport} onOpenChange={o => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Le righe con articolo mancante sono state bloccate.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Revisiona i risultati prima di caricare.</DialogDescription></DialogHeader>
           <Tabs defaultValue="valid" className="flex-1 overflow-hidden mt-4">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport ? (importReport.newJobs.length + importReport.jobsToUpdate.length) : 0})</TabsTrigger>
@@ -210,14 +201,9 @@ export default function DataManagementClientPage() {
 
       <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Avvia Ordine di Lavoro</DialogTitle></DialogHeader>
-          <Form {...form}><form onSubmit={form.handleSubmit(handleCreateOdl)} className="space-y-4">
-            <div className="p-4 bg-muted rounded-lg space-y-1">
-                <p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p>
-                <p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p>
-            </div>
-            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => (
-              <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
+          <Form {...form}><form onSubmit={form.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
+            <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p><p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p></div>
+            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
             <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma e Avvia</Button></DialogFooter>
           </form></Form>
         </DialogContent>

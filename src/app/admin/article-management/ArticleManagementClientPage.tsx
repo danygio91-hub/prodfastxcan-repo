@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -8,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy, AlertTriangle, CheckCircle2, XCircle, RefreshCcw } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -59,7 +58,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
   const [isSavingBulk, setIsSavingBulk] = useState(false);
   
   const [importReport, setImportReport] = useState<{
-    validArticles: Omit<Article, 'id'>[];
+    newArticles: Omit<Article, 'id'>[];
+    updatedArticles: Omit<Article, 'id'>[];
     invalidArticles: { code: string; errors: string[] }[];
   } | null>(null);
 
@@ -199,10 +199,12 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
   };
   
   const handleConfirmImport = async () => {
-    if (!importReport || importReport.validArticles.length === 0) return;
+    if (!importReport) return;
+    const allValid = [...importReport.newArticles, ...importReport.updatedArticles];
+    if (allValid.length === 0) return;
 
     setIsSavingBulk(true);
-    const result = await bulkSaveArticles(importReport.validArticles);
+    const result = await bulkSaveArticles(allValid);
     
     toast({
         title: result.success ? "Importazione Completata" : "Errore",
@@ -215,10 +217,6 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         router.refresh();
     }
     setIsSavingBulk(false);
-  };
-
-  const handleNavigateToAnalysis = (articleCode: string) => {
-    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
   };
 
   return (
@@ -238,7 +236,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
             <Button onClick={handleDownloadTemplate} variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
-              Scarica Template
+              Template
             </Button>
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting}>
                {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
@@ -247,7 +245,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Cerca per codice articolo..."
+                placeholder="Cerca..."
                 className="pl-9"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -255,7 +253,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             </div>
             <Button onClick={() => handleOpenForm(null)}>
               <PlusCircle className="mr-2 h-4 w-4" />
-              Aggiungi Articolo
+              Aggiungi
             </Button>
           </div>
         </header>
@@ -264,7 +262,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
           <CardHeader>
             <CardTitle>Elenco Articoli</CardTitle>
             <CardDescription>
-              Elenco degli articoli con dati di produzione registrati.
+              Gestione della distinta base per il calcolo degli impegni a magazzino.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -285,39 +283,28 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                             <ContextMenu>
                               <ContextMenuTrigger className="font-medium hover:text-primary hover:underline cursor-pointer">{article.code}</ContextMenuTrigger>
                               <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => handleNavigateToAnalysis(article.code)}>
+                                <ContextMenuItem onSelect={() => router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(article.code)}`)}>
                                   <BarChart3 className="mr-2 h-4 w-4" />
-                                  Analisi Tempi Articolo
+                                  Analisi Tempi
                                 </ContextMenuItem>
-                                 <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!", description: "Codice articolo copiato negli appunti."}))}>
+                                 <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!"}))}>
                                   <Copy className="mr-2 h-4 w-4" />
-                                  Copia Codice Articolo
+                                  Copia Codice
                                 </ContextMenuItem>
                               </ContextMenuContent>
                             </ContextMenu>
                         </TableCell>
-                         <TableCell>
-                          {article.billOfMaterials?.length || 0}
-                        </TableCell>
+                         <TableCell>{article.billOfMaterials?.length || 0}</TableCell>
                         <TableCell className="text-right space-x-2">
                            <Button variant="outline" size="sm" onClick={() => handleOpenForm(article)}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Gestisci DB
+                            <Edit className="mr-2 h-4 w-4" /> Gestisci
                           </Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                               <Button variant="destructive" size="sm">
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Elimina
-                              </Button>
+                               <Button variant="destructive" size="sm"><Trash2 className="mr-2 h-4 w-4" /> Elimina</Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                    Questa azione eliminerà permanentemente l'articolo e la sua distinta base.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
+                                <AlertDialogHeader><AlertDialogTitle>Eliminare l'articolo?</AlertDialogTitle><AlertDialogDescription>L'azione è irreversibile.</AlertDialogDescription></AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>Annulla</AlertDialogCancel>
                                     <AlertDialogAction onClick={() => handleDelete(article.id)}>Sì, elimina</AlertDialogAction>
@@ -328,11 +315,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                       </TableRow>
                     ))
                   ) : (
-                    <TableRow>
-                      <TableCell colSpan={3} className="h-24 text-center">
-                        {initialArticles.length === 0 ? "Nessun articolo trovato." : "Nessun articolo trovato per la ricerca."}
-                      </TableCell>
-                    </TableRow>
+                    <TableRow><TableCell colSpan={3} className="h-24 text-center">Nessun articolo trovato.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -341,89 +324,48 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         </Card>
       </div>
 
-      <ArticleFormDialog
-        isOpen={isFormOpen}
-        onClose={handleFormClose}
-        article={editingArticle}
-        rawMaterials={rawMaterials}
-      />
+      <ArticleFormDialog isOpen={isFormOpen} onClose={handleFormClose} article={editingArticle} rawMaterials={rawMaterials} />
 
-      <Dialog open={!!importReport} onOpenChange={(open) => !open && setImportReport(null)}>
+      <Dialog open={!!importReport} onOpenChange={(o) => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
             <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                    <ClipboardList className="h-6 w-6 text-primary" />
-                    Analisi Importazione Database Articoli
-                </DialogTitle>
-                <DialogDescription>
-                    Revisiona i risultati dell'analisi prima di procedere con l'aggiornamento.
-                </DialogDescription>
+                <DialogTitle className="flex items-center gap-2"><ClipboardList className="h-6 w-6 text-primary" /> Analisi Importazione</DialogTitle>
+                <DialogDescription>Revisiona gli articoli nuovi e le proposte di aggiornamento prima di salvare.</DialogDescription>
             </DialogHeader>
 
-            <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col mt-4 min-h-0">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="valid" className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        Pronti per Caricamento ({importReport?.validArticles.length || 0})
+            <Tabs defaultValue="new" className="flex-1 overflow-hidden flex flex-col mt-4">
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="new" className="flex items-center gap-2">
+                        <PlusCircle className="h-4 w-4 text-green-500" /> Nuovi ({importReport?.newArticles.length || 0})
+                    </TabsTrigger>
+                    <TabsTrigger value="update" className="flex items-center gap-2">
+                        <RefreshCcw className="h-4 w-4 text-blue-500" /> Aggiorna ({importReport?.updatedArticles.length || 0})
                     </TabsTrigger>
                     <TabsTrigger value="errors" className="flex items-center gap-2">
-                        <XCircle className="h-4 w-4 text-destructive" />
-                        Articoli con Errori ({importReport?.invalidArticles.length || 0})
+                        <XCircle className="h-4 w-4 text-destructive" /> Errori ({importReport?.invalidArticles.length || 0})
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="valid" className="flex-1 overflow-hidden pt-4 min-h-0">
-                    <ScrollArea className="h-[500px] border rounded-md p-2">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Codice Articolo</TableHead>
-                                    <TableHead>N° Componenti</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {importReport?.validArticles.map((art, idx) => (
-                                    <TableRow key={idx}>
-                                        <TableCell className="font-mono font-semibold">{art.code}</TableCell>
-                                        <TableCell>{art.billOfMaterials.length} componenti</TableCell>
-                                    </TableRow>
-                                ))}
-                                {importReport?.validArticles.length === 0 && (
-                                    <TableRow><TableCell colSpan={2} className="text-center py-10 text-muted-foreground italic">Nessun articolo valido trovato nel file.</TableCell></TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </ScrollArea>
-                </TabsContent>
+                <TabsContent value="new" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2">
+                    <Table><TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Componenti</TableHead></TableRow></TableHeader>
+                    <TableBody>{importReport?.newArticles.map((art, idx) => (<TableRow key={idx}><TableCell className="font-mono">{art.code}</TableCell><TableCell>{art.billOfMaterials.length}</TableCell></TableRow>))}</TableBody></Table>
+                </ScrollArea></TabsContent>
 
-                <TabsContent value="errors" className="flex-1 overflow-hidden pt-4 min-h-0">
-                    <ScrollArea className="h-[500px] border rounded-md p-2">
-                        <div className="space-y-4">
-                            {importReport?.invalidArticles.map((item, idx) => (
-                                <div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5 rounded-r-md">
-                                    <p className="font-bold text-sm text-destructive">{item.code}</p>
-                                    <ul className="text-xs space-y-1 mt-1">
-                                        {item.errors.map((err, eIdx) => <li key={eIdx} className="flex items-start gap-2">• {err}</li>)}
-                                    </ul>
-                                </div>
-                            ))}
-                            {importReport?.invalidArticles.length === 0 && (
-                                <div className="text-center py-10 text-muted-foreground italic">Ottimo! Nessun errore riscontrato nel file.</div>
-                            )}
-                        </div>
-                    </ScrollArea>
-                </TabsContent>
+                <TabsContent value="update" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2">
+                    <Table><TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableRow></TableHeader>
+                    <TableBody>{importReport?.updatedArticles.map((art, idx) => (<TableRow key={idx} className="bg-blue-500/5"><TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell><TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell></TableRow>))}</TableBody></Table>
+                </ScrollArea></TabsContent>
+
+                <TabsContent value="errors" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2">
+                    <div className="space-y-4">{importReport?.invalidArticles.map((item, idx) => (<div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5"><p className="font-bold text-destructive">{item.code}</p><ul className="text-xs mt-1">{item.errors.map((err, eIdx) => <li key={eIdx}>• {err}</li>)}</ul></div>))}</div>
+                </ScrollArea></TabsContent>
             </Tabs>
 
-            <DialogFooter className="mt-6 gap-2 border-t pt-4">
+            <DialogFooter className="mt-6 border-t pt-4">
                 <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
-                <Button 
-                    onClick={handleConfirmImport} 
-                    disabled={isSavingBulk || !importReport?.validArticles.length}
-                    className="bg-green-600 hover:bg-green-700"
-                >
+                <Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700">
                     {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
-                    Procedi con Caricamento Validi ({importReport?.validArticles.length})
+                    Conferma Caricamento ({(importReport?.newArticles.length || 0) + (importReport?.updatedArticles.length || 0)})
                 </Button>
             </DialogFooter>
         </DialogContent>
