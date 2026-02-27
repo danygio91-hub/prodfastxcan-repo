@@ -270,7 +270,7 @@ export default function ScanJobPage() {
                     <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
                   ))}
                 </CardContent>
-              </div>
+              </Card>
             </div>
           )}
 

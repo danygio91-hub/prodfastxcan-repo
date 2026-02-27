@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Loader2, Search, Activity, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, PlayCircle, CheckSquare, RefreshCcw } from 'lucide-react';
+import { Briefcase, Loader2, Search, Activity, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, PlayCircle, CheckSquare, RefreshCcw, ArrowUp, ArrowDown, Unlink, FastForward, PowerOff, RefreshCw } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -36,21 +36,11 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format, parseISO, isSameDay, isPast } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
-
-function getPhaseIcon(status: JobPhase['status']) {
-  switch (status) {
-    case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
-    case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
-    case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
-    case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
-    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
-    default: return <Circle className="h-4 w-4 text-muted-foreground" />;
-  }
-}
 
 export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
