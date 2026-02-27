@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Loader2, Search, Activity, Calendar as CalendarIcon, RefreshCcw, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, PlayCircle, CheckSquare } from 'lucide-react';
+import { Briefcase, Loader2, Search, Activity, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, PlayCircle, CheckSquare, RefreshCcw } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -25,13 +25,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData, updateJobDeliveryDate } from '@/app/admin/production-console/actions';
@@ -43,6 +36,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { format, parseISO, isSameDay, isPast } from 'date-fns';
+import { it } from 'date-fns/locale';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -184,16 +179,16 @@ export default function ProductionConsoleClientPage() {
     if (res.success) setPhaseManagedItem(null);
   };
 
-  const handleForceFinish = async (id: string) => { await forceFinishProduction(id, user?.uid || ''); };
-  const handleForcePause = async (id: string, ops: string[]) => { await forcePauseOperators(id, ops, user?.uid || ''); };
-  const handleForceComplete = async (id: string) => { await forceCompleteJob(id, user?.uid || ''); };
-  const handleDissolveGroup = async (id: string) => { await dissolveWorkGroup(id); };
-  const handleRevertPhase = async (jid: string, pid: string) => { await revertPhaseCompletion(jid, pid, user?.uid || ''); };
-  const handleRevertForceFinish = async (id: string) => { await revertForceFinish(id, user?.uid || ''); };
-  const handleRevertCompletion = async (id: string) => { await revertCompletion(id, user?.uid || ''); };
-  const onResetJobOrderClick = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
-  const handleUpdateDeliveryDate = async (id: string, date: string) => { await updateJobDeliveryDate(id, date, user?.uid || ''); };
-  const handleToggleGuaina = async (id: string, pid: string, cur: 'default' | 'postponed') => { await toggleGuainaPhasePosition(id, pid, cur); };
+  const handleForceFinish = (id: string) => forceFinishProduction(id, user?.uid || '');
+  const handleForcePause = (id: string, ops: string[]) => forcePauseOperators(id, ops, user?.uid || '');
+  const handleForceComplete = (id: string) => forceCompleteJob(id, user?.uid || '');
+  const handleDissolveGroup = (id: string) => dissolveWorkGroup(id);
+  const handleRevertPhase = (jid: string, pid: string) => revertPhaseCompletion(jid, pid, user?.uid || '');
+  const handleRevertForceFinish = (id: string) => revertForceFinish(id, user?.uid || '');
+  const handleRevertCompletion = (id: string) => revertCompletion(id, user?.uid || '');
+  const handleResetJobOrder = (id: string) => resetSingleCompletedJobOrder(id, user?.uid || '');
+  const handleUpdateDeliveryDate = (itemId: string, newDate: string) => updateJobDeliveryDate(itemId, newDate, user?.uid || '');
+  const handleToggleGuaina = (id: string, pid: string, cur: 'default' | 'postponed') => toggleGuainaPhasePosition(id, pid, cur);
 
   return (
     <>
@@ -233,7 +228,7 @@ export default function ProductionConsoleClientPage() {
                     key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} 
                     isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} 
                     onToggleGuainaClick={handleToggleGuaina} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} 
-                    onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
+                    onForceCompleteClick={handleForceComplete} onResetJobOrderClick={handleResetJobOrder} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
                     onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
                     overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
