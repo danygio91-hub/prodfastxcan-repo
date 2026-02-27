@@ -1,10 +1,6 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
@@ -21,21 +17,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, AlertTriangle, Package, ListChecks, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PowerOff, PackageCheck, PackageX, Activity, ShieldAlert, Loader2, Boxes, Keyboard, Send, UserCheck, ScanLine, Camera, LogOut, EyeOff, RefreshCcw, Unlock } from 'lucide-react';
+import { QrCode, CheckCircle, AlertTriangle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Switch } from '@/components/ui/switch';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
-import { format } from 'date-fns';
 import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus } from './actions';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { useCameraStream } from '@/hooks/use-camera-stream';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
 
@@ -78,7 +68,7 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
             <div className="flex items-center">{getPhaseIcon(phase.status, phase.qualityResult)}<span className="font-semibold ml-2">{phase.name}</span></div>
             <div className="flex items-center space-x-2"><Label className="text-sm">Mat. Pronto:</Label>{phase.materialReady ? <PackageCheck className="h-5 w-5 text-green-500" /> : <PackageX className="h-5 w-5 text-red-500" />}</div>
           </div>
-          {isOwner && <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1"><UserCheck className="h-4 w-4" />Stai lavorando qui.</p>}
+          {isOwner && <p className="text-xs text-green-500 font-semibold mt-2 flex items-center gap-1">Stai lavorando qui.</p>}
           <div className="mt-2 space-y-1 text-xs text-muted-foreground">
             {(phase.materialConsumptions || []).map((mc, i) => <p key={i}>Materiale: {mc.materialCode} {mc.lottoBobina && ` - Lotto: ${mc.lottoBobina}`}</p>)}
             {phase.type !== 'quality' && <p>Tempo effettivo: {calculateTotalActiveTime(phase.workPeriods || [])}</p>}
@@ -102,7 +92,6 @@ export default function ScanJobPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [hasCameraPermission, setHasCameraPermission] = useState(true);
   const [manualCode, setManualCode] = useState('');
   const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
   const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
@@ -148,8 +137,8 @@ export default function ScanJobPage() {
     const job = JSON.parse(JSON.stringify(activeJob));
     const p = job.phases.find((p:any) => p.id === id);
     if (!p || p.status !== 'in-progress') return;
-    const wpIdx = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
-    if (wpIdx !== -1) { p.workPeriods[wpIdx].end = new Date(); if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; }
+    const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex !== -1) { p.workPeriods[myWorkPeriodIndex].end = new Date(); if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; }
     updateOperatorStatus(operator.id, job.id, null);
     updateJob(job);
   };
@@ -171,8 +160,8 @@ export default function ScanJobPage() {
     if (!activeJob || !operator) return;
     const job = JSON.parse(JSON.stringify(activeJob));
     const p = job.phases.find((p:any) => p.id === id);
-    const wpIdx = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
-    if (wpIdx !== -1) p.workPeriods[wpIdx].end = new Date();
+    const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
+    if (myWorkPeriodIndex !== -1) p.workPeriods[myWorkPeriodIndex].end = new Date();
     if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'completed';
     updateOperatorStatus(operator.id, job.id, null);
     updateJob(job);
@@ -199,7 +188,7 @@ export default function ScanJobPage() {
     else setActiveJobId(result.id);
   };
 
-  const renderScanArea = (onScan: any) => {
+  const renderScanArea = () => {
     return (
       <div className="relative aspect-video bg-black rounded overflow-hidden">
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
@@ -243,7 +232,7 @@ export default function ScanJobPage() {
             {step === 'scanning' && (
               <Card>
                 <CardContent className="pt-6">
-                  {renderScanArea(handleScannedData)}
+                  {renderScanArea()}
                   <div className="flex flex-col gap-2 mt-4">
                     <Button onClick={() => triggerScan(handleScannedData)} className="w-full h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button>
                     <Button variant="outline" onClick={() => setStep('initial')}>Indietro</Button>
@@ -303,7 +292,7 @@ export default function ScanJobPage() {
       <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
-          {renderScanArea(() => {})}
+          {renderScanArea()}
           <DialogFooter>
             <Button onClick={() => triggerScan((val) => { 
               if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -13,13 +12,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { getOperatorDetailReport } from '@/app/admin/reports/actions';
 import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Briefcase, Loader2 } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 
 type OperatorDetailReport = Awaited<ReturnType<typeof getOperatorDetailReport>>;
 
 export default function OperatorReportDetailPage({ params }: { params: { operatorId: string } }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const dateFromParams = searchParams.get('date');
 
@@ -40,7 +38,6 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
       setReport(newReport);
       setIsLoading(false);
       
-      // Update URL without reloading page
       const newUrl = `${window.location.pathname}?date=${selectedDate?.toISOString()}`;
       window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
     };

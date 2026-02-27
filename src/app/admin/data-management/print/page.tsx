@@ -1,4 +1,3 @@
-
 "use client"
 
 import type { JobOrder } from '@/lib/mock-data';

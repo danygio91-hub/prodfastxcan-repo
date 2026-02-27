@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -88,7 +87,7 @@ export default function ProductionConsoleClientPage() {
   const [isOrderChanged, setIsOrderChanged] = useState(false);
 
   const { toast } = useToast();
-  const { user, operator } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   
   const jobsLoadedRef = useRef(false);
@@ -192,15 +191,24 @@ export default function ProductionConsoleClientPage() {
     if (res.success) setPhaseManagedItem(null);
   };
 
-  const handleForceFinish = (id: string) => forceFinishProduction(id, user?.uid || '');
-  const handleForcePause = (id: string, ops: string[]) => forcePauseOperators(id, ops, user?.uid || '');
-  const handleForceComplete = (id: string) => forceCompleteJob(id, user?.uid || '');
-  const handleDissolveGroup = (id: string) => dissolveWorkGroup(id);
-  const handleRevertPhase = (jid: string, pid: string) => revertPhaseCompletion(jid, pid, user?.uid || '');
-  const handleRevertForceFinish = (id: string) => revertForceFinish(id, user?.uid || '');
-  const handleRevertCompletion = (id: string) => revertCompletion(id, user?.uid || '');
-  const onResetJobOrderClick = (id: string) => resetSingleCompletedJobOrder(id, user?.uid || '');
-  const handleUpdateDeliveryDate = (id: string, date: string) => updateJobDeliveryDate(id, date, user?.uid || '');
+  const handleForceFinish = async (id: string) => { await forceFinishProduction(id, user?.uid || ''); };
+  const handleForcePause = async (id: string, ops: string[]) => { await forcePauseOperators(id, ops, user?.uid || ''); };
+  const handleForceComplete = async (id: string) => { await forceCompleteJob(id, user?.uid || ''); };
+  const handleDissolveGroup = async (id: string) => { await dissolveWorkGroup(id); };
+  const handleRevertPhase = async (jid: string, pid: string) => { await revertPhaseCompletion(jid, pid, user?.uid || ''); };
+  const handleRevertForceFinish = async (id: string) => { await revertForceFinish(id, user?.uid || ''); };
+  const handleRevertCompletion = async (id: string) => { await revertCompletion(id, user?.uid || ''); };
+  const onResetJobOrderClick = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
+  const handleUpdateDeliveryDate = async (id: string, date: string) => { await updateJobDeliveryDate(id, date, user?.uid || ''); };
+
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
+
+  const handleCopyArticleCode = (articleCode: string) => {
+    navigator.clipboard.writeText(articleCode);
+    toast({ title: "Codice copiato" });
+  };
 
   return (
     <>
@@ -235,10 +243,56 @@ export default function ProductionConsoleClientPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredGroups.map(g => (
-                  <WorkGroupCard key={g.id} group={g} jobsInGroup={jobsByGroupId.get(g.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} onProblemClick={() => setProblemJob(g)} onForceFinishClick={handleForceFinish} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onDissolveGroupClick={handleDissolveGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} onToggleGuainaClick={toggleGuainaPhasePosition} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(g.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(g)} getOverallStatus={getOverallStatus} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
+                  <WorkGroupCard 
+                    key={g.id} 
+                    group={g} 
+                    jobsInGroup={jobsByGroupId.get(g.id) || []} 
+                    allOperators={allOperators} 
+                    allRawMaterials={allRawMaterials} 
+                    onProblemClick={() => setProblemJob(g)} 
+                    onForceFinishClick={handleForceFinish} 
+                    onForcePauseClick={handleForcePause} 
+                    onForceCompleteClick={handleForceComplete} 
+                    onDissolveGroupClick={handleDissolveGroup} 
+                    onOpenPhaseManager={handleOpenPhaseManager} 
+                    onOpenMaterialManager={() => setMaterialManagedItem(g)} 
+                    onToggleGuainaClick={toggleGuainaPhasePosition} 
+                    onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+                    isSelected={selectedIds.includes(g.id)} 
+                    onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
+                    overallStatus={getOverallStatus(g)} 
+                    getOverallStatus={getOverallStatus} 
+                    onNavigateToAnalysis={handleNavigateToAnalysis} 
+                    onCopyArticleCode={handleCopyArticleCode} 
+                  />
               ))}
               {filteredStandalone.map(j => (
-                  <JobOrderCard key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} onToggleGuainaClick={toggleGuainaPhasePosition} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
+                  <JobOrderCard 
+                    key={j.id} 
+                    jobOrder={j} 
+                    allOperators={allOperators} 
+                    allRawMaterials={allRawMaterials} 
+                    analysisData={analysisDataMap.get(j.id)} 
+                    onFetchAnalysis={() => handleFetchAnalysis(j)} 
+                    isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} 
+                    onProblemClick={() => setProblemJob(j)} 
+                    onForceFinishClick={handleForceFinish} 
+                    onRevertForceFinishClick={handleRevertForceFinish} 
+                    onToggleGuainaClick={toggleGuainaPhasePosition} 
+                    onRevertPhaseClick={handleRevertPhase} 
+                    onRevertCompletionClick={handleRevertCompletion} 
+                    onForcePauseClick={handleForcePause} 
+                    onForceCompleteClick={handleForceComplete} 
+                    onResetJobOrderClick={onResetJobOrderClick} 
+                    onOpenPhaseManager={handleOpenPhaseManager} 
+                    onOpenMaterialManager={() => setMaterialManagedItem(j)} 
+                    onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+                    isSelected={selectedIds.includes(j.id)} 
+                    onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
+                    overallStatus={getOverallStatus(j)} 
+                    onNavigateToAnalysis={handleNavigateToAnalysis} 
+                    onCopyArticleCode={handleCopyArticleCode} 
+                  />
               ))}
           </div>
 
