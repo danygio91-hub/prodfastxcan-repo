@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -62,7 +63,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -77,15 +77,13 @@ import {
   ArrowDownCircle, 
   Loader2, 
   Truck, 
-  Package, 
   Copy,
   Calendar,
   ClipboardList,
   Edit,
   Trash2,
   PackagePlus,
-  TestTube,
-  Send
+  TestTube
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -186,7 +184,6 @@ interface RawMaterialManagementClientPageProps {
 export default function RawMaterialManagementClientPage({ 
   initialArticles, 
   initialCommitments, 
-  initialDepartments 
 }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -371,11 +368,7 @@ export default function RawMaterialManagementClientPage({
                               <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline font-medium">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                               <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
                               <TableCell>
-                                  <button 
-                                      onClick={() => handleOpenOrderedDetails(m.code)} 
-                                      className="text-blue-600 hover:underline text-sm font-medium"
-                                      disabled={!s || s.ordinato <= 0}
-                                  >
+                                  <button onClick={() => handleOpenOrderedDetails(m.code)} className="text-blue-600 hover:underline text-sm font-medium" disabled={!s || s.ordinato <= 0}>
                                       {s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}
                                   </button>
                               </TableCell>

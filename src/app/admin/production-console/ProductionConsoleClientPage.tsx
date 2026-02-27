@@ -1,11 +1,12 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Briefcase, Package2, Loader2, ShieldAlert, Unlock, User, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, Link as LinkIcon, FastForward, Trash2, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, ArchiveRestore, PackageX, PackageCheck, Boxes, PlayCircle, CheckSquare, RefreshCcw, BarChart3, Copy, ClipboardList, ChevronDown } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Briefcase, Loader2, Search, Activity, Calendar as CalendarIcon, RefreshCcw, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, PlayCircle, CheckSquare } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -38,13 +39,8 @@ import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { format, isSameDay, isPast, parseISO } from 'date-fns';
-import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
@@ -77,8 +73,6 @@ export default function ProductionConsoleClientPage() {
   const searchParams = useSearchParams();
   const groupIdFromUrl = searchParams.get('groupId');
   const [searchTerm, setSearchTerm] = useState(groupIdFromUrl || '');
-  const [completedDateFilter, setCompletedDateFilter] = useState<Date | undefined>(new Date());
-  const [isDateFilterActive, setIsDateFilterActive] = useState(false);
   const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -93,8 +87,8 @@ export default function ProductionConsoleClientPage() {
   const jobsLoadedRef = useRef(false);
   const groupsLoadedRef = useRef(false);
 
-  const isJobLive = useCallback((jobOrder: JobOrder | WorkGroup): boolean => {
-      return (jobOrder.phases || []).some(p => p.status === 'in-progress');
+  const isJobLive = useCallback((item: JobOrder | WorkGroup): boolean => {
+      return (item.phases || []).some(p => p.status === 'in-progress');
   }, []);
   
   const isOverdue = (item: JobOrder | WorkGroup) => {
@@ -142,7 +136,6 @@ export default function ProductionConsoleClientPage() {
       let f = items;
       if (showCompleted) {
           f = f.filter(i => getOverallStatus(i) === 'Completata');
-          if (isDateFilterActive && completedDateFilter) f = f.filter(i => i.overallEndTime && isSameDay(new Date(i.overallEndTime), completedDateFilter));
       } else {
           f = f.filter(i => getOverallStatus(i) !== 'Completata');
           if (activeFilter !== 'all') f = activeFilter === 'LIVE' ? f.filter(isJobLive) : f.filter(i => getOverallStatus(i) === activeFilter);
@@ -159,8 +152,8 @@ export default function ProductionConsoleClientPage() {
       return f;
   };
 
-  const filteredStandalone = useMemo(() => applyFilters(standaloneJobs), [standaloneJobs, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
-  const filteredGroups = useMemo(() => applyFilters(Array.from(workGroupsMap.values())), [workGroupsMap, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive]);
+  const filteredStandalone = useMemo(() => applyFilters(standaloneJobs), [standaloneJobs, activeFilter, searchTerm, showCompleted, showOnlyOverdue, isJobLive]);
+  const filteredGroups = useMemo(() => applyFilters(Array.from(workGroupsMap.values())), [workGroupsMap, activeFilter, searchTerm, showCompleted, showOnlyOverdue, isJobLive]);
 
   const handleFetchAnalysis = async (job: JobOrder) => {
     setJobsWithLoadingAnalysis(prev => new Set(prev).add(job.id));
@@ -200,15 +193,7 @@ export default function ProductionConsoleClientPage() {
   const handleRevertCompletion = async (id: string) => { await revertCompletion(id, user?.uid || ''); };
   const onResetJobOrderClick = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
   const handleUpdateDeliveryDate = async (id: string, date: string) => { await updateJobDeliveryDate(id, date, user?.uid || ''); };
-
-  const handleNavigateToAnalysis = (articleCode: string) => {
-    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
-  };
-
-  const handleCopyArticleCode = (articleCode: string) => {
-    navigator.clipboard.writeText(articleCode);
-    toast({ title: "Codice copiato" });
-  };
+  const handleToggleGuaina = async (id: string, pid: string, cur: 'default' | 'postponed') => { await toggleGuainaPhasePosition(id, pid, cur); };
 
   return (
     <>
@@ -232,73 +217,32 @@ export default function ProductionConsoleClientPage() {
               </div>
           </Card>
 
-          {selectedIds.length > 0 && (
-              <div className="flex items-center gap-2">
-                  <Badge variant="outline">Selezionate: {selectedIds.length}</Badge>
-                  <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm"><RefreshCcw className="mr-2 h-4 w-4"/> Annulla e Resetta</Button></AlertDialogTrigger>
-                  <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Azzererà le lavorazioni e lo stock.</AlertDialogDescription></AlertDialogHeader>
-                  <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={async () => { for(const id of selectedIds) await resetSingleCompletedJobOrder(id, user!.uid); setSelectedIds([]); toast({title: "Reset completato"}); }} className="bg-destructive">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-              </div>
-          )}
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredGroups.map(g => (
                   <WorkGroupCard 
-                    key={g.id} 
-                    group={g} 
-                    jobsInGroup={jobsByGroupId.get(g.id) || []} 
-                    allOperators={allOperators} 
-                    allRawMaterials={allRawMaterials} 
-                    onProblemClick={() => setProblemJob(g)} 
-                    onForceFinishClick={handleForceFinish} 
-                    onForcePauseClick={handleForcePause} 
-                    onForceCompleteClick={handleForceComplete} 
-                    onDissolveGroupClick={handleDissolveGroup} 
-                    onOpenPhaseManager={handleOpenPhaseManager} 
-                    onOpenMaterialManager={() => setMaterialManagedItem(g)} 
-                    onToggleGuainaClick={toggleGuainaPhasePosition} 
-                    onUpdateDeliveryDate={handleUpdateDeliveryDate} 
-                    isSelected={selectedIds.includes(g.id)} 
-                    onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
-                    overallStatus={getOverallStatus(g)} 
-                    getOverallStatus={getOverallStatus} 
-                    onNavigateToAnalysis={handleNavigateToAnalysis} 
-                    onCopyArticleCode={handleCopyArticleCode} 
+                    key={g.id} group={g} jobsInGroup={jobsByGroupId.get(g.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} 
+                    onProblemClick={() => setProblemJob(g)} onForceFinishClick={handleForceFinish} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} 
+                    onDissolveGroupClick={handleDissolveGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} 
+                    onToggleGuainaClick={handleToggleGuaina} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(g.id)} 
+                    onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(g)} getOverallStatus={getOverallStatus} 
+                    onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
               ))}
               {filteredStandalone.map(j => (
                   <JobOrderCard 
-                    key={j.id} 
-                    jobOrder={j} 
-                    allOperators={allOperators} 
-                    allRawMaterials={allRawMaterials} 
-                    analysisData={analysisDataMap.get(j.id)} 
-                    onFetchAnalysis={() => handleFetchAnalysis(j)} 
-                    isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} 
-                    onProblemClick={() => setProblemJob(j)} 
-                    onForceFinishClick={handleForceFinish} 
-                    onRevertForceFinishClick={handleRevertForceFinish} 
-                    onToggleGuainaClick={toggleGuainaPhasePosition} 
-                    onRevertPhaseClick={handleRevertPhase} 
-                    onRevertCompletionClick={handleRevertCompletion} 
-                    onForcePauseClick={handleForcePause} 
-                    onForceCompleteClick={handleForceComplete} 
-                    onResetJobOrderClick={onResetJobOrderClick} 
-                    onOpenPhaseManager={handleOpenPhaseManager} 
-                    onOpenMaterialManager={() => setMaterialManagedItem(j)} 
-                    onUpdateDeliveryDate={handleUpdateDeliveryDate} 
-                    isSelected={selectedIds.includes(j.id)} 
-                    onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
-                    overallStatus={getOverallStatus(j)} 
-                    onNavigateToAnalysis={handleNavigateToAnalysis} 
-                    onCopyArticleCode={handleCopyArticleCode} 
+                    key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} 
+                    isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} 
+                    onToggleGuainaClick={handleToggleGuaina} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} 
+                    onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
+                    onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
+                    overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
               ))}
           </div>
 
           <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>
               <DialogContent><DialogHeader><DialogTitle>Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
-                  <div className="space-y-2 py-4">{editablePhases.map((p, i) => (<div key={p.id} className="flex justify-between items-center p-2 border rounded">{p.name}<Badge>{p.status}</Badge></div>))}</div>
+                  <div className="space-y-2 py-4">{editablePhases.map((p) => (<div key={p.id} className="flex justify-between items-center p-2 border rounded">{p.name}<Badge>{p.status}</Badge></div>))}</div>
                   <DialogFooter><Button onClick={handleSaveChanges}>Salva</Button></DialogFooter>
               </DialogContent>
           </Dialog>

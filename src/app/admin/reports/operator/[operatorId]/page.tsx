@@ -1,8 +1,8 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -11,9 +11,10 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { getOperatorDetailReport } from '@/app/admin/reports/actions';
-import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Briefcase, Loader2 } from 'lucide-react';
+import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
+import { useSearchParams } from 'next/navigation';
 
 type OperatorDetailReport = Awaited<ReturnType<typeof getOperatorDetailReport>>;
 
@@ -31,15 +32,10 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
     const fetchReport = async () => {
       if (!selectedDate) return;
       setIsLoading(true);
-      
       const dateStringForServer = selectedDate.toISOString();
-
       const newReport = await getOperatorDetailReport(params.operatorId, dateStringForServer);
       setReport(newReport);
       setIsLoading(false);
-      
-      const newUrl = `${window.location.pathname}?date=${selectedDate?.toISOString()}`;
-      window.history.replaceState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl);
     };
 
     if (params.operatorId && selectedDate) {
@@ -63,7 +59,6 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
     <AdminAuthGuard>
       <AppShell>
         <div className="space-y-6">
-
           <Button asChild variant="outline" className="w-fit">
             <Link href="/admin/reports">
               <ArrowLeft className="mr-2 h-4 w-4" />
