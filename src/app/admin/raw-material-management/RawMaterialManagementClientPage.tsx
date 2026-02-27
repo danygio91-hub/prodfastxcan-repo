@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -337,63 +336,65 @@ export default function RawMaterialManagementClientPage({
   }, [selectedMaterial]);
 
   return (
-    <div className="space-y-6">
-      <header><h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><Boxes className="h-8 w-8 text-primary" />Gestione Materie Prime</h1></header>
-      <Tabs defaultValue="list">
-        <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="list">Magazzino Live</TabsTrigger><TabsTrigger value="commitments">Impegni Manuali</TabsTrigger></TabsList>
-        <TabsContent value="list">
-          <Card>
-            <CardHeader>
-              <div className="flex justify-between items-start flex-wrap gap-4">
-                <div className="space-y-1"><CardTitle>Magazzino Live</CardTitle><CardDescription>Giacenze reali ricalcolate dai movimenti storici.</CardDescription></div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca materiale..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-                  <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini Fornitore</Link></Button>
-                  <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Mat. Prima</Button>
+    <>
+      <div className="space-y-6">
+        <header><h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><Boxes className="h-8 w-8 text-primary" />Gestione Materie Prime</h1></header>
+        <Tabs defaultValue="list">
+          <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="list">Magazzino Live</TabsTrigger><TabsTrigger value="commitments">Impegni Manuali</TabsTrigger></TabsList>
+          <TabsContent value="list">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-start flex-wrap gap-4">
+                  <div className="space-y-1"><CardTitle>Magazzino Live</CardTitle><CardDescription>Giacenze reali ricalcolate dai movimenti storici.</CardDescription></div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca materiale..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+                    <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini Fornitore</Link></Button>
+                    <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n', conversionFactor: null, rapportoKgMt: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Mat. Prima</Button>
+                  </div>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {isSearching ? (
-                      <TableRow><TableCell colSpan={7} className="text-center h-32"><div className="flex flex-col items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-8 w-8 animate-spin text-primary" /><span>Ricerca in corso...</span></div></TableCell></TableRow>
-                    ) : (rawMaterials.length > 0) ? (
-                      rawMaterials.map((m) => {
-                        const s = materialStatus.find(st => st.id === m.id);
-                        return (
-                          <TableRow key={m.id}>
-                            <TableCell className="font-bold"><ContextMenu><ContextMenuTrigger className="cursor-help hover:text-primary">{m.code}</ContextMenuTrigger><ContextMenuContent><ContextMenuItem onSelect={() => handleCopy(m.code)}><Copy className="mr-2 h-4 w-4" /> Copia Codice</ContextMenuItem></ContextMenuContent></ContextMenu></TableCell>
-                            <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground" title={m.description}>{m.description}</TableCell>
-                            <TableCell className="font-semibold text-nowrap">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}<span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span></TableCell>
-                            <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline font-medium">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
-                            <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
-                            <TableCell>
-                                <button 
-                                    onClick={() => handleOpenOrderedDetails(m.code)} 
-                                    className="text-blue-600 hover:underline text-sm font-medium"
-                                    disabled={!s || s.ordinato <= 0}
-                                >
-                                    {s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}
-                                </button>
-                            </TableCell>
-                            <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Vedi Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
-                          </TableRow>
-                        )
-                      })
-                    ) : (
-                      <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">{searchTerm.length < 2 ? "Digita almeno 2 caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="commitments"><CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} /></TabsContent>
-      </Tabs>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Descrizione</TableHead><TableHead>Stock Attuale</TableHead><TableHead>Impegnato</TableHead><TableHead>Disponibile</TableHead><TableHead>Ordinato</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {isSearching ? (
+                        <TableRow><TableCell colSpan={7} className="text-center h-32"><div className="flex flex-col items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-8 w-8 animate-spin text-primary" /><span>Ricerca in corso...</span></div></TableCell></TableRow>
+                      ) : (rawMaterials.length > 0) ? (
+                        rawMaterials.map((m) => {
+                          const s = materialStatus.find(st => st.id === m.id);
+                          return (
+                            <TableRow key={m.id}>
+                              <TableCell className="font-bold"><ContextMenu><ContextMenuTrigger className="cursor-help hover:text-primary">{m.code}</ContextMenuTrigger><ContextMenuContent><ContextMenuItem onSelect={() => handleCopy(m.code)}><Copy className="mr-2 h-4 w-4" /> Copia Codice</ContextMenuItem></ContextMenuContent></ContextMenu></TableCell>
+                              <TableCell className="truncate max-w-[200px] text-xs text-muted-foreground" title={m.description}>{m.description}</TableCell>
+                              <TableCell className="font-semibold text-nowrap">{formatDisplayStock(s ? s.stock : m.currentStockUnits, m.unitOfMeasure)}<span className="text-[10px] ml-1 opacity-70">{m.unitOfMeasure.toUpperCase()}</span></TableCell>
+                              <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline font-medium">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
+                              <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
+                              <TableCell>
+                                  <button 
+                                      onClick={() => handleOpenOrderedDetails(m.code)} 
+                                      className="text-blue-600 hover:underline text-sm font-medium"
+                                      disabled={!s || s.ordinato <= 0}
+                                  >
+                                      {s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}
+                                  </button>
+                              </TableCell>
+                              <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica Lotto</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Vedi Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
+                            </TableRow>
+                          )
+                        })
+                      ) : (
+                        <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">{searchTerm.length < 2 ? "Digita almeno 2 caratteri per cercare." : "Nessun materiale trovato."}</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="commitments"><CommitmentManagementClientPage initialCommitments={initialCommitments} initialArticles={initialArticles} /></TabsContent>
+        </Tabs>
+      </div>
 
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-xl">
@@ -499,6 +500,6 @@ export default function RawMaterialManagementClientPage({
       </Dialog>
 
       <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
-    </div>
+    </>
   );
 }

@@ -123,7 +123,7 @@ export default function ProductionConsoleClientPage() {
     onSnapshot(collection(db, "operators"), (snap) => setAllOperators(snap.docs.map(d => d.data() as Operator)));
     onSnapshot(collection(db, "rawMaterials"), (snap) => setAllRawMaterials(snap.docs.map(d => ({id: d.id, ...d.data()} as RawMaterial))));
     return () => { unsubscribeJobs(); unsubscribeGroups(); };
-  }, []);
+  }, [toast]);
   
   const workGroupsMap = useMemo(() => new Map(workGroups.map(g => [g.id, g])), [workGroups]);
   const { standaloneJobs, jobsByGroupId } = useMemo(() => {
@@ -191,51 +191,62 @@ export default function ProductionConsoleClientPage() {
     if (res.success) setPhaseManagedItem(null);
   };
 
+  const handleForceFinish = (id: string) => forceFinishProduction(id, user?.uid);
+  const handleForcePause = (id: string, ops: string[]) => forcePauseOperators(id, ops, user?.uid);
+  const handleForceComplete = (id: string) => forceCompleteJob(id, user?.uid);
+  const handleDissolveGroup = (id: string) => dissolveWorkGroup(id);
+  const handleRevertPhase = (jid: string, pid: string) => revertPhaseCompletion(jid, pid, user?.uid);
+  const handleRevertForceFinish = (id: string) => revertForceFinish(id, user?.uid);
+  const handleRevertCompletion = (id: string) => revertCompletion(id, user?.uid);
+  const onResetJobOrderClick = (id: string) => resetSingleCompletedJobOrder(id, user?.uid || '');
+
   return (
-    <div className="space-y-6">
-        <header className="flex flex-col sm:flex-row justify-between items-start gap-4">
-            <div><h1 className="text-3xl font-bold font-headline flex items-center gap-3"><Briefcase className="h-8 w-8 text-primary" /> Console Controllo Produzione</h1></div>
-            <div className="relative w-full sm:max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-        </header>
-        
-        <Card className="p-2 flex flex-wrap items-center justify-center gap-4">
-            <div className="flex flex-wrap justify-center gap-1">
-                {[{label:'Tutte',value:'all',icon:Briefcase},{label:'In Corso (Live)',value:'LIVE',icon:Activity}].map(f => (
-                    <Button key={f.value} variant={activeFilter === f.value ? 'secondary' : 'ghost'} onClick={() => setActiveFilter(f.value as any)} size="sm">
-                        <f.icon className={cn("mr-2 h-4 w-4", f.value === 'LIVE' && "text-red-400 animate-pulse")} /> {f.label}
-                    </Button>
-                ))}
-            </div>
-            <div className="flex items-center gap-4">
-                <div className="flex items-center space-x-2"><Switch id="overdue" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} /><Label htmlFor="overdue" className="text-destructive">Ritardi</Label></div>
-                <div className="flex items-center space-x-2"><Switch id="completed" checked={showCompleted} onCheckedChange={setShowCompleted} /><Label htmlFor="completed">Completate</Label></div>
-            </div>
-        </Card>
+    <>
+      <div className="space-y-6">
+          <header className="flex flex-col sm:flex-row justify-between items-start gap-4">
+              <div><h1 className="text-3xl font-bold font-headline flex items-center gap-3"><Briefcase className="h-8 w-8 text-primary" /> Console Controllo Produzione</h1></div>
+              <div className="relative w-full sm:max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
+          </header>
+          
+          <Card className="p-2 flex flex-wrap items-center justify-center gap-4">
+              <div className="flex flex-wrap justify-center gap-1">
+                  {[{label:'Tutte',value:'all',icon:Briefcase},{label:'In Corso (Live)',value:'LIVE',icon:Activity}].map(f => (
+                      <Button key={f.value} variant={activeFilter === f.value ? 'secondary' : 'ghost'} onClick={() => setActiveFilter(f.value as any)} size="sm">
+                          <f.icon className={cn("mr-2 h-4 w-4", f.value === 'LIVE' && "text-red-400 animate-pulse")} /> {f.label}
+                      </Button>
+                  ))}
+              </div>
+              <div className="flex items-center gap-4">
+                  <div className="flex items-center space-x-2"><Switch id="overdue" checked={showOnlyOverdue} onCheckedChange={setShowOnlyOverdue} /><Label htmlFor="overdue" className="text-destructive">Ritardi</Label></div>
+                  <div className="flex items-center space-x-2"><Switch id="completed" checked={showCompleted} onCheckedChange={setShowCompleted} /><Label htmlFor="completed">Completate</Label></div>
+              </div>
+          </Card>
 
-        {selectedIds.length > 0 && (
-            <div className="flex items-center gap-2">
-                <Badge variant="outline">Selezionate: {selectedIds.length}</Badge>
-                <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm"><RefreshCcw className="mr-2 h-4 w-4"/> Annulla e Resetta</Button></AlertDialogTrigger>
-                <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Azzererà le lavorazioni e lo stock.</AlertDialogDescription></AlertDialogHeader>
-                <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={async () => { for(const id of selectedIds) await resetSingleCompletedJobOrder(id, user!.uid); setSelectedIds([]); toast({title: "Reset completato"}); }} className="bg-destructive">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-            </div>
-        )}
+          {selectedIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                  <Badge variant="outline">Selezionate: {selectedIds.length}</Badge>
+                  <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm"><RefreshCcw className="mr-2 h-4 w-4"/> Annulla e Resetta</Button></AlertDialogTrigger>
+                  <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Azzererà le lavorazioni e lo stock.</AlertDialogDescription></AlertDialogHeader>
+                  <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={async () => { for(const id of selectedIds) await resetSingleCompletedJobOrder(id, user!.uid); setSelectedIds([]); toast({title: "Reset completato"}); }} className="bg-destructive">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+              </div>
+          )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredGroups.map(g => (
-                <WorkGroupCard key={g.id} group={g} jobsInGroup={jobsByGroupId.get(g.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} onProblemClick={() => setProblemJob(g)} onForceFinishClick={forceFinishProduction} onForcePauseClick={forcePauseOperators} onForceCompleteClick={forceCompleteJob} onDissolveGroupClick={dissolveWorkGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} onToggleGuainaClick={toggleGuainaPhasePosition} onUpdateDeliveryDate={updateJobDeliveryDate} isSelected={selectedIds.includes(g.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(g)} getOverallStatus={getOverallStatus} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
-            ))}
-            {filteredStandalone.map(j => (
-                <JobOrderCard key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={forceFinishProduction} onRevertForceFinishClick={revertForceFinish} onToggleGuainaClick={toggleGuainaPhasePosition} onRevertPhaseClick={revertPhaseCompletion} onRevertCompletionClick={revertCompletion} onForcePauseClick={forcePauseOperators} onForceCompleteClick={forceCompleteJob} onResetJobOrderClick={resetSingleCompletedJobOrder} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} onUpdateDeliveryDate={updateJobDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
-            ))}
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {filteredGroups.map(g => (
+                  <WorkGroupCard key={g.id} group={g} jobsInGroup={jobsByGroupId.get(g.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} onProblemClick={() => setProblemJob(g)} onForceFinishClick={handleForceFinish} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onDissolveGroupClick={handleDissolveGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} onToggleGuainaClick={toggleGuainaPhasePosition} onUpdateDeliveryDate={updateJobDeliveryDate} isSelected={selectedIds.includes(g.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(g)} getOverallStatus={getOverallStatus} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
+              ))}
+              {filteredStandalone.map(j => (
+                  <JobOrderCard key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} onToggleGuainaClick={toggleGuainaPhasePosition} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} onUpdateDeliveryDate={updateJobDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => navigator.clipboard.writeText(c)} />
+              ))}
+          </div>
 
-        <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>
-            <DialogContent><DialogHeader><DialogTitle>Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
-                <div className="space-y-2 py-4">{editablePhases.map((p, i) => (<div key={p.id} className="flex justify-between items-center p-2 border rounded">{p.name}<Badge>{p.status}</Badge></div>))}</div>
-                <DialogFooter><Button onClick={handleSaveChanges}>Salva</Button></DialogFooter>
-            </DialogContent>
-        </Dialog>
-    </div>
+          <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>
+              <DialogContent><DialogHeader><DialogTitle>Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
+                  <div className="space-y-2 py-4">{editablePhases.map((p, i) => (<div key={p.id} className="flex justify-between items-center p-2 border rounded">{p.name}<Badge>{p.status}</Badge></div>))}</div>
+                  <DialogFooter><Button onClick={handleSaveChanges}>Salva</Button></DialogFooter>
+              </DialogContent>
+          </Dialog>
+      </div>
+    </>
   );
 }
