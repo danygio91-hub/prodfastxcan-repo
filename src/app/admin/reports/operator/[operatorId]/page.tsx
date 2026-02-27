@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -147,8 +146,8 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {report.jobsWorkedOn.length > 0 ? report.jobsWorkedOn.flatMap(job => 
-                          job.phases.map((phase, index) => (
+                        {report.jobsWorkedOn.length > 0 ? report.jobsWorkedOn.flatMap((job: any) => 
+                          job.phases.map((phase: any, index: number) => (
                             <TableRow key={`${job.id}-${phase.date}-${phase.name}`}>
                               {index === 0 ? (
                                 <>

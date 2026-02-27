@@ -7,7 +7,7 @@ import QRCode from 'react-qr-code';
 import { PrintButton } from './PrintButton';
 import { useEffect, useState, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
-import { getJobDetailReport } from '../actions';
+import { getJobDetailReport } from '@/app/admin/reports/actions';
 
 function PrintPageContent() {
   const searchParams = useSearchParams();
@@ -21,7 +21,7 @@ function PrintPageContent() {
       getJobDetailReport(jobId)
         .then(data => {
           if (data) {
-            setJob(data as JobOrder);
+            setJob(data as unknown as JobOrder);
           } else {
             setError('Commessa non trovata.');
           }
