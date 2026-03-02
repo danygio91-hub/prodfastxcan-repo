@@ -266,7 +266,7 @@ export default function ScanJobPage() {
               <Card>
                 <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  {activeJob.phases.sort((a,b) => a.sequence - b.sequence).map(p => (
+                  {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
                     <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
                   ))}
                 </CardContent>

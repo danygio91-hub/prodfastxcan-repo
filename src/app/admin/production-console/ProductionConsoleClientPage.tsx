@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -63,7 +62,6 @@ export default function ProductionConsoleClientPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   
   const [editablePhases, setEditablePhases] = useState<JobPhase[]>([]);
-  const [isOrderChanged, setIsOrderChanged] = useState(false);
 
   const { toast } = useToast();
   const { user } = useAuth();
@@ -159,7 +157,6 @@ export default function ProductionConsoleClientPage() {
   const handleOpenPhaseManager = (item: JobOrder | WorkGroup) => {
     setPhaseManagedItem(item);
     setEditablePhases([...item.phases].sort((a,b) => a.sequence - b.sequence));
-    setIsOrderChanged(false);
   };
 
   const handleSaveChanges = async () => {
@@ -169,16 +166,16 @@ export default function ProductionConsoleClientPage() {
     if (res.success) setPhaseManagedItem(null);
   };
 
-  const handleForceFinish = (id: string) => forceFinishProduction(id, user?.uid || '');
-  const handleForcePause = (id: string, ops: string[]) => forcePauseOperators(id, ops, user?.uid || '');
-  const handleForceComplete = (id: string) => forceCompleteJob(id, user?.uid || '');
-  const handleDissolveGroup = (id: string) => dissolveWorkGroup(id);
-  const handleRevertPhase = (jid: string, pid: string) => revertPhaseCompletion(jid, pid, user?.uid || '');
-  const handleRevertForceFinish = (id: string) => revertForceFinish(id, user?.uid || '');
-  const handleRevertCompletion = (id: string) => revertCompletion(id, user?.uid || '');
-  const handleResetJobOrder = (id: string) => resetSingleCompletedJobOrder(id, user?.uid || '');
-  const handleUpdateDeliveryDate = (itemId: string, newDate: string) => updateJobDeliveryDate(itemId, newDate, user?.uid || '');
-  const handleToggleGuaina = (id: string, pid: string, cur: 'default' | 'postponed') => toggleGuainaPhasePosition(id, pid, cur);
+  const handleForceFinish = async (id: string) => { await forceFinishProduction(id, user?.uid || ''); };
+  const handleForcePause = async (id: string, ops: string[]) => { await forcePauseOperators(id, ops, user?.uid || ''); };
+  const handleForceComplete = async (id: string) => { await forceCompleteJob(id, user?.uid || ''); };
+  const handleDissolveGroup = async (id: string) => { await dissolveWorkGroup(id); };
+  const handleRevertPhase = async (jid: string, pid: string) => { await revertPhaseCompletion(jid, pid, user?.uid || ''); };
+  const handleRevertForceFinish = async (id: string) => { await revertForceFinish(id, user?.uid || ''); };
+  const handleRevertCompletion = async (id: string) => { await revertCompletion(id, user?.uid || ''); };
+  const handleResetJobOrder = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
+  const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { await updateJobDeliveryDate(itemId, newDate, user?.uid || ''); };
+  const handleToggleGuaina = async (id: string, pid: string, cur: 'default' | 'postponed') => { await toggleGuainaPhasePosition(id, pid, cur); };
 
   return (
     <>
