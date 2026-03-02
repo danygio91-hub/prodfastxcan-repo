@@ -83,7 +83,8 @@ import {
   Edit,
   Trash2,
   PackagePlus,
-  TestTube
+  TestTube,
+  Save
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { 
