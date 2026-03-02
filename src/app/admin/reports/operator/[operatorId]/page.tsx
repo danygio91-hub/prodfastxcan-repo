@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { getOperatorDetailReport } from '@/app/admin/reports/actions';
-import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, User, Clock, Calendar as CalendarIcon, Loader2, Briefcase } from 'lucide-react';
 import { format } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { useSearchParams } from 'next/navigation';

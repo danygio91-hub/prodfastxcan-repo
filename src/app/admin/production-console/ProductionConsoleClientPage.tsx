@@ -173,7 +173,7 @@ export default function ProductionConsoleClientPage() {
   const handleRevertPhase = async (jid: string, pid: string) => { await revertPhaseCompletion(jid, pid, user?.uid || ''); };
   const handleRevertForceFinish = async (id: string) => { await revertForceFinish(id, user?.uid || ''); };
   const handleRevertCompletion = async (id: string) => { await revertCompletion(id, user?.uid || ''); };
-  const handleResetJobOrder = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
+  const onResetJobOrderClick = async (id: string) => { await resetSingleCompletedJobOrder(id, user?.uid || ''); };
   const handleUpdateDeliveryDate = async (itemId: string, newDate: string) => { await updateJobDeliveryDate(itemId, newDate, user?.uid || ''); };
   const handleToggleGuaina = async (id: string, pid: string, cur: 'default' | 'postponed') => { await toggleGuainaPhasePosition(id, pid, cur); };
 
@@ -215,7 +215,7 @@ export default function ProductionConsoleClientPage() {
                     key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} 
                     isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} 
                     onToggleGuainaClick={handleToggleGuaina} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} 
-                    onForceCompleteClick={handleForceComplete} onResetJobOrderClick={handleResetJobOrder} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
+                    onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
                     onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
                     overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
@@ -223,7 +223,7 @@ export default function ProductionConsoleClientPage() {
           </div>
 
           <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>
-              <DialogContent><DialogHeader><DialogTitle>Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
+              <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
                   <div className="space-y-2 py-4">{editablePhases.map((p) => (<div key={p.id} className="flex justify-between items-center p-2 border rounded">{p.name}<Badge>{p.status}</Badge></div>))}</div>
                   <DialogFooter><Button onClick={handleSaveChanges}>Salva</Button></DialogFooter>
               </DialogContent>
