@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -22,7 +21,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode } from '@/app/scan-job/actions';
 import { getPackagingItems, registerInventoryBatch } from './actions';
 import type { RawMaterial, Packaging } from '@/lib/mock-data';
-import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send } from 'lucide-react';
+import { Warehouse, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Weight, Archive, Send, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -40,12 +39,14 @@ const inventoryFormSchema = z.object({
 });
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
 
+type Step = 'scan_material' | 'form' | 'saving' | 'success';
+
 export default function InventoryPage() {
   const { operator, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<'scan_material' | 'form' | 'saving'>('scan_material');
+  const [step, setStep] = useState<Step>('scan_material');
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [packagingItems, setPackagingItems] = useState<Packaging[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -169,7 +170,7 @@ export default function InventoryPage() {
     });
 
     if (result.success) {
-      resetFlow();
+      setStep('success');
     } else {
       setStep('form');
     }
