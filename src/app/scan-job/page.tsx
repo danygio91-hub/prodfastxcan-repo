@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -17,17 +18,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup } from './actions';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
 import { useCameraStream } from '@/hooks/use-camera-stream';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let total = 0;
@@ -87,17 +90,28 @@ const PhaseCard = ({ phase, job, handlers }: { phase: JobPhase, job: JobOrder, h
 export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
-  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, setIsStatusBarHighlighted } = useActiveJob();
+  const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
-  const videoRef = useRef<HTMLVideoElement>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  
   const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
   const [phaseForPhaseScan, setPhaseForPhaseScan] = useState<JobPhase | null>(null);
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
+  // Grouping State
+  const [isGroupingDialogOpen, setIsGroupingDialogOpen] = useState(false);
+  const [isGroupingScanActive, setIsGroupingScanActive] = useState(false);
+  const [jobsToGroup, setJobsToGroup] = useState<JobOrder[]>([]);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const groupingVideoRef = useRef<HTMLVideoElement>(null);
+
   const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scanning' || isPhaseScanDialogOpen, videoRef);
+  const { hasPermission: hasGroupingCameraPermission } = useCameraStream(isGroupingScanActive, groupingVideoRef);
 
   useEffect(() => { 
     if (!isJobLoading) {
@@ -105,8 +119,8 @@ export default function ScanJobPage() {
     }
   }, [isJobLoading, activeJob]);
 
-  const triggerScan = useCallback(async (onScan: (data: string) => void) => {
-      if (!videoRef.current || videoRef.current.readyState < 2) {
+  const triggerScan = useCallback(async (vRef: React.RefObject<HTMLVideoElement>, onScan: (data: string) => void) => {
+      if (!vRef.current || vRef.current.readyState < 2) {
           toast({ variant: 'destructive', title: 'Fotocamera non pronta' });
           return;
       }
@@ -118,7 +132,7 @@ export default function ScanJobPage() {
       setIsCapturing(true);
       try {
           const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
-          const codes = await detector.detect(videoRef.current);
+          const codes = await detector.detect(vRef.current);
           if (codes.length > 0) {
               onScan(codes[0].rawValue);
           } else {
@@ -145,6 +159,48 @@ export default function ScanJobPage() {
     }
   }, [toast, setActiveJobId]);
 
+  const handleGroupingScan = useCallback(async (data: string) => {
+    const parts = data.split('@');
+    if (parts.length !== 3) {
+        toast({ variant: 'destructive', title: 'QR non Valido' });
+        return;
+    }
+    const result = await verifyAndGetJobOrder({ ordinePF: parts[0], codice: parts[1], qta: parts[2] });
+    if ('error' in result) {
+        toast({ variant: 'destructive', title: result.title, description: result.error });
+    } else {
+        if (jobsToGroup.some(j => j.id === result.id)) {
+            toast({ title: "Già scansionata", description: "Questa commessa è già nell'elenco." });
+            return;
+        }
+        if (jobsToGroup.length > 0) {
+            const first = jobsToGroup[0];
+            if (first.details !== result.details) {
+                toast({ variant: 'destructive', title: "Articolo Diverso", description: "Puoi concatenare solo commesse dello stesso articolo." });
+                return;
+            }
+        }
+        setJobsToGroup(prev => [...prev, result]);
+        toast({ title: "Commessa Aggiunta", description: result.ordinePF });
+        setIsGroupingScanActive(false);
+    }
+  }, [toast, jobsToGroup]);
+
+  const handleCreateGroup = async () => {
+    if (!operator || jobsToGroup.length < 2) return;
+    setIsCreatingGroup(true);
+    const result = await createWorkGroup(jobsToGroup.map(j => j.id), operator.id);
+    if (result.success && result.workGroupId) {
+        toast({ title: "Gruppo Creato", description: "Le commesse sono state concatenate." });
+        setActiveJobId(result.workGroupId);
+        setIsGroupingDialogOpen(false);
+        setJobsToGroup([]);
+    } else {
+        toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+    setIsCreatingGroup(false);
+  };
+
   const handlePausePhase = (id: string) => {
     if (!activeJob || !operator) return;
     const job = JSON.parse(JSON.stringify(activeJob));
@@ -158,8 +214,6 @@ export default function ScanJobPage() {
 
   const handleResumePhase = async (id: string) => {
       if (!activeJob || !operator) return;
-      const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id.startsWith('group-') ? activeJob.id : undefined);
-      if (!avail.available) { setIsStatusBarHighlighted(true); return; }
       const job = JSON.parse(JSON.stringify(activeJob));
       const p = job.phases.find((p:any) => p.id === id);
       p.status = 'in-progress'; job.status = 'production';
@@ -201,11 +255,11 @@ export default function ScanJobPage() {
     else setActiveJobId(result.id);
   };
 
-  const renderScanArea = () => {
+  const renderScanArea = (vRef: React.RefObject<HTMLVideoElement>, hasPerm: boolean | null) => {
     return (
       <div className="relative aspect-video bg-black rounded overflow-hidden">
-        <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-        {!hasCameraPermission && (
+        <video ref={vRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+        {!hasPerm && (
             <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                 <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
                 <p className="text-white font-semibold">Accesso alla fotocamera negato</p>
@@ -231,6 +285,9 @@ export default function ScanJobPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Button onClick={() => setStep('scanning')} className="w-full h-16 text-lg" size="lg">Avvia Scansione</Button>
+                  <Button onClick={() => setIsGroupingDialogOpen(true)} className="w-full h-16 text-lg bg-teal-500 hover:bg-teal-600 text-white" size="lg">
+                    <Combine className="mr-2 h-6 w-6" /> Concatena Commesse
+                  </Button>
                   <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full h-12">Inserimento Manuale</Button>
                 </CardContent>
               </Card>
@@ -251,9 +308,9 @@ export default function ScanJobPage() {
             {step === 'scanning' && (
               <Card>
                 <CardContent className="pt-6">
-                  {renderScanArea()}
+                  {renderScanArea(videoRef, hasCameraPermission)}
                   <div className="flex flex-col gap-2 mt-4">
-                    <Button onClick={() => triggerScan(handleScannedData)} className="w-full h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button>
+                    <Button onClick={() => triggerScan(videoRef, handleScannedData)} className="w-full h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button>
                     <Button variant="outline" onClick={() => setStep('initial')}>Indietro</Button>
                   </div>
                 </CardContent>
@@ -310,12 +367,78 @@ export default function ScanJobPage() {
             )}
           </div>
 
+          {/* Grouping Dialog */}
+          <Dialog open={isGroupingDialogOpen} onOpenChange={setIsGroupingDialogOpen}>
+            <DialogContent className="max-w-2xl h-[90vh] flex flex-col">
+                <DialogHeader>
+                    <DialogTitle>Concatena Commesse</DialogTitle>
+                    <DialogDescription>Scansiona le commesse che vuoi produrre insieme. Devono essere dello stesso articolo.</DialogDescription>
+                </DialogHeader>
+                <div className="flex-1 flex flex-col overflow-hidden space-y-4 py-2">
+                    {isGroupingScanActive ? (
+                        <div className="space-y-4">
+                            {renderScanArea(groupingVideoRef, hasGroupingCameraPermission)}
+                            <Button onClick={() => triggerScan(groupingVideoRef, handleGroupingScan)} className="w-full h-12">
+                                {isCapturing ? <Loader2 className="animate-spin" /> : <Camera className="mr-2" />} Scansiona Commessa
+                            </Button>
+                            <Button variant="ghost" onClick={() => setIsGroupingScanActive(false)} className="w-full">Annulla Scansione</Button>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="flex items-center justify-between">
+                                <h4 className="font-semibold">Elenco Scansionate ({jobsToGroup.length})</h4>
+                                <Button size="sm" onClick={() => setIsGroupingScanActive(true)} variant="outline">
+                                    <QrCode className="mr-2 h-4 w-4" /> Aggiungi Altra
+                                </Button>
+                            </div>
+                            <ScrollArea className="flex-1 border rounded-md p-2 bg-muted/30">
+                                {jobsToGroup.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {jobsToGroup.map(j => (
+                                            <div key={j.id} className="flex items-center justify-between p-3 bg-card rounded-lg border shadow-sm">
+                                                <div>
+                                                    <p className="font-bold">{j.ordinePF}</p>
+                                                    <p className="text-xs text-muted-foreground">{j.details} - {j.cliente}</p>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <Badge variant="secondary">Qta: {j.qta}</Badge>
+                                                    <Button variant="ghost" size="icon" onClick={() => setJobsToGroup(prev => prev.filter(x => x.id !== j.id))} className="text-destructive h-8 w-8">
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="h-32 flex flex-col items-center justify-center text-muted-foreground gap-2">
+                                        <QrCode className="h-8 w-8 opacity-20" />
+                                        <p>Nessuna commessa scansionata.</p>
+                                    </div>
+                                )}
+                            </ScrollArea>
+                        </>
+                    )}
+                </div>
+                <DialogFooter className="pt-4 border-t">
+                    <Button variant="outline" onClick={() => setIsGroupingDialogOpen(false)}>Chiudi</Button>
+                    <Button 
+                        disabled={jobsToGroup.length < 2 || isCreatingGroup} 
+                        onClick={handleCreateGroup}
+                        className="bg-teal-500 hover:bg-teal-600 text-white"
+                    >
+                        {isCreatingGroup ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Combine className="mr-2 h-4 w-4" />}
+                        Crea Gruppo e Inizia
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
             <DialogContent>
               <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
-              {renderScanArea()}
+              {renderScanArea(videoRef, hasCameraPermission)}
               <DialogFooter>
-                <Button onClick={() => triggerScan((val) => { 
+                <Button onClick={() => triggerScan(videoRef, (val) => { 
                   if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 
                     handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); 
                     setIsPhaseScanDialogOpen(false); 
