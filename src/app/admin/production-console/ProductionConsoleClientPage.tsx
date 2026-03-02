@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData, updateJobDeliveryDate } from '@/app/admin/production-console/actions';
 import { getOverallStatus } from '@/lib/types';
@@ -35,9 +35,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, parseISO, isPast, isSameDay } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { parseISO, isPast, isSameDay } from 'date-fns';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -203,9 +201,9 @@ export default function ProductionConsoleClientPage() {
               {filteredGroups.map(g => (
                   <WorkGroupCard 
                     key={g.id} group={g} jobsInGroup={jobsByGroupId.get(g.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} 
-                    onProblemClick={() => setProblemJob(g)} onForceFinishClick={(id) => handleForceFinish(id)} onForcePauseClick={(id, ops) => handleForcePause(id, ops)} onForceCompleteClick={(id) => handleForceComplete(id)} 
-                    onDissolveGroupClick={(id) => handleDissolveGroup(id)} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} 
-                    onToggleGuainaClick={(id, pid, cur) => handleToggleGuaina(id, pid, cur)} onUpdateDeliveryDate={(id, d) => handleUpdateDeliveryDate(id, d)} isSelected={selectedIds.includes(g.id)} 
+                    onProblemClick={() => setProblemJob(g)} onForceFinishClick={(id) => { handleForceFinish(id); }} onForcePauseClick={(id, ops) => { handleForcePause(id, ops); }} onForceCompleteClick={(id) => { handleForceComplete(id); }} 
+                    onDissolveGroupClick={(id) => { handleDissolveGroup(id); }} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(g)} 
+                    onToggleGuainaClick={(id, pid, cur) => { handleToggleGuaina(id, pid, cur); }} onUpdateDeliveryDate={(id, d) => { handleUpdateDeliveryDate(id, d); }} isSelected={selectedIds.includes(g.id)} 
                     onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} overallStatus={getOverallStatus(g)} getOverallStatus={getOverallStatus} 
                     onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
@@ -213,10 +211,10 @@ export default function ProductionConsoleClientPage() {
               {filteredStandalone.map(j => (
                   <JobOrderCard 
                     key={j.id} jobOrder={j} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(j.id)} onFetchAnalysis={() => handleFetchAnalysis(j)} 
-                    isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={(id) => handleForceFinish(id)} onRevertForceFinishClick={(id) => handleRevertForceFinish(id)} 
-                    onToggleGuainaClick={(id, pid, cur) => handleToggleGuaina(id, pid, cur)} onRevertPhaseClick={(jid, pid) => handleRevertPhase(jid, pid)} onRevertCompletionClick={(id) => handleRevertCompletion(id)} onForcePauseClick={(id, ops) => handleForcePause(id, ops)} 
-                    onForceCompleteClick={(id) => handleForceComplete(id)} onResetJobOrderClick={(id) => onResetJobOrderClick(id)} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
-                    onUpdateDeliveryDate={(id, d) => handleUpdateDeliveryDate(id, d)} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
+                    isAnalysisLoading={jobsWithLoadingAnalysis.has(j.id)} onProblemClick={() => setProblemJob(j)} onForceFinishClick={(id) => { handleForceFinish(id); }} onRevertForceFinishClick={(id) => { handleRevertForceFinish(id); }} 
+                    onToggleGuainaClick={(id, pid, cur) => { handleToggleGuaina(id, pid, cur); }} onRevertPhaseClick={(jid, pid) => { handleRevertPhase(jid, pid); }} onRevertCompletionClick={(id) => { handleRevertCompletion(id); }} onForcePauseClick={(id, ops) => { handleForcePause(id, ops); }} 
+                    onForceCompleteClick={(id) => { handleForceComplete(id); }} onResetJobOrderClick={(id) => { onResetJobOrderClick(id); }} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(j)} 
+                    onUpdateDeliveryDate={(id, d) => { handleUpdateDeliveryDate(id, d); }} isSelected={selectedIds.includes(j.id)} onSelect={id => setSelectedIds(p => p.includes(id) ? p.filter(x => x!==id) : [...p, id])} 
                     overallStatus={getOverallStatus(j)} onNavigateToAnalysis={c => router.push(`/admin/production-time-analysis?articleCode=${c}`)} onCopyArticleCode={c => { navigator.clipboard.writeText(c); toast({title:"Copiato"}); }} 
                   />
               ))}

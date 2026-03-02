@@ -222,121 +222,123 @@ export default function ScanJobPage() {
   return (
     <AuthGuard>
       <AppShell>
-        <div className="space-y-6 max-w-4xl mx-auto">
-          {step === 'initial' && (
-            <Card>
-              <CardHeader className="text-center">
-                <QrCode className="mx-auto h-12 w-12 text-primary"/>
-                <CardTitle>Inizia Nuova Commessa</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Button onClick={() => setStep('scanning')} className="w-full h-16 text-lg" size="lg">Avvia Scansione</Button>
-                <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full h-12">Inserimento Manuale</Button>
-              </CardContent>
-            </Card>
-          )}
-          
-          {step === 'manual_input' && (
-            <Card>
-              <CardHeader><CardTitle>Inserimento Manuale</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <Label>Codice Commessa (ORDINE@CODICE@QTA)</Label>
-                <Input value={manualCode} onChange={e => setManualCode(e.target.value)} placeholder="Es. 123/24@ART-01@100" />
-                <Button onClick={handleManualCodeSubmit} className="w-full">Verifica</Button>
-                <Button variant="ghost" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {step === 'scanning' && (
-            <Card>
-              <CardContent className="pt-6">
-                {renderScanArea()}
-                <div className="flex flex-col gap-2 mt-4">
-                  <Button onClick={() => triggerScan(handleScannedData)} className="w-full h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button>
-                  <Button variant="outline" onClick={() => setStep('initial')}>Indietro</Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {step === 'processing' && activeJob && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{activeJob.ordinePF}</CardTitle>
-                    <CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
-                    <p>Qta: <strong>{activeJob.qta}</strong></p>
-                  </CardContent>
-                  <CardFooter>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">
-                          <LogOut className="mr-2 h-4 w-4" /> Abbandona Commessa
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Uscirai dalla lavorazione corrente. Assicurati di aver messo in pausa le fasi attive.</AlertDialogDescription></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={() => setActiveJobId(null)}>Sì, Abbandona</AlertDialogAction></AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </CardFooter>
-                </Card>
-              </div>
+        <>
+          <div className="space-y-6 max-w-4xl mx-auto">
+            {step === 'initial' && (
               <Card>
-                <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
+                <CardHeader className="text-center">
+                  <QrCode className="mx-auto h-12 w-12 text-primary"/>
+                  <CardTitle>Inizia Nuova Commessa</CardTitle>
+                </CardHeader>
                 <CardContent className="space-y-4">
-                  {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
-                    <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
-                  ))}
+                  <Button onClick={() => setStep('scanning')} className="w-full h-16 text-lg" size="lg">Avvia Scansione</Button>
+                  <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full h-12">Inserimento Manuale</Button>
                 </CardContent>
               </Card>
-            </div>
+            )}
+            
+            {step === 'manual_input' && (
+              <Card>
+                <CardHeader><CardTitle>Inserimento Manuale</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <Label>Codice Commessa (ORDINE@CODICE@QTA)</Label>
+                  <Input value={manualCode} onChange={e => setManualCode(e.target.value)} placeholder="Es. 123/24@ART-01@100" />
+                  <Button onClick={handleManualCodeSubmit} className="w-full">Verifica</Button>
+                  <Button variant="ghost" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
+                </CardContent>
+              </Card>
+            )}
+
+            {step === 'scanning' && (
+              <Card>
+                <CardContent className="pt-6">
+                  {renderScanArea()}
+                  <div className="flex flex-col gap-2 mt-4">
+                    <Button onClick={() => triggerScan(handleScannedData)} className="w-full h-14">{isCapturing ? <Loader2 className="animate-spin" /> : <Camera />} Scansiona</Button>
+                    <Button variant="outline" onClick={() => setStep('initial')}>Indietro</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {step === 'processing' && activeJob && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{activeJob.ordinePF}</CardTitle>
+                      <CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
+                      <p>Qta: <strong>{activeJob.qta}</strong></p>
+                    </CardContent>
+                    <CardFooter>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">
+                            <LogOut className="mr-2 h-4 w-4" /> Abbandona Commessa
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Uscirai dalla lavorazione corrente. Assicurati di aver messo in pausa le fasi attive.</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={() => setActiveJobId(null)}>Sì, Abbandona</AlertDialogAction></AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </CardFooter>
+                  </Card>
+                </div>
+                <Card>
+                  <CardHeader><CardTitle>Fasi Lavorazione</CardTitle></CardHeader>
+                  <CardContent className="space-y-4">
+                    {(activeJob.phases || []).sort((a,b) => a.sequence - b.sequence).map(p => (
+                      <PhaseCard key={p.id} phase={p} job={activeJob} handlers={{handleOpenPhaseScanDialog, handlePausePhase, handleResumePhase, handleCompletePhase, handleOpenMaterialAssociationDialog}} />
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {step === 'finished' && (
+              <Card>
+                <CardHeader className="text-center">
+                  <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+                  <CardTitle>Lavorazione Completata</CardTitle>
+                  <CardDescription>Tutte le fasi sono state terminate correttamente.</CardDescription>
+                </CardHeader>
+                <CardFooter><Button onClick={() => setActiveJobId(null)} className="w-full">Nuova Scansione</Button></CardFooter>
+              </Card>
+            )}
+          </div>
+
+          <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
+              {renderScanArea()}
+              <DialogFooter>
+                <Button onClick={() => triggerScan((val) => { 
+                  if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 
+                    handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); 
+                    setIsPhaseScanDialogOpen(false); 
+                  } else {
+                    toast({ variant: 'destructive', title: 'QR Errato', description: 'Scansiona il codice corrispondente alla fase.' });
+                  }
+                })} className="w-full">Scansiona QR Fase</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
+            <MaterialAssociationDialog 
+              isOpen={isMaterialAssociationDialogOpen} 
+              onOpenChange={setIsMaterialAssociationDialogOpen} 
+              phase={phaseForMaterialAssociation} 
+              job={activeJob} 
+              onSessionStart={() => setIsMaterialAssociationDialogOpen(false)} 
+              onWithdrawalComplete={() => { if (activeJob) getJobOrderById(activeJob.id).then(j => setActiveJob(j)); setIsMaterialAssociationDialogOpen(false); }} 
+            />
           )}
-
-          {step === 'finished' && (
-            <Card>
-              <CardHeader className="text-center">
-                <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-                <CardTitle>Lavorazione Completata</CardTitle>
-                <CardDescription>Tutte le fasi sono state terminate correttamente.</CardDescription>
-              </CardHeader>
-              <CardFooter><Button onClick={() => setActiveJobId(null)} className="w-full">Nuova Scansione</Button></CardFooter>
-            </Card>
-          )}
-        </div>
-
-        <Dialog open={isPhaseScanDialogOpen} onOpenChange={setIsPhaseScanDialogOpen}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Avvia Fase: {phaseForPhaseScan?.name}</DialogTitle></DialogHeader>
-            {renderScanArea()}
-            <DialogFooter>
-              <Button onClick={() => triggerScan((val) => { 
-                if(val.toLowerCase() === phaseForPhaseScan?.name.toLowerCase()) { 
-                  handlePhaseScanResult(activeJob!.id, phaseForPhaseScan!.id, operator!.id); 
-                  setIsPhaseScanDialogOpen(false); 
-                } else {
-                  toast({ variant: 'destructive', title: 'QR Errato', description: 'Scansiona il codice corrispondente alla fase.' });
-                }
-              })} className="w-full">Scansiona QR Fase</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {isMaterialAssociationDialogOpen && phaseForMaterialAssociation && (
-          <MaterialAssociationDialog 
-            isOpen={isMaterialAssociationDialogOpen} 
-            onOpenChange={setIsMaterialAssociationDialogOpen} 
-            phase={phaseForMaterialAssociation} 
-            job={activeJob} 
-            onSessionStart={() => setIsMaterialAssociationDialogOpen(false)} 
-            onWithdrawalComplete={() => { if (activeJob) getJobOrderById(activeJob.id).then(j => setActiveJob(j)); setIsMaterialAssociationDialogOpen(false); }} 
-          />
-        )}
+        </>
       </AppShell>
     </AuthGuard>
   );
