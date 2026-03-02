@@ -1,11 +1,42 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Loader2, ShieldAlert, Unlock, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, FastForward, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, RefreshCcw, BarChart3, Copy, PlayCircle, CheckSquare, Boxes, PackageX, Package2, PackageCheck } from 'lucide-react';
+import { 
+  Briefcase, 
+  Loader2, 
+  ShieldAlert, 
+  Unlock, 
+  Search, 
+  Combine, 
+  PowerOff, 
+  Activity, 
+  Calendar as CalendarIcon, 
+  FastForward, 
+  MoreVertical, 
+  Undo2, 
+  Unlink, 
+  ListOrdered, 
+  ArrowUp, 
+  ArrowDown, 
+  Circle, 
+  Hourglass, 
+  PauseCircle, 
+  CheckCircle2, 
+  EyeOff, 
+  RefreshCcw, 
+  BarChart3, 
+  Copy, 
+  PlayCircle, 
+  CheckSquare, 
+  Boxes, 
+  PackageX, 
+  Package2, 
+  PackageCheck,
+  RefreshCw
+} from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -33,7 +64,24 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { resolveJobProblem } from '@/app/scan-job/actions';
-import { forceFinishProduction, toggleGuainaPhasePosition, revertPhaseCompletion, forcePauseOperators, forceCompleteJob, resetSingleCompletedJobOrder, revertForceFinish, forceFinishMultiple, forceCompleteMultiple, updatePhasesForJob, revertCompletion, reportMaterialMissing, resolveMaterialMissing, getProductionTimeAnalysisMap, type ProductionTimeData, updateJobDeliveryDate } from '@/app/admin/production-console/actions';
+import { 
+  forceFinishProduction, 
+  toggleGuainaPhasePosition, 
+  revertPhaseCompletion, 
+  forcePauseOperators, 
+  forceCompleteJob, 
+  resetSingleCompletedJobOrder, 
+  revertForceFinish, 
+  forceFinishMultiple, 
+  forceCompleteMultiple, 
+  updatePhasesForJob, 
+  revertCompletion, 
+  reportMaterialMissing, 
+  resolveMaterialMissing, 
+  getProductionTimeAnalysisMap, 
+  type ProductionTimeData, 
+  updateJobDeliveryDate 
+} from '@/app/admin/production-console/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -194,7 +242,7 @@ export default function ProductionConsoleClientPage() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(i => i !== itemId) : [...prev, itemId]
     );
   };
   
