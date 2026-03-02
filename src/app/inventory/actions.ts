@@ -6,9 +6,7 @@ import { db } from '@/lib/firebase';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
-import { format } from 'date-fns';
 
-// This function is now also used by the inventory page
 export async function getPackagingItems(): Promise<Packaging[]> {
   const packagingCol = collection(db, 'packaging');
   const q = query(packagingCol, orderBy("name"));
@@ -23,7 +21,6 @@ const inventoryBatchSchema = z.object({
   packagingId: z.string().optional(),
   inputUnit: z.enum(['n', 'mt', 'kg']),
 });
-
 
 export async function registerInventoryBatch(formData: FormData): Promise<{ success: boolean; message: string; }> {
   const rawData = Object.fromEntries(formData.entries());
@@ -68,14 +65,16 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight = inputQuantity;
           netWeight = grossWeight - tareWeight;
           
-          if (netWeight < 0) {
+          if (netWeight < -0.001) {
             throw new Error("Il peso netto calcolato è negativo. Controllare peso e tara.");
           }
       } else { // 'n' or 'mt'
-          netWeight = 0; // Default to 0 if no conversion factor
-          if (material.conversionFactor && material.conversionFactor > 0) {
-              netWeight = inputQuantity * material.conversionFactor;
-          }
+          // Use rapportoKgMt for 'mt', otherwise conversionFactor
+          const factor = (inputUnit === 'mt') 
+            ? (material.rapportoKgMt || material.conversionFactor || 0)
+            : (material.conversionFactor || 0);
+            
+          netWeight = inputQuantity * factor;
           grossWeight = netWeight + tareWeight;
       }
       
@@ -86,13 +85,13 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           grossWeight,
           tareWeight,
           netWeight,
-          packagingId,
+          packagingId: packagingId === 'none' ? undefined : packagingId,
           operatorId,
           operatorName,
           recordedAt: Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit,
-          inputQuantity: inputQuantity, // Store the original input
+          inputQuantity: inputQuantity,
       };
       
       await addDoc(inventoryRef, newInventoryRecord);
@@ -104,5 +103,3 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: error instanceof Error ? error.message : "Errore sconosciuto." };
   }
 }
-
-    

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -28,7 +29,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { formatDisplayStock } from '@/lib/utils';
 
-// Schema for the inventory form
 const inventoryFormSchema = z.object({
   materialId: z.string().min(1),
   lotto: z.string().optional(),
@@ -39,7 +39,6 @@ const inventoryFormSchema = z.object({
   inputUnit: z.enum(['n', 'mt', 'kg']),
 });
 type InventoryFormValues = z.infer<typeof inventoryFormSchema>;
-
 
 export default function InventoryPage() {
   const { operator, loading: authLoading } = useAuth();
@@ -72,16 +71,13 @@ export default function InventoryPage() {
         return (enteredQuantity || 0) - selectedTara;
     } 
 
-    if (scannedMaterial.conversionFactor) {
-      return (enteredQuantity * scannedMaterial.conversionFactor);
-    }
-    
-    return 0; // Return 0 if no valid calculation can be made
+    const factor = (inputUnit === 'mt')
+        ? (scannedMaterial.rapportoKgMt || scannedMaterial.conversionFactor || 0)
+        : (scannedMaterial.conversionFactor || 0);
 
+    return (enteredQuantity * factor);
   }, [scannedMaterial, enteredQuantity, inputUnit, packagingItems, selectedPackagingId]);
 
-
-  // Permission check
   useEffect(() => {
     if (!authLoading && operator && !operator.canAccessInventory) {
       toast({
@@ -93,7 +89,6 @@ export default function InventoryPage() {
     }
   }, [operator, authLoading, router, toast]);
 
-  // Fetch packaging items
   useEffect(() => {
     getPackagingItems().then(setPackagingItems);
   }, []);
@@ -103,7 +98,7 @@ export default function InventoryPage() {
       const result = await getRawMaterialByCode(code.trim());
       if ('error' in result) {
           toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-          setStep('scan_material'); // Go back to scan
+          setStep('scan_material');
       } else {
           setScannedMaterial(result);
            if (operator) {
@@ -160,19 +155,15 @@ export default function InventoryPage() {
     }
     
     setStep('saving');
-    
     const formData = new FormData();
     Object.entries(values).forEach(([key, value]) => {
       if (value !== undefined) formData.append(key, String(value));
     });
     
-    // Add the calculated net weight to the form data
-    formData.append('netWeight', String(calculatedNetWeight));
-
     const result = await registerInventoryBatch(formData);
 
     toast({
-        title: result.success ? "Inventario Registrato" : "Errore",
+        title: result.success ? "Inventario Registrato" : "Operazione Fallita",
         description: result.message,
         variant: result.success ? "default" : "destructive",
     });
@@ -180,7 +171,7 @@ export default function InventoryPage() {
     if (result.success) {
       resetFlow();
     } else {
-      setStep('form'); // Go back to form on error
+      setStep('form');
     }
   };
   
@@ -223,9 +214,7 @@ export default function InventoryPage() {
                                <Alert variant="destructive">
                                   <AlertTriangle className="h-4 w-4" />
                                   <AlertTitle>Accesso Fotocamera Negato</AlertTitle>
-                                  <AlertDescription>
-                                    Controlla i permessi del browser per continuare.
-                                  </AlertDescription>
+                                  <AlertDescription>Controlla i permessi del browser per continuare.</AlertDescription>
                                 </Alert>
                             </div>
                         )}
@@ -269,17 +258,9 @@ export default function InventoryPage() {
                                   <FormLabel>Numero Lotto (Opzionale)</FormLabel>
                                   <div className="flex items-center gap-2">
                                     <FormControl>
-                                      <Input
-                                        placeholder="Scansiona o digita il lotto"
-                                        {...field}
-                                      />
+                                      <Input placeholder="Scansiona o digita il lotto" {...field} />
                                     </FormControl>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="icon"
-                                      onClick={() => setIsLottoScanOpen(true)}
-                                    >
+                                    <Button type="button" variant="outline" size="icon" onClick={() => setIsLottoScanOpen(true)}>
                                       <QrCode className="h-5 w-5" />
                                     </Button>
                                   </div>
@@ -298,9 +279,7 @@ export default function InventoryPage() {
                                         <Switch
                                         id="unit-switch"
                                         checked={field.value === 'kg'}
-                                        onCheckedChange={(checked) => {
-                                            field.onChange(checked ? 'kg' : scannedMaterial.unitOfMeasure)
-                                        }}
+                                        onCheckedChange={(checked) => field.onChange(checked ? 'kg' : scannedMaterial.unitOfMeasure)}
                                         />
                                         <Label htmlFor="unit-switch">KG</Label>
                                     </div>
@@ -359,17 +338,20 @@ export default function InventoryPage() {
                 </CardContent>
             )}
 
+            {step === 'success' && (
+                <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
+                    <div className="bg-green-100 p-4 rounded-full"><Check className="h-12 w-12 text-green-600" /></div>
+                    <CardTitle>Inventario Registrato</CardTitle>
+                    <CardDescription>La registrazione è stata inviata per l'approvazione.</CardDescription>
+                    <Button onClick={resetFlow} className="mt-4">Registra Altro</Button>
+                </CardContent>
+            )}
           </Card>
         </div>
 
         <Dialog open={isLottoScanOpen} onOpenChange={setIsLottoScanOpen}>
           <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Scansiona Codice Lotto</DialogTitle>
-              <DialogDescription>
-                Inquadra il codice a barre del lotto.
-              </DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Scansiona Codice Lotto</DialogTitle></DialogHeader>
             <div className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden my-4">
               <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
               <div className="absolute inset-0 grid place-items-center pointer-events-none">
@@ -390,7 +372,6 @@ export default function InventoryPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
       </AppShell>
     </AuthGuard>
   );

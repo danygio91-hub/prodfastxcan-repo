@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -62,6 +63,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { 
+  Dialog as DialogBase,
+  DialogContent as DialogContentBase,
+  DialogHeader as DialogHeaderBase,
+  DialogTitle as DialogTitleBase,
+  DialogFooter as DialogFooterBase
+} from "@/components/ui/dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { 
   forceFinishProduction, 
@@ -144,7 +152,7 @@ export default function ProductionConsoleClientPage() {
       return (item.phases || []).some(p => p.status === 'in-progress');
   }, []);
   
-  const isOverdue = (item: JobOrder | WorkGroup) => {
+  const isOverdueItem = (item: JobOrder | WorkGroup) => {
     const deliveryDateString = item.dataConsegnaFinale;
     if (!deliveryDateString || !/^\d{4}-\d{2}-\d{2}$/.test(deliveryDateString)) return false;
     const deliveryDate = parseISO(deliveryDateString);
@@ -194,7 +202,7 @@ export default function ProductionConsoleClientPage() {
           f = f.filter(i => getOverallStatus(i) !== 'Completata');
           if (activeFilter !== 'all') f = activeFilter === 'LIVE' ? f.filter(isJobLive) : f.filter(i => getOverallStatus(i) === activeFilter);
       }
-      if (showOnlyOverdue) f = f.filter(isOverdue);
+      if (showOnlyOverdue) f = f.filter(isOverdueItem);
       if (searchTerm) {
           const l = searchTerm.toLowerCase();
           f = f.filter(i => {
@@ -241,7 +249,7 @@ export default function ProductionConsoleClientPage() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(selectedId => selectedId !== itemId) : [...prev, itemId]
     );
   };
   
@@ -489,7 +497,7 @@ export default function ProductionConsoleClientPage() {
             </div>
             <DialogFooter>
                 <Button variant="outline" onClick={() => setProblemJob(null)}>Chiudi</Button>
-                { operator && (operator.role === 'supervisor' || operator.role === 'admin') && (
+                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
                   <Button onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </Button>

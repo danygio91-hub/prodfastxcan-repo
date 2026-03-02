@@ -1,3 +1,4 @@
+
 'use server';
 
 import { collection, doc, runTransaction, getDocs, query as firestoreQuery, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
@@ -81,6 +82,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
                   netWeightKg = unitsToAdd;
               } else if (material.conversionFactor && material.conversionFactor > 0) {
                   netWeightKg = unitsToAdd * material.conversionFactor;
+              } else if (material.unitOfMeasure === 'mt' && material.rapportoKgMt) {
+                  netWeightKg = unitsToAdd * material.rapportoKgMt;
               } else {
                   netWeightKg = 0; 
               }
@@ -100,8 +103,8 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
-          // Create batch object without undefined fields
-          const newBatch: RawMaterialBatch = {
+          // Create batch object carefully avoiding undefined
+          const newBatch: any = {
             id: `batch-load-${Date.now()}`,
             date: new Date(date).toISOString(),
             ddt: ddt || 'CARICO_RAPIDO',
