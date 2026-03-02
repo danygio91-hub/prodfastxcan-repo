@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,7 @@ import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
+import { useCameraStream } from '@/hooks/use-camera-stream';
 
 function calculateTotalActiveTime(workPeriods: WorkPeriod[]): string {
   let total = 0;
@@ -90,7 +91,6 @@ export default function ScanJobPage() {
   const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading, setIsStatusBarHighlighted } = useActiveJob();
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const [isPhaseScanDialogOpen, setIsPhaseScanDialogOpen] = useState(false);
@@ -98,39 +98,53 @@ export default function ScanJobPage() {
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
+  const { hasPermission: hasCameraPermission } = useCameraStream(step === 'scanning' || isPhaseScanDialogOpen, videoRef);
+
   useEffect(() => { 
     if (!isJobLoading) {
       setStep(activeJob ? (activeJob.status === 'completed' ? 'finished' : 'processing') : 'initial');
     }
   }, [isJobLoading, activeJob]);
 
-  const stopCamera = useCallback(() => { 
-    if (streamRef.current) { 
-      streamRef.current.getTracks().forEach(t => t.stop()); 
-      streamRef.current = null; 
-    } 
-  }, []);
-
   const triggerScan = useCallback(async (onScan: (data: string) => void) => {
-      if (!videoRef.current || videoRef.current.readyState < 2) return;
+      if (!videoRef.current || videoRef.current.readyState < 2) {
+          toast({ variant: 'destructive', title: 'Fotocamera non pronta' });
+          return;
+      }
+      if (!('BarcodeDetector' in window)) {
+          toast({ variant: 'destructive', title: 'Funzionalità non supportata', description: 'Il tuo browser non supporta la scansione dei codici.' });
+          return;
+      }
+
       setIsCapturing(true);
       try {
           const detector = new (window as any).BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] });
           const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) onScan(codes[0].rawValue);
-          else toast({ variant: 'destructive', title: 'Nessun Codice' });
-      } catch (e) { toast({ variant: 'destructive', title: 'Errore Scansione' }); }
-      finally { setIsCapturing(false); }
+          if (codes.length > 0) {
+              onScan(codes[0].rawValue);
+          } else {
+              toast({ variant: 'destructive', title: 'Nessun Codice Trovato' });
+          }
+      } catch (e) {
+          toast({ variant: 'destructive', title: 'Errore Scansione' });
+      } finally {
+          setIsCapturing(false);
+      }
   }, [toast]);
 
   const handleScannedData = useCallback(async (data: string) => {
-    stopCamera();
     const parts = data.split('@');
-    if (parts.length !== 3) { toast({ variant: 'destructive', title: 'QR non Valido' }); return; }
+    if (parts.length !== 3) {
+        toast({ variant: 'destructive', title: 'QR non Valido' });
+        return;
+    }
     const result = await verifyAndGetJobOrder({ ordinePF: parts[0], codice: parts[1], qta: parts[2] });
-    if ('error' in result) toast({ variant: 'destructive', title: result.title, description: result.error });
-    else setActiveJobId(result.id);
-  }, [toast, stopCamera, setActiveJobId]);
+    if ('error' in result) {
+        toast({ variant: 'destructive', title: result.title, description: result.error });
+    } else {
+        setActiveJobId(result.id);
+    }
+  }, [toast, setActiveJobId]);
 
   const handlePausePhase = (id: string) => {
     if (!activeJob || !operator) return;
@@ -192,7 +206,13 @@ export default function ScanJobPage() {
     return (
       <div className="relative aspect-video bg-black rounded overflow-hidden">
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-        <div className="absolute inset-0 border-2 border-primary/50 m-8 rounded" />
+        {!hasCameraPermission && (
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
+                <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+                <p className="text-white font-semibold">Accesso alla fotocamera negato</p>
+            </div>
+        )}
+        <div className="absolute inset-0 border-2 border-primary/50 m-8 rounded pointer-events-none" />
       </div>
     );
   };

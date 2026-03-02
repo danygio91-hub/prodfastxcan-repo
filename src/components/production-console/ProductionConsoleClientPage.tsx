@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -305,7 +306,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
     );
   };
   
@@ -737,10 +738,10 @@ function ProductionConsoleView() {
                   allOperators={allOperators}
                   allRawMaterials={allRawMaterials}
                   onProblemClick={() => setProblemJob(group)}
-                  onForceFinishClick={handleForceFinish}
-                  onForcePauseClick={handleForcePause}
-                  onForceCompleteClick={handleForceComplete}
-                  onDissolveGroupClick={handleDissolveGroup}
+                  onForceFinishClick={() => handleForceFinish(group.id)}
+                  onForcePauseClick={(id, ops) => handleForcePause(id, ops)}
+                  onForceCompleteClick={() => handleForceComplete(group.id)}
+                  onDissolveGroupClick={() => handleDissolveGroup(group.id)}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(group)}
                   onToggleGuainaClick={handleToggleGuaina}
@@ -763,14 +764,14 @@ function ProductionConsoleView() {
                   onFetchAnalysis={() => handleFetchAnalysis(job)}
                   isAnalysisLoading={jobsWithLoadingAnalysis.has(job.id)}
                   onProblemClick={() => setProblemJob(job)}
-                  onForceFinishClick={handleForceFinish}
-                  onRevertForceFinishClick={handleRevertForceFinish}
+                  onForceFinishClick={() => handleForceFinish(job.id)}
+                  onRevertForceFinishClick={() => handleRevertForceFinish(job.id)}
                   onToggleGuainaClick={handleToggleGuaina}
-                  onRevertPhaseClick={handleRevertPhase}
-                  onRevertCompletionClick={handleRevertCompletion}
-                  onForcePauseClick={handleForcePause}
-                  onForceCompleteClick={handleForceComplete}
-                  onResetJobOrderClick={onResetJobOrderClick}
+                  onRevertPhaseClick={(jid, pid) => handleRevertPhase(jid, pid)}
+                  onRevertCompletionClick={() => handleRevertCompletion(job.id)}
+                  onForcePauseClick={(jid, ops) => handleForcePause(jid, ops)}
+                  onForceCompleteClick={() => handleForceComplete(job.id)}
+                  onResetJobOrderClick={() => onResetJobOrderClick(job.id)}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(job)}
                   onUpdateDeliveryDate={handleUpdateDeliveryDate}

@@ -87,12 +87,6 @@ import {
   Save
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { 
-  ContextMenu, 
-  ContextMenuContent, 
-  ContextMenuItem, 
-  ContextMenuTrigger 
-} from "@/components/ui/context-menu";
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
 import CommitmentManagementClientPage from './CommitmentManagementClientPage';
