@@ -90,7 +90,7 @@ function ProductionConsoleView() {
 
 
   const { toast } = useToast();
-  const { user, operator } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   
   const jobsLoadedRef = useRef(false);
@@ -306,7 +306,7 @@ function ProductionConsoleView() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
   };
   
@@ -738,14 +738,14 @@ function ProductionConsoleView() {
                   allOperators={allOperators}
                   allRawMaterials={allRawMaterials}
                   onProblemClick={() => setProblemJob(group)}
-                  onForceFinishClick={() => handleForceFinish(group.id)}
-                  onForcePauseClick={(id, ops) => handleForcePause(id, ops)}
-                  onForceCompleteClick={() => handleForceComplete(group.id)}
-                  onDissolveGroupClick={() => handleDissolveGroup(group.id)}
+                  onForceFinishClick={(id) => { handleForceFinish(id); }}
+                  onForcePauseClick={(id, ops) => { handleForcePause(id, ops); }}
+                  onForceCompleteClick={(id) => { handleForceComplete(id); }}
+                  onDissolveGroupClick={(id) => { handleDissolveGroup(id); }}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(group)}
-                  onToggleGuainaClick={handleToggleGuaina}
-                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
+                  onToggleGuainaClick={(id, pid, cur) => { handleToggleGuaina(id, pid, cur); }}
+                  onUpdateDeliveryDate={(id, d) => { handleUpdateDeliveryDate(id, d); }}
                   isSelected={selectedIds.includes(group.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(group)}
@@ -764,17 +764,17 @@ function ProductionConsoleView() {
                   onFetchAnalysis={() => handleFetchAnalysis(job)}
                   isAnalysisLoading={jobsWithLoadingAnalysis.has(job.id)}
                   onProblemClick={() => setProblemJob(job)}
-                  onForceFinishClick={() => handleForceFinish(job.id)}
-                  onRevertForceFinishClick={() => handleRevertForceFinish(job.id)}
-                  onToggleGuainaClick={handleToggleGuaina}
+                  onForceFinishClick={(id) => { handleForceFinish(id); }}
+                  onRevertForceFinishClick={(id) => { handleRevertForceFinish(id); }}
+                  onToggleGuainaClick={(id, pid, cur) => { handleToggleGuaina(id, pid, cur); }}
                   onRevertPhaseClick={(jid, pid) => handleRevertPhase(jid, pid)}
-                  onRevertCompletionClick={() => handleRevertCompletion(job.id)}
+                  onRevertCompletionClick={(id) => { handleRevertCompletion(id); }}
                   onForcePauseClick={(jid, ops) => handleForcePause(jid, ops)}
-                  onForceCompleteClick={() => handleForceComplete(job.id)}
+                  onForceCompleteClick={(id) => { handleForceComplete(id); }}
                   onResetJobOrderClick={() => onResetJobOrderClick(job.id)}
                   onOpenPhaseManager={handleOpenPhaseManager}
                   onOpenMaterialManager={() => setMaterialManagedItem(job)}
-                  onUpdateDeliveryDate={handleUpdateDeliveryDate}
+                  onUpdateDeliveryDate={(id, d) => { handleUpdateDeliveryDate(id, d); }}
                   isSelected={selectedIds.includes(job.id)}
                   onSelect={handleSelectItem}
                   overallStatus={getOverallStatus(job)}
