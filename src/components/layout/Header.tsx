@@ -127,7 +127,7 @@ export default function Header() {
             {showExitButton && (
                  <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button asChild variant="destructive" size="icon" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
+                        <Button asChild size="icon" className="h-10 w-10 bg-orange-600 hover:bg-orange-700 text-white" onClick={handleExitJobScreen} aria-label="Esci dalla commessa">
                            <Link href="/dashboard">
                               <LogOut className="h-5 w-5" />
                            </Link>
