@@ -274,7 +274,11 @@ export default function ScanJobPage() {
                   </CardContent>
                   <CardFooter>
                     <AlertDialog>
-                      <AlertDialogTrigger asChild><Button variant="destructive" className="w-full"><LogOut className="mr-2 h-4 w-4" /> Abbandona Commessa</Button></AlertDialogTrigger>
+                      <AlertDialogTrigger asChild>
+                        <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">
+                          <LogOut className="mr-2 h-4 w-4" /> Abbandona Commessa
+                        </Button>
+                      </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Uscirai dalla lavorazione corrente. Assicurati di aver messo in pausa le fasi attive.</AlertDialogDescription></AlertDialogHeader>
                         <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={() => setActiveJobId(null)}>Sì, Abbandona</AlertDialogAction></AlertDialogFooter>
