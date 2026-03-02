@@ -62,10 +62,17 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                     : record.netWeight / (material.rapportoKgMt || material.conversionFactor || 1)) 
                 : record.inputQuantity;
             
+            // Handle Timestamp to ISO string correctly
+            const dateStr = (record.recordedAt instanceof Timestamp) 
+                ? record.recordedAt.toDate().toISOString() 
+                : (record.recordedAt?.toDate?.())
+                    ? record.recordedAt.toDate().toISOString()
+                    : new Date(record.recordedAt).toISOString();
+
             const newBatch: RawMaterialBatch = { 
                 id: `batch-inv-${record.id}`, 
                 inventoryRecordId: recordId, 
-                date: new Date(record.recordedAt).toISOString(), 
+                date: dateStr, 
                 ddt: `Inventario`, 
                 netQuantity: unitsToAdd, 
                 grossWeight: record.grossWeight, 
@@ -81,8 +88,12 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
             transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
+        revalidatePath('/admin/raw-material-management');
         return { success: true, message: `Approvata.` };
-    } catch (e) { return { success: false, message: 'Errore.' }; }
+    } catch (e) { 
+        console.error("Errore approvazione:", e);
+        return { success: false, message: 'Errore durante l\'approvazione.' }; 
+    }
 }
 
 export async function deleteInventoryRecords(ids: string[], uid: string) {
@@ -132,6 +143,7 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
         transaction.update(doc(db, 'inventoryRecords', id), { status: 'pending', approvedBy: deleteField(), approvedAt: deleteField() });
     });
     revalidatePath('/admin/inventory-management');
+    revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Annullata.' };
 }
 
