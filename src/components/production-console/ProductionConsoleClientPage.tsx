@@ -2,17 +2,16 @@
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Loader2, ShieldAlert, Unlock, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, FastForward, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, RefreshCcw, BarChart3, Copy, PlayCircle, CheckSquare, Boxes } from 'lucide-react';
+import { Briefcase, Loader2, ShieldAlert, Unlock, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, FastForward, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, RefreshCcw, BarChart3, Copy, PlayCircle, CheckSquare, Boxes, PackageX, Package2 } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import { useToast } from '@/hooks/use-toast';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   AlertDialog,
@@ -62,7 +61,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   }
 }
 
-function ProductionConsoleView() {
+export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
@@ -194,7 +193,9 @@ function ProductionConsoleView() {
   };
   
   const handleSelectItem = (itemId: string) => {
-    setSelectedIds(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]);
+    setSelectedIds(prev =>
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+    );
   };
   
   const handleBulkForceFinish = async () => {
@@ -260,7 +261,11 @@ function ProductionConsoleView() {
     setEditablePhases(prev => {
         const news = [...prev];
         const targetIndex = direction === 'up' ? index - 1 : index + 1;
-        if (targetIndex >= 0 && targetIndex < news.length) [news[index], news[targetIndex]] = [news[targetIndex], news[index]];
+        if (targetIndex >= 0 && targetIndex < news.length) {
+            const temp = news[index];
+            news[index] = news[targetIndex];
+            news[targetIndex] = temp;
+        }
         setIsOrderChanged(true); return news;
     });
   };
@@ -268,7 +273,12 @@ function ProductionConsoleView() {
   const handleSaveChanges = async () => {
     if (!user || !phaseManagedItem) return;
     const res = await updatePhasesForJob(phaseManagedItem.id, editablePhases, user.uid);
-    if (res.success) setPhaseManagedItem(null);
+    if (res.success) {
+        toast({ title: "Fasi aggiornate" });
+        setPhaseManagedItem(null);
+    } else {
+        toast({ variant: "destructive", title: "Errore", description: res.message });
+    }
   };
 
   const handleFetchAnalysis = async (job: JobOrder) => {
@@ -279,6 +289,29 @@ function ProductionConsoleView() {
         setAnalysisDataMap(prev => new Map(prev).set(job.id, map.get(job.details) || null));
     } catch (e) { toast({ variant: "destructive", title: "Errore Analisi" }); }
     finally { setJobsWithLoadingAnalysis(prev => { const n = new Set(prev); n.delete(job.id); return n; }); }
+  };
+
+  const handleNavigateToAnalysis = (articleCode: string) => {
+    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copiato!" });
+  };
+
+  const handleFilterClick = (filter: FilterStatus) => {
+    setActiveFilter(filter);
+    setShowCompleted(false);
+  };
+
+  const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus?: string) => {
+      if (!user) return;
+      if (currentStatus === 'missing') {
+          await resolveMaterialMissing(itemId, phaseId, user.uid);
+      } else {
+          await reportMaterialMissing(itemId, phaseId, user.uid);
+      }
   };
 
   return (
@@ -329,15 +362,15 @@ function ProductionConsoleView() {
                      <DropdownMenuContent align="start">
                         {bulkActionsState.canForceFinish && (
                             <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" /> Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
-                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi l'avanzamento forzato?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         )}
                         {bulkActionsState.canForceComplete && (
                             <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" /> Chiudi Item</DropdownMenuItem></AlertDialogTrigger>
-                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi la chiusura forzata?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         )}
                         <DropdownMenuSeparator />
                         <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><RefreshCcw className="mr-2 h-4 w-4" /> Annulla e Resetta</DropdownMenuItem></AlertDialogTrigger>
-                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reset Totale?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive">Sì, Resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler resettare?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive">Sì, Resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                     </DropdownMenuContent>
                   </DropdownMenu>
               )}
@@ -407,13 +440,16 @@ function ProductionConsoleView() {
                 )}
                 {problemJob?.problemNotes && <p className="text-muted-foreground p-2 bg-muted rounded-md">{problemJob.problemNotes}</p>}
             </div>
-            <DialogFooter><Button variant="outline" onClick={() => setProblemJob(null)}>Chiudi</Button>{ (operator?.role === 'supervisor' || operator?.role === 'admin') && <Button onClick={handleResolveProblem} className="bg-green-600"><Unlock className="mr-2 h-4 w-4"/> Sblocca</Button>}</DialogFooter>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setProblemJob(null)}>Chiudi</Button>
+                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
+                  <Button onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
+                     <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
+                  </Button>
+                )}
+            </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
   );
-}
-
-export default function ProductionConsoleClientPage() {
-    return <React.Suspense fallback={<div className="py-20 text-center"><Loader2 className="h-12 w-12 animate-spin mx-auto" /></div>}><ProductionConsoleView /></React.Suspense>
 }
