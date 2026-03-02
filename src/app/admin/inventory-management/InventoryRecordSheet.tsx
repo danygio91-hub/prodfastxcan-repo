@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -74,9 +75,14 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
     if (!material) return 0;
     const { inputQuantity, inputUnit, packagingId } = watchedValues;
     const tareWeight = packagingItems.find(p => p.id === packagingId)?.weightKg || 0;
+    
     if (inputUnit === 'kg') return (inputQuantity || 0) - tareWeight;
-    if (material.conversionFactor && material.conversionFactor > 0) return (inputQuantity || 0) * material.conversionFactor;
-    return 0;
+    
+    const factor = (inputUnit === 'mt')
+        ? (material.rapportoKgMt || material.conversionFactor || 0)
+        : (material.conversionFactor || 0);
+        
+    return (inputQuantity || 0) * factor;
   }, [material, watchedValues, packagingItems]);
 
 
@@ -87,7 +93,7 @@ export default function InventoryRecordSheet({ isOpen, onOpenChange, record, onU
         record.id, 
         values.inputQuantity,
         values.inputUnit,
-        values.packagingId || 'none', // Ensure it's a string
+        values.packagingId || 'none',
         user.uid
     );
     toast({

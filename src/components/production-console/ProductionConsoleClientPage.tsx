@@ -53,7 +53,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -63,13 +62,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { 
-  Dialog as DialogBase,
-  DialogContent as DialogContentBase,
-  DialogHeader as DialogHeaderBase,
-  DialogTitle as DialogTitleBase,
-  DialogFooter as DialogFooterBase
-} from "@/components/ui/dialog";
 import { resolveJobProblem } from '@/app/scan-job/actions';
 import { 
   forceFinishProduction, 
