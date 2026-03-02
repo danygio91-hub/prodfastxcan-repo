@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -35,8 +34,7 @@ import {
   Boxes, 
   PackageX, 
   Package2, 
-  PackageCheck,
-  RefreshCw
+  PackageCheck
 } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';

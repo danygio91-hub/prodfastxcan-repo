@@ -100,6 +100,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
               }
           }
 
+          // Create batch object without undefined fields
           const newBatch: RawMaterialBatch = {
             id: `batch-load-${Date.now()}`,
             date: new Date(date).toISOString(),
@@ -108,9 +109,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
             tareWeight: tareWeight,
             grossWeight: netWeightKg + tareWeight,
             lotto: lotto || null,
-            purchaseOrderId: purchaseOrderId || undefined,
-            packagingId: validPackagingId
           };
+          
+          if (purchaseOrderId) newBatch.purchaseOrderId = purchaseOrderId;
+          if (validPackagingId) newBatch.packagingId = validPackagingId;
           
           const newStockUnits = (material.currentStockUnits || 0) + unitsToAdd;
           const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
