@@ -26,6 +26,7 @@ import type { JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
 import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup } from './actions';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
 import { cn } from '@/lib/utils';
 import MaterialAssociationDialog from './MaterialAssociationDialog';
 import { useCameraStream } from '@/hooks/use-camera-stream';
@@ -91,6 +92,7 @@ export default function ScanJobPage() {
   const { toast } = useToast();
   const { operator } = useAuth();
   const { activeJob, setActiveJob, setActiveJobId, isLoading: isJobLoading } = useActiveJob();
+  const { startSession } = useActiveMaterialSession();
   
   const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'processing' | 'finished' | 'loading'>('loading');
   const [isCapturing, setIsCapturing] = useState(false);
@@ -101,7 +103,6 @@ export default function ScanJobPage() {
   const [isMaterialAssociationDialogOpen, setIsMaterialAssociationDialogOpen] = useState(false);
   const [phaseForMaterialAssociation, setPhaseForMaterialAssociation] = useState<JobPhase | null>(null);
 
-  // Grouping State
   const [isGroupingDialogOpen, setIsGroupingDialogOpen] = useState(false);
   const [isGroupingScanActive, setIsGroupingScanActive] = useState(false);
   const [jobsToGroup, setJobsToGroup] = useState<JobOrder[]>([]);
@@ -367,7 +368,6 @@ export default function ScanJobPage() {
             )}
           </div>
 
-          {/* Grouping Dialog */}
           <Dialog open={isGroupingDialogOpen} onOpenChange={setIsGroupingDialogOpen}>
             <DialogContent className="max-w-2xl h-[90vh] flex flex-col">
                 <DialogHeader>
@@ -456,7 +456,10 @@ export default function ScanJobPage() {
               onOpenChange={setIsMaterialAssociationDialogOpen} 
               phase={phaseForMaterialAssociation} 
               job={activeJob} 
-              onSessionStart={() => setIsMaterialAssociationDialogOpen(false)} 
+              onSessionStart={(data, type) => {
+                startSession(data, type);
+                setIsMaterialAssociationDialogOpen(false);
+              }} 
               onWithdrawalComplete={() => { if (activeJob) getJobOrderById(activeJob.id).then(j => setActiveJob(j)); setIsMaterialAssociationDialogOpen(false); }} 
             />
           )}

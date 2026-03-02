@@ -243,7 +243,7 @@ export default function ProductionConsoleClientPage() {
   
   const handleSelectItem = (itemId: string) => {
     setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(i => i !== itemId) : [...prev, itemId]
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
     );
   };
   

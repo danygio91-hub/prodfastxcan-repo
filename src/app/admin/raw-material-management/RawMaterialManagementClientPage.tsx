@@ -358,7 +358,10 @@ export default function RawMaterialManagementClientPage({
       <AlertDialog open={!!materialToDelete} onOpenChange={(open) => !open && setMaterialToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>Elimina Materiale?</AlertDialogTitle><AlertDialogDescription>Azione definitiva.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel disabled={isPending}>Annulla</AlertDialogCancel><AlertDialogAction onClick={async () => { if (!materialToDelete) return; setIsPending(true); const r = await deleteRawMaterial(materialToDelete.id); if(r.success) refreshData(); setMaterialToDelete(null); setIsPending(false); }} className="bg-destructive hover:bg-destructive/90" disabled={isPending}>Sì, elimina</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPending}>Annulla</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => { if (!materialToDelete) return; setIsPending(true); const r = await deleteRawMaterial(materialToDelete.id); if(r.success) refreshData(); setMaterialToDelete(null); setIsPending(false); }} className="bg-destructive hover:bg-destructive/90" disabled={isPending}>Sì, elimina</AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
