@@ -5,7 +5,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Briefcase, Loader2, ShieldAlert, Unlock, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, FastForward, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, RefreshCcw, BarChart3, Copy, PlayCircle, CheckSquare, Boxes, PackageX, Package2 } from 'lucide-react';
+import { Briefcase, Loader2, ShieldAlert, Unlock, Search, Combine, PowerOff, Activity, Calendar as CalendarIcon, FastForward, MoreVertical, Undo2, Unlink, ListOrdered, ArrowUp, ArrowDown, Circle, Hourglass, PauseCircle, CheckCircle2, EyeOff, RefreshCcw, BarChart3, Copy, PlayCircle, CheckSquare, Boxes, PackageX, Package2, PackageCheck } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
@@ -442,7 +442,7 @@ export default function ProductionConsoleClientPage() {
             </div>
             <DialogFooter>
                 <Button variant="outline" onClick={() => setProblemJob(null)}>Chiudi</Button>
-                { (operator?.role === 'supervisor' || operator?.role === 'admin') && (
+                { operator && (operator.role === 'supervisor' || operator.role === 'admin') && (
                   <Button onClick={handleResolveProblem} className="bg-green-600 hover:bg-green-700">
                      <Unlock className="mr-2 h-4 w-4"/> Sblocca Commessa
                   </Button>

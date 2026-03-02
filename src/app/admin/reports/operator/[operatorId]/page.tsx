@@ -58,7 +58,7 @@ export default function OperatorReportDetailPage({ params }: { params: { operato
   return (
     <AdminAuthGuard>
       <AppShell>
-        <div className="space-y-6">
+        <div className="space-y-6 max-w-2xl mx-auto">
           <Button asChild variant="outline" className="w-fit">
             <Link href="/admin/reports">
               <ArrowLeft className="mr-2 h-4 w-4" />
