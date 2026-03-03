@@ -61,10 +61,13 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
   if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
+  
+  // REDIREZIONE AUTOMATICA: Se la commessa appartiene a un gruppo, restituisci il gruppo
   if (job.workGroupId) {
     const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
     if (gSnap.exists()) return await getJobOrderById(job.workGroupId) as JobOrder;
   }
+  
   return JSON.parse(JSON.stringify(job));
 }
 

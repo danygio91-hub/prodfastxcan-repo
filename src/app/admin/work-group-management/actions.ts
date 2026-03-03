@@ -1,5 +1,3 @@
-
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -52,34 +50,39 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
         
-        // Determine the final state to be propagated based on the new `forceComplete` flag.
         const isGroupCompleted = forceComplete;
 
-        // 2. Iterate through each job and build its new, proportional phase data
+        // 2. Iterate through each job and build its new phase data
         for (const jobDoc of jobDocs) {
-             if (!jobDoc.exists()) {
-                console.warn(`Commessa ${jobDoc.ref.id} del gruppo non trovata, verrà saltata.`);
-                continue;
-             }
+             if (!jobDoc.exists()) continue;
              
+             const jobOriginalData = jobDoc.data() as JobOrder;
              // Deep copy of the group's phase structure
-             const newPhasesForJob: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
+             const groupPhases: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
 
-             // For each phase, CLEAR the materialConsumptions array.
-             // The history is preserved in the `materialWithdrawals` collection, which correctly
-             // references all job IDs from the group. This prevents data duplication and corruption
-             // on the individual jobs after dissolution.
-             for (const phase of newPhasesForJob) {
-                phase.materialConsumptions = [];
-             }
+             // Unisci l'avanzamento del gruppo con le fasi originali della commessa
+             // Le fasi individuali (es. Qualità) rimangono intatte
+             const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
+                 const matchedGroupPhase = groupPhases.find(gp => gp.id === originalPhase.id);
+                 if (matchedGroupPhase) {
+                     return {
+                         ...originalPhase,
+                         status: matchedGroupPhase.status,
+                         workPeriods: matchedGroupPhase.workPeriods || originalPhase.workPeriods,
+                         materialConsumptions: matchedGroupPhase.materialConsumptions || originalPhase.materialConsumptions,
+                         materialReady: matchedGroupPhase.materialReady
+                     };
+                 }
+                 return originalPhase;
+             });
 
              const finalStatus = isGroupCompleted ? 'completed' : 'paused';
                 
              transaction.update(jobDoc.ref, { 
                 workGroupId: deleteField(),
-                phases: newPhasesForJob, // Inherit phase progress, but with cleared consumptions
+                phases: finalJobPhases, // Inherit phase progress, keeping material consumptions
                 status: finalStatus,
-                overallStartTime: groupData.overallStartTime || null,
+                overallStartTime: groupData.overallStartTime || jobOriginalData.overallStartTime || null,
                 overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
                 isProblemReported: groupData.isProblemReported || false,
                 problemType: groupData.problemType || deleteField(),
@@ -88,7 +91,6 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
             });
         }
         
-        // After ensuring all jobs are updated, delete the group document.
         transaction.delete(groupRef);
     });
 
@@ -96,15 +98,9 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     revalidatePath('/admin/production-console');
     revalidatePath('/scan-job');
     
-    const message = forceComplete
-        ? `Gruppo ${groupId} completato e sciolto. Le commesse sono state finalizzate.`
-        : `Gruppo ${groupId} sciolto. Le commesse ora sono indipendenti e mantengono l'avanzamento attuale.`;
-
-    return { success: true, message: message };
+    return { success: true, message: `Gruppo sciolto.` };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Si è verificato un errore sconosciuto.";
-    console.error("Error dissolving work group:", error);
+    const errorMessage = error instanceof Error ? error.message : "Errore.";
     return { success: false, message: errorMessage };
   }
 }
-

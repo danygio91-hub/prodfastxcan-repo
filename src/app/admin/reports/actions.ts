@@ -8,7 +8,6 @@ import { it } from 'date-fns/locale';
 import { getOverallStatus } from '@/lib/types';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { TimeTrackingSettings } from '../time-tracking-settings/actions';
 
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -147,16 +146,20 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
     let isReliable = true;
     let phasesWithDetails: any[] = [];
 
+    // LOGICA PROPORZIONALE: Se la commessa fa parte di un gruppo, distribuisci il tempo in base alla quantità
     if (job.workGroupId) {
         const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
         if (gSnap.exists()) {
             const group = convertTimestampsToDates(gSnap.data()) as WorkGroup;
-            isReliable = false;
+            isReliable = false; // I tempi dei gruppi sono sempre considerati stime proporzionali
             phasesWithDetails = (group.phases || []).map(gp => {
-                const t = getMs(gp);
-                const phaseTime = group.totalQuantity > 0 ? (t / group.totalQuantity) * job.qta : 0;
-                totalMs += phaseTime;
-                return { phase: gp, timeMs: phaseTime };
+                const groupTotalMs = getMs(gp);
+                // Distribuzione: (Tempo Gruppo / Pezzi Gruppo) * Pezzi Commessa
+                const proportionalPhaseMs = group.totalQuantity > 0 ? (groupTotalMs / group.totalQuantity) * job.qta : 0;
+                
+                if (gp.tracksTime !== false) totalMs += proportionalPhaseMs;
+                
+                return { phase: gp, timeMs: proportionalPhaseMs };
             });
         }
     } else {
