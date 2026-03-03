@@ -393,15 +393,19 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             
             const jobs = jobSnaps.map(s => convertTimestampsToDates(s.data()) as JobOrder);
             
-            // Allow anything that is in production console (not completed)
             if (jobs.some(j => j.status === 'completed')) {
                 throw new Error("Non puoi concatenare commesse già completate.");
+            }
+
+            // REGOLA: Nessuna lavorazione attiva
+            if (jobs.some(j => (j.phases || []).some(p => p.status === 'in-progress'))) {
+                throw new Error("Impossibile concatenare: una o più commesse hanno lavorazioni attualmente in corso. Metti in pausa le fasi prima di procedere.");
             }
 
             const firstJob = jobs[0];
             const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
             
-            // Filter phases common to ALL jobs
+            // Fasi comuni a TUTTE le commesse (Prep, Prod, Pack)
             const commonPhases = firstJob.phases.filter(p => {
                 const isTargetType = p.type === 'preparation' || p.type === 'production' || p.type === 'packaging';
                 if (!isTargetType) return false;
@@ -409,7 +413,7 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             });
 
             if (commonPhases.length === 0) {
-                throw new Error("Le commesse selezionate non hanno fasi comuni compatibili (Preparazione, Produzione o Packaging).");
+                throw new Error("Le commesse selezionate non hanno fasi comuni compatibili.");
             }
 
             const uniqueClients = Array.from(new Set(jobs.map(j => j.cliente))).join(', ');
