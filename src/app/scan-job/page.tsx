@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -18,12 +17,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup } from './actions';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup } from './actions';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -107,6 +106,7 @@ export default function ScanJobPage() {
   const [isGroupingScanActive, setIsGroupingScanActive] = useState(false);
   const [jobsToGroup, setJobsToGroup] = useState<JobOrder[]>([]);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [isDissolving, setIsDissolving] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const groupingVideoRef = useRef<HTMLVideoElement>(null);
@@ -171,16 +171,15 @@ export default function ScanJobPage() {
         toast({ variant: 'destructive', title: result.title, description: result.error });
     } else {
         if (jobsToGroup.some(j => j.id === result.id)) {
-            toast({ title: "Già scansionata", description: "Questa commessa è già nell'elenco." });
+            toast({ variant: "destructive", title: "Già scansionata", description: "Questa commessa è già nell'elenco." });
             return;
         }
-        if (jobsToGroup.length > 0) {
-            const first = jobsToGroup[0];
-            if (first.details !== result.details) {
-                toast({ variant: 'destructive', title: "Articolo Diverso", description: "Puoi concatenare solo commesse dello stesso articolo." });
-                return;
-            }
+        
+        if (result.status !== 'production') {
+            toast({ variant: "destructive", title: "Commessa non valida", description: "Puoi concatenare solo commesse nello stato 'In Produzione'." });
+            return;
         }
+
         setJobsToGroup(prev => [...prev, result]);
         toast({ title: "Commessa Aggiunta", description: result.ordinePF });
         setIsGroupingScanActive(false);
@@ -192,14 +191,39 @@ export default function ScanJobPage() {
     setIsCreatingGroup(true);
     const result = await createWorkGroup(jobsToGroup.map(j => j.id), operator.id);
     if (result.success && result.workGroupId) {
-        toast({ title: "Gruppo Creato", description: "Le commesse sono state concatenate." });
+        toast({ title: "Gruppo Creato", description: "Le commesse sono state concatenate correttamente." });
         setActiveJobId(result.workGroupId);
         setIsGroupingDialogOpen(false);
         setJobsToGroup([]);
     } else {
-        toast({ variant: "destructive", title: "Errore", description: result.message });
+        toast({ variant: "destructive", title: "Impossibile Concatenare", description: result.message });
     }
     setIsCreatingGroup(false);
+  };
+
+  const handleDissolveGroupLocal = async () => {
+    if (!activeJob?.workGroupId) return;
+    
+    // Check if any phase is in progress
+    const isAnyActive = activeJob.phases.some(p => p.status === 'in-progress');
+    if (isAnyActive) {
+        toast({ 
+            variant: "destructive", 
+            title: "Operazione Blocca", 
+            description: "Metti in pausa tutte le fasi attive prima di scollegare il gruppo." 
+        });
+        return;
+    }
+
+    setIsDissolving(true);
+    const result = await dissolveWorkGroup(activeJob.workGroupId);
+    if (result.success) {
+        toast({ title: "Gruppo Scollegato", description: "Le commesse sono tornate individuali." });
+        setActiveJobId(null);
+    } else {
+        toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+    setIsDissolving(false);
   };
 
   const handlePausePhase = (id: string) => {
@@ -321,16 +345,21 @@ export default function ScanJobPage() {
             {step === 'processing' && activeJob && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="space-y-6">
-                  <Card>
+                  <Card className={cn(activeJob.workGroupId && "border-teal-500")}>
                     <CardHeader>
-                      <CardTitle>{activeJob.ordinePF}</CardTitle>
-                      <CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription>
+                      <div className="flex justify-between items-start">
+                        <div>
+                            <CardTitle>{activeJob.ordinePF}</CardTitle>
+                            <CardDescription>{activeJob.cliente} - {activeJob.details}</CardDescription>
+                        </div>
+                        {activeJob.workGroupId && <Badge className="bg-teal-500">GRUPPO</Badge>}
+                      </div>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                       <p>ODL: <strong>{activeJob.numeroODLInterno || 'N/D'}</strong></p>
-                      <p>Qta: <strong>{activeJob.qta}</strong></p>
+                      <p>Qta Totale: <strong>{activeJob.qta}</strong></p>
                     </CardContent>
-                    <CardFooter>
+                    <CardFooter className="flex flex-col gap-2">
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">
@@ -342,6 +371,28 @@ export default function ScanJobPage() {
                           <AlertDialogFooter><AlertDialogCancel>No</AlertDialogCancel><AlertDialogAction onClick={() => setActiveJobId(null)}>Sì, Abbandona</AlertDialogAction></AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+
+                      {activeJob.workGroupId && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="outline" className="w-full text-destructive border-destructive hover:bg-destructive/10" disabled={isDissolving}>
+                                    <Unlink className="mr-2 h-4 w-4" /> Scollega Gruppo Commesse
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Sei sicuro di voler scolllegare il gruppo?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Le commesse torneranno individuali mantenendo il progresso attuale del gruppo.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>No</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDissolveGroupLocal}>Sì, Scollega</AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </CardFooter>
                   </Card>
                 </div>
@@ -372,7 +423,7 @@ export default function ScanJobPage() {
             <DialogContent className="max-w-2xl h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Concatena Commesse</DialogTitle>
-                    <DialogDescription>Scansiona le commesse che vuoi produrre insieme. Devono essere dello stesso articolo.</DialogDescription>
+                    <DialogDescription>Scansiona le commesse che vuoi produrre insieme. Devono essere nello stato "In Produzione".</DialogDescription>
                 </DialogHeader>
                 <div className="flex-1 flex flex-col overflow-hidden space-y-4 py-2">
                     {isGroupingScanActive ? (
@@ -422,7 +473,7 @@ export default function ScanJobPage() {
                 <DialogFooter className="pt-4 border-t">
                     <Button variant="outline" onClick={() => setIsGroupingDialogOpen(false)}>Chiudi</Button>
                     <Button 
-                        disabled={jobsToGroup.length < 2 || isCreatingGroup} 
+                        disabled={jobsToGroup.length < 2 || isCreatingGroup || isGroupingScanActive} 
                         onClick={handleCreateGroup}
                         className="bg-teal-500 hover:bg-teal-600 text-white"
                     >

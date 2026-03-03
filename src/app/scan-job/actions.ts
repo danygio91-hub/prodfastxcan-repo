@@ -160,7 +160,6 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
     });
 
     return await runTransaction(db, async (t) => {
-        // 1. ALL READS FIRST
         const mRef = doc(db, "rawMaterials", session.materialId);
         const opRef = doc(db, "operators", opId);
         
@@ -179,7 +178,6 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
-        // 2. ALL WRITES AFTER
         const wRef = doc(collection(db, "materialWithdrawals"));
         t.set(wRef, { 
             jobIds: session.associatedJobs.map(j => j.jobId), 
@@ -226,7 +224,6 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
   const isGroup = jobId.startsWith('group-');
   try {
     return await runTransaction(db, async (t) => {
-        // 1. ALL READS FIRST
         const mRef = doc(db, "rawMaterials", materialId);
         const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
         const opRef = doc(db, "operators", operatorId);
@@ -246,7 +243,6 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const w = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
         const u = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
         
-        // 2. ALL WRITES AFTER
         t.update(mRef, { 
             currentStockUnits: (mat.currentStockUnits || 0) - u, 
             currentWeightKg: (mat.currentWeightKg || 0) - w 
@@ -388,40 +384,6 @@ export async function updateOperatorMaterialSessions(opId: string, sessions: Act
   await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions || [] });
 }
 
-export async function postponeQualityPhase(jobId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
-    const isGroup = jobId.startsWith('group-');
-    try {
-        await runTransaction(db, async (t) => {
-            const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-            const snap = await t.get(itemRef);
-            if (!snap.exists()) throw new Error("Non trovato.");
-            const data = snap.data() as JobOrder;
-            const phs = [...data.phases];
-            const idx = phs.findIndex(p => p.id === phaseId);
-            if (idx === -1) throw new Error("Fase non trovata.");
-            
-            if (currentState === 'default') {
-                const lastProd = phs.filter(p => p.type === 'production').sort((a, b) => a.sequence - b.sequence).pop();
-                phs[idx].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
-                phs[idx].postponed = true;
-            } else {
-                const tSnap = await t.get(doc(db, 'workPhaseTemplates', phaseId));
-                phs[idx].sequence = tSnap.exists() ? tSnap.data().sequence : 1;
-                delete phs[idx].postponed;
-            }
-            
-            const up = { phases: updatePhasesMaterialReadiness(phs) };
-            t.update(itemRef, up);
-            if (isGroup) {
-                const gData = snap.data() as WorkGroup;
-                (gData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
-            }
-        });
-        revalidatePath('/scan-job');
-        return { success: true, message: 'Operazione completata.' };
-    } catch (e) { return { success: false, message: 'Errore.' }; }
-}
-
 export async function createWorkGroup(jobIds: string[], opId: string): Promise<{ success: boolean; workGroupId?: string; message?: string }> {
     if (!jobIds || jobIds.length < 2) return { success: false, message: 'Selezionare almeno 2 commesse.' };
     try {
@@ -430,63 +392,53 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             const jobSnaps = await Promise.all(jobIds.map(id => t.get(doc(db, 'jobOrders', id))));
             
             const jobs = jobSnaps.map(s => convertTimestampsToDates(s.data()) as JobOrder);
-            const first = jobs[0];
+            
+            // Validation: Only jobs in production
+            if (jobs.some(j => j.status !== 'production')) {
+                throw new Error("Solo commesse 'In Produzione' possono essere concatenate.");
+            }
+
+            const firstJob = jobs[0];
             const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
+            
+            // Logic: Filter only preparation and production phases common to ALL jobs
+            const commonPhases = firstJob.phases.filter(p => {
+                const isTargetType = p.type === 'preparation' || p.type === 'production';
+                if (!isTargetType) return false;
+                // Check if this phase (template ID) exists in every job
+                return jobs.every(j => j.phases.some(jp => jp.id === p.id));
+            });
+
+            if (commonPhases.length === 0) {
+                throw new Error("Le commesse selezionate non hanno fasi di preparazione o produzione in comune.");
+            }
+
+            // Ensure unique lists for clients and articles
+            const uniqueClients = Array.from(new Set(jobs.map(j => j.cliente))).join(', ');
+            const uniqueArticles = Array.from(new Set(jobs.map(j => j.details))).join(', ');
             
             const groupRef = doc(collection(db, 'workGroups'));
             const groupData: WorkGroup = {
                 id: groupRef.id,
                 jobOrderIds: jobIds,
                 jobOrderPFs: jobs.map(j => j.ordinePF),
-                status: 'paused',
+                status: 'production',
                 createdAt: new Date(),
                 createdBy: opSnap.data()?.nome || 'Operatore',
                 totalQuantity: totalQta,
-                workCycleId: first.workCycleId || '',
-                department: first.department,
-                cliente: first.cliente,
-                phases: JSON.parse(JSON.stringify(first.phases)), // Copy structure
-                details: first.details,
+                workCycleId: firstJob.workCycleId || '',
+                department: firstJob.department,
+                cliente: uniqueClients,
+                details: uniqueArticles,
+                phases: JSON.parse(JSON.stringify(commonPhases)),
             };
             
             t.set(groupRef, JSON.parse(JSON.stringify(groupData)));
-            jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id, status: 'paused' }));
+            jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id, status: 'production' }));
             
             return { success: true, workGroupId: groupRef.id };
         });
     } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
-}
-
-export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
-  await ensureAdmin(uid);
-  const isGroup = itemId.startsWith('group-');
-  const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-  const itemRef = doc(db, collectionName, itemId);
-
-  try {
-    await runTransaction(db, async (t) => {
-      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
-      if (!snap.exists()) throw new Error("Non trovato.");
-      
-      const itemData = snap.data() as JobOrder;
-      const phases = [...itemData.phases];
-      const phaseIndex = phases.findIndex(p => p.id === phaseId);
-      if (phaseIndex === -1) throw new Error("Fase non trovata.");
-      
-      phases[phaseIndex].materialStatus = 'missing';
-      phases[phaseIndex].materialReady = false;
-
-      const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
-      t.update(itemRef, up);
-      if (isGroup) {
-        (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
-      }
-    });
-    revalidatePath('/admin/production-console');
-    return { success: true, message: 'Segnalato.' };
-  } catch (e) {
-    return { success: false, message: "Errore." };
-  }
 }
 
 export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
@@ -516,23 +468,32 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         for (const jobDoc of jobDocs) {
              if (!jobDoc.exists()) continue;
              
-             const newPhasesForJob: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
-             for (const phase of newPhasesForJob) {
-                phase.materialConsumptions = [];
-             }
+             const jobOriginalData = jobDoc.data() as JobOrder;
+             const groupPhases: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
+             
+             // Update the original phases of the job based on group progress
+             const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
+                 const matchedGroupPhase = groupPhases.find(gp => gp.id === originalPhase.id);
+                 if (matchedGroupPhase) {
+                     return {
+                         ...originalPhase,
+                         status: matchedGroupPhase.status,
+                         workPeriods: matchedGroupPhase.workPeriods || originalPhase.workPeriods,
+                         materialConsumptions: matchedGroupPhase.materialConsumptions || originalPhase.materialConsumptions,
+                         materialReady: matchedGroupPhase.materialReady
+                     };
+                 }
+                 return originalPhase;
+             });
 
              const finalStatus = isGroupCompleted ? 'completed' : 'paused';
                 
              transaction.update(jobDoc.ref, { 
                 workGroupId: deleteField(),
-                phases: newPhasesForJob,
+                phases: updatePhasesMaterialReadiness(finalJobPhases),
                 status: finalStatus,
-                overallStartTime: groupData.overallStartTime || null,
+                overallStartTime: groupData.overallStartTime || jobOriginalData.overallStartTime || null,
                 overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
-                isProblemReported: groupData.isProblemReported || false,
-                problemType: groupData.problemType || deleteField(),
-                problemNotes: groupData.problemNotes || deleteField(),
-                problemReportedBy: groupData.problemReportedBy || deleteField(),
             });
         }
         transaction.delete(groupRef);
