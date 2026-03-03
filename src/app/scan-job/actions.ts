@@ -201,7 +201,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             if (snap.exists()) {
                 const data = snap.data() as JobOrder;
                 const phs = (data.phases || []).map(p => ({
-                    ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => (mc.materialId === mSnap.id && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto)) && mc.closingWeight === undefined) ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc)
+                    ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => (mc.materialId === mSnap.id && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto))) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc)
                 }));
                 t.update(snap.ref, { phases: phs });
             }
@@ -415,7 +415,7 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             const uniqueClients = Array.from(new Set(jobs.map(j => j.cliente))).join(', ');
             const uniqueArticles = Array.from(new Set(jobs.map(j => j.details))).join(', ');
             
-            const groupRef = doc(collection(db, 'workGroups'));
+            const groupRef = doc(collection(db, 'workGroups'), `group-${Date.now()}`);
             const groupData: WorkGroup = {
                 id: groupRef.id,
                 jobOrderIds: jobIds,
