@@ -175,8 +175,9 @@ export default function ScanJobPage() {
             return;
         }
         
-        if (result.status !== 'production') {
-            toast({ variant: "destructive", title: "Commessa non valida", description: "Puoi concatenare solo commesse nello stato 'In Produzione'." });
+        // Allow anything that is not completed
+        if (result.status === 'completed') {
+            toast({ variant: "destructive", title: "Commessa non valida", description: "Non puoi concatenare commesse già completate." });
             return;
         }
 
@@ -204,12 +205,11 @@ export default function ScanJobPage() {
   const handleDissolveGroupLocal = async () => {
     if (!activeJob?.workGroupId) return;
     
-    // Check if any phase is in progress
     const isAnyActive = activeJob.phases.some(p => p.status === 'in-progress');
     if (isAnyActive) {
         toast({ 
             variant: "destructive", 
-            title: "Operazione Blocca", 
+            title: "Operazione Bloccata", 
             description: "Metti in pausa tutte le fasi attive prima di scollegare il gruppo." 
         });
         return;
@@ -423,7 +423,7 @@ export default function ScanJobPage() {
             <DialogContent className="max-w-2xl h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Concatena Commesse</DialogTitle>
-                    <DialogDescription>Scansiona le commesse che vuoi produrre insieme. Devono essere nello stato "In Produzione".</DialogDescription>
+                    <DialogDescription>Scansiona le commesse che vuoi produrre insieme (devono essere già in console).</DialogDescription>
                 </DialogHeader>
                 <div className="flex-1 flex flex-col overflow-hidden space-y-4 py-2">
                     {isGroupingScanActive ? (

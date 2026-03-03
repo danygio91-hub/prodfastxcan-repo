@@ -393,19 +393,18 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             
             const jobs = jobSnaps.map(s => convertTimestampsToDates(s.data()) as JobOrder);
             
-            // Validation: Only jobs in production
-            if (jobs.some(j => j.status !== 'production')) {
-                throw new Error("Solo commesse 'In Produzione' possono essere concatenate.");
+            // Allow anything that is in production console (not completed)
+            if (jobs.some(j => j.status === 'completed')) {
+                throw new Error("Non puoi concatenare commesse già completate.");
             }
 
             const firstJob = jobs[0];
             const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
             
-            // Logic: Filter preparation, production, AND packaging phases common to ALL jobs
+            // Filter phases common to ALL jobs
             const commonPhases = firstJob.phases.filter(p => {
                 const isTargetType = p.type === 'preparation' || p.type === 'production' || p.type === 'packaging';
                 if (!isTargetType) return false;
-                // Check if this phase (template ID) exists in every job
                 return jobs.every(j => j.phases.some(jp => jp.id === p.id));
             });
 
@@ -413,7 +412,6 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
                 throw new Error("Le commesse selezionate non hanno fasi comuni compatibili (Preparazione, Produzione o Packaging).");
             }
 
-            // Ensure unique lists for clients and articles
             const uniqueClients = Array.from(new Set(jobs.map(j => j.cliente))).join(', ');
             const uniqueArticles = Array.from(new Set(jobs.map(j => j.details))).join(', ');
             
@@ -434,7 +432,7 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             };
             
             t.set(groupRef, JSON.parse(JSON.stringify(groupData)));
-            jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id, status: 'production' }));
+            jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id }));
             
             return { success: true, workGroupId: groupRef.id };
         });
@@ -471,7 +469,6 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
              const jobOriginalData = jobDoc.data() as JobOrder;
              const groupPhases: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
              
-             // Update the original phases of the job based on group progress
              const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
                  const matchedGroupPhase = groupPhases.find(gp => gp.id === originalPhase.id);
                  if (matchedGroupPhase) {
