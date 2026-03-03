@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -97,17 +98,6 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
-
-function getPhaseIcon(status: JobPhase['status']) {
-  switch (status) {
-    case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
-    case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
-    case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
-    case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
-    case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
-    default: return <Circle className="h-4 w-4 text-muted-foreground" />;
-  }
-}
 
 export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
@@ -362,6 +352,17 @@ export default function ProductionConsoleClientPage() {
       }
   };
 
+  function getPhaseIconLocal(status: JobPhase['status']) {
+    switch (status) {
+      case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
+      case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
+      case 'paused': return <PauseCircle className="h-4 w-4 text-orange-500" />;
+      case 'completed': return <CheckCircle2 className="h-4 w-4 text-primary" />;
+      case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
+      default: return <Circle className="h-4 w-4 text-muted-foreground" />;
+    }
+  }
+
   return (
     <>
       <div className="space-y-6">
@@ -450,7 +451,7 @@ export default function ProductionConsoleClientPage() {
            <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
             {editablePhases.map((phase, index) => (
                 <div key={phase.id} className={cn("flex items-center justify-between p-3 rounded-md", (phase.status !== 'pending' && phase.status !== 'skipped') && 'bg-muted/50 opacity-70')}>
-                  <div className="flex items-center gap-3">{getPhaseIcon(phase.status)}<span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span></div>
+                  <div className="flex items-center gap-3">{getPhaseIconLocal(phase.status)}<span className={cn('font-medium', phase.status === 'skipped' && 'line-through text-muted-foreground')}>{phase.name}</span></div>
                   <div className="flex items-center gap-1">
                     {(phase.status === 'pending' || phase.status === 'skipped') ? (
                       <>
