@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink } from 'lucide-react';
+import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCircle2 as PhaseCompletedIcon, Circle, Hourglass, PackageCheck, PackageX, Loader2, Camera, LogOut, EyeOff, AlertTriangle, Combine, Trash2, Check, ArrowLeft, Unlink, View } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -175,7 +175,6 @@ export default function ScanJobPage() {
             return;
         }
         
-        // Allow anything that is not completed
         if (result.status === 'completed') {
             toast({ variant: "destructive", title: "Commessa non valida", description: "Non puoi concatenare commesse già completate." });
             return;
