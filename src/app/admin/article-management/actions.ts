@@ -1,9 +1,10 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import type { Article, ArticlePhaseTime } from '@/lib/mock-data';
 import * as z from 'zod';
 
 const bomItemSchema = z.object({
@@ -43,10 +44,10 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 
   const docId = code.toUpperCase();
   const articleRef = doc(db, 'articles', docId);
-  const articleData: Article = { id: docId, code: docId, billOfMaterials };
+  const articleData: Partial<Article> = { id: docId, code: docId, billOfMaterials };
 
   try {
-    await setDoc(articleRef, articleData);
+    await setDoc(articleRef, articleData, { merge: true });
     revalidatePath('/admin/article-management');
     return { success: true, message: `Articolo ${docId} salvato.` };
   } catch (error) {
@@ -98,9 +99,20 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     const batch = writeBatch(db);
     articles.forEach(art => {
         const id = art.code.toUpperCase();
-        batch.set(doc(db, 'articles', id), { ...art, id, code: id });
+        batch.set(doc(db, 'articles', id), { ...art, id, code: id }, { merge: true });
     });
     await batch.commit();
     revalidatePath('/admin/article-management');
     return { success: true, message: `${articles.length} articoli elaborati.` };
+}
+
+export async function saveArticlePhaseTimes(articleId: string, phaseTimes: Record<string, ArticlePhaseTime>) {
+    const articleRef = doc(db, 'articles', articleId);
+    try {
+        await setDoc(articleRef, { phaseTimes }, { merge: true });
+        revalidatePath('/admin/article-management');
+        return { success: true, message: 'Tempi aggiornati con successo.' };
+    } catch (e) {
+        return { success: false, message: 'Errore durante il salvataggio dei tempi.' };
+    }
 }

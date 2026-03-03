@@ -193,10 +193,16 @@ export interface BillOfMaterialsItem {
   note?: string;
 }
 
+export interface ArticlePhaseTime {
+  expectedMinutesPerPiece: number;
+  detectedMinutesPerPiece: number;
+}
+
 export interface Article {
   id: string;
   code: string;
   billOfMaterials: BillOfMaterialsItem[];
+  phaseTimes?: Record<string, ArticlePhaseTime>;
 }
 
 
