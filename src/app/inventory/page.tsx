@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
@@ -233,7 +234,7 @@ export default function InventoryPage() {
                     </div>
                 </CardContent>
                 <CardFooter>
-                    <Button onClick={() => triggerScan(handleMaterialScanned)} disabled={setIsCapturing && !hasCameraPermission} className="w-full h-12">
+                    <Button onClick={() => triggerScan(handleMaterialScanned)} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
                         {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
                         <span className="ml-2">{isCapturing ? 'Scansionando...' : 'Scansiona Materiale'}</span>
                     </Button>
