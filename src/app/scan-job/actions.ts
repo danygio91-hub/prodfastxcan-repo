@@ -401,16 +401,16 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             const firstJob = jobs[0];
             const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
             
-            // Logic: Filter only preparation and production phases common to ALL jobs
+            // Logic: Filter preparation, production, AND packaging phases common to ALL jobs
             const commonPhases = firstJob.phases.filter(p => {
-                const isTargetType = p.type === 'preparation' || p.type === 'production';
+                const isTargetType = p.type === 'preparation' || p.type === 'production' || p.type === 'packaging';
                 if (!isTargetType) return false;
                 // Check if this phase (template ID) exists in every job
                 return jobs.every(j => j.phases.some(jp => jp.id === p.id));
             });
 
             if (commonPhases.length === 0) {
-                throw new Error("Le commesse selezionate non hanno fasi di preparazione o produzione in comune.");
+                throw new Error("Le commesse selezionate non hanno fasi comuni compatibili (Preparazione, Produzione o Packaging).");
             }
 
             // Ensure unique lists for clients and articles
