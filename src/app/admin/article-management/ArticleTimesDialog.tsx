@@ -130,14 +130,20 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
     sortedTemplates.forEach(t => {
         const data = localPhaseTimes[t.id];
-        if (data?.enabled) {
+        // If data is undefined, we treat it as enabled: true by default
+        const isEnabled = data ? data.enabled !== false : true;
+
+        if (isEnabled) {
             enabledCount++;
-            if (data.expectedMinutesPerPiece > 0) {
-                totalExpected += data.expectedMinutesPerPiece;
+            const expected = data?.expectedMinutesPerPiece || 0;
+            const detected = data?.detectedMinutesPerPiece || 0;
+
+            if (expected > 0) {
+                totalExpected += expected;
                 expectedCount++;
             }
-            if (data.detectedMinutesPerPiece > 0) {
-                totalDetected += data.detectedMinutesPerPiece;
+            if (detected > 0) {
+                totalDetected += detected;
                 detectedCount++;
             }
         }
@@ -219,8 +225,11 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     </TableHeader>
                     <TableBody>
                         {sortedTemplates.map((phase) => {
-                            const data = localPhaseTimes[phase.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0, enabled: false };
-                            const isEnabled = !!data.enabled;
+                            const data = localPhaseTimes[phase.id];
+                            // Default to enabled: true if not explicitly set
+                            const isEnabled = data ? data.enabled !== false : true;
+                            const detectedTime = data?.detectedMinutesPerPiece || 0;
+                            const expectedTime = data?.expectedMinutesPerPiece || 0;
 
                             return (
                                 <TableRow key={phase.id} className={cn(!isEnabled && "opacity-40 bg-muted/20")}>
@@ -237,7 +246,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-bold text-muted-foreground">
-                                        {data.detectedMinutesPerPiece > 0 ? data.detectedMinutesPerPiece.toFixed(4) : 'N/D'}
+                                        {detectedTime > 0 ? detectedTime.toFixed(4) : 'N/D'}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
@@ -246,7 +255,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                                 step="0.0001" 
                                                 disabled={!isEnabled}
                                                 className="w-24 text-right h-8"
-                                                value={data.expectedMinutesPerPiece || ''}
+                                                value={expectedTime || ''}
                                                 onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)}
                                                 placeholder="0.0000"
                                             />
