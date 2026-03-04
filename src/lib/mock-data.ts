@@ -196,6 +196,7 @@ export interface BillOfMaterialsItem {
 export interface ArticlePhaseTime {
   expectedMinutesPerPiece: number;
   detectedMinutesPerPiece: number;
+  enabled?: boolean;
 }
 
 export interface Article {

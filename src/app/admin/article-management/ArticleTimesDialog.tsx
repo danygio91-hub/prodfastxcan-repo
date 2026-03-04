@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Timer, RefreshCcw, Save, Loader2, Info } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Article, WorkPhaseTemplate, ArticlePhaseTime } from '@/lib/mock-data';
@@ -21,6 +22,7 @@ import { getProductionTimeAnalysisReport } from '../reports/actions';
 import { saveArticlePhaseTimes } from './actions';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface ArticleTimesDialogProps {
   isOpen: boolean;
@@ -64,7 +66,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             const template = phaseTemplates.find(t => t.name.toLowerCase() === rptPhase.name.toLowerCase());
             if (template) {
                 newPhaseTimes[template.id] = {
-                    ...(newPhaseTimes[template.id] || { expectedMinutesPerPiece: 0 }),
+                    ...(newPhaseTimes[template.id] || { expectedMinutesPerPiece: 0, enabled: true }),
                     detectedMinutesPerPiece: rptPhase.averageMinutesPerPiece
                 };
             }
@@ -84,8 +86,18 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     setLocalPhaseTimes(prev => ({
         ...prev,
         [phaseId]: {
-            ...(prev[phaseId] || { detectedMinutesPerPiece: 0 }),
+            ...(prev[phaseId] || { detectedMinutesPerPiece: 0, enabled: true }),
             expectedMinutesPerPiece: isNaN(numValue) ? 0 : numValue
+        }
+    }));
+  };
+
+  const handleToggleEnabled = (phaseId: string, checked: boolean) => {
+    setLocalPhaseTimes(prev => ({
+        ...prev,
+        [phaseId]: {
+            ...(prev[phaseId] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }),
+            enabled: checked
         }
     }));
   };
@@ -109,9 +121,40 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
       return [...phaseTemplates].sort((a,b) => a.sequence - b.sequence);
   }, [phaseTemplates]);
 
+  const stats = useMemo(() => {
+    let totalExpected = 0;
+    let totalDetected = 0;
+    let expectedCount = 0;
+    let detectedCount = 0;
+    let enabledCount = 0;
+
+    sortedTemplates.forEach(t => {
+        const data = localPhaseTimes[t.id];
+        if (data?.enabled) {
+            enabledCount++;
+            if (data.expectedMinutesPerPiece > 0) {
+                totalExpected += data.expectedMinutesPerPiece;
+                expectedCount++;
+            }
+            if (data.detectedMinutesPerPiece > 0) {
+                totalDetected += data.detectedMinutesPerPiece;
+                detectedCount++;
+            }
+        }
+    });
+
+    return {
+        totalExpected,
+        totalDetected,
+        isExpectedComplete: enabledCount > 0 && expectedCount === enabledCount,
+        isDetectedComplete: enabledCount > 0 && detectedCount === enabledCount,
+        enabledCount
+    };
+  }, [sortedTemplates, localPhaseTimes]);
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0">
         <DialogHeader className="p-6 pb-2">
           <DialogTitle className="flex items-center gap-2">
               <Timer className="h-6 w-6 text-primary" />
@@ -122,18 +165,47 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden px-6">
-            <div className="flex justify-end mb-4">
+        <div className="flex-1 overflow-hidden px-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex gap-4">
+                    <div className={cn(
+                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px]",
+                        stats.enabledCount === 0 ? "bg-muted" : stats.isExpectedComplete ? "bg-green-500/10 border-green-500/50" : "bg-yellow-500/10 border-yellow-500/50"
+                    )}>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Tempo Previsto Totale</span>
+                        <span className={cn(
+                            "text-xl font-bold font-mono",
+                            stats.enabledCount === 0 ? "text-muted-foreground" : stats.isExpectedComplete ? "text-green-600" : "text-yellow-600"
+                        )}>
+                            {stats.totalExpected.toFixed(4)} <small className="text-xs">min</small>
+                        </span>
+                    </div>
+
+                    <div className={cn(
+                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px]",
+                        stats.enabledCount === 0 ? "bg-muted" : stats.isDetectedComplete ? "bg-green-500/10 border-green-500/50" : "bg-yellow-500/10 border-yellow-500/50"
+                    )}>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground">Tempo Rilevato Totale</span>
+                        <span className={cn(
+                            "text-xl font-bold font-mono",
+                            stats.enabledCount === 0 ? "text-muted-foreground" : stats.isDetectedComplete ? "text-green-600" : "text-yellow-600"
+                        )}>
+                            {stats.totalDetected.toFixed(4)} <small className="text-xs">min</small>
+                        </span>
+                    </div>
+                </div>
+
                 <Button variant="outline" size="sm" onClick={handleUpdateTimes} disabled={isUpdating || !article}>
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
                     Aggiorna Tempi Rilevati
                 </Button>
             </div>
 
-            <ScrollArea className="h-[calc(85vh-250px)] border rounded-md">
+            <ScrollArea className="flex-1 border rounded-md">
                 <Table>
                     <TableHeader className="sticky top-0 bg-background z-10">
                         <TableRow>
+                            <TableHead className="w-[50px]">Attiva</TableHead>
                             <TableHead>Fase di Lavorazione</TableHead>
                             <TableHead>Tipo</TableHead>
                             <TableHead className="text-right">
@@ -147,9 +219,17 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     </TableHeader>
                     <TableBody>
                         {sortedTemplates.map((phase) => {
-                            const data = localPhaseTimes[phase.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 };
+                            const data = localPhaseTimes[phase.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0, enabled: false };
+                            const isEnabled = !!data.enabled;
+
                             return (
-                                <TableRow key={phase.id}>
+                                <TableRow key={phase.id} className={cn(!isEnabled && "opacity-40 bg-muted/20")}>
+                                    <TableCell>
+                                        <Checkbox 
+                                            checked={isEnabled} 
+                                            onCheckedChange={(checked) => handleToggleEnabled(phase.id, !!checked)} 
+                                        />
+                                    </TableCell>
                                     <TableCell className="font-medium">{phase.name}</TableCell>
                                     <TableCell>
                                         <Badge variant="outline" className="text-[10px] uppercase">
@@ -164,6 +244,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                                             <Input 
                                                 type="number" 
                                                 step="0.0001" 
+                                                disabled={!isEnabled}
                                                 className="w-24 text-right h-8"
                                                 value={data.expectedMinutesPerPiece || ''}
                                                 onChange={(e) => handleExpectedTimeChange(phase.id, e.target.value)}
