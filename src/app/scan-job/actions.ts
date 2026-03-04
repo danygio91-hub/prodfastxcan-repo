@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -62,7 +63,6 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
   
-  // REDIREZIONE AUTOMATICA: Se la commessa appartiene a un gruppo, restituisci il gruppo
   if (job.workGroupId) {
     const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
     if (gSnap.exists()) return await getJobOrderById(job.workGroupId) as JobOrder;
@@ -179,6 +179,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const consumedWeight = (session.grossOpeningWeight || 0) - (closing || 0);
         if (consumedWeight < -0.001) throw new Error("Peso finale superiore a apertura.");
         
+        // KG LOGIC: Se gestito a KG, le unità corrispondono al peso senza conversioni.
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
         const wRef = doc(collection(db, "materialWithdrawals"));
@@ -243,8 +244,11 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const mat = mSnap.data() as RawMaterial;
         const item = itemSnap.data() as JobOrder;
         const qty = Number(data.quantity);
+        
         const w = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
-        const u = data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty;
+        
+        // KG LOGIC SAFETY: se la materia prima è KG, l'unità è sempre il peso
+        const u = mat.unitOfMeasure === 'kg' ? w : (data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty);
         
         t.update(mRef, { 
             currentStockUnits: (mat.currentStockUnits || 0) - u, 
@@ -450,6 +454,17 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
   try {
     const groupRef = doc(db, 'workGroups', groupId);
     
+    // BLOCCA SCIOGLIMENTO SE SESSIONE MATERIALE ATTIVA
+    const opsSnap = await getDocs(collection(db, "operators"));
+    const hasActiveSession = opsSnap.docs.some(docSnap => {
+        const op = docSnap.data() as Operator;
+        return (op.activeMaterialSessions || []).some(s => s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId));
+    });
+
+    if (hasActiveSession) {
+        throw new Error("NON E' POSSIBILE SCOLLEGARE IL GRUPPO: SESSIONE MATERIALE ATTIVA");
+    }
+
     await runTransaction(db, async (transaction) => {
         const groupSnap = await transaction.get(groupRef);
 
@@ -509,6 +524,7 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
     
     return { success: true, message: `Gruppo sciolto.` };
   } catch (error) {
-    return { success: false, message: "Errore." };
+    const errorMessage = error instanceof Error ? error.message : "Errore.";
+    return { success: false, message: errorMessage };
   }
 }

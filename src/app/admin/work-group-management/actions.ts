@@ -1,9 +1,10 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where, Timestamp, runTransaction, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { WorkGroup, JobOrder, JobPhase, WorkPeriod } from '@/lib/mock-data';
+import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
   const groupsCol = collection(db, 'workGroups');
@@ -30,6 +31,17 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
   try {
     const groupRef = doc(db, 'workGroups', groupId);
     
+    // BLOCCA SCIOGLIMENTO SE SESSIONE MATERIALE ATTIVA
+    const opsSnap = await getDocs(collection(db, "operators"));
+    const hasActiveSession = opsSnap.docs.some(docSnap => {
+        const op = docSnap.data() as Operator;
+        return (op.activeMaterialSessions || []).some(s => s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId));
+    });
+
+    if (hasActiveSession) {
+        return { success: false, message: "NON E' POSSIBILE SCOLLEGARE IL GRUPPO: SESSIONE MATERIALE ATTIVA" };
+    }
+
     await runTransaction(db, async (transaction) => {
         const groupSnap = await transaction.get(groupRef);
 

@@ -50,9 +50,10 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     
     const newSession: ActiveMaterialSessionData = { ...sessionData, category };
 
-    // Prevent adding a session for a material that already has one.
-    if (activeSessions.some(s => s.materialId === newSession.materialId)) {
-      console.warn(`Attempted to start a session for material ${newSession.materialId}, but one already exists.`);
+    // BUG FIX: Permetti sessioni multiple dello stesso materiale se il lotto è diverso.
+    // Blocca solo se esiste già una sessione con STESSO materiale E STESSO lotto per questo operatore.
+    if (activeSessions.some(s => s.materialId === newSession.materialId && s.lotto === newSession.lotto)) {
+      console.warn(`Tentativo di avviare una sessione duplicata per materiale ${newSession.materialId} lotto ${newSession.lotto}.`);
       return;
     }
 
