@@ -11,8 +11,8 @@ type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
 interface ActiveMaterialSessionContextType {
   activeSessions: ActiveMaterialSessionData[];
   startSession: (sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => void;
-  addJobToSession: (materialId: string, job: { jobId: string; jobOrderPF: string }) => void;
-  closeSession: (materialId: string) => void;
+  addJobToSession: (materialId: string, lotto: string | null | undefined, job: { jobId: string; jobOrderPF: string }) => void;
+  closeSession: (materialId: string, lotto?: string | null) => void;
   getSessionByMaterialId: (materialId: string) => ActiveMaterialSessionData | undefined;
   isLoading: boolean;
 }
@@ -40,19 +40,15 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
   
   const updateSessionsOnServer = useCallback(async (newSessions: ActiveMaterialSessionData[]) => {
       if (!operator) return;
-      // Optimistically update the UI while the server call is in progress.
-      // The onSnapshot in AuthProvider will eventually sync the definitive state.
       await updateOperatorMaterialSessions(operator.id, newSessions);
   }, [operator]);
 
   const startSession = useCallback((sessionData: Omit<ActiveMaterialSessionData, 'category'>, type: RawMaterialType) => {
     const category = getMaterialCategory(type);
-    
     const newSession: ActiveMaterialSessionData = { ...sessionData, category };
 
-    // BUG FIX: Permetti sessioni multiple dello stesso materiale se il lotto è diverso.
     // Blocca solo se esiste già una sessione con STESSO materiale E STESSO lotto per questo operatore.
-    if (activeSessions.some(s => s.materialId === newSession.materialId && s.lotto === newSession.lotto)) {
+    if (activeSessions.some(s => s.materialId === newSession.materialId && (s.lotto === newSession.lotto || (!s.lotto && !newSession.lotto)))) {
       console.warn(`Tentativo di avviare una sessione duplicata per materiale ${newSession.materialId} lotto ${newSession.lotto}.`);
       return;
     }
@@ -61,10 +57,11 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     updateSessionsOnServer(updatedSessions);
   }, [activeSessions, updateSessionsOnServer]);
 
-  const addJobToSession = useCallback((materialId: string, job: { jobId: string; jobOrderPF: string }) => {
+  const addJobToSession = useCallback((materialId: string, lotto: string | null | undefined, job: { jobId: string; jobOrderPF: string }) => {
     let hasChanged = false;
     const updatedSessions = activeSessions.map(session => {
-        if (session.materialId === materialId) {
+        // Identifica la sessione corretta tramite Materiale + Lotto
+        if (session.materialId === materialId && (session.lotto === lotto || (!session.lotto && !lotto))) {
             if (session.associatedJobs.some(j => j.jobId === job.jobId)) {
                 return session; 
             }
@@ -82,8 +79,11 @@ export const ActiveMaterialSessionProvider = ({ children }: { children: ReactNod
     }
   }, [activeSessions, updateSessionsOnServer]);
 
-  const closeSession = useCallback((materialId: string) => {
-    const updatedSessions = activeSessions.filter(s => s.materialId !== materialId);
+  const closeSession = useCallback((materialId: string, lotto?: string | null) => {
+    // BUG FIX: Rimuovi solo la sessione che corrisponde a ID E LOTTO
+    const updatedSessions = activeSessions.filter(s => 
+        !(s.materialId === materialId && (s.lotto === lotto || (!s.lotto && !lotto)))
+    );
     updateSessionsOnServer(updatedSessions);
   }, [activeSessions, updateSessionsOnServer]);
 

@@ -205,7 +205,15 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
             if (snap.exists()) {
                 const data = snap.data() as JobOrder;
                 const phs = (data.phases || []).map(p => ({
-                    ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => (mc.materialId === mSnap.id && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto))) && mc.closingWeight === undefined ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } : mc)
+                    ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => {
+                        // BUG FIX: Confronto rigoroso per ID Materiale E Lotto
+                        const isMatch = mc.materialId === mSnap.id && 
+                                      (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto));
+                        
+                        return isMatch && mc.closingWeight === undefined 
+                            ? { ...mc, closingWeight: closing, withdrawalId: wRef.id } 
+                            : mc;
+                    })
                 }));
                 t.update(snap.ref, { phases: phs });
             }

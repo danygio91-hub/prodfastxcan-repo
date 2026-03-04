@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from 'react';
@@ -71,7 +72,8 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
         });
 
         if (result.success) {
-            closeSession(session.materialId);
+            // BUG FIX: Passa anche il lotto per rimuovere solo questa sessione specifica
+            closeSession(session.materialId, session.lotto);
             onOpenChange(false);
         }
     };
@@ -85,7 +87,7 @@ function SessionClosureDialog({ session, isOpen, onOpenChange }: { session: Acti
                 Inserisci il peso finale per il materiale <span className="font-bold">{session.materialCode}</span>.
                 Il consumo totale verrà scaricato dal magazzino e associato a tutte le commesse lavorate.
                 <br/>
-                Peso Lordo di apertura: <span className="font-bold">{session.grossOpeningWeight.toFixed(2)} kg</span>.
+                Lotto: <span className="font-bold">{session.lotto || 'N/D'}</span> - Apertura: <span className="font-bold">{session.grossOpeningWeight.toFixed(2)} kg</span>.
                 </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -151,9 +153,10 @@ export default function ActiveMaterialSessionBar() {
             <ScrollArea className="h-[calc(100vh-150px)] pr-4">
                 <div className="grid gap-4 py-4">
                 {activeSessions.map((session) => (
-                    <div key={session.materialId} className="p-4 border rounded-lg space-y-3">
+                    <div key={`${session.materialId}-${session.lotto}`} className="p-4 border rounded-lg space-y-3">
                         <div>
                             <div className="font-semibold text-sm flex items-center gap-2">{session.materialCode} <Badge variant="outline">{session.category}</Badge></div>
+                            <p className="text-xs text-muted-foreground">Lotto: {session.lotto || 'N/D'}</p>
                             <p className="text-xs text-muted-foreground">Aperto con: {session.grossOpeningWeight.toFixed(2)} kg</p>
                         </div>
                          <div className="text-xs text-muted-foreground">
