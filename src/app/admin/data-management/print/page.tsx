@@ -1,18 +1,17 @@
 
 "use client"
 
-import type { JobOrder, RawMaterial, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import React, { useEffect, useState, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import QRCode from 'react-qr-code';
-import { PrintButton } from './PrintButton';
-import { useEffect, useState, Suspense, useMemo } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, Printer } from 'lucide-react';
 import { getJobDetailReport } from '@/app/admin/reports/actions';
 import { getArticles } from '@/app/admin/article-management/actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
-import { cn } from '@/lib/utils';
 import { format, parseISO, isValid } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
+import type { JobOrder, RawMaterial, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
 
 function PrintPageContent() {
   const searchParams = useSearchParams();
@@ -45,11 +44,11 @@ function PrintPageContent() {
           setArticle(matchedArticle || null);
           setMaterials(allMaterials);
         } else {
-          setError('Commessa non trovata nel database.');
+          setError('Commessa non trovata.');
         }
       } catch (err) {
         console.error("Errore fetch stampa:", err);
-        setError('Si è verificato un errore durante il recupero dei dati.');
+        setError('Errore durante il recupero dei dati.');
       } finally {
         setLoading(false);
       }
@@ -60,7 +59,6 @@ function PrintPageContent() {
 
   const materialsMap = useMemo(() => new Map(materials.map(m => [m.code.toUpperCase(), m])), [materials]);
 
-  // Suddivisione componenti per tipologia esatta richiesta
   const groupedBOM = useMemo(() => {
     if (!job?.billOfMaterials) return { treccia: [], tubi: [], guaina: [] };
 
@@ -77,7 +75,6 @@ function PrintPageContent() {
       } else if (type === 'GUAINA') {
         guaina.push(item);
       } else {
-        // BOB, BARRA, PF3V0 vanno in Treccia
         treccia.push(item);
       }
     });
@@ -85,7 +82,6 @@ function PrintPageContent() {
     return { treccia, tubi, guaina };
   }, [job, materialsMap]);
 
-  // Recupero Tempi Stimati dall'anagrafica
   const estimatedTimes = useMemo(() => {
     if (!article?.phaseTimes) return { treccia: 'N/D', tubi: 'N/D', guaina: 'N/D' };
 
@@ -97,7 +93,6 @@ function PrintPageContent() {
         return h > 0 ? `${h}h ${m}m` : `${m}m`;
     };
 
-    // Mapping ID fasi standard (come da initialWorkPhaseTemplates)
     const trecciaTime = article.phaseTimes['phase-template-1']?.expectedMinutesPerPiece || 0;
     const tubiTime = article.phaseTimes['phase-template-7']?.expectedMinutesPerPiece || 0;
     const guainaTime = article.phaseTimes['phase-template-6']?.expectedMinutesPerPiece || 0;
@@ -111,7 +106,7 @@ function PrintPageContent() {
 
   if (loading) {
     return (
-        <div className="flex flex-col items-center justify-center h-screen gap-4 bg-background">
+        <div className="flex flex-col items-center justify-center h-screen gap-4">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
             <p className="text-muted-foreground font-medium">Generazione Scheda di Lavorazione...</p>
         </div>
@@ -120,7 +115,7 @@ function PrintPageContent() {
   
   if (error || !job) {
     return (
-        <div className="flex flex-col items-center justify-center h-screen gap-4 p-4 text-center bg-background">
+        <div className="flex flex-col items-center justify-center h-screen gap-4 p-4 text-center">
             <AlertCircle className="h-16 w-16 text-destructive" />
             <h1 className="text-2xl font-bold">{error || 'Errore di sistema'}</h1>
             <Button onClick={() => window.close()} variant="outline">Chiudi</Button>
@@ -135,70 +130,62 @@ function PrintPageContent() {
       try {
         const d = typeof dateInput === 'string' ? parseISO(dateInput) : (dateInput.toDate ? dateInput.toDate() : new Date(dateInput));
         return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
-      } catch (e) {
-        return '---';
-      }
+      } catch (e) { return '---'; }
   };
 
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
        <div className="max-w-[29.7cm] mx-auto bg-white shadow-2xl print:shadow-none min-h-[21cm] p-[0.5cm]">
         
-        {/* Controlli Anteprima (Nascosti in stampa) */}
         <div className="flex justify-between items-center mb-6 print:hidden bg-slate-800 text-white p-4 rounded-lg">
             <div className="space-y-1">
-                <h3 className="font-bold text-lg">Anteprima di Stampa ODL</h3>
-                <p className="text-xs opacity-70">Verifica l'anteprima prima di stampare su carta A4 Orizzontale.</p>
+                <h3 className="font-bold text-lg">Anteprima Scheda Lavorazione (ODL)</h3>
+                <p className="text-xs opacity-70">Verifica i dati. La stampa è ottimizzata per A4 Orizzontale.</p>
             </div>
             <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => window.close()} size="sm" className="bg-slate-700 hover:bg-slate-600 text-white border-0">Chiudi</Button>
-                <PrintButton />
+                <Button onClick={() => window.print()} size="sm"><Printer className="mr-2 h-4 w-4"/>Stampa Ora</Button>
             </div>
         </div>
 
-        {/* --- DOCUMENTO ODL --- */}
-        <div id="odl-document" className="text-black font-sans bg-white">
+        <div id="odl-document" className="text-black font-sans bg-white border-2 border-black p-4">
             
-            {/* Header: Logo e Titolo */}
-            <div className="flex justify-between items-end mb-2 px-2">
+            <div className="flex justify-between items-end mb-4 px-2">
                 <div className="w-32">
-                    <img src="/logo.png" alt="PF" className="w-full h-auto grayscale" onError={(e) => e.currentTarget.style.display = 'none'} />
+                    <img src="/logo.png" alt="PF" className="w-full h-auto grayscale" onError={(e) => e.currentTarget.style.display = 'none'} data-ai-hint="logo aziendale" />
                 </div>
                 <div className="flex-1 text-center">
                     <h1 className="text-3xl font-black underline tracking-widest mb-1">SCHEDA DI LAVORAZIONE</h1>
                 </div>
-                <div className="text-[9px] text-right font-bold italic leading-tight">
+                <div className="text-[10px] text-right font-bold italic leading-tight">
                     MOD. 800_5_02 REV.0 del 08/05/2024
                 </div>
             </div>
 
-            {/* Barra Superiore Metadati */}
-            <div className="grid grid-cols-5 border-2 border-black mb-4">
+            <div className="grid grid-cols-5 border-2 border-black mb-4 bg-white">
                 <div className="border-r-2 border-black p-2 text-center">
-                    <span className="block text-[8px] font-bold uppercase text-gray-500 mb-1">Reparto</span>
+                    <span className="block text-[9px] font-bold uppercase text-gray-500">Reparto</span>
                     <span className="font-bold text-sm leading-none">{job.department || 'N/D'}</span>
                 </div>
                 <div className="border-r-2 border-black p-2 text-center">
-                    <span className="block text-[8px] font-bold uppercase text-gray-500 mb-1">Data ODL</span>
+                    <span className="block text-[9px] font-bold uppercase text-gray-500">Data ODL</span>
                     <span className="font-bold text-sm leading-none">{formatDateSafe(job.odlCreationDate || new Date())}</span>
                 </div>
                 <div className="border-r-2 border-black p-2 text-center">
-                    <span className="block text-[8px] font-bold uppercase text-gray-500 mb-1">N° Ord. Interno</span>
+                    <span className="block text-[9px] font-bold uppercase text-gray-500">N° Ord. Interno</span>
                     <span className="font-bold text-sm leading-none">{job.numeroODLInterno || '---'}</span>
                 </div>
                 <div className="border-r-2 border-black p-2 text-center bg-[#dbeafe]">
-                    <span className="block text-[8px] font-bold uppercase text-blue-800 mb-1">Numero Ordine PF</span>
+                    <span className="block text-[9px] font-bold uppercase text-blue-800">Numero Ordine PF</span>
                     <span className="font-black text-xl leading-none">{job.ordinePF}</span>
                 </div>
                 <div className="p-2 text-center bg-[#ecfdf5]">
-                    <span className="block text-[8px] font-bold uppercase text-emerald-800 mb-1">N° ODL</span>
+                    <span className="block text-[9px] font-bold uppercase text-emerald-800">N° ODL</span>
                     <span className="font-black text-xl text-emerald-700 leading-none">{job.numeroODL || '---'}</span>
                 </div>
             </div>
 
-            {/* Area Info Principale */}
-            <div className="grid grid-cols-12 border-2 border-black mb-4 min-h-[200px]">
-                {/* Tabella Dati */}
+            <div className="grid grid-cols-12 border-2 border-black mb-4 min-h-[220px]">
                 <div className="col-span-4 border-r-2 border-black flex flex-col">
                     <div className="grid grid-cols-3 flex-1">
                         <div className="col-span-1 border-b-2 border-black p-2 font-black uppercase bg-gray-100 flex items-center text-[10px]">Cliente</div>
@@ -217,14 +204,12 @@ function PrintPageContent() {
                         <div className="col-span-2 p-2 flex items-center font-black text-lg text-red-600">{formatDateSafe(job.dataConsegnaFinale)}</div>
                     </div>
                 </div>
-                {/* QR Code */}
-                <div className="col-span-3 border-r-2 border-black flex flex-col items-center justify-center p-4 relative">
+                <div className="col-span-3 border-r-2 border-black flex flex-col items-center justify-center p-4 relative bg-white">
                     <span className="absolute top-2 text-[10px] text-blue-600 font-black uppercase tracking-widest">CODICE COMMESSA</span>
                     <div className="w-full flex justify-center">
                         <QRCode value={qrValue} size={160} style={{ height: "auto", maxWidth: "100%", width: "100%" }} viewBox={`0 0 256 256`} />
                     </div>
                 </div>
-                {/* Spazio Note/Disegno */}
                 <div className="col-span-5 p-4 text-center flex items-center justify-center italic bg-gray-50/30">
                     <p className="text-gray-300 text-sm font-black tracking-widest uppercase opacity-40 px-10 leading-loose">
                         SPAZIO PER DISEGNO TECNICO / NOTE AGGIUNTIVE
@@ -232,12 +217,10 @@ function PrintPageContent() {
                 </div>
             </div>
 
-            {/* Separatore Sezione */}
             <div className="bg-[#1f2937] text-white border-2 border-black p-2 text-center font-black uppercase tracking-[0.4em] mb-4 text-sm">
                 PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)
             </div>
 
-            {/* --- TABELLA 1: TRECCIA / CORDA --- */}
             <div className="mb-6">
                 <table className="w-full border-collapse border-2 border-black text-center table-fixed">
                     <thead>
@@ -273,7 +256,6 @@ function PrintPageContent() {
                 </table>
             </div>
 
-            {/* --- TABELLA 2: TUBI --- */}
             <div className="mb-6">
                 <table className="w-full border-collapse border-2 border-black text-center table-fixed">
                     <thead>
@@ -291,7 +273,6 @@ function PrintPageContent() {
                             const mat = materialsMap.get(item.component.toUpperCase());
                             const totalPcs = item.quantity * job.qta;
                             const totalKg = mat?.conversionFactor ? (totalPcs * mat.conversionFactor) : 0;
-                            
                             return (
                                 <tr key={i} className="border-b-2 border-black h-12">
                                     <td className="border-r-2 border-black px-2 font-black text-left text-sm">{item.component}</td>
@@ -313,7 +294,6 @@ function PrintPageContent() {
                 </table>
             </div>
 
-            {/* --- TABELLA 3: GUAINA --- */}
             <div className="mb-6">
                 <table className="w-full border-collapse border-2 border-black text-center table-fixed">
                     <thead>
@@ -331,7 +311,6 @@ function PrintPageContent() {
                         {groupedBOM.guaina.length > 0 ? groupedBOM.guaina.map((item, i) => {
                             const totalPcs = item.quantity * job.qta;
                             const totalMt = item.lunghezzaTaglioMm ? (totalPcs * item.lunghezzaTaglioMm / 1000) : 0;
-
                             return (
                                 <tr key={i} className="border-b-2 border-black h-12">
                                     <td className="border-r-2 border-black px-2 font-black text-left text-sm">{item.component}</td>
@@ -354,13 +333,12 @@ function PrintPageContent() {
                 </table>
             </div>
 
-            {/* Footer: Note e Firme */}
-            <div className="grid grid-cols-2 border-2 border-black mt-4 min-h-[120px]">
-                <div className="border-r-2 border-black p-3 flex flex-col">
+            <div className="grid grid-cols-2 border-2 border-black min-h-[130px]">
+                <div className="border-r-2 border-black p-3 flex flex-col bg-white">
                     <span className="font-black text-[11px] bg-orange-100 p-1 mb-2 inline-block border border-orange-300 w-fit">SEGNALAZIONE OPERATORE (NOTE - NC)</span>
-                    <div className="flex-1 italic text-gray-200 font-bold text-xs">Scrivere qui eventuali anomalie o osservazioni riscontrate durante la fase di preparazione...</div>
+                    <div className="flex-1 italic text-gray-200 font-bold text-xs">Annotazioni per anomalie o NC riscontrate...</div>
                 </div>
-                <div className="p-3 flex flex-col">
+                <div className="p-3 flex flex-col bg-white">
                     <span className="font-black text-[11px] bg-gray-100 p-1 mb-2 inline-block border border-gray-300 w-fit">DATA E FIRMA OPERATORE</span>
                     <div className="flex-1 flex items-end justify-between px-4 pb-2">
                         <span className="text-[10px] text-gray-400 font-black">DATA: ___/___/______</span>
@@ -370,8 +348,6 @@ function PrintPageContent() {
             </div>
 
         </div>
-        {/* --- FINE DOCUMENTO --- */}
-
       </div>
 
        <style jsx global>{`
@@ -384,36 +360,38 @@ function PrintPageContent() {
             background-color: white !important;
             -webkit-print-color-adjust: exact;
           }
-          .bg-blue-100 { background-color: #dbeafe !important; }
-          .bg-emerald-50 { background-color: #ecfdf5 !important; }
-          .bg-gray-100 { background-color: #f3f4f6 !important; }
-          .bg-gray-800 { background-color: #1f2937 !important; color: white !important; }
-          .bg-orange-100 { background-color: #ffedd5 !important; }
-          .text-red-600 { color: #dc2626 !important; }
-          .text-blue-700 { color: #1d4ed8 !important; }
-          
           #odl-document {
              box-shadow: none;
              margin: 0;
-             padding: 4px;
+             padding: 10px;
              border: 2px solid black !important;
           }
+          .bg-blue-100, .bg-[#dbeafe] { background-color: #dbeafe !important; }
+          .bg-emerald-50, .bg-[#ecfdf5] { background-color: #ecfdf5 !important; }
+          .bg-gray-100 { background-color: #f3f4f6 !important; }
+          .bg-[#1f2937] { background-color: #1f2937 !important; color: white !important; }
+          .bg-orange-100 { background-color: #ffedd5 !important; }
+          .text-red-600 { color: #dc2626 !important; }
+          .text-blue-700 { color: #1d4ed8 !important; }
+          .text-blue-800 { color: #1e40af !important; }
+          .text-emerald-800 { color: #065f46 !important; }
         }
       `}</style>
     </div>
   );
 }
 
-
 export default function ODLPrintPage() {
   return (
-    <Suspense fallback={
-        <div className="flex flex-col items-center justify-center h-screen gap-4 bg-background">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground animate-pulse">Caricamento...</p>
-        </div>
-    }>
-        <PrintPageContent />
-    </Suspense>
+    <AdminAuthGuard>
+        <Suspense fallback={
+            <div className="flex flex-col items-center justify-center h-screen gap-4">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <p className="text-muted-foreground animate-pulse">Caricamento...</p>
+            </div>
+        }>
+            <PrintPageContent />
+        </Suspense>
+    </AdminAuthGuard>
   );
 }
