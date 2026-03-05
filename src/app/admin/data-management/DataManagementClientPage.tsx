@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -74,7 +74,6 @@ export default function DataManagementClientPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
-  const router = useRouter();
   
   const odlForm = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
   const manualForm = useForm<ManualCreateValues>({ 
@@ -119,31 +118,35 @@ export default function DataManagementClientPage() {
         setPdfData({ job, article, materials: rawMaterials });
 
         // Attendiamo che il componente React si renderizzi nel DOM nascosto
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 1000));
 
-        const element = document.getElementById('odl-pdf-content');
+        const element = document.getElementById('odl-pdf-pages');
         if (!element) throw new Error("Template di stampa non trovato nel DOM.");
 
-        const canvas = await html2canvas(element, { 
-            scale: 2, 
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff'
-        });
-        
-        const imgData = canvas.toDataURL('image/png');
-        
+        const pageElements = element.querySelectorAll('.odl-page');
+        if (pageElements.length === 0) throw new Error("Nessuna pagina generata.");
+
         const pdf = new jsPDF({
             orientation: 'landscape',
             unit: 'mm',
             format: 'a4'
         });
 
-        const imgProps = pdf.getImageProperties(imgData);
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        for (let i = 0; i < pageElements.length; i++) {
+            const page = pageElements[i] as HTMLElement;
+            const canvas = await html2canvas(page, { 
+                scale: 2, 
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff'
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            if (i > 0) pdf.addPage();
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, 297, 210);
+        }
+
         pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
 
         await markJobAsPrinted(job.id);
@@ -219,11 +222,9 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
-      {/* Template nascosto per la generazione PDF */}
+      {/* Template nascosto per la generazione PDF multi-pagina */}
       {pdfData && (
-        <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
-            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
-        </div>
+        <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
       )}
 
       <Tabs defaultValue="planned">
