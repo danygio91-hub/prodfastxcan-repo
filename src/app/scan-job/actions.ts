@@ -95,6 +95,12 @@ export async function updateOperatorStatus(opId: string, jobId: string | null, p
 
 export async function updateJob(job: JobOrder) {
     if (!job || !job.id) return { success: false, message: 'Dati commessa incompleti.' };
+    
+    // SAFETY: If this is a group ID, it shouldn't be handled here
+    if (job.id.startsWith('group-')) {
+        return { success: false, message: 'Usa updateWorkGroup per i gruppi.' };
+    }
+
     job.phases = updatePhasesMaterialReadiness(job.phases || []);
     if (job.phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !job.isProblemReported) {
         job.status = 'completed';
@@ -108,23 +114,28 @@ export async function updateJob(job: JobOrder) {
 export async function updateWorkGroup(group: WorkGroup, opId: string) {
     if (!group || !group.id) return { success: false, message: 'Dati gruppo incompleti.' };
     const phases = group.phases || [];
+    
+    // Update global status based on phases
+    const isAnyActive = phases.some(p => p.status === 'in-progress');
+    const isAnyPaused = phases.some(p => p.status === 'paused');
+    
     if (phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !group.isProblemReported) {
         const result = await dissolveWorkGroup(group.id, true);
         return result;
     }
-    group.status = phases.some(p => p.status === 'in-progress') ? 'production' : 'paused';
+    
+    group.status = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
+    
     try {
         await runTransaction(db, async (t) => {
             const groupRef = doc(db, "workGroups", group.id);
-            const groupSnap = await t.get(groupRef);
-            if (!groupSnap.exists()) throw new Error("Gruppo non trovato: " + group.id);
             t.set(groupRef, JSON.parse(JSON.stringify(group)), { merge: true });
             await propagateGroupUpdatesToJobs(t, group);
         });
         revalidatePath('/scan-job');
         return { success: true, message: 'Gruppo aggiornato.' };
     } catch (e) {
-        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'aggiornamento del gruppo.' };
+        return { success: false, message: e instanceof Error ? e.message : 'Errore.' };
     }
 }
 
@@ -179,7 +190,6 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         const consumedWeight = (session.grossOpeningWeight || 0) - (closing || 0);
         if (consumedWeight < -0.001) throw new Error("Peso finale superiore a apertura.");
         
-        // KG LOGIC: Se gestito a KG, le unità corrispondono al peso senza conversioni.
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         
         const wRef = doc(collection(db, "materialWithdrawals"));
@@ -206,7 +216,6 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 const data = snap.data() as JobOrder;
                 const phs = (data.phases || []).map(p => ({
                     ...p, materialConsumptions: (p.materialConsumptions || []).map(mc => {
-                        // BUG FIX: Confronto rigoroso per ID Materiale E Lotto
                         const isMatch = mc.materialId === mSnap.id && 
                                       (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto));
                         
@@ -254,8 +263,6 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const qty = Number(data.quantity);
         
         const w = data.unit === 'kg' ? qty : (mat.conversionFactor ? qty * mat.conversionFactor : 0);
-        
-        // KG LOGIC SAFETY: se la materia prima è KG, l'unità è sempre il peso
         const u = mat.unitOfMeasure === 'kg' ? w : (data.unit === 'kg' ? (mat.conversionFactor ? qty / mat.conversionFactor : qty) : qty);
         
         t.update(mRef, { 
@@ -328,8 +335,8 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
 export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
     if (!jobId || !phaseId || !opId) return { success: false, message: 'Dati incompleti.' };
     const isGroup = jobId.startsWith('group-');
-    const avail = await isOperatorActiveOnAnyJob(opId, isGroup ? jobId : undefined);
-    if (!avail.available) return { success: false, message: "Operatore già attivo.", error: 'OPERATOR_BUSY' };
+    const avail = await isOperatorActiveOnAnyJob(opId, jobId);
+    if (!avail.available) return { success: false, message: "Sei già attivo altrove.", error: 'OPERATOR_BUSY' };
     
     try {
         return await runTransaction(db, async (t) => {
@@ -355,7 +362,7 @@ export async function handlePhaseScanResult(jobId: string, phaseId: string, opId
             return { success: true, message: 'Fase avviata.' };
         });
     } catch (e) { 
-        return { success: false, message: e instanceof Error ? e.message : 'Errore durante l\'avvio.' }; 
+        return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; 
     }
 }
 
@@ -412,7 +419,6 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
                 throw new Error("Non puoi concatenare commesse già completate.");
             }
 
-            // REGOLA: Nessuna lavorazione attiva
             if (jobs.some(j => (j.phases || []).some(p => p.status === 'in-progress'))) {
                 throw new Error("Impossibile concatenare: una o più commesse hanno lavorazioni attualmente in corso. Metti in pausa le fasi prima di procedere.");
             }
@@ -420,7 +426,6 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             const firstJob = jobs[0];
             const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
             
-            // Fasi comuni a TUTTE le commesse (Prep, Prod, Pack)
             const commonPhases = firstJob.phases.filter(p => {
                 const isTargetType = p.type === 'preparation' || p.type === 'production' || p.type === 'packaging';
                 if (!isTargetType) return false;
@@ -462,7 +467,6 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
   try {
     const groupRef = doc(db, 'workGroups', groupId);
     
-    // BLOCCA SCIOGLIMENTO SE SESSIONE MATERIALE ATTIVA
     const opsSnap = await getDocs(collection(db, "operators"));
     const hasActiveSession = opsSnap.docs.some(docSnap => {
         const op = docSnap.data() as Operator;

@@ -1,10 +1,11 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query as firestoreQuery, where, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate, Operator } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 
 export type ProductionTimeData = {
@@ -174,7 +175,9 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
         return phase;
       });
       const isAnyActive = updatedPhases.some(p => p.status === 'in-progress');
-      const newStatus = isAnyActive ? 'production' : 'paused';
+      const isAnyPaused = updatedPhases.some(p => p.status === 'paused');
+      const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
+      
       transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
       if (isGroup) {
         (itemData.jobOrderIds || []).forEach(id => {

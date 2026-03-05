@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -21,8 +22,8 @@ import { QrCode, CheckCircle, PlayCircle, PauseCircle as PausePhaseIcon, CheckCi
 import { useToast } from "@/hooks/use-toast";
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType } from '@/lib/mock-data';
-import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup } from './actions';
+import type { JobOrder, JobPhase, WorkPeriod, ActiveMaterialSessionData, RawMaterialType, WorkGroup } from '@/lib/mock-data';
+import { verifyAndGetJobOrder, updateJob, getJobOrderById, handlePhaseScanResult, isOperatorActiveOnAnyJob, updateOperatorStatus, createWorkGroup, dissolveWorkGroup, updateWorkGroup } from './actions';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveMaterialSession } from '@/contexts/ActiveMaterialSessionProvider';
@@ -46,7 +47,7 @@ function getPhaseIcon(status: JobPhase['status']) {
   if (status === 'completed') return <PhaseCompletedIcon className="h-4 w-4 text-green-500" />;
   switch (status) {
     case 'pending': return <Circle className="h-4 w-4 text-muted-foreground" />;
-    case 'in-progress': return <Hourglass className="h-4 w-4 text-yellow-500 animate-spin" />;
+    case 'in-progress': return <Hourglass className="h-4 w-4 text-blue-500 animate-spin" />;
     case 'paused': return <PausePhaseIcon className="h-4 w-4 text-orange-500" />;
     case 'skipped': return <EyeOff className="h-4 w-4 text-muted-foreground" />;
     default: return <Circle className="h-4 w-4 text-muted-foreground" />;
@@ -119,6 +120,23 @@ export default function ScanJobPage() {
       setStep(activeJob ? (activeJob.status === 'completed' ? 'finished' : 'processing') : 'initial');
     }
   }, [isJobLoading, activeJob]);
+
+  // Unified update handler for both Jobs and Groups
+  const handleUpdateJobOrGroup = async (updatedItem: JobOrder | any) => {
+    if (!operator || !updatedItem) return;
+    const isGroup = updatedItem.id.startsWith('group-');
+    const result = isGroup
+        ? await updateWorkGroup(updatedItem as WorkGroup, operator.id)
+        : await updateJob(updatedItem as JobOrder);
+
+    if (!result.success) {
+      toast({
+        variant: "destructive",
+        title: "Errore di Sincronizzazione",
+        description: result.message,
+      });
+    }
+  };
 
   const triggerScan = useCallback(async (vRef: React.RefObject<HTMLVideoElement>, onScan: (data: string) => void) => {
       if (!vRef.current || vRef.current.readyState < 2) {
@@ -225,37 +243,58 @@ export default function ScanJobPage() {
     setIsDissolving(false);
   };
 
-  const handlePausePhase = (id: string) => {
+  const handlePausePhase = async (id: string) => {
     if (!activeJob || !operator) return;
     const job = JSON.parse(JSON.stringify(activeJob));
     const p = job.phases.find((p:any) => p.id === id);
     if (!p || p.status !== 'in-progress') return;
+    
     const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
-    if (myWorkPeriodIndex !== -1) { p.workPeriods[myWorkPeriodIndex].end = new Date(); if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; }
-    updateOperatorStatus(operator.id, job.id, null);
-    updateJob(job);
+    if (myWorkPeriodIndex !== -1) { 
+        p.workPeriods[myWorkPeriodIndex].end = new Date(); 
+        if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'paused'; 
+    }
+    
+    await updateOperatorStatus(operator.id, null, null);
+    handleUpdateJobOrGroup(job);
   };
 
   const handleResumePhase = async (id: string) => {
       if (!activeJob || !operator) return;
+      
+      const avail = await isOperatorActiveOnAnyJob(operator.id, activeJob.id);
+      if (!avail.available) {
+          toast({ variant: 'destructive', title: 'Operatore Occupato', description: `Sei già attivo sulla commessa ${avail.activeJobId} nella fase ${avail.activePhaseName}.` });
+          return;
+      }
+
       const job = JSON.parse(JSON.stringify(activeJob));
       const p = job.phases.find((p:any) => p.id === id);
-      p.status = 'in-progress'; job.status = 'production';
+      if (!p) return;
+
+      p.status = 'in-progress'; 
+      job.status = 'production';
+      
       if (!p.workPeriods) p.workPeriods = [];
       p.workPeriods.push({ start: new Date(), end: null, operatorId: operator.id });
+      
       await updateOperatorStatus(operator.id, job.id, p.name);
-      updateJob(job);
+      handleUpdateJobOrGroup(job);
   };
 
-  const handleCompletePhase = (id: string) => {
+  const handleCompletePhase = async (id: string) => {
     if (!activeJob || !operator) return;
     const job = JSON.parse(JSON.stringify(activeJob));
     const p = job.phases.find((p:any) => p.id === id);
+    if (!p) return;
+
     const myWorkPeriodIndex = p.workPeriods.findIndex((wp:any) => wp.operatorId === operator.id && wp.end === null);
     if (myWorkPeriodIndex !== -1) p.workPeriods[myWorkPeriodIndex].end = new Date();
+    
     if (!p.workPeriods.some((wp:any) => wp.end === null)) p.status = 'completed';
-    updateOperatorStatus(operator.id, job.id, null);
-    updateJob(job);
+    
+    await updateOperatorStatus(operator.id, null, null);
+    handleUpdateJobOrGroup(job);
   };
 
   const handleOpenPhaseScanDialog = (phase: JobPhase) => {
