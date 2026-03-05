@@ -18,16 +18,19 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, Printer, PlusCircle, Check, ChevronsUpDown } from 'lucide-react';
-import { type JobOrder, type WorkCycle, type Article, type Department } from '@/lib/mock-data';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown } from 'lucide-react';
+import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted } from './actions';
+import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
+import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
+import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 
 const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
@@ -50,6 +53,7 @@ export default function DataManagementClientPage() {
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
   const [articles, setArticles] = useState<Article[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -65,6 +69,9 @@ export default function DataManagementClientPage() {
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[] } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -78,18 +85,20 @@ export default function DataManagementClientPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [planned, production, cycles, artList, depts] = await Promise.all([
+      const [planned, production, cycles, artList, depts, materials] = await Promise.all([
         getPlannedJobOrders(), 
         getProductionJobOrders(), 
         getWorkCycles(),
         getArticles(),
-        getDepartments()
+        getDepartments(),
+        getRawMaterials()
       ]);
       setPlannedJobOrders(planned);
       setProductionJobOrders(production);
       setWorkCycles(cycles);
       setArticles(artList);
       setDepartments(depts);
+      setRawMaterials(materials);
     } catch (error) {
       toast({ variant: "destructive", title: "Errore nel Caricamento", description: "Impossibile caricare i dati." });
     } finally { setIsLoading(false); }
@@ -102,6 +111,58 @@ export default function DataManagementClientPage() {
     const l = plannedSearchTerm.toLowerCase();
     return plannedJobOrders.filter(j => j.ordinePF.toLowerCase().includes(l) || j.details.toLowerCase().includes(l) || j.cliente.toLowerCase().includes(l) || (j.numeroODLInterno || '').toLowerCase().includes(l));
   }, [plannedJobOrders, plannedSearchTerm]);
+
+  const handleDownloadPdf = async (job: JobOrder) => {
+    setIsDownloadingPdf(job.id);
+    try {
+        const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
+        setPdfData({ job, article, materials: rawMaterials });
+
+        // Wait for rendering
+        await new Promise(r => setTimeout(r, 500));
+
+        const element = document.getElementById('odl-pdf-content');
+        if (!element) throw new Error("Template non trovato");
+
+        const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const pdf = new jsPDF({
+            orientation: 'landscape',
+            unit: 'mm',
+            format: 'a4'
+        });
+
+        const imgProps = pdf.getImageProperties(imgData);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
+
+        await markJobAsPrinted(job.id);
+        fetchData();
+        toast({ title: "PDF Scaricato", description: `ODL per ${job.ordinePF} salvato correttamente.` });
+    } catch (error) {
+        console.error(error);
+        toast({ variant: "destructive", title: "Errore Download", description: "Impossibile generare il PDF." });
+    } finally {
+        setIsDownloadingPdf(null);
+        setPdfData(null);
+    }
+  };
+
+  const handleManualSubmit = async (values: ManualCreateValues) => {
+    const result = await saveManualJobOrder(values);
+    if (result.success) {
+        toast({ title: "Successo", description: result.message });
+        setIsManualCreateOpen(false);
+        manualForm.reset();
+        fetchData();
+    } else {
+        toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+  };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -130,44 +191,12 @@ export default function DataManagementClientPage() {
     } finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
-  const handleConfirmCommit = async (overwrite: boolean) => {
-    if (!importReport) return;
-    const data = { newJobs: importReport.newJobs, jobsToUpdate: overwrite ? importReport.jobsToUpdate : [] };
-    const res = await commitImportedJobOrders(data);
-    toast({ title: "Completato", description: res.message });
-    setImportReport(null);
-    fetchData();
-  };
-
-  const handleManualSubmit = async (values: ManualCreateValues) => {
-    const result = await saveManualJobOrder(values);
-    if (result.success) {
-        toast({ title: "Successo", description: result.message });
-        setIsManualCreateOpen(false);
-        manualForm.reset();
-        fetchData();
-    } else {
-        toast({ variant: "destructive", title: "Errore", description: result.message });
-    }
-  };
-
-  const handlePrintClick = async (jobId: string) => {
-    try {
-      await markJobAsPrinted(jobId);
-      // Aggiorna lo stato locale per reattività immediata
-      setPlannedJobOrders(prev => prev.map(j => j.id === jobId ? { ...j, isPrinted: true } : j));
-      setProductionJobOrders(prev => prev.map(j => j.id === jobId ? { ...j, isPrinted: true } : j));
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><ListChecks className="h-8 w-8 text-primary" />Gestione Dati Commesse</h1>
-          <p className="text-muted-foreground">Importa da Excel e invia le commesse in produzione.</p>
+          <p className="text-muted-foreground">Importa da Excel e gestisci le commesse.</p>
         </div>
         <div className="flex gap-2">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
@@ -175,6 +204,8 @@ export default function DataManagementClientPage() {
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
         </div>
       </header>
+
+      {pdfData && <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />}
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-2">
@@ -209,19 +240,14 @@ export default function DataManagementClientPage() {
                       <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button 
-                          asChild 
                           variant="ghost" 
                           size="icon" 
                           className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
-                          title="Stampa ODL"
+                          onClick={() => handleDownloadPdf(j)}
+                          disabled={isDownloadingPdf === j.id}
+                          title="Scarica PDF ODL"
                         >
-                          <Link 
-                            href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} 
-                            target="_blank"
-                            onClick={() => handlePrintClick(j.id)}
-                          >
-                            <Printer className="h-4 w-4" />
-                          </Link>
+                          {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
                       </TableCell>
@@ -242,19 +268,14 @@ export default function DataManagementClientPage() {
                       <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button 
-                          asChild 
                           variant="ghost" 
                           size="icon" 
                           className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
-                          title="Stampa ODL"
+                          onClick={() => handleDownloadPdf(j)}
+                          disabled={isDownloadingPdf === j.id}
+                          title="Scarica PDF ODL"
                         >
-                          <Link 
-                            href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} 
-                            target="_blank"
-                            onClick={() => handlePrintClick(j.id)}
-                          >
-                            <Printer className="h-4 w-4" />
-                          </Link>
+                          {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                         </Button>
                         <Button variant="destructive" size="sm" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-2 h-4 w-4" /> Annulla ODL</Button>
                       </TableCell>
