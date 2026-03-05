@@ -2,17 +2,19 @@
 "use client"
 
 import type { JobOrder, RawMaterial, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
-import { notFound, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import QRCode from 'react-qr-code';
 import { PrintButton } from './PrintButton';
 import { useEffect, useState, Suspense, useMemo } from 'react';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { getJobDetailReport } from '@/app/admin/reports/actions';
 import { getArticles } from '@/app/admin/article-management/actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { formatDisplayStock } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import AdminAuthGuard from '@/components/AdminAuthGuard';
 
 function PrintPageContent() {
   const searchParams = useSearchParams();
@@ -45,10 +47,11 @@ function PrintPageContent() {
           setArticle(matchedArticle || null);
           setMaterials(allMaterials);
         } else {
-          setError('Commessa non trovata.');
+          setError('Commessa non trovata nel database.');
         }
       } catch (err) {
-        setError('Errore nel caricamento dei dati.');
+        console.error("Errore fetch stampa:", err);
+        setError('Si è verificato un errore durante il recupero dei dati per la stampa.');
       } finally {
         setLoading(false);
       }
@@ -59,7 +62,7 @@ function PrintPageContent() {
 
   const materialsMap = useMemo(() => new Map(materials.map(m => [m.code.toUpperCase(), m])), [materials]);
 
-  // Suddivisione componenti per tipologia
+  // Suddivisione componenti per tipologia ministeriale
   const groupedBOM = useMemo(() => {
     if (!job?.billOfMaterials) return { treccia: [], tubi: [], guaina: [] };
 
@@ -84,7 +87,7 @@ function PrintPageContent() {
     return { treccia, tubi, guaina };
   }, [job, materialsMap]);
 
-  // Calcolo Stime Tempi
+  // Calcolo Stime Tempi basate sull'anagrafica articolo
   const estimatedTimes = useMemo(() => {
     if (!article?.phaseTimes) return { treccia: 'N/D', tubi: 'N/D', guaina: 'N/D' };
 
@@ -96,10 +99,10 @@ function PrintPageContent() {
         return `${h > 0 ? h + 'h ' : ''}${m}m`;
     };
 
-    // Mapping nomi fasi standard per recuperare i tempi previsti
-    const trecciaTime = Object.values(article.phaseTimes).find((_, i) => Object.keys(article.phaseTimes!)[i].includes('phase-template-1'))?.expectedMinutesPerPiece || 0;
-    const tubiTime = Object.values(article.phaseTimes).find((_, i) => Object.keys(article.phaseTimes!)[i].includes('phase-template-7'))?.expectedMinutesPerPiece || 0;
-    const guainaTime = Object.values(article.phaseTimes).find((_, i) => Object.keys(article.phaseTimes!)[i].includes('phase-template-6'))?.expectedMinutesPerPiece || 0;
+    // Recupero tempi dalle fasi mappate (ID phase-template-X)
+    const trecciaTime = article.phaseTimes['phase-template-1']?.expectedMinutesPerPiece || 0;
+    const tubiTime = article.phaseTimes['phase-template-7']?.expectedMinutesPerPiece || 0;
+    const guainaTime = article.phaseTimes['phase-template-6']?.expectedMinutesPerPiece || 0;
 
     return {
       treccia: formatMins(trecciaTime),
@@ -110,36 +113,47 @@ function PrintPageContent() {
 
   if (loading) {
     return (
-        <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <div className="flex flex-col items-center justify-center h-screen gap-4 bg-background">
             <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground animate-pulse">Generazione Scheda di Lavorazione...</p>
+            <p className="text-muted-foreground animate-pulse font-medium">Generazione Scheda di Lavorazione...</p>
         </div>
     );
   }
   
   if (error || !job) {
     return (
-        <div className="flex flex-col items-center justify-center h-screen gap-4 p-4 text-center">
+        <div className="flex flex-col items-center justify-center h-screen gap-4 p-4 text-center bg-background">
             <AlertCircle className="h-16 w-16 text-destructive" />
-            <h1 className="text-2xl font-bold">{error || 'Errore critico'}</h1>
-            <Button onClick={() => window.close()}>Chiudi Finestra</Button>
+            <h1 className="text-2xl font-bold">{error || 'Errore durante la generazione'}</h1>
+            <p className="text-muted-foreground">Assicurati che la commessa esista e di avere i permessi necessari.</p>
+            <Button onClick={() => window.close()} variant="outline">Chiudi Finestra</Button>
         </div>
     );
   }
   
   const qrValue = `${job.ordinePF}@${job.details}@${job.qta}`;
 
+  // Formattazione sicura delle date
+  const formatDateSafe = (dateInput: any) => {
+      if (!dateInput) return '---';
+      const d = typeof dateInput === 'string' ? parseISO(dateInput) : new Date(dateInput);
+      return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
+  };
+
   return (
     <div className="min-h-screen bg-neutral-100 py-8 print:bg-white print:py-0">
        <div className="max-w-[21cm] mx-auto bg-white shadow-2xl print:shadow-none min-h-[29.7cm] p-[1cm]">
         
-        {/* Print Controls */}
+        {/* Print Controls (Hidden on print) */}
         <div className="flex justify-between items-center mb-6 print:hidden bg-muted p-4 rounded-lg border border-border">
             <div className="space-y-1">
-                <h3 className="font-bold">Anteprima di Stampa A4</h3>
-                <p className="text-xs text-muted-foreground">Verifica che i margini siano impostati su "Nessuno" o "Predefiniti" nelle impostazioni del browser.</p>
+                <h3 className="font-bold">Anteprima di Stampa ODL</h3>
+                <p className="text-xs text-muted-foreground">Verifica l'anteprima prima di stampare su carta A4.</p>
             </div>
-            <PrintButton />
+            <div className="flex gap-2">
+                <Button variant="outline" onClick={() => window.close()} size="sm">Chiudi</Button>
+                <PrintButton />
+            </div>
         </div>
 
         {/* --- ODL DOCUMENT START --- */}
@@ -148,7 +162,7 @@ function PrintPageContent() {
             {/* Header Module Info */}
             <div className="flex justify-between items-center border-b border-black pb-1 mb-2">
                 <div className="w-16">
-                    <img src="/logo.png" alt="PF" className="w-full h-auto grayscale" />
+                    <img src="/logo.png" alt="PF" className="w-full h-auto grayscale" onError={(e) => e.currentTarget.style.display = 'none'} />
                 </div>
                 <div className="flex-1 text-center">
                     <h1 className="text-lg font-bold underline">SCHEDA DI LAVORAZIONE</h1>
@@ -161,23 +175,23 @@ function PrintPageContent() {
             {/* Top Grid Info */}
             <div className="grid grid-cols-5 border border-black mb-2">
                 <div className="border-r border-black p-1 text-center bg-gray-50">
-                    <span className="block text-[8px] font-bold uppercase">Reparto</span>
-                    <span className="font-semibold">{job.department}</span>
+                    <span className="block text-[8px] font-bold uppercase text-gray-500">Reparto</span>
+                    <span className="font-semibold">{job.department || 'N/D'}</span>
                 </div>
                 <div className="border-r border-black p-1 text-center bg-gray-50">
-                    <span className="block text-[8px] font-bold uppercase">Data ODL</span>
-                    <span className="font-semibold">{job.odlCreationDate ? format(new Date(job.odlCreationDate), 'dd/MM/yyyy') : format(new Date(), 'dd/MM/yyyy')}</span>
+                    <span className="block text-[8px] font-bold uppercase text-gray-500">Data ODL</span>
+                    <span className="font-semibold">{formatDateSafe(job.odlCreationDate || new Date())}</span>
                 </div>
                 <div className="border-r border-black p-1 text-center bg-gray-50">
-                    <span className="block text-[8px] font-bold uppercase">N° Ord. Interno</span>
+                    <span className="block text-[8px] font-bold uppercase text-gray-500">N° Ord. Interno</span>
                     <span className="font-semibold">{job.numeroODLInterno || '---'}</span>
                 </div>
                 <div className="border-r border-black p-1 text-center bg-blue-100">
-                    <span className="block text-[8px] font-bold uppercase">Numero Ordine PF</span>
+                    <span className="block text-[8px] font-bold uppercase text-blue-800">Numero Ordine PF</span>
                     <span className="font-bold text-sm">{job.ordinePF}</span>
                 </div>
                 <div className="p-1 text-center bg-green-50">
-                    <span className="block text-[8px] font-bold uppercase">N° ODL</span>
+                    <span className="block text-[8px] font-bold uppercase text-green-800">N° ODL</span>
                     <span className="font-semibold">{job.numeroODL || '---'}</span>
                 </div>
             </div>
@@ -185,7 +199,6 @@ function PrintPageContent() {
             {/* Main Info Area */}
             <div className="grid grid-cols-12 gap-0 border border-black border-t-0 mb-4 h-48">
                 <div className="col-span-4 border-r border-black flex flex-col">
-                    {/* Labels Column */}
                     <div className="grid grid-cols-3 flex-1">
                         <div className="col-span-1 border-b border-black p-2 font-bold uppercase bg-gray-100 flex items-center">Cliente</div>
                         <div className="col-span-2 border-b border-black p-2 flex items-center font-semibold">{job.cliente}</div>
@@ -200,7 +213,7 @@ function PrintPageContent() {
                         <div className="col-span-2 border-b border-black p-2 flex items-center font-bold text-lg">{job.qta}</div>
                         
                         <div className="col-span-1 p-2 font-bold uppercase bg-gray-100 flex items-center leading-none text-[9px]">Data Fine Prep. Materiale</div>
-                        <div className="col-span-2 p-2 flex items-center font-semibold text-destructive">{job.dataConsegnaFinale ? format(parseISO(job.dataConsegnaFinale), 'dd/MM/yyyy') : '---'}</div>
+                        <div className="col-span-2 p-2 flex items-center font-semibold text-destructive">{formatDateSafe(job.dataConsegnaFinale)}</div>
                     </div>
                 </div>
                 <div className="col-span-2 border-r border-black flex flex-col items-center justify-center p-2 relative">
@@ -384,13 +397,15 @@ function PrintPageContent() {
 
 export default function ODLPrintPage() {
   return (
-    <Suspense fallback={
-        <div className="flex flex-col items-center justify-center h-screen gap-4">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-muted-foreground animate-pulse">Caricamento scheda...</p>
-        </div>
-    }>
-        <PrintPageContent />
-    </Suspense>
+    <AdminAuthGuard>
+        <Suspense fallback={
+            <div className="flex flex-col items-center justify-center h-screen gap-4 bg-background">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <p className="text-muted-foreground animate-pulse">Inizializzazione...</p>
+            </div>
+        }>
+            <PrintPageContent />
+        </Suspense>
+    </AdminAuthGuard>
   );
 }
