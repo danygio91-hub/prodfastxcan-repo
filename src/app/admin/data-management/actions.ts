@@ -1,9 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query as firestoreQuery, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc } from 'firebase/firestore';
+import { collection, query as firestoreQuery, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department } from '@/lib/mock-data';
 import * as z from 'zod';
 
 function sanitizeDocumentId(id: string): string {
@@ -54,6 +54,83 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
+export async function getArticles(): Promise<Article[]> {
+    const snap = await getDocs(firestoreQuery(collection(db, "articles"), orderBy("code")));
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
+}
+
+export async function getDepartments(): Promise<Department[]> {
+    const snap = await getDocs(firestoreQuery(collection(db, "departments"), orderBy("name")));
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department));
+}
+
+export async function saveManualJobOrder(data: any) {
+    const { ordinePF, articleCode, qta, cliente, dataConsegnaFinale, department, workCycleId, numeroODLInterno } = data;
+    
+    const sanitizedId = sanitizeDocumentId(ordinePF);
+    const docRef = doc(db, "jobOrders", sanitizedId);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+        return { success: false, message: "Esiste già una commessa con questo Ordine PF." };
+    }
+
+    const articleSnap = await getDoc(doc(db, "articles", articleCode.toUpperCase()));
+    if (!articleSnap.exists()) {
+        return { success: false, message: "Articolo non trovato in anagrafica." };
+    }
+    const articleData = articleSnap.data() as Article;
+
+    const phases = await createPhasesFromCycle(workCycleId);
+    const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
+
+    const now = new Date();
+    const shortYear = now.getFullYear().toString().slice(-2);
+    
+    let odlToAssign = null;
+    if (numeroODLInterno) {
+        const rawVal = String(numeroODLInterno).trim();
+        const dashIndex = rawVal.indexOf('-');
+        if (dashIndex !== -1) {
+            const numPart = rawVal.substring(0, dashIndex).match(/\d+/)?.[0] || '';
+            const yearPart = rawVal.substring(dashIndex + 1).trim();
+            if (numPart) {
+                odlToAssign = `${numPart.padStart(4, '0')}-${yearPart}`;
+            }
+        } else {
+            const digits = rawVal.match(/\d+/)?.[0] || '';
+            if (digits) {
+                odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+            }
+        }
+    }
+
+    const newJob: JobOrder = {
+        id: sanitizedId,
+        status: 'planned',
+        postazioneLavoro: 'Da Assegnare',
+        cliente: cliente || "N/D",
+        ordinePF: ordinePF,
+        numeroODL: "MANUALE",
+        numeroODLInterno: odlToAssign,
+        details: articleCode.toUpperCase(),
+        qta: Number(qta),
+        billOfMaterials: jobBOM,
+        phases: phases,
+        dataConsegnaFinale: dataConsegnaFinale || '',
+        department: department || "N/D",
+        workCycleId: workCycleId || ''
+    };
+
+    try {
+        await setDoc(docRef, JSON.parse(JSON.stringify(newJob)));
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'Commessa creata con successo.' };
+    } catch (error) {
+        return { success: false, message: "Errore durante il salvataggio della commessa." };
+    }
+}
+
 export async function processAndValidateImport(data: any[]): Promise<{
     success: boolean; message: string; newJobs: JobOrder[]; jobsToUpdate: JobOrder[]; blockedJobs: Array<{ row: any; reason: string }>;
 }> {
@@ -85,14 +162,12 @@ export async function processAndValidateImport(data: any[]): Promise<{
             const rawVal = String(validData.numeroODLInternoImport).trim();
             const dashIndex = rawVal.indexOf('-');
             if (dashIndex !== -1) {
-                // Preserva l'anno originale se presente (es. 1001-25)
                 const numPart = rawVal.substring(0, dashIndex).match(/\d+/)?.[0] || '';
                 const yearPart = rawVal.substring(dashIndex + 1).trim();
                 if (numPart) {
                     odlToAssign = `${numPart.padStart(4, '0')}-${yearPart}`;
                 }
             } else {
-                // Solo numero, applica anno corrente
                 const digits = rawVal.match(/\d+/)?.[0] || '';
                 if (digits) {
                     odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
@@ -146,7 +221,6 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
           newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
           newCounterValue = Math.max(currentCounter, manualNum);
       } else if (job.numeroODLInterno) {
-          // Se ha già un ODL (es. da import), usa quello e non toccare il contatore
           newOdlId = job.numeroODLInterno;
           newCounterValue = currentCounter;
       } else {

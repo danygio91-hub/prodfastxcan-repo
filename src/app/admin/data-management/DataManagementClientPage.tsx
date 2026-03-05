@@ -12,26 +12,43 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, Printer } from 'lucide-react';
-import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, Printer, PlusCircle, Check, ChevronsUpDown } from 'lucide-react';
+import { type JobOrder, type WorkCycle, type Article, type Department } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder } from './actions';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { cn } from '@/lib/utils';
 
 const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
+
+const manualCreateSchema = z.object({
+    cliente: z.string().min(1, "Il cliente è obbligatorio."),
+    ordinePF: z.string().min(1, "L'Ordine PF è obbligatorio."),
+    articleCode: z.string().min(1, "L'articolo è obbligatorio."),
+    qta: z.coerce.number().positive("La quantità deve essere positiva."),
+    dataConsegnaFinale: z.string().min(1, "La data di consegna è obbligatoria."),
+    department: z.string().min(1, "Il reparto è obbligatorio."),
+    workCycleId: z.string().min(1, "Il ciclo di lavoro è obbligatorio."),
+    numeroODLInterno: z.string().optional(),
+});
+type ManualCreateValues = z.infer<typeof manualCreateSchema>;
 
 export default function DataManagementClientPage() {
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -42,23 +59,38 @@ export default function DataManagementClientPage() {
   } | null>(null);
   
   const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
+  const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
+  const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
   const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
-  const form = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
+  
+  const odlForm = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
+  const manualForm = useForm<ManualCreateValues>({ 
+    resolver: zodResolver(manualCreateSchema),
+    defaultValues: { qta: 1, department: 'N/D' }
+  });
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [planned, production, cycles] = await Promise.all([getPlannedJobOrders(), getProductionJobOrders(), getWorkCycles()]);
+      const [planned, production, cycles, artList, depts] = await Promise.all([
+        getPlannedJobOrders(), 
+        getProductionJobOrders(), 
+        getWorkCycles(),
+        getArticles(),
+        getDepartments()
+      ]);
       setPlannedJobOrders(planned);
       setProductionJobOrders(production);
       setWorkCycles(cycles);
+      setArticles(artList);
+      setDepartments(depts);
     } catch (error) {
-      toast({ variant: "destructive", title: "Errore nel Caricamento", description: "Impossibile caricare le commesse." });
+      toast({ variant: "destructive", title: "Errore nel Caricamento", description: "Impossibile caricare i dati." });
     } finally { setIsLoading(false); }
   }, [toast]);
 
@@ -106,6 +138,18 @@ export default function DataManagementClientPage() {
     fetchData();
   };
 
+  const handleManualSubmit = async (values: ManualCreateValues) => {
+    const result = await saveManualJobOrder(values);
+    if (result.success) {
+        toast({ title: "Successo", description: result.message });
+        setIsManualCreateOpen(false);
+        manualForm.reset();
+        fetchData();
+    } else {
+        toast({ variant: "destructive", title: "Errore", description: result.message });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -115,6 +159,7 @@ export default function DataManagementClientPage() {
         </div>
         <div className="flex gap-2">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+          <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
         </div>
       </header>
@@ -189,6 +234,86 @@ export default function DataManagementClientPage() {
         </TabsContent>
       </Tabs>
 
+      <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+                <DialogTitle>Nuova Commessa Manuale</DialogTitle>
+                <DialogDescription>Compila i campi per pianificare una nuova commessa di produzione.</DialogDescription>
+            </DialogHeader>
+            <Form {...manualForm}>
+                <form onSubmit={manualForm.handleSubmit(handleManualSubmit)} className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField control={manualForm.control} name="cliente" render={({ field }) => ( <FormItem><FormLabel>Cliente</FormLabel><FormControl><Input placeholder="Es. Mario Rossi" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={manualForm.control} name="ordinePF" render={({ field }) => ( <FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input placeholder="Es. 1234/25" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
+                            <FormItem className="flex flex-col">
+                                <FormLabel>Codice Articolo</FormLabel>
+                                <Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}>
+                                    <PopoverTrigger asChild>
+                                        <FormControl>
+                                            <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
+                                                {field.value ? articles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
+                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                            </Button>
+                                        </FormControl>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                        <Command>
+                                            <CommandInput placeholder="Cerca articolo..." />
+                                            <CommandList>
+                                                <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
+                                                <CommandGroup>
+                                                    {articles.map((article) => (
+                                                        <CommandItem
+                                                            key={article.id}
+                                                            value={article.code}
+                                                            onSelect={() => { manualForm.setValue("articleCode", article.code); setIsArticlePopoverOpen(false); }}
+                                                        >
+                                                            <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
+                                                            {article.code}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                        <FormField control={manualForm.control} name="qta" render={({ field }) => ( <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem><FormLabel>Data Consegna</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                        <FormField control={manualForm.control} name="numeroODLInterno" render={({ field }) => ( <FormItem><FormLabel>N° ODL (Opzionale)</FormLabel><FormControl><Input placeholder="Es. 0001" {...field} /></FormControl><FormMessage /></FormItem> )} />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField control={manualForm.control} name="department" render={({ field }) => (
+                            <FormItem><FormLabel>Reparto</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona reparto..." /></SelectTrigger></FormControl>
+                                    <SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent>
+                                </Select><FormMessage /></FormItem>
+                        )} />
+                        <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (
+                            <FormItem><FormLabel>Ciclo di Lavoro</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona ciclo..." /></SelectTrigger></FormControl>
+                                    <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                                </Select><FormMessage /></FormItem>
+                        )} />
+                    </div>
+                    <DialogFooter className="mt-6">
+                        <Button variant="outline" type="button" onClick={() => setIsManualCreateOpen(false)}>Annulla</Button>
+                        <Button type="submit">Salva Commessa</Button>
+                    </DialogFooter>
+                </form>
+            </Form>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!importReport} onOpenChange={o => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Revisiona i risultati prima di caricare.</DialogDescription></DialogHeader>
@@ -220,9 +345,9 @@ export default function DataManagementClientPage() {
 
       <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Avvia Ordine di Lavoro</DialogTitle></DialogHeader>
-          <Form {...form}><form onSubmit={form.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
+          <Form {...odlForm}><form onSubmit={odlForm.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
             <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p><p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p></div>
-            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} placeholder="Es. 0001" /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={odlForm.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} placeholder="Es. 0001" /></FormControl><FormMessage /></FormItem> )} />
             <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma e Avvia</Button></DialogFooter>
           </form></Form>
         </DialogContent>
