@@ -17,12 +17,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, Printer } from 'lucide-react';
 import { type JobOrder, type WorkCycle } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles } from './actions';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
 type OdlFormValues = z.infer<typeof odlFormSchema>;
@@ -66,7 +67,7 @@ export default function DataManagementClientPage() {
   const filteredPlanned = useMemo(() => {
     if (!plannedSearchTerm) return plannedJobOrders;
     const l = plannedSearchTerm.toLowerCase();
-    return plannedJobOrders.filter(j => j.ordinePF.toLowerCase().includes(l) || j.details.toLowerCase().includes(l) || j.cliente.toLowerCase().includes(l));
+    return plannedJobOrders.filter(j => j.ordinePF.toLowerCase().includes(l) || j.details.toLowerCase().includes(l) || j.cliente.toLowerCase().includes(l) || (j.numeroODLInterno || '').toLowerCase().includes(l));
   }, [plannedJobOrders, plannedSearchTerm]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,7 +137,7 @@ export default function DataManagementClientPage() {
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Ciclo</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredPlanned.map(j => (
                     <TableRow key={j.id}>
@@ -148,7 +149,15 @@ export default function DataManagementClientPage() {
                           <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button></TableCell>
+                      <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Stampa ODL">
+                          <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} target="_blank">
+                            <Printer className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -162,7 +171,17 @@ export default function DataManagementClientPage() {
                 <TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Codice</TableHead><TableHead>Qta</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {productionJobOrders.map(j => (
-                    <TableRow key={j.id}><TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell><TableCell className="text-right"><Button variant="destructive" size="sm" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-2 h-4 w-4" /> Annulla ODL</Button></TableCell></TableRow>
+                    <TableRow key={j.id}>
+                      <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
+                      <TableCell className="text-right space-x-2">
+                        <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Stampa ODL">
+                          <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} target="_blank">
+                            <Printer className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-2 h-4 w-4" /> Annulla ODL</Button>
+                      </TableCell>
+                    </TableRow>
                   ))}
                 </TableBody>
               </Table>
@@ -203,7 +222,7 @@ export default function DataManagementClientPage() {
         <DialogContent><DialogHeader><DialogTitle>Avvia Ordine di Lavoro</DialogTitle></DialogHeader>
           <Form {...form}><form onSubmit={form.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
             <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p><p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p></div>
-            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} placeholder="Es. 0001" /></FormControl><FormMessage /></FormItem> )} />
             <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma e Avvia</Button></DialogFooter>
           </form></Form>
         </DialogContent>

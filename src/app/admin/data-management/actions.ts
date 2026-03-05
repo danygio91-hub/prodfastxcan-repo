@@ -66,6 +66,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const importSchema = z.object({ ordinePF: z.coerce.string().min(1), details: z.coerce.string().min(1), qta: z.coerce.number().positive(), cliente: z.coerce.string().optional(), numeroODL: z.coerce.string().optional(), numeroODLInternoImport: z.any().optional(), dataConsegnaFinale: z.string().optional(), department: z.coerce.string().optional(), workCycleName: z.coerce.string().optional() });
     const now = new Date();
     const shortYear = now.getFullYear().toString().slice(-2);
+    
     for (const row of data) {
         const validated = importSchema.safeParse(row);
         if (!validated.success) { blockedJobs.push({ row, reason: "Dati mancanti o errati." }); continue; }
@@ -78,7 +79,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const workCycle = validData.workCycleName ? cyclesMap.get(validData.workCycleName.toUpperCase().trim()) : undefined;
         const phases = workCycle ? await createPhasesFromCycle(workCycle.id) : [];
         const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
-        let odlToAssign = validData.numeroODLInternoImport ? `${String(validData.numeroODLInternoImport).match(/\d+/)?.[0] || ''}/${shortYear}` : null;
+        
+        let odlToAssign = null;
+        if (validData.numeroODLInternoImport) {
+            const digits = String(validData.numeroODLInternoImport).match(/\d+/)?.[0] || '';
+            if (digits) {
+                odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+            }
+        }
+
         if (docSnap.exists()) {
             const existing = convertTimestampsToDates(docSnap.data()) as JobOrder;
             if (existing.status === 'planned') jobsToUpdate.push({ ...existing, ...validData, id: sanitizedId, billOfMaterials: jobBOM, phases: phases.length > 0 ? phases : existing.phases, workCycleId: workCycle?.id || existing.workCycleId, numeroODLInterno: odlToAssign || existing.numeroODLInterno });
@@ -112,11 +121,26 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       if (job.status !== 'planned') throw new Error("Stato non valido.");
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
       if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo.");
+      
       const counterRef = doc(db, "counters", `odl_${year}`);
       const counterSnap = await t.get(counterRef);
       const currentCounter = counterSnap.data()?.value || 0;
-      let newOdlId = manualOdlNumberStr ? `${parseInt(manualOdlNumberStr, 10)}/${shortYear}` : (job.numeroODLInterno || `${currentCounter + 1}/${shortYear}`);
-      let newCounterValue = manualOdlNumberStr ? parseInt(manualOdlNumberStr, 10) : (job.numeroODLInterno ? currentCounter : currentCounter + 1);
+      
+      let newOdlId: string;
+      let newCounterValue: number;
+
+      if (manualOdlNumberStr) {
+          const manualNum = parseInt(manualOdlNumberStr, 10);
+          newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
+          newCounterValue = Math.max(currentCounter, manualNum);
+      } else if (job.numeroODLInterno) {
+          newOdlId = job.numeroODLInterno;
+          newCounterValue = currentCounter;
+      } else {
+          newCounterValue = currentCounter + 1;
+          newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
+      }
+
       t.update(jobRef, { status: 'production', odlCreationDate: Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
       if (newCounterValue > currentCounter) t.set(counterRef, { value: newCounterValue });
       return newOdlId;
