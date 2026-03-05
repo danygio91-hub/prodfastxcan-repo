@@ -118,7 +118,7 @@ export default function DataManagementClientPage() {
         setPdfData({ job, article, materials: rawMaterials });
 
         // Attendiamo che il componente React si renderizzi nel DOM nascosto
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1500));
 
         const element = document.getElementById('odl-pdf-pages');
         if (!element) throw new Error("Template di stampa non trovato nel DOM.");
@@ -129,7 +129,8 @@ export default function DataManagementClientPage() {
         const pdf = new jsPDF({
             orientation: 'landscape',
             unit: 'mm',
-            format: 'a4'
+            format: 'a4',
+            compress: true
         });
 
         for (let i = 0; i < pageElements.length; i++) {
@@ -141,10 +142,10 @@ export default function DataManagementClientPage() {
                 backgroundColor: '#ffffff'
             });
             
-            const imgData = canvas.toDataURL('image/png');
+            const imgData = canvas.toDataURL('image/png', 0.8);
             if (i > 0) pdf.addPage();
             
-            pdf.addImage(imgData, 'PNG', 0, 0, 297, 210);
+            pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
         }
 
         pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
@@ -222,7 +223,6 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
-      {/* Template nascosto per la generazione PDF multi-pagina */}
       {pdfData && (
         <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
       )}
