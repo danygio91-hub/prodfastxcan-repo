@@ -82,9 +82,21 @@ export async function processAndValidateImport(data: any[]): Promise<{
         
         let odlToAssign = null;
         if (validData.numeroODLInternoImport) {
-            const digits = String(validData.numeroODLInternoImport).match(/\d+/)?.[0] || '';
-            if (digits) {
-                odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+            const rawVal = String(validData.numeroODLInternoImport).trim();
+            const dashIndex = rawVal.indexOf('-');
+            if (dashIndex !== -1) {
+                // Preserva l'anno originale se presente (es. 1001-25)
+                const numPart = rawVal.substring(0, dashIndex).match(/\d+/)?.[0] || '';
+                const yearPart = rawVal.substring(dashIndex + 1).trim();
+                if (numPart) {
+                    odlToAssign = `${numPart.padStart(4, '0')}-${yearPart}`;
+                }
+            } else {
+                // Solo numero, applica anno corrente
+                const digits = rawVal.match(/\d+/)?.[0] || '';
+                if (digits) {
+                    odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
+                }
             }
         }
 
@@ -134,6 +146,7 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
           newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
           newCounterValue = Math.max(currentCounter, manualNum);
       } else if (job.numeroODLInterno) {
+          // Se ha già un ODL (es. da import), usa quello e non toccare il contatore
           newOdlId = job.numeroODLInterno;
           newCounterValue = currentCounter;
       } else {
