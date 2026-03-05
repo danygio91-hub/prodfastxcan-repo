@@ -118,13 +118,19 @@ export default function DataManagementClientPage() {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
         setPdfData({ job, article, materials: rawMaterials });
 
-        // Wait for rendering
-        await new Promise(r => setTimeout(r, 500));
+        // Attendiamo che il componente React si renderizzi nel DOM nascosto
+        await new Promise(r => setTimeout(r, 800));
 
         const element = document.getElementById('odl-pdf-content');
-        if (!element) throw new Error("Template non trovato");
+        if (!element) throw new Error("Template di stampa non trovato nel DOM.");
 
-        const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+        const canvas = await html2canvas(element, { 
+            scale: 2, 
+            useCORS: true,
+            logging: false,
+            backgroundColor: '#ffffff'
+        });
+        
         const imgData = canvas.toDataURL('image/png');
         
         const pdf = new jsPDF({
@@ -144,8 +150,8 @@ export default function DataManagementClientPage() {
         fetchData();
         toast({ title: "PDF Scaricato", description: `ODL per ${job.ordinePF} salvato correttamente.` });
     } catch (error) {
-        console.error(error);
-        toast({ variant: "destructive", title: "Errore Download", description: "Impossibile generare il PDF." });
+        console.error("PDF Error:", error);
+        toast({ variant: "destructive", title: "Errore Download", description: "Impossibile generare il file PDF. Riprova." });
     } finally {
         setIsDownloadingPdf(null);
         setPdfData(null);
@@ -191,6 +197,14 @@ export default function DataManagementClientPage() {
     } finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
+  const handleConfirmCommit = async (confirm: boolean) => {
+      if (!confirm || !importReport) { setImportReport(null); return; }
+      const res = await commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: importReport.jobsToUpdate });
+      toast({ title: res.message });
+      setImportReport(null);
+      fetchData();
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -205,7 +219,12 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
-      {pdfData && <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />}
+      {/* Template nascosto per la generazione PDF */}
+      {pdfData && (
+        <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
+            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
+        </div>
+      )}
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-2">
