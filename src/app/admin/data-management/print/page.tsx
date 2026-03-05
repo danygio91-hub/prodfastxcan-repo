@@ -12,6 +12,7 @@ import { getArticles } from '@/app/admin/article-management/actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { formatDisplayStock } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { format, parseISO } from 'date-fns';
 
 function PrintPageContent() {
   const searchParams = useSearchParams();
