@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -21,7 +22,7 @@ import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, S
 import { type JobOrder, type WorkCycle, type Article, type Department } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder } from './actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted } from './actions';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -150,6 +151,17 @@ export default function DataManagementClientPage() {
     }
   };
 
+  const handlePrintClick = async (jobId: string) => {
+    try {
+      await markJobAsPrinted(jobId);
+      // Aggiorna lo stato locale per reattività immediata
+      setPlannedJobOrders(prev => prev.map(j => j.id === jobId ? { ...j, isPrinted: true } : j));
+      setProductionJobOrders(prev => prev.map(j => j.id === jobId ? { ...j, isPrinted: true } : j));
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -196,8 +208,18 @@ export default function DataManagementClientPage() {
                       </TableCell>
                       <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Stampa ODL">
-                          <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} target="_blank">
+                        <Button 
+                          asChild 
+                          variant="ghost" 
+                          size="icon" 
+                          className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
+                          title="Stampa ODL"
+                        >
+                          <Link 
+                            href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} 
+                            target="_blank"
+                            onClick={() => handlePrintClick(j.id)}
+                          >
                             <Printer className="h-4 w-4" />
                           </Link>
                         </Button>
@@ -219,8 +241,18 @@ export default function DataManagementClientPage() {
                     <TableRow key={j.id}>
                       <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button asChild variant="ghost" size="icon" className="h-8 w-8" title="Stampa ODL">
-                          <Link href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} target="_blank">
+                        <Button 
+                          asChild 
+                          variant="ghost" 
+                          size="icon" 
+                          className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
+                          title="Stampa ODL"
+                        >
+                          <Link 
+                            href={`/admin/data-management/print?jobId=${encodeURIComponent(j.id)}`} 
+                            target="_blank"
+                            onClick={() => handlePrintClick(j.id)}
+                          >
                             <Printer className="h-4 w-4" />
                           </Link>
                         </Button>

@@ -89,6 +89,7 @@ export interface JobOrder {
   // --- Fields for synthetic group object ---
   jobOrderIds?: string[];
   jobOrderPFs?: string[];
+  isPrinted?: boolean; // New field for print tracking
 }
 
 export type StatoOperatore = 'attivo' | 'inattivo' | 'in pausa';

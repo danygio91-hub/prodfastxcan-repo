@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -267,4 +268,16 @@ export async function updateJobOrderCycle(jobId: string, cycleId: string) {
 export async function getWorkCycles(): Promise<WorkCycle[]> {
   const snap = await getDocs(collection(db, 'workCycles'));
   return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
+}
+
+export async function markJobAsPrinted(jobId: string) {
+  try {
+    const jobRef = doc(db, "jobOrders", jobId);
+    await updateDoc(jobRef, { isPrinted: true });
+    revalidatePath('/admin/data-management');
+    return { success: true, message: 'Commessa segnata come stampata.' };
+  } catch (error) {
+    console.error("Error marking job as printed:", error);
+    return { success: false, message: "Errore durante l'aggiornamento dello stato di stampa." };
+  }
 }
