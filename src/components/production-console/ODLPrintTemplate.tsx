@@ -17,9 +17,8 @@ const PAGE_WIDTH = "297mm";
 const PAGE_HEIGHT = "210mm";
 
 /**
- * TEMPLATE ODL STILE EXCEL
- * Questo template usa tabelle a larghezza fissa e font compatti (7pt/8pt)
- * per emulare esattamente il comportamento di un foglio di calcolo.
+ * TEMPLATE ODL GRIGLIA EXCEL (A-G / 1-37)
+ * Riproduzione fedele del layout richiesto basato su coordinate celle.
  */
 export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
@@ -33,13 +32,17 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     return { ...item, category, mat };
   });
 
-  // Logica di paginazione dinamica
-  const ITEMS_PER_PAGE = 22; 
+  // Suddivisione per le 3 tabelle
+  const trecciaItems = allItems.filter(i => i.category === 'treccia');
+  const tubiItems = allItems.filter(i => i.category === 'tubi');
+  const guainaItems = allItems.filter(i => i.category === 'guaina');
+
+  // Logica di paginazione: Max 22 righe totali tra le tabelle per pagina
+  const ITEMS_PER_PAGE = 22;
   const pages: any[][] = [];
   for (let i = 0; i < allItems.length; i += ITEMS_PER_PAGE) {
     pages.push(allItems.slice(i, i + ITEMS_PER_PAGE));
   }
-
   if (pages.length === 0) pages.push([]);
 
   const formatDateSafe = (dateInput: any) => {
@@ -50,8 +53,23 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
       } catch (e) { return '---'; }
   };
 
+  const getEstimatedTime = (type: string) => {
+    if (!article?.phaseTimes) return 'N/D';
+    let phaseId = '';
+    if (type === 'treccia') phaseId = 'phase-template-1';
+    else if (type === 'tubi') phaseId = 'phase-template-7';
+    else if (type === 'guaina') phaseId = 'phase-template-6';
+    
+    const time = article.phaseTimes[phaseId]?.expectedMinutesPerPiece || 0;
+    if (time <= 0) return 'N/D';
+    const tot = time * job.qta;
+    const h = Math.floor(tot / 60);
+    const m = Math.round(tot % 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
   return (
-    <div id="odl-pdf-pages" className="bg-gray-200 p-8 flex flex-col gap-8 items-center" style={{ position: 'absolute', top: '-20000px', left: '-20000px' }}>
+    <div id="odl-pdf-pages" className="bg-gray-200 flex flex-col gap-8 items-center" style={{ position: 'absolute', top: '-20000px', left: '-20000px' }}>
       {pages.map((pageItems, pageIdx) => (
         <div 
           key={pageIdx} 
@@ -59,166 +77,183 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
           style={{ 
             width: PAGE_WIDTH, 
             height: PAGE_HEIGHT, 
-            padding: '4mm',
+            padding: '5mm',
             boxSizing: 'border-box',
-            fontFamily: "'Segoe UI', 'Calibri', sans-serif" 
+            fontFamily: "'Segoe UI', 'Calibri', 'Arial', sans-serif" 
           }}
         >
-          {/* HEADER EXCEL-STYLE (RIGA 1-2) */}
-          <table className="w-full border-collapse border border-black mb-1" style={{ tableLayout: 'fixed' }}>
+          {/* GRIGLIA MASTER EXCEL (A-G) */}
+          <table className="w-full border-collapse border-2 border-black" style={{ tableLayout: 'fixed', fontSize: '8pt' }}>
+            <colgroup>
+                <col style={{ width: '15%' }} /> {/* A */}
+                <col style={{ width: '15%' }} /> {/* B */}
+                <col style={{ width: '15%' }} /> {/* C */}
+                <col style={{ width: '15%' }} /> {/* D */}
+                <col style={{ width: '15%' }} /> {/* E */}
+                <col style={{ width: '12.5%' }} /> {/* F */}
+                <col style={{ width: '12.5%' }} /> {/* G */}
+            </colgroup>
             <tbody>
+              {/* RIGA 1: LOGO E TITOLO */}
+              <tr style={{ height: '10mm' }}>
+                <td className="border border-black p-1 text-center" rowSpan={4}>
+                    <img src="/logo.png" alt="Logo" className="h-8 w-auto grayscale mx-auto" />
+                </td>
+                <td className="border border-black p-1 text-center font-black bg-[#dbeafe]" colSpan={4} style={{ fontSize: '14pt', letterSpacing: '2px' }}>
+                    SCHEDA DI LAVORAZIONE
+                </td>
+                <td className="border border-black p-1 text-right italic font-bold" colSpan={2} style={{ fontSize: '6pt' }}>
+                    MOD. 800_5_02 REV.0 del 08/05/2024<br/>Pag. {pageIdx + 1}/{pages.length}
+                </td>
+              </tr>
+
+              {/* RIGA 2-4: INFO HEADER (REPARTO, DATA, ODL) */}
+              <tr style={{ height: '6mm' }}>
+                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>REPARTO</td>
+                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>DATA ODL</td>
+                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>N° ORD. INTERNO</td>
+                <td className="border border-black p-0 text-center font-bold bg-[#ffedd5] italic" style={{ fontSize: '7pt' }}>NUMERO ORDINE PF</td>
+                <td className="border border-black p-0 text-center font-bold bg-[#ecfdf5] italic" colSpan={2} style={{ fontSize: '7pt' }}>N° ODL</td>
+              </tr>
+              <tr style={{ height: '8mm' }}>
+                <td className="border border-black p-1 text-center font-black">{job.department || 'N/D'}</td>
+                <td className="border border-black p-1 text-center font-bold">{formatDateSafe(job.odlCreationDate || new Date())}</td>
+                <td className="border border-black p-1 text-center font-bold">{job.numeroODLInterno || '---'}</td>
+                <td className="border border-black p-1 text-center font-black text-blue-800" style={{ fontSize: '11pt' }}>{job.ordinePF}</td>
+                <td className="border border-black p-1 text-center font-black text-emerald-700" colSpan={2} style={{ fontSize: '11pt' }}>{job.numeroODL || '---'}</td>
+              </tr>
+
+              {/* RIGA 5-14: DATI COMMESSA, QR E DISEGNO */}
               <tr>
-                <td className="border border-black p-1 text-left" style={{ width: '15%' }}>
-                  <img src="/logo.png" alt="Logo" className="h-6 w-auto grayscale" />
-                </td>
-                <td className="border border-black p-1 text-center font-black underline" style={{ width: '70%', fontSize: '14pt' }}>
-                  SCHEDA DI LAVORAZIONE
-                </td>
-                <td className="border border-black p-1 text-right italic" style={{ width: '15%', fontSize: '6pt' }}>
-                  MOD. 800_5_02 REV.0<br/>Pag. {pageIdx + 1}/{pages.length}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* GRID INFO (RIGA 3-4) */}
-          <table className="w-full border-collapse border border-black mb-1 text-[8pt]" style={{ tableLayout: 'fixed' }}>
-            <tbody>
-              <tr className="h-8">
-                <td className="border border-black p-1 text-center bg-gray-50">
-                  <span className="block text-[6pt] text-gray-500 uppercase font-bold">Reparto</span>
-                  <span className="font-bold">{job.department || 'N/D'}</span>
-                </td>
-                <td className="border border-black p-1 text-center">
-                  <span className="block text-[6pt] text-gray-500 uppercase font-bold">Data ODL</span>
-                  <span className="font-bold">{formatDateSafe(job.odlCreationDate || new Date())}</span>
-                </td>
-                <td className="border border-black p-1 text-center">
-                  <span className="block text-[6pt] text-gray-500 uppercase font-bold">N° Ord. Interno</span>
-                  <span className="font-bold">{job.numeroODLInterno || '---'}</span>
-                </td>
-                <td className="border border-black p-1 text-center bg-[#dbeafe]" style={{ width: '25%' }}>
-                  <span className="block text-[6pt] font-bold text-blue-800 uppercase">Ordine PF</span>
-                  <span className="font-black text-[11pt]">{job.ordinePF}</span>
-                </td>
-                <td className="border border-black p-1 text-center bg-[#ecfdf5]" style={{ width: '20%' }}>
-                  <span className="block text-[6pt] font-bold text-emerald-800 uppercase">N° ODL</span>
-                  <span className="font-black text-[11pt] text-emerald-700">{job.numeroODL || '---'}</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* DATI CENTRALI (RIGA 5-10) */}
-          <table className="w-full border-collapse border border-black mb-1" style={{ tableLayout: 'fixed' }}>
-            <tbody>
-              <tr>
-                <td className="border border-black" style={{ width: '35%' }}>
-                  <table className="w-full border-collapse text-[8pt]">
-                    <tbody>
-                      <tr className="border-b border-black">
-                        <td className="bg-gray-50 font-bold p-1 border-r border-black w-1/3">Cliente</td>
-                        <td className="p-1 font-bold truncate">{job.cliente}</td>
-                      </tr>
-                      <tr className="border-b border-black">
-                        <td className="bg-gray-50 font-bold p-1 border-r border-black w-1/3">Cod. Articolo</td>
-                        <td className="p-1 font-black text-[10pt]">{job.details}</td>
-                      </tr>
-                      <tr className="border-b border-black">
-                        <td className="bg-gray-50 font-bold p-1 border-r border-black w-1/3">Quantità</td>
-                        <td className="p-1 font-black text-[14pt] leading-none">{job.qta}</td>
-                      </tr>
-                      <tr>
-                        <td className="bg-gray-50 font-bold p-1 border-r border-black w-1/3 leading-tight">Data Fine Prep.</td>
-                        <td className="p-1 font-black text-red-600">{formatDateSafe(job.dataConsegnaFinale)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-                <td className="border border-black p-2 text-center bg-white" style={{ width: '15%' }}>
-                  <div className="flex flex-col items-center justify-center gap-1">
-                    <span className="text-[5pt] text-blue-600 font-bold uppercase">CODICE COMMESSA</span>
-                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={55} />
-                  </div>
-                </td>
-                <td className="border border-black p-2 text-center italic bg-gray-50/20" style={{ width: '50%' }}>
-                  <p className="text-gray-300 text-[8pt] font-bold tracking-widest uppercase opacity-40">
-                    DISEGNO TECNICO / NOTE AGGIUNTIVE
-                  </p>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* LABEL SEZIONE */}
-          <div className="bg-[#1f2937] text-white border border-black p-1 text-center font-black uppercase tracking-[0.3em] mb-1 text-[7pt]">
-            PREPARAZIONE COMPONENTI COMMESSE (MAGAZZINO)
-          </div>
-
-          {/* TABELLA MATERIALI (CORPO CENTRALE) */}
-          <div className="flex-1 overflow-hidden">
-            <table className="w-full border-collapse border border-black text-center text-[7.5pt]" style={{ tableLayout: 'fixed' }}>
-                <thead className="bg-gray-100 font-bold">
-                    <tr className="border-b border-black h-6">
-                        <th className="border-r border-black px-1 text-left" style={{ width: '25%' }}>COMPONENTE</th>
-                        <th className="border-r border-black" style={{ width: '15%' }}>L. TAGLIO (MM)</th>
-                        <th className="border-r border-black" style={{ width: '10%' }}>QT</th>
-                        <th className="border-r border-black" style={{ width: '15%' }}>VERIFICA</th>
-                        <th className="border-r border-black" style={{ width: '10%' }}>OK</th>
-                        <th className="border-r border-black" style={{ width: '15%' }}>STIMA</th>
-                        <th className="px-1 text-left" style={{ width: '10%' }}>ALERT</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {pageItems.map((item, i) => {
-                        const totalQty = (item.quantity * job.qta);
-                        const isGuaina = item.category === 'guaina';
-                        const mat = item.mat;
-                        
-                        let displayValue = totalQty.toFixed(0);
-                        if (isGuaina && item.lunghezzaTaglioMm) {
-                            displayValue = `${(totalQty * item.lunghezzaTaglioMm / 1000).toFixed(2)} m`;
-                        } else if (item.category === 'tubi' && mat?.conversionFactor) {
-                            displayValue = `${(totalQty * mat.conversionFactor).toFixed(2)} kg`;
-                        }
-
-                        return (
-                            <tr key={i} className={cn("border-b border-black h-6", i % 2 === 0 ? "bg-white" : "bg-gray-50/50")}>
-                                <td className="border-r border-black px-1 font-bold text-left truncate">{item.component}</td>
-                                <td className="border-r border-black font-mono">{item.lunghezzaTaglioMm || '---'}</td>
-                                <td className="border-r border-black font-black">{totalQty.toFixed(0)}</td>
-                                <td className="border-r border-black text-gray-300">| &nbsp;&nbsp;&nbsp; |</td>
-                                <td className="border-r border-black">□</td>
-                                <td className="border-r border-black font-medium">{displayValue}</td>
-                                <td className="px-1 text-[6pt] text-left leading-none italic truncate">{item.note || ''}</td>
-                            </tr>
-                        );
-                    })}
-                    {/* Riempimento righe vuote per mantenere il layout se necessario */}
-                    {pageItems.length < ITEMS_PER_PAGE && Array.from({ length: ITEMS_PER_PAGE - pageItems.length }).map((_, idx) => (
-                        <tr key={`empty-${idx}`} className="border-b border-black h-6 opacity-0">
-                            <td colSpan={7}>&nbsp;</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-          </div>
-
-          {/* FOOTER (RIGA FINALE) */}
-          {pageIdx === pages.length - 1 && (
-            <div className="grid grid-cols-2 border border-black h-[45px] mt-1">
-                <div className="border-r border-black p-1 flex flex-col bg-white">
-                    <span className="font-bold text-[6pt] bg-orange-50 px-1 border border-orange-200 w-fit leading-none mb-1">SEGNALAZIONE OPERATORE (NOTE / NC)</span>
-                    <div className="flex-1 text-[7pt] text-gray-200 italic p-1 border border-dashed border-gray-100">...</div>
-                </div>
-                <div className="p-1 flex flex-col bg-white">
-                    <div className="flex-1 flex items-end justify-between px-4 pb-1 text-[7pt] font-bold">
-                        <span className="text-gray-400">DATA: ___/___/______</span>
-                        <span className="text-gray-400">FIRMA OPERATORE: ____________________________</span>
+                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>CLIENTE</td>
+                <td className="border border-black p-1 font-black" style={{ fontSize: '9pt' }}>{job.cliente}</td>
+                <td className="border border-black p-2 text-center" rowSpan={10} colSpan={1}>
+                    <div className="flex flex-col items-center gap-1">
+                        <span className="text-blue-600 font-black" style={{ fontSize: '5pt' }}>CODICE COMMESSA</span>
+                        <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={60} />
                     </div>
-                </div>
-            </div>
-          )}
+                </td>
+                <td className="border border-black p-4 text-center italic text-gray-300" rowSpan={10} colSpan={4}>
+                    <p className="tracking-[0.2em] font-black uppercase opacity-30" style={{ fontSize: '10pt' }}>
+                        DISEGNO ALLEGATO AL CODICE ARTICOLO<br/>IN ANAGRAFICA
+                    </p>
+                </td>
+              </tr>
+              <tr>
+                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>CODICE ARTICOLO</td>
+                <td className="border border-black p-1 font-black" style={{ fontSize: '12pt' }}>{job.details}</td>
+              </tr>
+              <tr>
+                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>DISEGNO</td>
+                <td className="border border-black p-1 italic text-gray-400">---</td>
+              </tr>
+              <tr>
+                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>QT</td>
+                <td className="border border-black p-1 font-black" style={{ fontSize: '16pt' }}>{job.qta}</td>
+              </tr>
+              <tr>
+                <td className="border border-black p-1 font-bold italic bg-gray-50 leading-tight" style={{ fontSize: '7pt' }}>DATA FINE PREPARAZIONE MATERIALE</td>
+                <td className="border border-black p-1 font-black text-red-600" style={{ fontSize: '11pt' }}>{formatDateSafe(job.dataConsegnaFinale)}</td>
+              </tr>
+
+              {/* RIGA 15: DIVISORE MAGAZZINO */}
+              <tr style={{ height: '6mm' }}>
+                <td className="border-2 border-black p-1 text-center font-black bg-[#1f2937] text-white uppercase tracking-[0.4em]" colSpan={7} style={{ fontSize: '7.5pt' }}>
+                    PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)
+                </td>
+              </tr>
+
+              {/* RIGA 18+: TABELLE MATERIALI (LOGICA DINAMICA) */}
+              {/* TRECCIA */}
+              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
+                <td className="border border-black px-1">TRECCIA/CORDA</td>
+                <td className="border border-black text-center">L TAGLIO mm (Toll)</td>
+                <td className="border border-black text-center">QT</td>
+                <td className="border border-black text-center">Verifica misura mm</td>
+                <td className="border border-black text-center">Completato</td>
+                <td className="border border-black text-center">Stima tempo taglio</td>
+                <td className="border border-black text-center">ALERT</td>
+              </tr>
+              {trecciaItems.map((item, i) => (
+                <tr key={`tr-${i}`} style={{ height: '8mm' }}>
+                    <td className="border border-black px-1 font-bold truncate">{item.component}</td>
+                    <td className="border border-black text-center font-mono">{item.lunghezzaTaglioMm || '---'}</td>
+                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
+                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
+                    <td className="border border-black text-center text-lg">□</td>
+                    {i === 0 && <td className="border border-black text-center font-bold" rowSpan={trecciaItems.length}>{getEstimatedTime('treccia')}</td>}
+                    <td className="border border-black px-1 text-[6pt] italic truncate">{item.note || ''}</td>
+                </tr>
+              ))}
+
+              {/* TUBI */}
+              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
+                <td className="border border-black px-1">CODICE TUBI</td>
+                <td className="border border-black text-center">QT (n°)</td>
+                <td className="border border-black text-center">QT (kg.)</td>
+                <td className="border border-black text-center">Verifica misure</td>
+                <td className="border border-black text-center">Prelevato da mag</td>
+                <td className="border border-black text-center" colSpan={2}>Stima tempo preparazione</td>
+              </tr>
+              {tubiItems.map((item, i) => (
+                <tr key={`tb-${i}`} style={{ height: '8mm' }}>
+                    <td className="border border-black px-1 font-bold">{item.component}</td>
+                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
+                    <td className="border border-black text-center font-mono">{(item.quantity * job.qta * (item.mat?.conversionFactor || 0)).toFixed(2)}</td>
+                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
+                    <td className="border border-black text-center text-lg">□</td>
+                    {i === 0 && <td className="border border-black text-center font-bold" colSpan={2} rowSpan={tubiItems.length}>{getEstimatedTime('tubi')}</td>}
+                </tr>
+              ))}
+
+              {/* GUAINA */}
+              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
+                <td className="border border-black px-1">GUAINA</td>
+                <td className="border border-black text-center">L TAGLIO mm (Toll)</td>
+                <td className="border border-black text-center">QT</td>
+                <td className="border border-black text-center">Mt. Guaina</td>
+                <td className="border border-black text-center">Verifica misura mm</td>
+                <td className="border border-black text-center">Completato</td>
+                <td className="border border-black text-center">Stima tempo taglio</td>
+              </tr>
+              {guainaItems.map((item, i) => (
+                <tr key={`gu-${i}`} style={{ height: '8mm' }}>
+                    <td className="border border-black px-1 font-bold">{item.component}</td>
+                    <td className="border border-black text-center font-mono">{item.lunghezzaTaglioMm || '---'}</td>
+                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
+                    <td className="border border-black text-center font-bold text-blue-700">{(item.quantity * job.qta * (item.lunghezzaTaglioMm || 0) / 1000).toFixed(2)}m</td>
+                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
+                    <td className="border border-black text-center text-lg">□</td>
+                    {i === 0 && <td className="border border-black text-center font-bold" rowSpan={guainaItems.length}>{getEstimatedTime('guaina')}</td>}
+                </tr>
+              ))}
+
+              {/* FOOTER (NOTE E FIRME) */}
+              {pageIdx === pages.length - 1 && (
+                <>
+                    <tr style={{ height: '6mm' }}>
+                        <td className="border-2 border-black p-1 text-center font-black bg-[#ffedd5]" colSpan={4} style={{ fontSize: '7.5pt' }}>
+                            Segnalazione Operatore (note - NC)
+                        </td>
+                        <td className="border-2 border-black p-1 text-center font-black bg-gray-100" colSpan={3} style={{ fontSize: '7.5pt' }}>
+                            Data e Firma Operatore
+                        </td>
+                    </tr>
+                    <tr style={{ height: '30mm' }}>
+                        <td className="border border-black p-2 italic text-gray-300 align-top" colSpan={4} style={{ fontSize: '7pt' }}>
+                            SPAZIO NOTE DA TENERE PER COMPILAZIONE MANUALE DELL'OPERATORE...
+                        </td>
+                        <td className="border border-black p-2 align-bottom text-right" colSpan={3}>
+                            <div className="flex justify-between items-end w-full font-bold text-gray-400" style={{ fontSize: '7pt' }}>
+                                <span>DATA: ___/___/______</span>
+                                <span>FIRMA: ________________________________</span>
+                            </div>
+                        </td>
+                    </tr>
+                </>
+              )}
+            </tbody>
+          </table>
         </div>
       ))}
     </div>
