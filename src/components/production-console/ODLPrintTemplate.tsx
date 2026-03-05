@@ -13,14 +13,12 @@ interface ODLPrintTemplateProps {
   materials: RawMaterial[];
 }
 
-// Costanti per il dimensionamento A4 Landscape (in mm convertiti in approssimazione px per rendering)
 const PAGE_WIDTH = "297mm";
 const PAGE_HEIGHT = "210mm";
 
 export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
-  // Suddivisione dei materiali per categoria
   const allItems = (job.billOfMaterials || []).map(item => {
     const mat = materialsMap.get(item.component.toUpperCase());
     const type = mat?.type || 'OTHER';
@@ -30,14 +28,14 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     return { ...item, category, mat };
   });
 
-  // Logica di paginazione: raggruppiamo gli item in chunk (es. 12 per pagina per stare sicuri)
-  const ITEMS_PER_PAGE = 12;
+  // Logica di paginazione dinamica per stile Excel compatto
+  // Aumentiamo gli elementi per pagina poiché abbiamo ridotto i font
+  const ITEMS_PER_PAGE = 22; 
   const pages: any[][] = [];
   for (let i = 0; i < allItems.length; i += ITEMS_PER_PAGE) {
     pages.push(allItems.slice(i, i + ITEMS_PER_PAGE));
   }
 
-  // Se non ci sono item, mostriamo comunque una pagina vuota
   if (pages.length === 0) pages.push([]);
 
   const formatDateSafe = (dateInput: any) => {
@@ -46,21 +44,6 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
         const d = typeof dateInput === 'string' ? parseISO(dateInput) : (dateInput.toDate ? dateInput.toDate() : new Date(dateInput));
         return isValid(d) ? format(d, 'dd/MM/yyyy') : '---';
       } catch (e) { return '---'; }
-  };
-
-  const getEstimatedTime = (category: string) => {
-    if (!article?.phaseTimes) return 'N/D';
-    let phaseId = '';
-    if (category === 'treccia') phaseId = 'phase-template-1';
-    else if (category === 'tubi') phaseId = 'phase-template-7';
-    else if (category === 'guaina') phaseId = 'phase-template-6';
-    
-    const mins = article.phaseTimes[phaseId]?.expectedMinutesPerPiece || 0;
-    if (mins <= 0) return 'N/D';
-    const totalMins = mins * job.qta;
-    const h = Math.floor(totalMins / 60);
-    const m = Math.round(totalMins % 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   };
 
   return (
@@ -72,97 +55,90 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
           style={{ 
             width: PAGE_WIDTH, 
             height: PAGE_HEIGHT, 
-            padding: '8mm',
+            padding: '4mm',
             boxSizing: 'border-box',
             fontFamily: 'sans-serif' 
           }}
         >
-          {/* HEADER MINISTERIALE */}
-          <div className="flex justify-between items-start mb-2 border-b-2 border-black pb-1">
-            <div className="flex items-center gap-3">
-                <img src="/logo.png" alt="PF" className="h-8 w-auto grayscale" />
-                <div className="text-[8px] font-bold uppercase leading-tight opacity-50">
-                    Power Flex S.r.l.<br/>Manufacturing Solutions
+          {/* HEADER COMPATTO EXCEL STYLE */}
+          <div className="flex justify-between items-start mb-1 border-b border-black pb-0.5">
+            <div className="flex items-center gap-2">
+                <img src="/logo.png" alt="PF" className="h-5 w-auto grayscale" />
+                <div className="text-[6px] font-bold uppercase leading-none opacity-60">
+                    Power Flex S.r.l.
                 </div>
             </div>
             <div className="text-center flex-1">
-                <h1 className="text-xl font-black tracking-widest underline">SCHEDA DI LAVORAZIONE</h1>
+                <h1 className="text-xs font-black tracking-widest underline leading-tight">SCHEDA DI LAVORAZIONE</h1>
             </div>
-            <div className="text-[7px] text-right font-bold italic">
-                MOD. 800_5_02 REV.0 del 08/05/2024 - Pag. {pageIdx + 1}/{pages.length}
+            <div className="text-[5px] text-right font-bold italic">
+                MOD. 800_5_02 REV.0 - Pag. {pageIdx + 1}/{pages.length}
             </div>
           </div>
 
-          {/* GRID INFORMAZIONI PRINCIPALI */}
-          <div className="grid grid-cols-5 border-2 border-black mb-2 bg-white text-[9px]">
-            <div className="border-r-2 border-black p-1 text-center">
-                <span className="block text-[7px] font-bold uppercase text-gray-500">Reparto</span>
-                <span className="font-bold truncate block">{job.department || 'N/D'}</span>
+          {/* INFO GRID COMPATTA */}
+          <div className="grid grid-cols-5 border border-black mb-1 bg-white text-[7px]">
+            <div className="border-r border-black p-0.5 text-center">
+                <span className="block text-[5px] uppercase text-gray-500 font-bold">Reparto</span>
+                <span className="font-bold truncate">{job.department || 'N/D'}</span>
             </div>
-            <div className="border-r-2 border-black p-1 text-center">
-                <span className="block text-[7px] font-bold uppercase text-gray-500">Data ODL</span>
+            <div className="border-r border-black p-0.5 text-center">
+                <span className="block text-[5px] uppercase text-gray-500 font-bold">Data ODL</span>
                 <span className="font-bold">{formatDateSafe(job.odlCreationDate || new Date())}</span>
             </div>
-            <div className="border-r-2 border-black p-1 text-center">
-                <span className="block text-[7px] font-bold uppercase text-gray-500">N° Ord. Interno</span>
+            <div className="border-r border-black p-0.5 text-center">
+                <span className="block text-[5px] uppercase text-gray-500 font-bold">N° Ord. Interno</span>
                 <span className="font-bold">{job.numeroODLInterno || '---'}</span>
             </div>
-            <div className="border-r-2 border-black p-1 text-center bg-[#dbeafe]">
-                <span className="block text-[7px] font-bold uppercase text-blue-800">Ordine PF</span>
-                <span className="font-black text-xs">{job.ordinePF}</span>
+            <div className="border-r border-black p-0.5 text-center bg-[#dbeafe]">
+                <span className="block text-[5px] font-bold text-blue-800">Ordine PF</span>
+                <span className="font-black text-[9px]">{job.ordinePF}</span>
             </div>
-            <div className="p-1 text-center bg-[#ecfdf5]">
-                <span className="block text-[7px] font-bold uppercase text-emerald-800">N° ODL</span>
-                <span className="font-black text-xs text-emerald-700">{job.numeroODL || '---'}</span>
+            <div className="p-0.5 text-center bg-[#ecfdf5]">
+                <span className="block text-[5px] font-bold text-emerald-800">N° ODL</span>
+                <span className="font-black text-[9px] text-emerald-700">{job.numeroODL || '---'}</span>
             </div>
           </div>
 
-          {/* CORPO CENTRALE: DATI E QR */}
-          <div className="grid grid-cols-12 border-2 border-black mb-2 flex-grow max-h-[140px]">
-            <div className="col-span-4 border-r-2 border-black flex flex-col text-[10px]">
-                <div className="grid grid-cols-3 flex-1 border-b">
-                    <div className="col-span-1 p-1 font-bold uppercase bg-gray-50 border-r border-b">Cliente</div>
-                    <div className="col-span-2 p-1 border-b truncate font-medium">{job.cliente}</div>
+          {/* DATI CENTRALI COMPRESSI */}
+          <div className="grid grid-cols-12 border border-black mb-1 h-[65px]">
+            <div className="col-span-4 border-r border-black flex flex-col text-[8px]">
+                <div className="grid grid-cols-3 flex-1">
+                    <div className="col-span-1 p-0.5 font-bold uppercase bg-gray-50 border-r border-b flex items-center">Cliente</div>
+                    <div className="col-span-2 p-0.5 border-b truncate flex items-center">{job.cliente}</div>
                     
-                    <div className="col-span-1 p-1 font-bold uppercase bg-gray-50 border-r border-b">Articolo</div>
-                    <div className="col-span-2 p-1 border-b font-black text-sm tracking-tighter">{job.details}</div>
+                    <div className="col-span-1 p-0.5 font-bold uppercase bg-gray-50 border-r border-b flex items-center">Articolo</div>
+                    <div className="col-span-2 p-0.5 border-b font-black text-[9px] tracking-tighter flex items-center">{job.details}</div>
                     
-                    <div className="col-span-1 p-1 font-bold uppercase bg-gray-50 border-r border-b">Disegno</div>
-                    <div className="col-span-2 p-1 border-b italic text-gray-400">---</div>
+                    <div className="col-span-1 p-0.5 font-bold uppercase bg-gray-50 border-r border-b flex items-center">Q.tà</div>
+                    <div className="col-span-2 p-0.5 border-b font-black text-lg leading-none flex items-center">{job.qta}</div>
                     
-                    <div className="col-span-1 p-1 font-bold uppercase bg-gray-50 border-r border-b">Quantità</div>
-                    <div className="col-span-2 p-1 border-b font-black text-xl">{job.qta}</div>
-                    
-                    <div className="col-span-1 p-1 font-bold uppercase bg-gray-50 border-r text-[8px] leading-tight">Fine Prep.</div>
-                    <div className="col-span-2 p-1 font-bold text-red-600">{formatDateSafe(job.dataConsegnaFinale)}</div>
+                    <div className="col-span-1 p-0.5 font-bold uppercase bg-gray-50 border-r text-[6px] leading-tight flex items-center">Consegna</div>
+                    <div className="col-span-2 p-0.5 font-bold text-red-600 flex items-center">{formatDateSafe(job.dataConsegnaFinale)}</div>
                 </div>
             </div>
-            <div className="col-span-2 border-r-2 border-black flex flex-col items-center justify-center p-2 bg-white relative">
-                <span className="absolute top-1 text-[6px] text-blue-600 font-bold uppercase">CODICE COMMESSA</span>
-                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={85} />
+            <div className="col-span-2 border-r border-black flex flex-col items-center justify-center p-1 bg-white relative">
+                <span className="absolute top-0.5 text-[4px] text-blue-600 font-bold uppercase">QR CODICE</span>
+                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={45} />
             </div>
-            <div className="col-span-6 p-2 text-center flex items-center justify-center italic bg-gray-50/20">
-                <p className="text-gray-300 text-[10px] font-bold tracking-widest uppercase opacity-30">
-                    DISEGNO TECNICO / NOTE AGGIUNTIVE
+            <div className="col-span-6 p-1 text-center flex items-center justify-center italic bg-gray-50/10">
+                <p className="text-gray-300 text-[7px] font-bold tracking-widest uppercase opacity-30">
+                    DISEGNO TECNICO / NOTE
                 </p>
             </div>
           </div>
 
-          {/* TABELLE MATERIALI */}
-          <div className="flex-1">
-            <div className="bg-[#1f2937] text-white p-1 text-center font-bold uppercase tracking-[0.2em] mb-1 text-[8px]">
-                PREPARAZIONE COMPONENTI (REPARTO MAGAZZINO)
-            </div>
-
-            <table className="w-full border-collapse border border-black text-center text-[9px] mb-2">
+          {/* TABELLA MATERIALI EXCEL STYLE COMPATTA */}
+          <div className="flex-1 overflow-hidden">
+            <table className="w-full border-collapse border border-black text-center text-[7.5px]">
                 <thead>
-                    <tr className="bg-gray-100 font-bold border-b border-black h-6">
-                        <th className="border-r border-black w-[25%] px-1">COMPONENTE</th>
+                    <tr className="bg-gray-100 font-bold border-b border-black h-4">
+                        <th className="border-r border-black w-[25%] px-1 text-left">COMPONENTE</th>
                         <th className="border-r border-black w-[15%]">L. TAGLIO (MM)</th>
                         <th className="border-r border-black w-[10%]">QT</th>
                         <th className="border-r border-black w-[15%]">RILEVATO</th>
                         <th className="border-r border-black w-[10%]">ESITO</th>
-                        <th className="border-r border-black w-[15%]">STIMA TEMPO</th>
+                        <th className="border-r border-black w-[15%]">STIMA UNIT.</th>
                         <th className="w-[10%]">NOTE</th>
                     </tr>
                 </thead>
@@ -181,34 +157,30 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                         }
 
                         return (
-                            <tr key={i} className={cn("border-b border-black h-7", i % 2 === 0 ? "bg-white" : "bg-gray-50/50")}>
-                                <td className="border-r border-black px-1 font-bold text-left">{item.component}</td>
+                            <tr key={i} className={cn("border-b border-black h-5", i % 2 === 0 ? "bg-white" : "bg-gray-50/50")}>
+                                <td className="border-r border-black px-1 font-bold text-left truncate">{item.component}</td>
                                 <td className="border-r border-black font-mono">{item.lunghezzaTaglioMm || '---'}</td>
-                                <td className="border-r border-black font-black text-sm">{totalQty.toFixed(0)}</td>
-                                <td className="border-r border-black text-gray-300 text-sm">| &nbsp;&nbsp;&nbsp; |</td>
-                                <td className="border-r border-black">□</td>
+                                <td className="border-r border-black font-black">{totalQty.toFixed(0)}</td>
+                                <td className="border-r border-black text-gray-300">| &nbsp;&nbsp;&nbsp; |</td>
+                                <td className="border-r border-black text-xs leading-none">□</td>
                                 <td className="border-r border-black font-medium">{displayValue}</td>
-                                <td className="px-1 text-[7px] text-left leading-none italic">{item.note || ''}</td>
+                                <td className="px-1 text-[5px] text-left leading-none italic truncate">{item.note || ''}</td>
                             </tr>
                         );
                     })}
-                    {pageItems.length === 0 && (
-                        <tr className="h-10"><td colSpan={7} className="italic text-gray-400">Nessun componente in questa pagina</td></tr>
-                    )}
                 </tbody>
             </table>
           </div>
 
-          {/* FOOTER - Solo sull'ultima pagina */}
+          {/* FOOTER COMPRIMIBILE */}
           {pageIdx === pages.length - 1 && (
-            <div className="grid grid-cols-2 border border-black min-h-[60px] mt-auto">
-                <div className="border-r border-black p-1 flex flex-col bg-white">
-                    <span className="font-bold text-[8px] bg-orange-50 px-1 border border-orange-200 w-fit">NOTE / SEGNALAZIONI NC</span>
-                    <div className="flex-1 text-[8px] text-gray-300 italic p-1">Annotazioni libere...</div>
+            <div className="grid grid-cols-2 border border-black h-[30px] mt-0.5">
+                <div className="border-r border-black p-0.5 flex flex-col bg-white">
+                    <span className="font-bold text-[6px] bg-orange-50 px-1 border border-orange-200 w-fit leading-none">SEGNALAZIONI NC</span>
+                    <div className="flex-1 text-[6px] text-gray-200 italic p-0.5">...</div>
                 </div>
-                <div className="p-1 flex flex-col bg-white">
-                    <span className="font-bold text-[8px] bg-gray-50 px-1 border border-gray-200 w-fit">DATA E FIRMA OPERATORE</span>
-                    <div className="flex-1 flex items-end justify-between px-2 pb-1 text-[8px]">
+                <div className="p-0.5 flex flex-col bg-white">
+                    <div className="flex-1 flex items-end justify-between px-2 text-[6px] font-bold">
                         <span className="text-gray-400">DATA: ___/___/______</span>
                         <span className="text-gray-400">FIRMA: _____________________________</span>
                     </div>
