@@ -1,4 +1,3 @@
-
 "use client";
 
 import React from 'react';
@@ -248,16 +247,17 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>TRECCIA/CORDA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo taglio (hh:mm)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
                     </tr>
                     {trecciaItems.map((item, i) => {
                         const totalUnits = item.quantity * job.qta;
-                        const weightKg = item.mat?.conversionFactor ? (totalUnits * item.mat.conversionFactor) : totalUnits;
+                        // QT (kg) = (L Taglio mm / 1000) * QT * Fattore
+                        const weightKg = (item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * (item.mat?.conversionFactor || item.mat?.rapportoKgMt || 1);
                         return (
                             <tr key={`t-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTreccia }}>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
@@ -283,12 +283,12 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>CODICE TUBI</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (n°)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Verifica misure</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Prelevato da mag</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo preparazione (minuti)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (minuti)</div></td>
                     </tr>
                     {tubiItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;
@@ -320,12 +320,12 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>GUAINA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Mt. Guaina</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo taglio</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto</div></td>
                     </tr>
                     {guainaItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;
