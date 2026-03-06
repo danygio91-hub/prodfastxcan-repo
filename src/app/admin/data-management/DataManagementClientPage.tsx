@@ -70,7 +70,7 @@ export default function DataManagementClientPage() {
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
-  const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[] } | null>(null);
+  const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -115,13 +115,13 @@ export default function DataManagementClientPage() {
     setIsDownloadingPdf(job.id);
     try {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
-        setPdfData({ job, article, materials: rawMaterials });
+        setPdfData({ job, article, materials: rawMaterials, printDate: new Date() });
 
-        // Attendiamo che il componente React si renderizzi nel DOM
-        await new Promise(r => setTimeout(r, 1500));
+        // Attendiamo il rendering del template
+        await new Promise(r => setTimeout(r, 1000));
 
         const container = document.getElementById('odl-pdf-pages');
-        if (!container) throw new Error("Template di stampa non trovato nel DOM.");
+        if (!container) throw new Error("Template non trovato.");
 
         const pageElements = container.querySelectorAll('.odl-page');
         if (pageElements.length === 0) throw new Error("Nessuna pagina generata.");
@@ -144,18 +144,16 @@ export default function DataManagementClientPage() {
             
             const imgData = canvas.toDataURL('image/png', 1.0);
             if (i > 0) pdf.addPage();
-            
             pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
         }
 
         pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
-
         await markJobAsPrinted(job.id);
         fetchData();
-        toast({ title: "PDF Scaricato", description: `ODL per ${job.ordinePF} salvato correttamente.` });
+        toast({ title: "PDF Scaricato" });
     } catch (error) {
         console.error("PDF Error:", error);
-        toast({ variant: "destructive", title: "Errore Download", description: "Impossibile generare il file PDF. Riprova." });
+        toast({ variant: "destructive", title: "Errore Download" });
     } finally {
         setIsDownloadingPdf(null);
         setPdfData(null);
@@ -197,7 +195,7 @@ export default function DataManagementClientPage() {
       const result = await processAndValidateImport(mapped);
       setImportReport(result);
     } catch (e) {
-      toast({ variant: "destructive", title: "Errore Importazione", description: "Controlla il file Excel." });
+      toast({ variant: "destructive", title: "Errore Importazione" });
     } finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
@@ -225,7 +223,7 @@ export default function DataManagementClientPage() {
 
       {pdfData && (
         <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
-            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
+            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} />
         </div>
       )}
 
@@ -313,7 +311,7 @@ export default function DataManagementClientPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>Nuova Commessa Manuale</DialogTitle>
-                <DialogDescription>Compila i campi per pianificare una nuova commessa di produzione.</DialogDescription>
+                <DialogDescription>Compila i campi per pianificare una nuova commessa.</DialogDescription>
             </DialogHeader>
             <Form {...manualForm}>
                 <form onSubmit={manualForm.handleSubmit(handleManualSubmit)} className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
@@ -391,7 +389,7 @@ export default function DataManagementClientPage() {
 
       <Dialog open={!!importReport} onOpenChange={o => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle><DialogDescription>Revisiona i risultati prima di caricare.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle></DialogHeader>
           <Tabs defaultValue="valid" className="flex-1 overflow-hidden mt-4">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport ? (importReport.newJobs.length + importReport.jobsToUpdate.length) : 0})</TabsTrigger>
@@ -405,25 +403,25 @@ export default function DataManagementClientPage() {
                 </TableBody></Table>
             </ScrollArea></TabsContent>
             <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
-                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell className="font-mono">{b.row.ordinePF || 'N/D'} - {b.row.details || 'N/D'}</TableCell><TableCell className="text-destructive font-semibold">{b.reason}</TableCell></TableRow>)}
+                  {importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell className="font-mono">{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}
                 </TableBody></Table>
             </ScrollArea></TabsContent>
           </Tabs>
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
-            <Button onClick={() => handleConfirmCommit(true)} disabled={!importReport?.newJobs.length && !importReport?.jobsToUpdate.length}>Carica Commesse Valide</Button>
+            <Button onClick={() => handleConfirmCommit(true)} disabled={!importReport?.newJobs.length && !importReport?.jobsToUpdate.length}>Carica Valide</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Avvia Ordine di Lavoro</DialogTitle></DialogHeader>
+        <DialogContent><DialogHeader><DialogTitle>Avvia ODL</DialogTitle></DialogHeader>
           <Form {...odlForm}><form onSubmit={odlForm.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
-            <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p><p>Articolo: <span className="font-bold">{jobToProcess?.details}</span></p></div>
+            <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p></div>
             <FormField control={odlForm.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} placeholder="Es. 0001" /></FormControl><FormMessage /></FormItem> )} />
-            <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Conferma e Avvia</Button></DialogFooter>
+            <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Avvia</Button></DialogFooter>
           </form></Form>
         </DialogContent>
       </Dialog>
