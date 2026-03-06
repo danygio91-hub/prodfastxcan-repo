@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm", // SOLLEVAMENTO TESTO DALLA RIGA SOTTO
+      paddingBottom: "1.5mm",
     },
     label: {
         fontSize: "7pt",
@@ -248,22 +248,22 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>TRECCIA/CORDA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>CODICE</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo taglio (hh:mm)</div></td>
                     </tr>
                     {trecciaItems.map((item, i) => {
                         const totalUnits = item.quantity * job.qta;
                         const weightKg = item.mat?.conversionFactor ? (totalUnits * item.mat.conversionFactor) : totalUnits;
                         return (
                             <tr key={`t-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTreccia }}>
-                                <td style={styles.cell}></td>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '---'}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{weightKg.toFixed(3)}</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '0'}</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalUnits}</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{weightKg.toFixed(1)}</div></td>
                                 <td style={styles.cell}><VerificaCell /></td>
                                 <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
                                 {i === 0 && (
@@ -283,22 +283,24 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>CODICE TUBI</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>CODICE</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (n°)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misure</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Prelevato da mag</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo preparazione (minuti)</div></td>
                     </tr>
                     {tubiItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;
                         const totalKg = item.mat?.conversionFactor ? (totalPcs * item.mat.conversionFactor) : 0;
                         return (
                             <tr key={`tu-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTubi }}>
-                                <td style={styles.cell}></td>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
+                                <td style={{ ...styles.cell, fontSize: '24pt', fontWeight: 'bold' }}>
+                                    <div style={styles.flexCell}>/</div>
+                                </td>
                                 <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
-                                <td style={styles.cell}><div style={styles.flexCell}>{totalKg > 0 ? totalKg.toFixed(3) : '---'}</div></td>
+                                <td style={styles.cell}><div style={styles.flexCell}>{totalKg > 0 ? totalKg.toFixed(1) : '---'}</div></td>
                                 <td style={styles.cell}><VerificaCell /></td>
                                 <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
                                 {i === 0 && (
@@ -318,22 +320,22 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>GUAINA</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>CODICE</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Mt. Totali</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Verifica</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm (Toll)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Mt. Guaina</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Stima tempo taglio</div></td>
                     </tr>
                     {guainaItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;
                         const totalMt = item.lunghezzaTaglioMm ? (totalPcs * item.lunghezzaTaglioMm / 1000) : 0;
                         return (
                             <tr key={`g-${i}`} style={{ height: '9mm', backgroundColor: styles.bgGuaina }}>
-                                <td style={styles.cell}></td>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '---'}</div></td>
-                                <td style={{ ...styles.cell, fontWeight: 'bold', color: '#337ab7' }}><div style={styles.flexCell}>{totalMt.toFixed(2)}m</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '0'}</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
+                                <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalMt.toFixed(2)}</div></td>
                                 <td style={styles.cell}><VerificaCell /></td>
                                 <td style={styles.cell}><div style={styles.flexCell}>□</div></td>
                                 {i === 0 && (
