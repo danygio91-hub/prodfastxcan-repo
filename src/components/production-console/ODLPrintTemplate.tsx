@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm", // Lift-up millimetrico
+      paddingBottom: "1.5mm", // Lift-up millimetrico richiesto
     },
     label: {
         fontSize: "7pt",
@@ -101,9 +101,9 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     headerGray: "#f3f4f6",
     headerBlue: "#337ab7",
     
-    // Colori Richiesti
-    bgValueGreen: "#c8e6c9", // Verde Pastello per i valori
-    bgValueYellow: "#fff9c4", // Giallo Pastello per data fine
+    // Colori Richiesti per i VALORI
+    bgValueGreen: "#c8e6c9", // Verde Pastello
+    bgValueYellow: "#fff9c4", // Giallo Pastello
     
     // Colori Sezioni Materiali
     bgTreccia: "#e8f5e9",
@@ -125,7 +125,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-        padding: '3mm', // Margine attorno al QR
+        padding: '3mm', // Margine attorno al QR richiesto
         boxSizing: 'border-box' as const,
     },
     qrInner: {
@@ -193,7 +193,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             </tr>
             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
               <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }}><div style={styles.flexCell}>{format(printDate || new Date(), 'dd/MM/yyyy')}</div></td>
+              <td style={{ ...styles.cell, backgroundColor: 'white' }}><div style={styles.flexCell}>{format(printDate || new Date(), 'dd/MM/yyyy')}</div></td>
               <td style={{ ...styles.cell, colSpan: 2, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
               <td style={{ ...styles.cell, colSpan: 2, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
             </tr>
