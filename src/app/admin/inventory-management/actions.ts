@@ -193,3 +193,4 @@ export async function rejectMultipleInventoryRecords(ids: string[], uid: string)
     revalidatePath('/admin/inventory-management');
     return { success: true, message: 'Rifiutate.' };
 }
+src/components/production-console/ODLPrintTemplate.tsx

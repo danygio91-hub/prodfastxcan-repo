@@ -117,13 +117,13 @@ export default function DataManagementClientPage() {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
         setPdfData({ job, article, materials: rawMaterials });
 
-        // Attendiamo che il componente React si renderizzi nel DOM nascosto
-        await new Promise(r => setTimeout(r, 1500));
+        // Attendiamo che il componente React si renderizzi nel DOM "nascosto"
+        await new Promise(r => setTimeout(r, 2000));
 
-        const element = document.getElementById('odl-pdf-pages');
-        if (!element) throw new Error("Template di stampa non trovato nel DOM.");
+        const container = document.getElementById('odl-pdf-pages');
+        if (!container) throw new Error("Template di stampa non trovato nel DOM.");
 
-        const pageElements = element.querySelectorAll('.odl-page');
+        const pageElements = container.querySelectorAll('.odl-page');
         if (pageElements.length === 0) throw new Error("Nessuna pagina generata.");
 
         const pdf = new jsPDF({
@@ -145,6 +145,7 @@ export default function DataManagementClientPage() {
             const imgData = canvas.toDataURL('image/png', 0.8);
             if (i > 0) pdf.addPage();
             
+            // Inseriamo l'immagine A4 Landscape piena
             pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
         }
 
@@ -223,6 +224,7 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
+      {/* Render del template per il PDF (invisibile all'utente ma presente nel DOM) */}
       {pdfData && (
         <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
       )}
