@@ -115,6 +115,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       fontSize: "16pt",
       textAlign: "center" as const,
       height: "12mm",
+      position: "relative" as const,
     },
     qrContainer: {
         display: 'flex',
@@ -125,14 +126,14 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         width: '100%',
     },
     verificaGrid: {
-        display: 'flex',
-        width: '100%',
-        height: '100%',
-        alignItems: 'stretch',
+        display: "flex",
+        width: "100%",
+        height: "100%",
+        alignItems: "stretch",
     },
     verificaSlot: {
         flex: 1,
-        borderRight: '1px solid black',
+        borderRight: "1px solid black",
     },
     valueLarge: {
         fontSize: "14pt",
@@ -145,6 +146,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         fontSize: "7.5pt",
         height: "6mm",
         border: "1.5px solid black",
+        position: "relative" as const,
     }
   };
 
@@ -240,8 +242,10 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
               </td>
             </tr>
 
-            <tr style={styles.separatorRow}>
-              <td colSpan={7} style={{ textAlign: 'center' }}>PREPARAZIONE COMPONENTI</td>
+            <tr>
+              <td colSpan={7} style={{ ...styles.cell, backgroundColor: styles.headerGray, height: "6mm", border: "1.5px solid black" }}>
+                <div style={styles.flexCell}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)</div>
+              </td>
             </tr>
 
             {/* TRECCIA */}
