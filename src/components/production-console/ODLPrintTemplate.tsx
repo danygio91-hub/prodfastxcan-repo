@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -27,13 +28,12 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
 
   const getDeptSigla = (name: string) => {
     const n = (name || '').toUpperCase();
-    if (n.includes('CONN') || n.includes('PICCOLE')) return 'CP';
-    if (n.includes('ASSEMBLAGGIO') || n.includes('CP')) return 'CP';
+    if (n.includes('CONN') || n.includes('PICCOLE') || n.includes('CP')) return 'CP';
     if (n.includes('QUALITÀ') || n.includes('CG')) return 'CG';
     if (n.includes('BURATTATURA') || n.includes('FINITURA') || n.includes('BF')) return 'BF';
     if (n.includes('MAGAZZINO') || n.includes('MAG')) return 'MAG';
     if (n.includes('COLLAUDO') || n.includes('TEST') || n.includes('QLTY')) return 'QLTY';
-    if (n.includes('OFFICINA')) return 'OFF';
+    if (n.includes('OFFICINA') || n.includes('OFF')) return 'OFF';
     return n.length > 10 ? n.substring(0, 8) + '.' : n;
   };
 
@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm",
+      paddingBottom: "1.5mm", // Offset di sollevamento
     },
     label: {
         fontSize: "7pt",
@@ -103,9 +103,11 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     headerGreen: "#ecfdf5",
     headerYellow: "#fff176",
     headerBlue: "#337ab7",
-    bgTreccia: "#e8f5e9",
-    bgTubi: "#eeeeee",
-    bgGuaina: "#f3e5f5",
+    
+    // Nuovi Colori Richiesti
+    bgTreccia: "#dcfce7", // Verde più acceso (Tailwind green-100)
+    bgTubi: "#e5e7eb",    // Grigio più evidente (Tailwind gray-200)
+    bgGuaina: "#e0f2fe",  // Blu/Azzurro chiaro (Tailwind sky-100)
     
     title: {
       backgroundColor: "#337ab7",

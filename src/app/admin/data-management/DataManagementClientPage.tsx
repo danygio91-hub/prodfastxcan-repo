@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -31,9 +32,6 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 
-const odlFormSchema = z.object({ manualOdlNumber: z.string().optional() });
-type OdlFormValues = z.infer<typeof odlFormSchema>;
-
 const manualCreateSchema = z.object({
     cliente: z.string().min(1, "Il cliente è obbligatorio."),
     ordinePF: z.string().min(1, "L'Ordine PF è obbligatorio."),
@@ -62,19 +60,15 @@ export default function DataManagementClientPage() {
       blockedJobs: Array<{ row: any; reason: string }>;
   } | null>(null);
   
-  const [isCreateOdlDialogOpen, setIsCreateOdlDialogOpen] = useState(false);
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
   const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
-  const [jobToProcess, setJobToProcess] = useState<JobOrder | null>(null);
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
-  
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   
-  const odlForm = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
   const manualForm = useForm<ManualCreateValues>({ 
     resolver: zodResolver(manualCreateSchema),
     defaultValues: { qta: 1, department: '' }
@@ -275,7 +269,7 @@ export default function DataManagementClientPage() {
                         >
                           {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
+                        <Button variant="outline" size="sm" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) fetchData(); })}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
                       </TableCell>
                     </TableRow>
                   )})}
@@ -419,16 +413,6 @@ export default function DataManagementClientPage() {
             <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
             <Button onClick={() => handleConfirmCommit(true)} disabled={!importReport?.newJobs.length && !importReport?.jobsToUpdate.length}>Carica Valide</Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isCreateOdlDialogOpen} onOpenChange={setIsCreateOdlDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Avvia ODL</DialogTitle></DialogHeader>
-          <Form {...odlForm}><form onSubmit={odlForm.handleSubmit(v => createODL(jobToProcess!.id, v.manualOdlNumber).then(r => { toast({ title: r.message }); if(r.success) { setIsCreateOdlDialogOpen(false); fetchData(); } }))} className="space-y-4">
-            <div className="p-4 bg-muted rounded-lg"><p>Commessa: <span className="font-bold">{jobToProcess?.ordinePF}</span></p></div>
-            <FormField control={odlForm.control} name="manualOdlNumber" render={({ field }) => ( <FormItem><FormLabel>Numero ODL Manuale (Opzionale)</FormLabel><FormControl><Input {...field} placeholder="Es. 0001" /></FormControl><FormMessage /></FormItem> )} />
-            <DialogFooter><Button variant="outline" type="button" onClick={() => setIsCreateOdlDialogOpen(false)}>Annulla</Button><Button type="submit">Avvia</Button></DialogFooter>
-          </form></Form>
         </DialogContent>
       </Dialog>
     </div>
