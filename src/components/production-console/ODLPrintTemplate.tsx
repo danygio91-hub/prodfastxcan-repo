@@ -13,16 +13,17 @@ interface ODLPrintTemplateProps {
   materials: RawMaterial[];
 }
 
-const PAGE_WIDTH = "297mm";
-const PAGE_HEIGHT = "210mm";
-
 /**
- * TEMPLATE ODL GRIGLIA EXCEL (A-G / 1-37)
- * Riproduzione millimetrica basata sul modello Excel fornito.
+ * --- IL FINCATO ODL ---
+ * Questo componente rappresenta il layout millimetrico dell'ODL (Scheda di Lavorazione).
+ * Segue la griglia Excel A-G / 1-37.
+ * 
+ * PUOI MODIFICARE QUESTO FILE PER SPOSTARE LE CELLE O CAMBIARE I COLORI.
  */
 export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
+  // Logica di categorizzazione materiali
   const allItems = (job.billOfMaterials || []).map(item => {
     const mat = materialsMap.get(item.component.toUpperCase());
     const type = mat?.type || 'OTHER';
@@ -32,13 +33,8 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     return { ...item, category, mat };
   });
 
-  // Suddivisione per le 3 tabelle
-  const trecciaItems = allItems.filter(i => i.category === 'treccia');
-  const tubiItems = allItems.filter(i => i.category === 'tubi');
-  const guainaItems = allItems.filter(i => i.category === 'guaina');
-
-  // Regola del supervisore: Multi-pagina se righe > 15
-  const ITEMS_PER_PAGE = 15;
+  // REGOLE DEL SUPERVISORE: Multi-pagina se righe > 15
+  const ITEMS_PER_PAGE = 15; 
   const pages: any[][] = [];
   for (let i = 0; i < allItems.length; i += ITEMS_PER_PAGE) {
     pages.push(allItems.slice(i, i + ITEMS_PER_PAGE));
@@ -53,37 +49,43 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
       } catch (e) { return '---'; }
   };
 
-  const getEstimatedTime = (type: string) => {
-    if (!article?.phaseTimes) return 'N/D';
-    let phaseId = '';
-    if (type === 'treccia') phaseId = 'phase-template-1';
-    else if (type === 'tubi') phaseId = 'phase-template-7';
-    else if (type === 'guaina') phaseId = 'phase-template-6';
-    
-    const time = article.phaseTimes[phaseId]?.expectedMinutesPerPiece || 0;
-    if (time <= 0) return 'N/D';
-    const tot = time * job.qta;
-    const h = Math.floor(tot / 60);
-    const m = Math.round(tot % 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  // --- STILI DEL FINCATO ---
+  const styles = {
+    page: {
+      width: "297mm",
+      height: "210mm",
+      padding: "5mm",
+      backgroundColor: "white",
+      color: "black",
+      fontFamily: "'PT Sans', 'Calibri', 'Arial', sans-serif",
+      boxSizing: "border-box" as const,
+      display: "flex",
+      flexDirection: "column" as const,
+    },
+    tableMaster: {
+      width: "100%",
+      borderCollapse: "collapse" as const,
+      border: "2px solid black",
+      tableLayout: "fixed" as const,
+      fontSize: "8pt",
+    },
+    cell: {
+      border: "1px solid black",
+      padding: "2px",
+    },
+    headerBlue: "#dbeafe",
+    headerOrange: "#ffedd5",
+    headerGreen: "#ecfdf5",
+    headerDark: "#1f2937",
   };
 
   return (
-    <div id="odl-pdf-pages" className="bg-gray-200 flex flex-col gap-8 items-center" style={{ position: 'absolute', top: '-20000px', left: '-20000px' }}>
+    <div id="odl-pdf-pages" style={{ position: 'absolute', top: '-20000px', left: '-20000px' }}>
       {pages.map((pageItems, pageIdx) => (
-        <div 
-          key={pageIdx} 
-          className="odl-page bg-white text-black shadow-xl relative overflow-hidden flex flex-col"
-          style={{ 
-            width: PAGE_WIDTH, 
-            height: PAGE_HEIGHT, 
-            padding: '5mm',
-            boxSizing: 'border-box',
-            fontFamily: "var(--font-pt-sans), 'Calibri', 'Arial', sans-serif" 
-          }}
-        >
-          {/* GRIGLIA MASTER EXCEL (A-G) */}
-          <table className="w-full border-collapse border-2 border-black" style={{ tableLayout: 'fixed', fontSize: '8pt' }}>
+        <div key={pageIdx} className="odl-page" style={styles.page}>
+          
+          <table style={styles.tableMaster}>
+            {/* DEFINIZIONE COLONNE A-G */}
             <colgroup>
                 <col style={{ width: '15%' }} /> {/* A */}
                 <col style={{ width: '15%' }} /> {/* B */}
@@ -93,117 +95,118 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                 <col style={{ width: '12.5%' }} /> {/* F */}
                 <col style={{ width: '12.5%' }} /> {/* G */}
             </colgroup>
+
             <tbody>
-              {/* RIGA 1: LOGO E TITOLO */}
-              <tr style={{ height: '10mm' }}>
-                <td className="border border-black p-1 text-center" rowSpan={4}>
-                    <img src="/logo.png" alt="Logo" className="h-8 w-auto grayscale mx-auto" />
+              {/* RIGHE 1-4: HEADER E LOGO */}
+              <tr style={{ height: '12mm' }}>
+                <td style={styles.cell} rowSpan={4} align="center">
+                    <img src="/logo.png" alt="Logo" style={{ height: '10mm', width: 'auto', filter: 'grayscale(1)' }} />
                 </td>
-                <td className="border border-black p-1 text-center font-black bg-[#dbeafe]" colSpan={4} style={{ fontSize: '14pt', letterSpacing: '2px' }}>
+                <td style={{ ...styles.cell, backgroundColor: styles.headerBlue, fontWeight: 900, fontSize: '14pt', textAlign: 'center' }} colSpan={4}>
                     SCHEDA DI LAVORAZIONE
                 </td>
-                <td className="border border-black p-1 text-right italic font-bold" colSpan={2} style={{ fontSize: '6pt' }}>
+                <td style={{ ...styles.cell, textAlign: 'right', fontStyle: 'italic', fontWeight: 'bold', fontSize: '6pt' }} colSpan={2}>
                     MOD. 800_5_02 REV.0 del 08/05/2024<br/>Pag. {pageIdx + 1}/{pages.length}
                 </td>
               </tr>
 
-              {/* RIGA 2-4: INFO HEADER (REPARTO, DATA, ODL) */}
-              <tr style={{ height: '6mm' }}>
-                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>REPARTO</td>
-                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>DATA ODL</td>
-                <td className="border border-black p-0 text-center font-bold bg-gray-50 italic" style={{ fontSize: '7pt' }}>N° ORD. INTERNO</td>
-                <td className="border border-black p-0 text-center font-bold bg-[#ffedd5] italic" style={{ fontSize: '7pt' }}>NUMERO ORDINE PF</td>
-                <td className="border border-black p-0 text-center font-bold bg-[#ecfdf5] italic" colSpan={2} style={{ fontSize: '7pt' }}>N° ODL</td>
-              </tr>
-              <tr style={{ height: '8mm' }}>
-                <td className="border border-black p-1 text-center font-black">{job.department || 'N/D'}</td>
-                <td className="border border-black p-1 text-center font-bold">{formatDateSafe(job.odlCreationDate || new Date())}</td>
-                <td className="border border-black p-1 text-center font-bold">{job.numeroODLInterno || '---'}</td>
-                <td className="border border-black p-1 text-center font-black text-blue-800" style={{ fontSize: '11pt' }}>{job.ordinePF}</td>
-                <td className="border border-black p-1 text-center font-black text-emerald-700" colSpan={2} style={{ fontSize: '11pt' }}>{job.numeroODL || '---'}</td>
+              <tr style={{ height: '6mm', backgroundColor: '#f9fafb', fontSize: '7pt', fontWeight: 'bold', fontStyle: 'italic', textAlign: 'center' }}>
+                <td style={styles.cell}>REPARTO</td>
+                <td style={styles.cell}>DATA ODL</td>
+                <td style={styles.cell}>N° ORD. INTERNO</td>
+                <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }}>NUMERO ORDINE PF</td>
+                <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={2}>N° ODL</td>
               </tr>
 
-              {/* RIGA 5-14: DATI COMMESSA, QR E DISEGNO */}
+              <tr style={{ height: '8mm', textAlign: 'center', fontWeight: 900 }}>
+                <td style={styles.cell}>{job.department || 'N/D'}</td>
+                <td style={styles.cell}>{formatDateSafe(job.odlCreationDate || new Date())}</td>
+                <td style={styles.cell}>{job.numeroODLInterno || '---'}</td>
+                <td style={{ ...styles.cell, color: '#1e40af', fontSize: '11pt' }}>{job.ordinePF}</td>
+                <td style={{ ...styles.cell, color: '#065f46', fontSize: '11pt' }} colSpan={2}>{job.numeroODL || '---'}</td>
+              </tr>
+
+              {/* RIGHE 5-14: DATI COMMESSA, QR E DISEGNO */}
               <tr>
-                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>CLIENTE</td>
-                <td className="border border-black p-1 font-black" style={{ fontSize: '9pt' }}>{job.cliente}</td>
-                <td className="border border-black p-2 text-center" rowSpan={10} colSpan={1}>
-                    <div className="flex flex-col items-center gap-1">
-                        <span className="text-blue-600 font-black" style={{ fontSize: '5pt' }}>CODICE COMMESSA</span>
-                        <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={60} />
+                <td style={{ ...styles.cell, fontWeight: 'bold', fontStyle: 'italic', backgroundColor: '#f9fafb', height: '10mm' }}>CLIENTE</td>
+                <td style={{ ...styles.cell, fontWeight: 900, fontSize: '9pt' }}>{job.cliente}</td>
+                <td style={{ ...styles.cell, textAlign: 'center' }} rowSpan={10} colSpan={1}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ color: '#2563eb', fontWeight: 900, fontSize: '5pt' }}>CODICE COMMESSA</span>
+                        <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={65} />
                     </div>
                 </td>
-                <td className="border border-black p-4 text-center italic text-gray-300" rowSpan={10} colSpan={4}>
-                    <p className="tracking-[0.2em] font-black uppercase opacity-30" style={{ fontSize: '10pt' }}>
+                <td style={{ ...styles.cell, textAlign: 'center', fontStyle: 'italic', color: '#d1d5db' }} rowSpan={10} colSpan={4}>
+                    <p style={{ letterSpacing: '0.2em', fontWeight: 900, textTransform: 'uppercase', opacity: 0.3, fontSize: '10pt' }}>
                         DISEGNO ALLEGATO AL CODICE ARTICOLO<br/>IN ANAGRAFICA
                     </p>
                 </td>
               </tr>
               <tr>
-                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>CODICE ARTICOLO</td>
-                <td className="border border-black p-1 font-black" style={{ fontSize: '12pt' }}>{job.details}</td>
+                <td style={{ ...styles.cell, fontWeight: 'bold', fontStyle: 'italic', backgroundColor: '#f9fafb', height: '10mm' }}>CODICE ARTICOLO</td>
+                <td style={{ ...styles.cell, fontWeight: 900, fontSize: '12pt' }}>{job.details}</td>
               </tr>
               <tr>
-                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>DISEGNO</td>
-                <td className="border border-black p-1 italic text-gray-400">---</td>
+                <td style={{ ...styles.cell, fontWeight: 'bold', fontStyle: 'italic', backgroundColor: '#f9fafb', height: '10mm' }}>DISEGNO</td>
+                <td style={{ ...styles.cell, fontStyle: 'italic', color: '#9ca3af' }}>---</td>
               </tr>
               <tr>
-                <td className="border border-black p-1 font-bold italic bg-gray-50" style={{ height: '10mm' }}>QT</td>
-                <td className="border border-black p-1 font-black" style={{ fontSize: '16pt' }}>{job.qta}</td>
+                <td style={{ ...styles.cell, fontWeight: 'bold', fontStyle: 'italic', backgroundColor: '#f9fafb', height: '10mm' }}>QT</td>
+                <td style={{ ...styles.cell, fontWeight: 900, fontSize: '18pt' }}>{job.qta}</td>
               </tr>
               <tr>
-                <td className="border border-black p-1 font-bold italic bg-gray-50 leading-tight" style={{ fontSize: '7pt' }}>DATA FINE PREPARAZIONE MATERIALE</td>
-                <td className="border border-black p-1 font-black text-red-600" style={{ fontSize: '11pt' }}>{formatDateSafe(job.dataConsegnaFinale)}</td>
+                <td style={{ ...styles.cell, fontWeight: 'bold', fontStyle: 'italic', backgroundColor: '#f9fafb', lineHeight: 1.1, fontSize: '7pt' }}>DATA FINE PREPARAZIONE MATERIALE</td>
+                <td style={{ ...styles.cell, fontWeight: 900, fontSize: '11pt', color: '#dc2626' }}>{formatDateSafe(job.dataConsegnaFinale)}</td>
               </tr>
 
               {/* RIGA 15: DIVISORE MAGAZZINO */}
-              <tr style={{ height: '6mm' }}>
-                <td className="border-2 border-black p-1 text-center font-black bg-[#1f2937] text-white uppercase tracking-[0.4em]" colSpan={7} style={{ fontSize: '7.5pt' }}>
+              <tr style={{ height: '7mm' }}>
+                <td style={{ ...styles.cell, border: '2px solid black', textAlign: 'center', fontWeight: 900, backgroundColor: styles.headerDark, color: 'white', textTransform: 'uppercase', letterSpacing: '0.4em', fontSize: '7.5pt' }} colSpan={7}>
                     PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)
                 </td>
               </tr>
 
-              {/* TABELLE MATERIALI (SOLO RIGHE PAGINATE) */}
-              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
-                <td className="border border-black px-1">COMPONENTE</td>
-                <td className="border border-black text-center">SPECIALE</td>
-                <td className="border border-black text-center">QT</td>
-                <td className="border border-black text-center">Verifica misura</td>
-                <td className="border border-black text-center">Fatto</td>
-                <td className="border border-black text-center" colSpan={2}>Note / Alert</td>
+              {/* TABELLE MATERIALI (PAGINATE) */}
+              <tr style={{ height: '6mm', backgroundColor: '#f3f4f6', fontWeight: 900, textAlign: 'center' }}>
+                <td style={styles.cell}>COMPONENTE</td>
+                <td style={styles.cell}>SPECIALE</td>
+                <td style={styles.cell}>QT</td>
+                <td style={styles.cell}>VERIFICA MISURA</td>
+                <td style={styles.cell}>FATTO</td>
+                <td style={styles.cell} colSpan={2}>NOTE / ALERT</td>
               </tr>
               {pageItems.map((item, i) => (
-                <tr key={`item-${i}`} style={{ height: '8mm' }}>
-                    <td className="border border-black px-1 font-bold truncate">{item.component}</td>
-                    <td className="border border-black text-center font-mono">
+                <tr key={`item-${i}`} style={{ height: '9mm' }}>
+                    <td style={{ ...styles.cell, fontWeight: 'bold' }}>{item.component}</td>
+                    <td style={{ ...styles.cell, textAlign: 'center', fontFamily: 'monospace' }}>
                         {item.category === 'treccia' || item.category === 'guaina' ? (item.lunghezzaTaglioMm ? `${item.lunghezzaTaglioMm}mm` : '---') : (item.mat?.conversionFactor ? `${item.mat.conversionFactor}kg/pz` : '---')}
                     </td>
-                    <td className="border border-black text-center font-black">
+                    <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 900, fontSize: '10pt' }}>
                         {item.category === 'guaina' ? `${(item.quantity * job.qta * (item.lunghezzaTaglioMm || 0) / 1000).toFixed(2)}m` : (item.quantity * job.qta).toFixed(0)}
                     </td>
-                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
-                    <td className="border border-black text-center text-lg">□</td>
-                    <td className="border border-black px-1 text-[6pt] italic truncate" colSpan={2}>{item.note || ''}</td>
+                    <td style={{ ...styles.cell, textAlign: 'center', color: '#d1d5db' }}>| &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |</td>
+                    <td style={{ ...styles.cell, textAlign: 'center', fontSize: '14pt' }}>□</td>
+                    <td style={{ ...styles.cell, fontSize: '6.5pt', fontStyle: 'italic' }} colSpan={2}>{item.note || ''}</td>
                 </tr>
               ))}
 
-              {/* FOOTER (NOTE E FIRME) - SOLO NELL'ULTIMA PAGINA */}
+              {/* FOOTER: NOTE E FIRME (SOLO NELL'ULTIMA PAGINA) */}
               {pageIdx === pages.length - 1 && (
                 <>
                     <tr style={{ height: '6mm' }}>
-                        <td className="border-2 border-black p-1 text-center font-black bg-[#ffedd5]" colSpan={4} style={{ fontSize: '7.5pt' }}>
-                            Segnalazione Operatore (note - NC)
+                        <td style={{ ...styles.cell, border: '2px solid black', textAlign: 'center', fontWeight: 900, backgroundColor: styles.headerOrange, fontSize: '7.5pt' }} colSpan={4}>
+                            SEGNALAZIONE OPERATORE (NOTE - NC)
                         </td>
-                        <td className="border-2 border-black p-1 text-center font-black bg-gray-100" colSpan={3} style={{ fontSize: '7.5pt' }}>
-                            Data e Firma Operatore
+                        <td style={{ ...styles.cell, border: '2px solid black', textAlign: 'center', fontWeight: 900, backgroundColor: '#f3f4f6', fontSize: '7.5pt' }} colSpan={3}>
+                            DATA E FIRMA OPERATORE
                         </td>
                     </tr>
-                    <tr style={{ height: '30mm' }}>
-                        <td className="border border-black p-2 italic text-gray-300 align-top" colSpan={4} style={{ fontSize: '7pt' }}>
-                            SPAZIO NOTE DA TENERE PER COMPILAZIONE MANUALE DELL'OPERATORE...
+                    <tr style={{ height: '35mm' }}>
+                        <td style={{ ...styles.cell, fontStyle: 'italic', color: '#d1d5db', verticalAlign: 'top', padding: '5px' }} colSpan={4}>
+                            Annotazioni manuali dell'operatore per eventuali anomalie o non conformità riscontrate durante la preparazione...
                         </td>
-                        <td className="border border-black p-2 align-bottom text-right" colSpan={3}>
-                            <div className="flex justify-between items-end w-full font-bold text-gray-400" style={{ fontSize: '7pt' }}>
+                        <td style={{ ...styles.cell, verticalAlign: 'bottom', padding: '5px' }} colSpan={3}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontWeight: 'bold', color: '#9ca3af', fontSize: '7pt' }}>
                                 <span>DATA: ___/___/______</span>
                                 <span>FIRMA: ________________________________</span>
                             </div>
