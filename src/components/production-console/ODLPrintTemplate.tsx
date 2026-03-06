@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm", // Lift-up millimetrico richiesto
+      paddingBottom: "1.5mm", // Lift-up millimetrico
     },
     label: {
         fontSize: "7pt",
@@ -100,16 +100,11 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     },
     headerGray: "#f3f4f6",
     headerBlue: "#337ab7",
-    
-    // Colori Richiesti per i VALORI
     bgValueGreen: "#c8e6c9", // Verde Pastello
     bgValueYellow: "#fff9c4", // Giallo Pastello
-    
-    // Colori Sezioni Materiali
     bgTreccia: "#e8f5e9",
     bgTubi: "#f5f5f5",
     bgGuaina: "#e1f5fe",
-    
     title: {
       backgroundColor: "#337ab7",
       color: "white",
@@ -125,7 +120,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-        padding: '3mm', // Margine attorno al QR richiesto
+        padding: '3mm', // Margine quadrato richiesto
         boxSizing: 'border-box' as const,
     },
     qrInner: {
@@ -171,7 +166,6 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
           </colgroup>
 
           <tbody>
-            {/* HEADER */}
             <tr>
               <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }} rowSpan={3}>
                 <div style={styles.qrWrapper}>
@@ -198,10 +192,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
               <td style={{ ...styles.cell, colSpan: 2, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
             </tr>
 
-            {/* SPAZIO BIANCO */}
             <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
 
-            {/* DATI CENTRALI */}
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>CLIENTE</div></td>
               <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }}>
@@ -244,17 +236,14 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
               </td>
             </tr>
 
-            {/* SPAZIO BIANCO */}
             <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
 
-            {/* SEPARATORE MAGAZZINO */}
             <tr>
               <td colSpan={7} style={{ ...styles.cell, backgroundColor: styles.headerGray, height: "6mm", border: "1.5px solid black" }}>
                 <div style={styles.flexCell}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)</div>
               </td>
             </tr>
 
-            {/* TRECCIA / CORDA */}
             {trecciaItems.length > 0 && (
                 <>
                     <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
@@ -290,7 +279,6 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 </>
             )}
 
-            {/* TUBI */}
             {tubiItems.length > 0 && (
                 <>
                     <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
@@ -325,7 +313,6 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 </>
             )}
 
-            {/* GUAINA */}
             {guainaItems.length > 0 && (
                 <>
                     <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
@@ -359,10 +346,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 </>
             )}
 
-            {/* SPAZIO BIANCO */}
             <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
 
-            {/* FOOTER FIRME */}
             <tr style={{ height: '10mm' }}>
               <td style={{ ...styles.cell, backgroundColor: "#fff3e0", fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={4}>Segnalazione Operatore (note - NC)</td>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={3}>Data e Firma Operatore</td>
