@@ -21,13 +21,15 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
     return { ...item, type, mat };
   });
 
-  const trecciaItems = allItems.filter(i => i.type === 'TRECCIA' || i.type === 'BOB' || i.type === 'PF3V0' || i.type === 'BARRA');
+  // CATEGORIZZAZIONE RIGOROSA
+  const trecciaItems = allItems.filter(i => ['BOB', 'PF3V0', 'BARRA', 'TRECCIA'].includes(i.type));
   const tubiItems = allItems.filter(i => i.type === 'TUBI');
   const guainaItems = allItems.filter(i => i.type === 'GUAINA');
 
+  // LOGICA MULTI-PAGINA (MAX 12 RIGHE PER FOGLIO PER MANTENERE IL FINCATO COMPATTO)
   const ITEMS_PER_PAGE = 12;
-  const totalItems = trecciaItems.length + tubiItems.length + guainaItems.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
+  const totalItemsCount = trecciaItems.length + tubiItems.length + guainaItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItemsCount / ITEMS_PER_PAGE));
 
   const formatDateSafe = (dateInput: any) => {
     if (!dateInput) return '---';
@@ -74,22 +76,35 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
       fontSize: "12pt",
       textAlign: "center" as const,
       verticalAlign: "middle" as const,
+    },
+    qrContainer: {
+        display: 'flex',
+        flexDirection: 'column' as const,
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
+        width: '100%',
     }
   };
 
   const pages = [];
   for (let p = 0; p < totalPages; p++) {
+    // Slice items for current page
+    const currentTreccia = trecciaItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
+    const currentTubi = tubiItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
+    const currentGuaina = guainaItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE);
+
     pages.push(
       <div key={p} className="odl-page" style={styles.page}>
         <table style={styles.masterTable}>
           <colgroup>
-            <col width="14%" />
-            <col width="14%" />
-            <col width="14%" />
-            <col width="14%" />
-            <col width="14%" />
-            <col width="15%" />
-            <col width="15%" />
+            <col width="14%" /> {/* A */}
+            <col width="14%" /> {/* B */}
+            <col width="14%" /> {/* C */}
+            <col width="14%" /> {/* D */}
+            <col width="14%" /> {/* E */}
+            <col width="15%" /> {/* F */}
+            <col width="15%" /> {/* G */}
           </colgroup>
 
           <tbody>
@@ -118,25 +133,18 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
               <td style={styles.cell} colSpan={2}>{job.numeroODL || 'MANUALE'}</td>
             </tr>
 
-            {/* RIGHE 5-14: DATI E QR CODE CENTRATO */}
+            {/* RIGHE 5-14: DATI COMMESSA, QR CENTRATO E AREA DISEGNO */}
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}>CLIENTE</td>
               <td style={{ ...styles.cell, fontWeight: 'bold' }}>{job.cliente}</td>
               <td style={{ ...styles.cell, padding: '0' }} rowSpan={5}>
-                <div style={{ 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    height: '100%', 
-                    width: '100%' 
-                }}>
-                    <div style={{ fontSize: '6pt', fontWeight: 'bold', color: '#337ab7', marginBottom: '4px' }}>CODICE COMMESSA</div>
-                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={60} />
+                <div style={styles.qrContainer}>
+                    <div style={{ fontSize: '6pt', fontWeight: 'bold', color: '#337ab7', marginBottom: '2px' }}>CODICE COMMESSA</div>
+                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={55} />
                 </div>
               </td>
               <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc', fontStyle: 'italic' }} rowSpan={5} colSpan={4}>
-                DISEGNO ALLEGATO AL CODICE ARTICOLO IN ANAGRAFICA
+                AREA PER DISEGNO TECNICO O NOTE VOLUMINOSE
               </td>
             </tr>
             <tr>
@@ -156,70 +164,82 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
               <td style={{ ...styles.cell, color: 'red', fontWeight: 'bold' }}>{formatDateSafe(job.dataConsegnaFinale)}</td>
             </tr>
 
-            {/* RIGA 15: SEPARATORE NERO */}
+            {/* RIGA SEPARATORE NERO */}
             <tr style={{ backgroundColor: 'black', color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: '7pt' }}>
               <td colSpan={7} style={{ height: '5mm' }}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)</td>
             </tr>
 
-            {/* TABELLE MATERIALI */}
-            <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
-              <td style={styles.cell} colSpan={2}>TRECCIA/CORDA</td>
-              <td style={styles.cell}>L TAGLIO mm</td>
-              <td style={styles.cell}>QT</td>
-              <td style={styles.cell}>Verifica</td>
-              <td style={styles.cell}>OK</td>
-              <td style={styles.cell}>ALERT</td>
-            </tr>
-            {trecciaItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE).map((item, i) => (
-              <tr key={`t-${i}`} style={{ height: '8mm' }}>
-                <td style={styles.cell} colSpan={2}>{item.component}</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>{item.lunghezzaTaglioMm || '---'}</td>
-                <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
-                <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc' }}>| &nbsp;&nbsp; |</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
-                <td style={{ ...styles.cell, fontSize: '6pt', color: 'red' }}>{item.note || ''}</td>
-              </tr>
-            ))}
+            {/* TABELLE MATERIALI (Solo se ci sono dati per la pagina corrente) */}
+            {(currentTreccia.length > 0) && (
+                <>
+                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
+                        <td style={styles.cell} colSpan={2}>TRECCIA/CORDA</td>
+                        <td style={styles.cell}>L TAGLIO mm</td>
+                        <td style={styles.cell}>QT</td>
+                        <td style={styles.cell}>Verifica</td>
+                        <td style={styles.cell}>OK</td>
+                        <td style={styles.cell}>ALERT</td>
+                    </tr>
+                    {currentTreccia.map((item, i) => (
+                        <tr key={`t-${i}`} style={{ height: '8mm' }}>
+                            <td style={styles.cell} colSpan={2}>{item.component}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>{item.lunghezzaTaglioMm || '---'}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc' }}>| &nbsp;&nbsp; |</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
+                            <td style={{ ...styles.cell, fontSize: '6pt', color: 'red' }}>{item.note || ''}</td>
+                        </tr>
+                    ))}
+                </>
+            )}
 
-            <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
-              <td style={styles.cell} colSpan={2}>CODICE TUBI</td>
-              <td style={styles.cell}>QT (n°)</td>
-              <td style={styles.cell}>QT (kg)</td>
-              <td style={styles.cell}>Verifica</td>
-              <td style={styles.cell}>OK</td>
-              <td style={styles.cell}>STIMA</td>
-            </tr>
-            {tubiItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE).map((item, i) => (
-              <tr key={`tu-${i}`} style={{ height: '8mm' }}>
-                <td style={styles.cell} colSpan={2}>{item.component}</td>
-                <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>{item.mat?.conversionFactor ? (item.quantity * job.qta * item.mat.conversionFactor).toFixed(3) : '---'}</td>
-                <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc' }}>| &nbsp;&nbsp; |</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
-                <td style={styles.cell}></td>
-              </tr>
-            ))}
+            {(currentTubi.length > 0) && (
+                <>
+                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
+                        <td style={styles.cell} colSpan={2}>CODICE TUBI</td>
+                        <td style={styles.cell}>QT (n°)</td>
+                        <td style={styles.cell}>QT (kg)</td>
+                        <td style={styles.cell}>Verifica</td>
+                        <td style={styles.cell}>OK</td>
+                        <td style={styles.cell}>STIMA</td>
+                    </tr>
+                    {currentTubi.map((item, i) => (
+                        <tr key={`tu-${i}`} style={{ height: '8mm' }}>
+                            <td style={styles.cell} colSpan={2}>{item.component}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>{item.mat?.conversionFactor ? (item.quantity * job.qta * item.mat.conversionFactor).toFixed(3) : '---'}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc' }}>| &nbsp;&nbsp; |</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
+                            <td style={styles.cell}></td>
+                        </tr>
+                    ))}
+                </>
+            )}
 
-            <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
-              <td style={styles.cell} colSpan={2}>GUAINA</td>
-              <td style={styles.cell}>L TAGLIO mm</td>
-              <td style={styles.cell}>QT (pz)</td>
-              <td style={styles.cell}>Mt. Totali</td>
-              <td style={styles.cell}>OK</td>
-              <td style={styles.cell}>STIMA</td>
-            </tr>
-            {guainaItems.slice(p * ITEMS_PER_PAGE, (p + 1) * ITEMS_PER_PAGE).map((item, i) => (
-              <tr key={`g-${i}`} style={{ height: '8mm' }}>
-                <td style={styles.cell} colSpan={2}>{item.component}</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>{item.lunghezzaTaglioMm || '---'}</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>{(item.quantity * job.qta).toFixed(0)}</td>
-                <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{((item.lunghezzaTaglioMm || 0) * item.quantity * job.qta / 1000).toFixed(2)}m</td>
-                <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
-                <td style={styles.cell}></td>
-              </tr>
-            ))}
+            {(currentGuaina.length > 0) && (
+                <>
+                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
+                        <td style={styles.cell} colSpan={2}>GUAINA</td>
+                        <td style={styles.cell}>L TAGLIO mm</td>
+                        <td style={styles.cell}>QT (pz)</td>
+                        <td style={styles.cell}>Mt. Totali</td>
+                        <td style={styles.cell}>OK</td>
+                        <td style={styles.cell}>STIMA</td>
+                    </tr>
+                    {currentGuaina.map((item, i) => (
+                        <tr key={`g-${i}`} style={{ height: '8mm' }}>
+                            <td style={styles.cell} colSpan={2}>{item.component}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>{item.lunghezzaTaglioMm || '---'}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>{(item.quantity * job.qta).toFixed(0)}</td>
+                            <td style={{ ...styles.cell, textAlign: 'center', fontWeight: 'bold' }}>{((item.lunghezzaTaglioMm || 0) * item.quantity * job.qta / 1000).toFixed(2)}m</td>
+                            <td style={{ ...styles.cell, textAlign: 'center' }}>□</td>
+                            <td style={styles.cell}></td>
+                        </tr>
+                    ))}
+                </>
+            )}
 
-            {/* RIGHE FINALI: NOTE E FIRMA */}
+            {/* RIGHE FINALI: NOTE E FIRMA (Solo nell'ultima pagina o in ogni pagina come richiesto) */}
             <tr style={{ height: '15mm' }}>
               <td style={{ ...styles.cell, backgroundColor: styles.headerOrange, fontWeight: 'bold' }} colSpan={4}>Segnalazione Operatore (note - NC)</td>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }} colSpan={3}>Data e Firma Operatore</td>
