@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm", // Lift-up millimetrico
+      paddingBottom: "1.5mm", // Sollevamento millimetrico richiesto
     },
     label: {
         fontSize: "7pt",
@@ -188,8 +188,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
               <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
               <td style={{ ...styles.cell, backgroundColor: 'white' }}><div style={styles.flexCell}>{format(printDate || new Date(), 'dd/MM/yyyy')}</div></td>
-              <td style={{ ...styles.cell, colSpan: 2, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
-              <td style={{ ...styles.cell, colSpan: 2, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.bgValueGreen }} colSpan={2}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
             </tr>
 
             <tr style={styles.spacingRow}><td colSpan={7}></td></tr>
