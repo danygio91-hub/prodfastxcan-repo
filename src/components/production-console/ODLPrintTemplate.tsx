@@ -18,7 +18,7 @@ const PAGE_HEIGHT = "210mm";
 
 /**
  * TEMPLATE ODL GRIGLIA EXCEL (A-G / 1-37)
- * Riproduzione fedele del layout richiesto basato su coordinate celle.
+ * Riproduzione millimetrica basata sul modello Excel fornito.
  */
 export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
@@ -37,8 +37,8 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
   const tubiItems = allItems.filter(i => i.category === 'tubi');
   const guainaItems = allItems.filter(i => i.category === 'guaina');
 
-  // Logica di paginazione: Max 22 righe totali tra le tabelle per pagina
-  const ITEMS_PER_PAGE = 22;
+  // Regola del supervisore: Multi-pagina se righe > 15
+  const ITEMS_PER_PAGE = 15;
   const pages: any[][] = [];
   for (let i = 0; i < allItems.length; i += ITEMS_PER_PAGE) {
     pages.push(allItems.slice(i, i + ITEMS_PER_PAGE));
@@ -79,7 +79,7 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
             height: PAGE_HEIGHT, 
             padding: '5mm',
             boxSizing: 'border-box',
-            fontFamily: "'Segoe UI', 'Calibri', 'Arial', sans-serif" 
+            fontFamily: "var(--font-pt-sans), 'Calibri', 'Arial', sans-serif" 
           }}
         >
           {/* GRIGLIA MASTER EXCEL (A-G) */}
@@ -163,72 +163,31 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                 </td>
               </tr>
 
-              {/* RIGA 18+: TABELLE MATERIALI (LOGICA DINAMICA) */}
-              {/* TRECCIA */}
+              {/* TABELLE MATERIALI (SOLO RIGHE PAGINATE) */}
               <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
-                <td className="border border-black px-1">TRECCIA/CORDA</td>
-                <td className="border border-black text-center">L TAGLIO mm (Toll)</td>
+                <td className="border border-black px-1">COMPONENTE</td>
+                <td className="border border-black text-center">SPECIALE</td>
                 <td className="border border-black text-center">QT</td>
-                <td className="border border-black text-center">Verifica misura mm</td>
-                <td className="border border-black text-center">Completato</td>
-                <td className="border border-black text-center">Stima tempo taglio</td>
-                <td className="border border-black text-center">ALERT</td>
+                <td className="border border-black text-center">Verifica misura</td>
+                <td className="border border-black text-center">Fatto</td>
+                <td className="border border-black text-center" colSpan={2}>Note / Alert</td>
               </tr>
-              {trecciaItems.map((item, i) => (
-                <tr key={`tr-${i}`} style={{ height: '8mm' }}>
+              {pageItems.map((item, i) => (
+                <tr key={`item-${i}`} style={{ height: '8mm' }}>
                     <td className="border border-black px-1 font-bold truncate">{item.component}</td>
-                    <td className="border border-black text-center font-mono">{item.lunghezzaTaglioMm || '---'}</td>
-                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
+                    <td className="border border-black text-center font-mono">
+                        {item.category === 'treccia' || item.category === 'guaina' ? (item.lunghezzaTaglioMm ? `${item.lunghezzaTaglioMm}mm` : '---') : (item.mat?.conversionFactor ? `${item.mat.conversionFactor}kg/pz` : '---')}
+                    </td>
+                    <td className="border border-black text-center font-black">
+                        {item.category === 'guaina' ? `${(item.quantity * job.qta * (item.lunghezzaTaglioMm || 0) / 1000).toFixed(2)}m` : (item.quantity * job.qta).toFixed(0)}
+                    </td>
                     <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
                     <td className="border border-black text-center text-lg">□</td>
-                    {i === 0 && <td className="border border-black text-center font-bold" rowSpan={trecciaItems.length}>{getEstimatedTime('treccia')}</td>}
-                    <td className="border border-black px-1 text-[6pt] italic truncate">{item.note || ''}</td>
+                    <td className="border border-black px-1 text-[6pt] italic truncate" colSpan={2}>{item.note || ''}</td>
                 </tr>
               ))}
 
-              {/* TUBI */}
-              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
-                <td className="border border-black px-1">CODICE TUBI</td>
-                <td className="border border-black text-center">QT (n°)</td>
-                <td className="border border-black text-center">QT (kg.)</td>
-                <td className="border border-black text-center">Verifica misure</td>
-                <td className="border border-black text-center">Prelevato da mag</td>
-                <td className="border border-black text-center" colSpan={2}>Stima tempo preparazione</td>
-              </tr>
-              {tubiItems.map((item, i) => (
-                <tr key={`tb-${i}`} style={{ height: '8mm' }}>
-                    <td className="border border-black px-1 font-bold">{item.component}</td>
-                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
-                    <td className="border border-black text-center font-mono">{(item.quantity * job.qta * (item.mat?.conversionFactor || 0)).toFixed(2)}</td>
-                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
-                    <td className="border border-black text-center text-lg">□</td>
-                    {i === 0 && <td className="border border-black text-center font-bold" colSpan={2} rowSpan={tubiItems.length}>{getEstimatedTime('tubi')}</td>}
-                </tr>
-              ))}
-
-              {/* GUAINA */}
-              <tr style={{ height: '6mm' }} className="bg-gray-100 font-black">
-                <td className="border border-black px-1">GUAINA</td>
-                <td className="border border-black text-center">L TAGLIO mm (Toll)</td>
-                <td className="border border-black text-center">QT</td>
-                <td className="border border-black text-center">Mt. Guaina</td>
-                <td className="border border-black text-center">Verifica misura mm</td>
-                <td className="border border-black text-center">Completato</td>
-                <td className="border border-black text-center">Stima tempo taglio</td>
-              </tr>
-              {guainaItems.map((item, i) => (
-                <tr key={`gu-${i}`} style={{ height: '8mm' }}>
-                    <td className="border border-black px-1 font-bold">{item.component}</td>
-                    <td className="border border-black text-center font-mono">{item.lunghezzaTaglioMm || '---'}</td>
-                    <td className="border border-black text-center font-black">{(item.quantity * job.qta).toFixed(0)}</td>
-                    <td className="border border-black text-center font-bold text-blue-700">{(item.quantity * job.qta * (item.lunghezzaTaglioMm || 0) / 1000).toFixed(2)}m</td>
-                    <td className="border border-black text-center text-gray-300">| &nbsp;&nbsp;&nbsp;&nbsp; |</td>
-                    <td className="border border-black text-center text-lg">□</td>
-                    {i === 0 && <td className="border border-black text-center font-bold" rowSpan={guainaItems.length}>{getEstimatedTime('guaina')}</td>}
-                </tr>
-              ))}
-
-              {/* FOOTER (NOTE E FIRME) */}
+              {/* FOOTER (NOTE E FIRME) - SOLO NELL'ULTIMA PAGINA */}
               {pageIdx === pages.length - 1 && (
                 <>
                     <tr style={{ height: '6mm' }}>
