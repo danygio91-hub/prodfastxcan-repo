@@ -107,7 +107,12 @@ export default function DataManagementClientPage() {
   const filteredPlanned = useMemo(() => {
     if (!plannedSearchTerm) return plannedJobOrders;
     const l = plannedSearchTerm.toLowerCase();
-    return plannedJobOrders.filter(j => j.ordinePF.toLowerCase().includes(l) || j.details.toLowerCase().includes(l) || j.cliente.toLowerCase().includes(l) || (j.numeroODLInterno || '').toLowerCase().includes(l));
+    return plannedJobOrders.filter(j => 
+        j.ordinePF.toLowerCase().includes(l) || 
+        j.details.toLowerCase().includes(l) || 
+        j.cliente.toLowerCase().includes(l) || 
+        (j.numeroODLInterno || '').toLowerCase().includes(l)
+    );
   }, [plannedJobOrders, plannedSearchTerm]);
 
   const handleDownloadPdf = async (job: JobOrder) => {
@@ -245,11 +250,13 @@ export default function DataManagementClientPage() {
               <Table>
                 <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredPlanned.map(j => (
+                  {filteredPlanned.map(j => {
+                    const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
+                    return (
                     <TableRow key={j.id}>
                       <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
                       <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px]">{j.department || 'N/D'}</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
                       <TableCell>
                         <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
                           <SelectTrigger className="w-[180px] h-8"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
@@ -271,7 +278,7 @@ export default function DataManagementClientPage() {
                         <Button variant="outline" size="sm" onClick={() => { setJobToProcess(j); setIsCreateOdlDialogOpen(true); }}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
               </Table>
             </CardContent>
