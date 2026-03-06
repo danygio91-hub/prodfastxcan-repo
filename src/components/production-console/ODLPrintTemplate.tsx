@@ -99,15 +99,14 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         marginBottom: "1px",
     },
     headerGray: "#f3f4f6",
-    headerOrange: "#ffedd5",
-    headerGreen: "#ecfdf5",
-    headerYellow: "#fff176",
+    headerOrange: "#fff3e0",
+    headerYellow: "#fff9c4",
     headerBlue: "#337ab7",
     
-    // Nuovi Colori Richiesti
-    bgTreccia: "#dcfce7", // Verde più acceso (Tailwind green-100)
-    bgTubi: "#e5e7eb",    // Grigio più evidente (Tailwind gray-200)
-    bgGuaina: "#e0f2fe",  // Blu/Azzurro chiaro (Tailwind sky-100)
+    // Colori Pastello Richiesti
+    bgTreccia: "#e8f5e9", // Verde tenue
+    bgTubi: "#f5f5f5",    // Grigio tenue
+    bgGuaina: "#e1f5fe",  // Azzurro tenue
     
     title: {
       backgroundColor: "#337ab7",
@@ -172,7 +171,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
           <tbody>
             {/* HEADER */}
             <tr>
-              <td style={{ ...styles.cell, borderBottom: '0' }} rowSpan={3}>
+              <td style={{ ...styles.cell, borderBottom: '0', backgroundColor: 'white' }} rowSpan={3}>
                 <div style={styles.qrContainer}>
                     <img src="/logo.png" alt="Logo" style={{ height: '12mm', maxWidth: '95%' }} />
                 </div>
@@ -180,17 +179,17 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
               <td style={styles.title} colSpan={4}>
                 <div style={styles.flexCell}>SCHEDA DI LAVORAZIONE</div>
               </td>
-              <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6.5pt', verticalAlign: 'top', padding: '2px' }} colSpan={2}>
+              <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6.5pt', verticalAlign: 'top', padding: '2px', backgroundColor: 'white' }} colSpan={2}>
                 MOD. 800_5_02 REV.0 del 08/05/2024
               </td>
             </tr>
             <tr style={{ backgroundColor: styles.headerGray }}>
               <td style={styles.cell}><div style={styles.label}>REPARTO</div></td>
               <td style={styles.cell}><div style={styles.label}>DATA ODL</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }} colSpan={2}><div style={styles.label}>NUMERO ORDINE PF</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={2}><div style={styles.label}>N° ODL</div></td>
+              <td style={styles.cell} colSpan={2}><div style={styles.label}>NUMERO ORDINE PF</div></td>
+              <td style={styles.cell} colSpan={2}><div style={styles.label}>N° ODL</div></td>
             </tr>
-            <tr style={{ fontWeight: 'bold', fontSize: '11pt' }}>
+            <tr style={{ fontWeight: 'bold', fontSize: '11pt', backgroundColor: 'white' }}>
               <td style={styles.cell}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
               <td style={styles.cell}><div style={styles.flexCell}>{format(printDate || new Date(), 'dd/MM/yyyy')}</div></td>
               <td style={styles.cell} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
@@ -200,22 +199,22 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             {/* DATI CENTRALI */}
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>CLIENTE</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge }}>
+              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }}>
                 <div style={styles.flexCell}>{job.cliente}</div>
               </td>
               <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerBlue, color: 'white' }}>
                 <div style={styles.flexCell}>CODICE COMMESSA</div>
               </td>
-              <td style={{ ...styles.cell, color: '#ccc', fontWeight: 'bold', fontSize: '18pt' }} rowSpan={5} colSpan={4}>
+              <td style={{ ...styles.cell, color: '#ccc', fontWeight: 'bold', fontSize: '18pt', backgroundColor: 'white' }} rowSpan={5} colSpan={4}>
                 <div style={styles.flexCell}>AREA DISEGNO</div>
               </td>
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>CODICE ARTICOLO</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge }}>
+              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }}>
                 <div style={styles.flexCell}>{job.details}</div>
               </td>
-              <td style={{ ...styles.cell }} rowSpan={4}>
+              <td style={{ ...styles.cell, backgroundColor: 'white' }} rowSpan={4}>
                 <div style={styles.qrContainer}>
                     <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={145} />
                 </div>
@@ -223,11 +222,11 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>DISEGNO</div></td>
-              <td style={styles.cell}><div style={styles.flexCell}>---</div></td>
+              <td style={{ ...styles.cell, backgroundColor: 'white' }}><div style={styles.flexCell}>---</div></td>
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}><div style={styles.flexCell}>QT</div></td>
-              <td style={{ ...styles.cell, ...styles.valueLarge }}><div style={styles.flexCell}>{job.qta}</div></td>
+              <td style={{ ...styles.cell, ...styles.valueLarge, backgroundColor: 'white' }}><div style={styles.flexCell}>{job.qta}</div></td>
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
@@ -248,7 +247,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             {/* TRECCIA / CORDA */}
             {trecciaItems.length > 0 && (
                 <>
-                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
+                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>TRECCIA/CORDA</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
@@ -284,7 +283,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             {/* TUBI */}
             {tubiItems.length > 0 && (
                 <>
-                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
+                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>CODICE TUBI</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}></div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (n°)</div></td>
@@ -299,9 +298,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                         return (
                             <tr key={`tu-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTubi }}>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell }}>
-                                    <div style={styles.flexCell}></div>
-                                </td>
+                                <td style={{ ...styles.cell }}><div style={styles.flexCell}></div></td>
                                 <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
                                 <td style={styles.cell}><div style={styles.flexCell}>{totalKg > 0 ? totalKg.toFixed(1) : '---'}</div></td>
                                 <td style={styles.cell}><VerificaCell /></td>
@@ -321,7 +318,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
             {/* GUAINA */}
             {guainaItems.length > 0 && (
                 <>
-                    <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
+                    <tr style={{ backgroundColor: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>GUAINA</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT</div></td>
@@ -357,7 +354,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
               <td style={{ ...styles.cell, backgroundColor: styles.headerOrange, fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={4}>Segnalazione Operatore (note - NC)</td>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', verticalAlign: 'top', textAlign: 'left', padding: '2mm' }} colSpan={3}>Data e Firma Operatore</td>
             </tr>
-            <tr style={{ height: '10mm' }}>
+            <tr style={{ height: '10mm', backgroundColor: 'white' }}>
               <td style={styles.cell} colSpan={4}></td>
               <td style={{ ...styles.cell, verticalAlign: 'bottom', textAlign: 'left', fontSize: '7.5pt', padding: '4mm' }} colSpan={3}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'flex-end', height: '100%', paddingBottom: '1mm' }}>
