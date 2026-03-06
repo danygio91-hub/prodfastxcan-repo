@@ -92,9 +92,6 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      position: "absolute" as const,
-      top: 0,
-      left: 0,
     },
     label: {
         fontSize: "7pt",
@@ -108,10 +105,9 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     headerGreen: "#ecfdf5",
     headerYellow: "#fff176",
     headerBlue: "#337ab7",
-    // Nuovi colori richiesti
-    bgTreccia: "#e8f5e9", // Verde tenue
-    bgTubi: "#eeeeee",    // Grigio medio
-    bgGuaina: "#f3e5f5",  // Blu/Viola lavanda
+    bgTreccia: "#e8f5e9",
+    bgTubi: "#eeeeee",
+    bgGuaina: "#f3e5f5",
     
     title: {
       backgroundColor: "#337ab7",
