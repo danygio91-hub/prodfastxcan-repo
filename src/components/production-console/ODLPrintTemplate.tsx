@@ -36,7 +36,7 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     if (n.includes('BURATTATURA') || n.includes('FINITURA') || n.includes('BF')) return 'BF';
     if (n.includes('MAGAZZINO') || n.includes('MAG')) return 'MAG';
     if (n.includes('COLLAUDO') || n.includes('TEST') || n.includes('QLTY')) return 'QLTY';
-    return 'OFF';
+    return n.length > 4 ? n.substring(0, 3) : n; // Ritorna il valore originale o i primi 3 caratteri invece di OFF
   };
 
   const formatDateSafe = (dateInput: any) => {
@@ -84,9 +84,17 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
       textAlign: "center" as const,
       lineHeight: "1",
     },
+    flexCell: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      height: "100%",
+      width: "100%",
+    },
     headerGray: "#f3f4f6",
     headerOrange: "#ffedd5",
     headerGreen: "#ecfdf5",
+    headerYellow: "#fffde7",
     title: {
       backgroundColor: "#337ab7",
       color: "white",
@@ -103,13 +111,6 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-    },
-    labelSmall: {
-        fontSize: '7pt',
-        fontWeight: 'bold' as const,
-        color: '#666',
-        textTransform: 'uppercase' as const,
-        marginBottom: '1mm',
     },
     verificaGrid: {
         display: 'flex',
@@ -153,56 +154,62 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                     <img src="/logo.png" alt="Logo" style={{ height: '8mm', maxWidth: '90%' }} />
                 </div>
               </td>
-              <td style={styles.title} colSpan={4}>SCHEDA DI LAVORAZIONE</td>
+              <td style={styles.title} colSpan={4}>
+                <div style={styles.flexCell}>SCHEDA DI LAVORAZIONE</div>
+              </td>
               <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6pt', verticalAlign: 'top' }} colSpan={2}>
                 MOD. 800_5_02 REV.0 del 08/05/2024<br/>Pag. {p + 1}/{totalPages}
               </td>
             </tr>
             <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
-              <td style={styles.cell}>REPARTO</td>
-              <td style={styles.cell}>DATA ODL</td>
-              <td style={styles.cell}>N° ORD. INTERNO</td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }}>NUMERO ORDINE PF</td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={2}>N° ODL</td>
+              <td style={styles.cell}><div style={styles.flexCell}>REPARTO</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>DATA ODL</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>N° ORD. INTERNO</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }}><div style={styles.flexCell}>NUMERO ORDINE PF</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={2}><div style={styles.flexCell}>N° ODL</div></td>
             </tr>
             <tr style={{ fontWeight: 'bold', fontSize: '10pt' }}>
-              <td style={styles.cell}>{getDeptSigla(job.department)}</td>
-              <td style={styles.cell}>{format(new Date(), 'dd/MM/yyyy')}</td>
-              <td style={styles.cell}>{job.numeroODLInterno || '---'}</td>
-              <td style={styles.cell}>{job.ordinePF}</td>
-              <td style={styles.cell} colSpan={2}>{job.numeroODL || 'MANUALE'}</td>
+              <td style={styles.cell}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>{format(new Date(), 'dd/MM/yyyy')}</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>{job.ordinePF}</div></td>
+              <td style={styles.cell} colSpan={2}><div style={styles.flexCell}>{job.numeroODL || 'MANUALE'}</div></td>
             </tr>
 
             <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}>CLIENTE</td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt' }}>{job.cliente}</td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>CLIENTE</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.cliente}</div></td>
               <td style={{ ...styles.cell, fontWeight: 'bold', color: '#337ab7', fontSize: '7pt' }}>
-                CODICE COMMESSA
+                <div style={styles.flexCell}>CODICE COMMESSA</div>
               </td>
               <td style={{ ...styles.cell, color: '#ccc', fontWeight: 'bold', fontSize: '14pt' }} rowSpan={5} colSpan={4}>
-                AREA DISEGNO
+                <div style={styles.flexCell}>AREA DISEGNO</div>
               </td>
             </tr>
             <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}>CODICE ARTICOLO</td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt' }}>{job.details}</td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>CODICE ARTICOLO</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.details}</div></td>
               <td style={{ ...styles.cell, padding: '2mm' }} rowSpan={4}>
                 <div style={styles.qrContainer}>
-                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={100} />
+                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={120} />
                 </div>
               </td>
             </tr>
             <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}>DISEGNO</td>
-              <td style={styles.cell}>---</td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>DISEGNO</div></td>
+              <td style={styles.cell}><div style={styles.flexCell}>---</div></td>
             </tr>
             <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}>QT</td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '16pt' }}>{job.qta}</td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>QT</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.qta}</div></td>
             </tr>
             <tr>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}>DATA FINE PREP.</td>
-              <td style={{ ...styles.cell, color: 'red', fontWeight: 'bold' }}>{formatDateSafe(job.dataConsegnaFinale)}</td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left', fontSize: '7pt' }}>
+                <div style={{ ...styles.flexCell, lineHeight: '1.1' }}>DATA FINE PREPARAZIONE MATERIALE</div>
+              </td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerYellow, color: 'black' }}>
+                <div style={styles.flexCell}>{formatDateSafe(job.dataConsegnaFinale)}</div>
+              </td>
             </tr>
 
             <tr style={{ backgroundColor: 'black', color: 'white', fontWeight: 'bold', fontSize: '7pt' }}>
