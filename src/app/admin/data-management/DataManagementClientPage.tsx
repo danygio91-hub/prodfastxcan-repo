@@ -135,7 +135,6 @@ export default function DataManagementClientPage() {
 
         for (let i = 0; i < pageElements.length; i++) {
             const page = pageElements[i] as HTMLElement;
-            // Alta qualità con scale 3 come richiesto per nitidezza
             const canvas = await html2canvas(page, { 
                 scale: 3, 
                 useCORS: true,
@@ -224,7 +223,6 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
-      {/* Render del template per il PDF (renderizzato in una zona invisibile ma catturabile) */}
       {pdfData && (
         <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
             <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
