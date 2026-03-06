@@ -405,7 +405,7 @@ export default function DataManagementClientPage() {
                 </TableBody></Table>
             </ScrollArea></TabsContent>
             <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
-                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableHeader>
                 <TableBody>
                   {importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell className="font-mono">{b.row.ordinePF || 'N/D'} - {b.row.details || 'N/D'}</TableCell><TableCell className="text-destructive font-semibold">{b.reason}</TableCell></TableRow>)}
                 </TableBody></Table>

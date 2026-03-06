@@ -94,7 +94,7 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     headerGray: "#f3f4f6",
     headerOrange: "#ffedd5",
     headerGreen: "#ecfdf5",
-    headerYellow: "#fff176", // Giallo più accentuato come richiesto
+    headerYellow: "#fff176",
     headerBlue: "#337ab7",
     title: {
       backgroundColor: "#337ab7",
@@ -121,7 +121,7 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
     },
     verificaSlot: {
         flex: 1,
-        borderRight: '1.5px solid black',
+        borderRight: '1px solid black',
     }
   };
 
@@ -166,22 +166,20 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
             <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
               <td style={styles.cell}><div style={styles.flexCell}>REPARTO</div></td>
               <td style={styles.cell}><div style={styles.flexCell}>DATA ODL</div></td>
-              <td style={styles.cell}><div style={styles.flexCell}>N° ORD. INTERNO</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }}><div style={styles.flexCell}>NUMERO ORDINE PF</div></td>
-              <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={2}><div style={styles.flexCell}>N° ODL</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerOrange }} colSpan={2}><div style={styles.flexCell}>NUMERO ORDINE PF</div></td>
+              <td style={{ ...styles.cell, backgroundColor: styles.headerGreen }} colSpan={3}><div style={styles.flexCell}>N° ODL</div></td>
             </tr>
             <tr style={{ fontWeight: 'bold', fontSize: '10pt' }}>
               <td style={styles.cell}><div style={styles.flexCell}>{getDeptSigla(job.department)}</div></td>
               <td style={styles.cell}><div style={styles.flexCell}>{format(new Date(), 'dd/MM/yyyy')}</div></td>
-              <td style={styles.cell}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
-              <td style={styles.cell}><div style={styles.flexCell}>{job.ordinePF}</div></td>
-              <td style={styles.cell} colSpan={2}><div style={styles.flexCell}>{job.numeroODL || '---'}</div></td>
+              <td style={styles.cell} colSpan={2}><div style={styles.flexCell}>{job.ordinePF}</div></td>
+              <td style={styles.cell} colSpan={3}><div style={styles.flexCell}>{job.numeroODLInterno || '---'}</div></td>
             </tr>
 
             {/* RIGA 5-14: DATI COMMESSA E QR */}
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>CLIENTE</div></td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.cliente}</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '14pt' }}><div style={styles.flexCell}>{job.cliente}</div></td>
               <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerBlue, color: 'white', fontSize: '8pt' }}>
                 <div style={styles.flexCell}>CODICE COMMESSA</div>
               </td>
@@ -191,7 +189,7 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>CODICE ARTICOLO</div></td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.details}</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '14pt' }}><div style={styles.flexCell}>{job.details}</div></td>
               <td style={{ ...styles.cell, padding: '2mm' }} rowSpan={4}>
                 <div style={styles.qrContainer}>
                     <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={135} />
@@ -204,13 +202,13 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left' }}><div style={styles.flexCell}>QT</div></td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '12pt' }}><div style={styles.flexCell}>{job.qta}</div></td>
+              <td style={{ ...styles.cell, fontWeight: 'bold', fontSize: '14pt' }}><div style={styles.flexCell}>{job.qta}</div></td>
             </tr>
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold', textAlign: 'left', fontSize: '7pt' }}>
                 <div style={{ ...styles.flexCell, lineHeight: '1.1' }}>DATA FINE PREPARAZIONE MATERIALE</div>
               </td>
-              <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerYellow, color: 'black' }}>
+              <td style={{ ...styles.cell, fontWeight: 'bold', backgroundColor: styles.headerYellow, color: 'black', fontSize: '14pt' }}>
                 <div style={styles.flexCell}>{formatDateSafe(job.dataConsegnaFinale)}</div>
               </td>
             </tr>
@@ -232,14 +230,14 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                     </tr>
                     {trecciaItems.map((item, i) => (
                         <tr key={`t-${i}`} style={{ height: '9mm' }}>
-                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}>{item.component}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold' }}>{item.lunghezzaTaglioMm || '---'}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
+                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}><div style={{...styles.flexCell, justifyContent: 'flex-start'}}>{item.component}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '---'}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{(item.quantity * job.qta).toFixed(0)}</div></td>
                             <td style={{ ...styles.cell, padding: '0' }}><VerificaCell /></td>
                             <td style={styles.cell}>□</td>
                             {i === 0 && (
                                 <td rowSpan={trecciaItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt' }}>
-                                    {getEstimatedTimeForSection('phase-template-1')}
+                                    <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-1')}</div>
                                 </td>
                             )}
                         </tr>
@@ -260,14 +258,14 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                     </tr>
                     {tubiItems.map((item, i) => (
                         <tr key={`tu-${i}`} style={{ height: '9mm' }}>
-                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}>{item.component}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
-                            <td style={styles.cell}>{item.mat?.conversionFactor ? (item.quantity * job.qta * item.mat.conversionFactor).toFixed(3) : '---'}</td>
+                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}><div style={{...styles.flexCell, justifyContent: 'flex-start'}}>{item.component}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{(item.quantity * job.qta).toFixed(0)}</div></td>
+                            <td style={styles.cell}><div style={styles.flexCell}>{item.mat?.conversionFactor ? (item.quantity * job.qta * item.mat.conversionFactor).toFixed(3) : '---'}</div></td>
                             <td style={{ ...styles.cell, padding: '0' }}><VerificaCell /></td>
                             <td style={styles.cell}>□</td>
                             {i === 0 && (
                                 <td rowSpan={tubiItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt' }}>
-                                    {getEstimatedTimeForSection('phase-template-7')}
+                                    <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-7')}</div>
                                 </td>
                             )}
                         </tr>
@@ -288,14 +286,14 @@ export default function ODLPrintTemplate({ job, article, materials }: ODLPrintTe
                     </tr>
                     {guainaItems.map((item, i) => (
                         <tr key={`g-${i}`} style={{ height: '9mm' }}>
-                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}>{item.component}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold' }}>{item.lunghezzaTaglioMm || '---'}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold' }}>{(item.quantity * job.qta).toFixed(0)}</td>
-                            <td style={{ ...styles.cell, fontWeight: 'bold', color: '#337ab7' }}>{((item.lunghezzaTaglioMm || 0) * item.quantity * job.qta / 1000).toFixed(2)}m</td>
+                            <td style={{ ...styles.cell, textAlign: 'left' }} colSpan={2}><div style={{...styles.flexCell, justifyContent: 'flex-start'}}>{item.component}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{item.lunghezzaTaglioMm || '---'}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{(item.quantity * job.qta).toFixed(0)}</div></td>
+                            <td style={{ ...styles.cell, fontWeight: 'bold', color: '#337ab7' }}><div style={styles.flexCell}>{((item.lunghezzaTaglioMm || 0) * item.quantity * job.qta / 1000).toFixed(2)}m</div></td>
                             <td style={styles.cell}>□</td>
                             {i === 0 && (
                                 <td rowSpan={guainaItems.length} style={{ ...styles.cell, fontWeight: 'bold', fontSize: '11pt' }}>
-                                    {getEstimatedTimeForSection('phase-template-6')}
+                                    <div style={styles.flexCell}>{getEstimatedTimeForSection('phase-template-6')}</div>
                                 </td>
                             )}
                         </tr>
