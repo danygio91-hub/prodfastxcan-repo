@@ -27,13 +27,14 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
 
   const getDeptSigla = (name: string) => {
     const n = (name || '').toUpperCase();
+    if (n.includes('CONN') || n.includes('PICCOLE')) return 'CP';
     if (n.includes('ASSEMBLAGGIO') || n.includes('CP')) return 'CP';
     if (n.includes('QUALITÀ') || n.includes('CG')) return 'CG';
     if (n.includes('BURATTATURA') || n.includes('FINITURA') || n.includes('BF')) return 'BF';
     if (n.includes('MAGAZZINO') || n.includes('MAG')) return 'MAG';
     if (n.includes('COLLAUDO') || n.includes('TEST') || n.includes('QLTY')) return 'QLTY';
     if (n.includes('OFFICINA')) return 'OFF';
-    return n.length > 4 ? n.substring(0, 3) : n;
+    return n.length > 10 ? n.substring(0, 8) + '.' : n;
   };
 
   const formatDateSafe = (dateInput: any) => {
@@ -46,11 +47,11 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
 
   const getEstimatedTimeForSection = (phaseId: string) => {
     const timeData = article?.phaseTimes?.[phaseId];
-    if (!timeData || !timeData.expectedMinutesPerPiece) return 'N/D';
-    const totalMins = timeData.expectedMinutesPerPiece * job.qta;
+    if (!timeData || !timeData.expectedMinutesPerPiece) return '00:00';
+    const totalMins = Math.round(timeData.expectedMinutesPerPiece * job.qta);
     const h = Math.floor(totalMins / 60);
-    const m = Math.round(totalMins % 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const m = totalMins % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   };
 
   const styles = {
@@ -256,8 +257,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                     </tr>
                     {trecciaItems.map((item, i) => {
                         const totalUnits = item.quantity * job.qta;
-                        // QT (kg) = (L Taglio mm / 1000) * QT * Fattore
-                        const weightKg = (item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * (item.mat?.conversionFactor || item.mat?.rapportoKgMt || 1);
+                        const factor = item.mat?.rapportoKgMt || item.mat?.conversionFactor || 0;
+                        const weightKg = (item.lunghezzaTaglioMm ? (item.lunghezzaTaglioMm / 1000) : 1) * totalUnits * factor;
                         return (
                             <tr key={`t-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTreccia }}>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
@@ -283,12 +284,12 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                 <>
                     <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt' }}>
                         <td style={styles.cell}><div style={styles.flexCell}>CODICE TUBI</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>L TAGLIO mm</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}></div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (n°)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>QT (kg)</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Verifica misure</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Prelevato da mag</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (minuti)</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
                     </tr>
                     {tubiItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;
@@ -296,8 +297,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                         return (
                             <tr key={`tu-${i}`} style={{ height: '9mm', backgroundColor: styles.bgTubi }}>
                                 <td style={{ ...styles.cell, textAlign: 'left' }}><div style={{...styles.flexCell, justifyContent: 'flex-start', paddingLeft: '4px'}}>{item.component}</div></td>
-                                <td style={{ ...styles.cell, fontSize: '24pt', fontWeight: 'bold' }}>
-                                    <div style={styles.flexCell}>/</div>
+                                <td style={{ ...styles.cell }}>
+                                    <div style={styles.flexCell}></div>
                                 </td>
                                 <td style={{ ...styles.cell, fontWeight: 'bold' }}><div style={styles.flexCell}>{totalPcs.toFixed(0)}</div></td>
                                 <td style={styles.cell}><div style={styles.flexCell}>{totalKg > 0 ? totalKg.toFixed(1) : '---'}</div></td>
@@ -325,7 +326,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
                         <td style={styles.cell}><div style={styles.flexCell}>Mt. Guaina</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Verifica misura mm</div></td>
                         <td style={styles.cell}><div style={styles.flexCell}>Completato</div></td>
-                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto</div></td>
+                        <td style={styles.cell}><div style={styles.flexCell}>Tempo Previsto (hh:mm)</div></td>
                     </tr>
                     {guainaItems.map((item, i) => {
                         const totalPcs = item.quantity * job.qta;

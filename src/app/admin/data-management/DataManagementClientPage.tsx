@@ -17,7 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
@@ -77,7 +77,7 @@ export default function DataManagementClientPage() {
   const odlForm = useForm<OdlFormValues>({ resolver: zodResolver(odlFormSchema) });
   const manualForm = useForm<ManualCreateValues>({ 
     resolver: zodResolver(manualCreateSchema),
-    defaultValues: { qta: 1, department: 'N/D' }
+    defaultValues: { qta: 1, department: '' }
   });
 
   const fetchData = useCallback(async () => {
@@ -243,12 +243,13 @@ export default function DataManagementClientPage() {
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredPlanned.map(j => (
                     <TableRow key={j.id}>
                       <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
                       <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px]">{j.department || 'N/D'}</Badge></TableCell>
                       <TableCell>
                         <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
                           <SelectTrigger className="w-[180px] h-8"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
