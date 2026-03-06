@@ -37,6 +37,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     if (n.includes('BURATTATURA') || n.includes('FINITURA') || n.includes('BF')) return 'BF';
     if (n.includes('MAGAZZINO') || n.includes('MAG')) return 'MAG';
     if (n.includes('COLLAUDO') || n.includes('TEST') || n.includes('QLTY')) return 'QLTY';
+    if (n.includes('OFFICINA')) return 'OFF';
     return n.length > 4 ? n.substring(0, 3) : n;
   };
 
@@ -92,6 +93,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
+      paddingBottom: "2px", // Lift text slightly off the bottom line
     },
     label: {
         fontSize: "7pt",
