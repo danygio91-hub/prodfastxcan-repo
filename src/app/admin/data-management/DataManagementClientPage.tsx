@@ -117,7 +117,6 @@ export default function DataManagementClientPage() {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
         setPdfData({ job, article, materials: rawMaterials, printDate: new Date() });
 
-        // Attendiamo il rendering del template
         await new Promise(r => setTimeout(r, 1000));
 
         const container = document.getElementById('odl-pdf-pages');
