@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -117,8 +117,8 @@ export default function DataManagementClientPage() {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
         setPdfData({ job, article, materials: rawMaterials });
 
-        // Attendiamo che il componente React si renderizzi nel DOM "nascosto"
-        await new Promise(r => setTimeout(r, 2000));
+        // Attendiamo che il componente React si renderizzi nel DOM
+        await new Promise(r => setTimeout(r, 1500));
 
         const container = document.getElementById('odl-pdf-pages');
         if (!container) throw new Error("Template di stampa non trovato nel DOM.");
@@ -135,17 +135,17 @@ export default function DataManagementClientPage() {
 
         for (let i = 0; i < pageElements.length; i++) {
             const page = pageElements[i] as HTMLElement;
+            // Alta qualità con scale 3
             const canvas = await html2canvas(page, { 
-                scale: 2, 
+                scale: 3, 
                 useCORS: true,
                 logging: false,
                 backgroundColor: '#ffffff'
             });
             
-            const imgData = canvas.toDataURL('image/png', 0.8);
+            const imgData = canvas.toDataURL('image/png', 1.0);
             if (i > 0) pdf.addPage();
             
-            // Inseriamo l'immagine A4 Landscape piena
             pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
         }
 
@@ -224,9 +224,11 @@ export default function DataManagementClientPage() {
         </div>
       </header>
 
-      {/* Render del template per il PDF (invisibile all'utente ma presente nel DOM) */}
+      {/* Render del template per il PDF (renderizzato in una zona invisibile per catturarlo) */}
       {pdfData && (
-        <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
+        <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
+            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} />
+        </div>
       )}
 
       <Tabs defaultValue="planned">

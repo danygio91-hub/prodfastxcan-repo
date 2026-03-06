@@ -4,7 +4,7 @@
 import React from 'react';
 import QRCode from 'react-qr-code';
 import { format, isValid, parseISO } from 'date-fns';
-import type { JobOrder, RawMaterial, Article, JobBillOfMaterialsItem } from '@/lib/mock-data';
+import type { JobOrder, RawMaterial, Article } from '@/lib/mock-data';
 
 interface ODLPrintTemplateProps {
   job: JobOrder;
@@ -12,14 +12,9 @@ interface ODLPrintTemplateProps {
   materials: RawMaterial[];
 }
 
-/**
- * TEMPLATE ODL PROFESSIONALE - GRIGLIA EXCEL A-G / 1-37
- * Questo componente genera le pagine HTML che verranno convertite in PDF.
- */
 export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplateProps) {
   const materialsMap = new Map(materials.map(m => [m.code.toUpperCase(), m]));
 
-  // Logica di categorizzazione materiali
   const allItems = (job.billOfMaterials || []).map(item => {
     const mat = materialsMap.get(item.component.toUpperCase());
     const type = mat?.type?.toUpperCase() || 'TRECCIA';
@@ -30,7 +25,6 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
   const tubiItems = allItems.filter(i => i.type === 'TUBI');
   const guainaItems = allItems.filter(i => i.type === 'GUAINA');
 
-  // Paginazione: Massimo 12 righe totali per pagina per mantenere il layout compatto
   const ITEMS_PER_PAGE = 12;
   const totalItems = trecciaItems.length + tubiItems.length + guainaItems.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
@@ -44,12 +38,6 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
   };
 
   const styles = {
-    container: {
-      position: 'absolute' as const,
-      left: '-9999px',
-      top: '0',
-      width: '297mm',
-    },
     page: {
       width: "297mm",
       height: "210mm",
@@ -72,19 +60,20 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
       border: "1px solid black",
       padding: "2px 4px",
       fontSize: "8pt",
-      height: "6mm",
-      overflow: "hidden",
+      height: "7mm",
+      verticalAlign: "middle" as const,
+      lineHeight: "1.1",
     },
-    headerBlue: "#dbeafe",
+    headerGray: "#f3f4f6",
     headerOrange: "#ffedd5",
     headerGreen: "#ecfdf5",
-    headerGray: "#f3f4f6",
     title: {
       backgroundColor: "#337ab7",
       color: "white",
-      fontWeight: "bold",
+      fontWeight: "bold" as const,
       fontSize: "12pt",
       textAlign: "center" as const,
+      verticalAlign: "middle" as const,
     }
   };
 
@@ -93,22 +82,21 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
     pages.push(
       <div key={p} className="odl-page" style={styles.page}>
         <table style={styles.masterTable}>
-          {/* DEFINIZIONE COLONNE A-G */}
           <colgroup>
-            <col width="14%" /> {/* A */}
-            <col width="14%" /> {/* B */}
-            <col width="14%" /> {/* C */}
-            <col width="14%" /> {/* D */}
-            <col width="14%" /> {/* E */}
-            <col width="15%" /> {/* F */}
-            <col width="15%" /> {/* G */}
+            <col width="14%" />
+            <col width="14%" />
+            <col width="14%" />
+            <col width="14%" />
+            <col width="14%" />
+            <col width="15%" />
+            <col width="15%" />
           </colgroup>
 
           <tbody>
             {/* RIGHE 1-4: HEADER */}
             <tr>
               <td style={{ ...styles.cell, textAlign: 'center' }} rowSpan={3}>
-                <img src="/logo.png" alt="Logo" style={{ height: '10mm', maxWidth: '100%' }} />
+                <img src="/logo.png" alt="Logo" style={{ height: '10mm', maxWidth: '90%', display: 'inline-block' }} />
               </td>
               <td style={styles.title} colSpan={4}>SCHEDA DI LAVORAZIONE</td>
               <td style={{ ...styles.cell, textAlign: 'right', fontSize: '6pt' }} colSpan={2}>
@@ -130,13 +118,22 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
               <td style={styles.cell} colSpan={2}>{job.numeroODL || 'MANUALE'}</td>
             </tr>
 
-            {/* RIGHE 5-14: DATI E DISEGNO */}
+            {/* RIGHE 5-14: DATI E QR CODE CENTRATO */}
             <tr>
               <td style={{ ...styles.cell, backgroundColor: styles.headerGray, fontWeight: 'bold' }}>CLIENTE</td>
               <td style={{ ...styles.cell, fontWeight: 'bold' }}>{job.cliente}</td>
-              <td style={{ ...styles.cell, textAlign: 'center' }} rowSpan={5}>
-                <div style={{ fontSize: '6pt', fontWeight: 'bold', color: '#337ab7', marginBottom: '2px' }}>CODICE COMMESSA</div>
-                <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={60} />
+              <td style={{ ...styles.cell, padding: '0' }} rowSpan={5}>
+                <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    height: '100%', 
+                    width: '100%' 
+                }}>
+                    <div style={{ fontSize: '6pt', fontWeight: 'bold', color: '#337ab7', marginBottom: '4px' }}>CODICE COMMESSA</div>
+                    <QRCode value={`${job.ordinePF}@${job.details}@${job.qta}`} size={60} />
+                </div>
               </td>
               <td style={{ ...styles.cell, textAlign: 'center', color: '#ccc', fontStyle: 'italic' }} rowSpan={5} colSpan={4}>
                 DISEGNO ALLEGATO AL CODICE ARTICOLO IN ANAGRAFICA
@@ -164,7 +161,7 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
               <td colSpan={7} style={{ height: '5mm' }}>PREPARAZIONE COMPONENTI COMMESSE (REPARTO MAGAZZINO)</td>
             </tr>
 
-            {/* TABELLE MATERIALI (Distribuiti tra le pagine) */}
+            {/* TABELLE MATERIALI */}
             <tr style={{ backgroundColor: styles.headerGray, fontWeight: 'bold', fontSize: '7pt', textAlign: 'center' }}>
               <td style={styles.cell} colSpan={2}>TRECCIA/CORDA</td>
               <td style={styles.cell}>L TAGLIO mm</td>
@@ -240,7 +237,7 @@ export default function ODLPrintTemplate({ job, materials }: ODLPrintTemplatePro
   }
 
   return (
-    <div id="odl-pdf-pages" style={styles.container}>
+    <div id="odl-pdf-pages" style={{ width: '297mm' }}>
       {pages}
     </div>
   );
