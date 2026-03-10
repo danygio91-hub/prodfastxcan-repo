@@ -1,11 +1,12 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, writeBatch, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, writeBatch, updateDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { PurchaseOrder } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { parse, isValid, format } from 'date-fns';
+import { parse, isValid } from 'date-fns';
 
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -27,6 +28,7 @@ export async function savePurchaseOrder(data: {
   orderNumber: string;
   supplierName: string;
   items: Array<{
+    id?: string;
     materialCode: string;
     quantity: number;
     unitOfMeasure: 'n' | 'mt' | 'kg';
@@ -37,32 +39,65 @@ export async function savePurchaseOrder(data: {
     await ensureAdmin(uid);
     const batch = writeBatch(db);
     
+    // Find existing items for this order number to identify deletions
+    const existingQ = query(collection(db, "purchaseOrders"), where("orderNumber", "==", data.orderNumber));
+    const existingSnap = await getDocs(existingQ);
+    const existingIds = new Set(existingSnap.docs.map(d => d.id));
+    const incomingIds = new Set(data.items.map(i => i.id).filter(Boolean));
+
+    // Delete items that are no longer present in the updated list
+    existingSnap.docs.forEach(docSnap => {
+        if (!incomingIds.has(docSnap.id)) {
+            batch.delete(docSnap.ref);
+        }
+    });
+
     for (const item of data.items) {
-      const id = `po-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const docRef = doc(db, "purchaseOrders", id);
+      const finalId = item.id || `po-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const docRef = doc(db, "purchaseOrders", finalId);
       
+      const existingDoc = existingSnap.docs.find(d => d.id === finalId);
+      const existingData = existingDoc ? existingDoc.data() : {};
+
       batch.set(docRef, {
-        id,
+        ...existingData,
+        id: finalId,
         orderNumber: data.orderNumber,
         supplierName: data.supplierName || '',
         materialCode: item.materialCode,
         quantity: item.quantity,
-        receivedQuantity: 0,
+        receivedQuantity: existingData.receivedQuantity || 0,
         unitOfMeasure: item.unitOfMeasure,
         expectedDeliveryDate: item.expectedDeliveryDate,
-        status: 'pending',
-        createdAt: Timestamp.now()
+        status: existingData.status || 'pending',
+        createdAt: existingData.createdAt || Timestamp.now(),
+        updatedAt: Timestamp.now()
       });
     }
 
     await batch.commit();
     revalidatePath('/admin/purchase-orders');
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Ordini salvati con successo.' };
+    return { success: true, message: 'Ordine salvato correttamente.' };
   } catch (e) {
     console.error("Error saving purchase orders:", e);
     return { success: false, message: 'Errore durante il salvataggio.' };
   }
+}
+
+export async function deleteOrderGroup(orderNumber: string, uid: string) {
+    await ensureAdmin(uid);
+    try {
+        const q = query(collection(db, "purchaseOrders"), where("orderNumber", "==", orderNumber));
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        revalidatePath('/admin/purchase-orders');
+        return { success: true, message: "Intero ordine eliminato." };
+    } catch (e) {
+        return { success: false, message: "Errore durante l'eliminazione dell'ordine." };
+    }
 }
 
 export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
@@ -85,7 +120,7 @@ export async function deletePurchaseOrder(id: string, uid: string): Promise<{ su
     await deleteDoc(doc(db, "purchaseOrders", id));
     revalidatePath('/admin/purchase-orders');
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: 'Ordine eliminato.' };
+    return { success: true, message: 'Riga ordine eliminata.' };
   } catch (e) {
     return { success: false, message: 'Errore.' };
   }
@@ -117,7 +152,17 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             let parsed = null;
             for(const fmt of formatsToTry) {
                 const temp = parse(rawDate, fmt, new Date());
-                if(isValid(temp)) { parsed = temp; break; }
+                // Fallback attempt manually if parse fails
+                if(!isValid(temp)) {
+                    const parts = rawDate.split('/');
+                    if (parts.length === 3) {
+                        const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                        if (isValid(d)) { parsed = d; break; }
+                    }
+                } else {
+                    parsed = temp;
+                    break;
+                }
             }
             deliveryDate = parsed ? parsed.toISOString() : new Date().toISOString();
         } else {
@@ -143,5 +188,5 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
     if (added > 0) await batch.commit();
     revalidatePath('/admin/purchase-orders');
     revalidatePath('/admin/raw-material-management');
-    return { success: true, message: `Importati ${added} ordini fornitore.` };
+    return { success: true, message: `Importati ${added} righe ordine fornitore.` };
 }
