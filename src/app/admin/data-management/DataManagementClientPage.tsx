@@ -124,7 +124,6 @@ export default function DataManagementClientPage() {
       filtered = data.filter(j => 
           j.ordinePF.toLowerCase().includes(l) || 
           j.details.toLowerCase().includes(l) || 
-          j.cliente.toLowerCase().includes(l) || 
           (j.numeroODLInterno || '').toLowerCase().includes(l)
       );
     }

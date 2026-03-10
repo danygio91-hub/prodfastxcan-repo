@@ -133,22 +133,37 @@ export default function PurchaseOrderManagementClientPage({
         status: 'pending' | 'received';
     }> = {};
 
+    // First pass: Group items and determine group status
     orders.forEach(o => {
         if (!groups[o.orderNumber]) {
             groups[o.orderNumber] = {
                 orderNumber: o.orderNumber,
                 supplierName: o.supplierName || 'N/D',
                 items: [],
-                earliestDelivery: o.expectedDeliveryDate,
+                earliestDelivery: '',
                 status: 'received'
             };
         }
         groups[o.orderNumber].items.push(o);
-        if (o.expectedDeliveryDate < groups[o.orderNumber].earliestDelivery) {
-            groups[o.orderNumber].earliestDelivery = o.expectedDeliveryDate;
-        }
         if (o.status === 'pending' || o.status === 'partially_received') {
             groups[o.orderNumber].status = 'pending';
+        }
+    });
+
+    // Second pass: Correctly calculate SCADENZA PROSSIMA (Next Deadline)
+    // We only consider items that are NOT fully received for the "Next" deadline.
+    Object.values(groups).forEach(group => {
+        const pendingItems = group.items.filter(i => i.status === 'pending' || i.status === 'partially_received');
+        if (pendingItems.length > 0) {
+            // Find the earliest date among PENDING items
+            group.earliestDelivery = pendingItems.reduce((min, i) => 
+                (min === '' || i.expectedDeliveryDate < min) ? i.expectedDeliveryDate : min, ''
+            );
+        } else {
+            // If everything is received, use the overall earliest date as reference
+            group.earliestDelivery = group.items.reduce((min, i) => 
+                (min === '' || i.expectedDeliveryDate < min) ? i.expectedDeliveryDate : min, ''
+            );
         }
     });
 
@@ -314,7 +329,7 @@ export default function PurchaseOrderManagementClientPage({
                                     <p className="text-[10px] uppercase font-bold text-muted-foreground">Scadenza Prossima</p>
                                     <p className="font-semibold text-sm flex items-center gap-1 justify-end">
                                         <CalendarIcon className="h-3 w-3" />
-                                        {format(parseISO(group.earliestDelivery), 'dd/MM/yy')}
+                                        {group.earliestDelivery ? format(parseISO(group.earliestDelivery), 'dd/MM/yy') : '---'}
                                     </p>
                                 </div>
                             </div>
