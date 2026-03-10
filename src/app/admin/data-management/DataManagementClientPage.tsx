@@ -108,6 +108,26 @@ export default function DataManagementClientPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        "Cliente": "Cliente Esempio",
+        "Ordine PF": "1234/25",
+        "Ordine Nr Est": "EXT-999",
+        "N° ODL": "0001-25",
+        "Codice": "ART-001",
+        "Qta": 100,
+        "Data Consegna": "25/12/2025",
+        "Reparto": "Assemblaggio",
+        "Ciclo": "Ciclo Standard"
+      }
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Import");
+    XLSX.writeFile(wb, "template_import_commesse.xlsx");
+  };
+
   const handleSort = (key: keyof JobOrder | 'reparto_codice') => {
     setSortConfig(current => {
       if (current?.key === key) {
@@ -377,6 +397,7 @@ export default function DataManagementClientPage() {
         </div>
         <div className="flex gap-2">
           <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
+          <Button onClick={handleDownloadTemplate} variant="outline"><Download className="mr-2 h-4 w-4" /> Scarica Template</Button>
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
         </div>
