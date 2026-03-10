@@ -118,10 +118,9 @@ export default function DataManagementClientPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDownloadTemplate = () => {
-    // Ordine colonne richiesto: Cliente, Ordine PF, Ordine Nr Est, Codice, Qta, Data Consegna, Reparto, Ciclo, N° ODL
     const templateData = [
       {
-        "Cliente": "CLIENTE-ALFA",
+        "Cliente": "CLIENTE-ESEMPIO",
         "Ordine PF": "1234/25",
         "Ordine Nr Est": "EXT-999",
         "Codice": "ART-001",
@@ -337,31 +336,34 @@ export default function DataManagementClientPage() {
             } catch (e) {}
         }
 
-        // Calcolo Semaforo Materiali
+        // Calcolo Semaforo Materiali Potenziato
         const stockStatus = (() => {
             if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
             
-            const missingDetails: string[] = [];
+            const detailedLines: string[] = [];
             let okItems = 0;
             
             j.billOfMaterials.forEach(item => {
                 const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
                 if (!mat) {
-                    missingDetails.push(`${item.component}: Non trovato in anagrafica`);
+                    detailedLines.push(`❌ ${item.component}: Non trovato in anagrafica`);
                     return;
                 }
                 const required = calculateCommitmentQty(j.qta, item, mat);
                 const stock = mat.currentStockUnits || 0;
-                if (stock < required - 0.001) {
-                    missingDetails.push(`${item.component}: Mancano ${formatDisplayStock(required - stock, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()}`);
+                const missing = required - stock;
+
+                if (missing > 0.001) {
+                    detailedLines.push(`⚠️ ${item.component}: Mancano ${formatDisplayStock(missing, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()} (Req: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
                 } else {
                     okItems++;
+                    detailedLines.push(`✅ ${item.component}: Disponibile (${formatDisplayStock(stock, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()})`);
                 }
             });
 
-            if (okItems === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: [] };
-            if (okItems === 0) return { color: 'text-red-500', icon: XCircle, label: 'Mancante', details: missingDetails };
-            return { color: 'text-yellow-500', icon: AlertTriangle, label: 'Parziale', details: missingDetails };
+            if (okItems === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Completo', details: detailedLines };
+            if (okItems === 0) return { color: 'text-red-500', icon: XCircle, label: 'Mancante', details: detailedLines };
+            return { color: 'text-yellow-500', icon: AlertTriangle, label: 'Parziale', details: detailedLines };
         })();
 
         return (
@@ -425,13 +427,15 @@ export default function DataManagementClientPage() {
                                 <stockStatus.icon className="h-5 w-5" />
                             </div>
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-[300px]">
-                            <p className="font-bold mb-1">{stockStatus.label}</p>
-                            {stockStatus.details.length > 0 ? (
-                                <ul className="text-xs space-y-1">
-                                    {stockStatus.details.map((d, i) => <li key={i}>• {d}</li>)}
-                                </ul>
-                            ) : <p className="text-xs">Tutti i componenti sono pronti.</p>}
+                        <TooltipContent className="max-w-[400px]">
+                            <p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p>
+                            <ul className="text-xs space-y-1.5">
+                                {stockStatus.details.map((d, i) => (
+                                    <li key={i} className="flex items-start gap-2">
+                                        <span>{d}</span>
+                                    </li>
+                                ))}
+                            </ul>
                         </TooltipContent>
                     </Tooltip>
                 </TooltipProvider>
