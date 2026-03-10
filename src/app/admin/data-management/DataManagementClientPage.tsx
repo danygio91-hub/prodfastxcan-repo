@@ -18,9 +18,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, updateJobOrderDeliveryDate } from './actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
+import { Calendar } from '@/components/ui/calendar';
 
 const manualCreateSchema = z.object({
     cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -277,6 +278,8 @@ export default function DataManagementClientPage() {
     <>
       {data.map(j => {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
+        const isPlanned = j.status === 'planned';
+        
         return (
           <TableRow key={j.id}>
             <TableCell padding="checkbox">
@@ -290,19 +293,45 @@ export default function DataManagementClientPage() {
             <TableCell>{j.qta}</TableCell>
             <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
             <TableCell>
-              <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
-                <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>)}</SelectContent>
-              </Select>
+              {isPlanned ? (
+                <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
+                  <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+                  <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>)}</SelectContent>
+                </Select>
+              ) : (
+                <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs text-muted-foreground italic">
+                  {workCycles.find(c => c.id === j.workCycleId)?.name || '-'}
+                </div>
+              )}
             </TableCell>
             <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
             <TableCell>
-              <Input 
-                type="date" 
-                className="h-8 w-[130px] text-xs" 
-                value={j.dataConsegnaFinale || ''} 
-                onChange={(e) => handleUpdateDeliveryDate(j.id, e.target.value)}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={"outline"}
+                    className={cn(
+                      "w-[130px] h-8 justify-start text-left font-normal text-xs",
+                      !j.dataConsegnaFinale && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-3 w-3" />
+                    {j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : <span>Scegli...</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        handleUpdateDeliveryDate(j.id, format(date, 'yyyy-MM-dd'));
+                      }
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </TableCell>
             <TableCell className="text-right space-x-1">
               <Button 
