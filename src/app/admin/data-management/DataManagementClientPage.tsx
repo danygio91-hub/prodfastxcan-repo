@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, updateJobOrderDeliveryDate } from './actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
@@ -280,6 +280,16 @@ export default function DataManagementClientPage() {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
         
+        let displayDate = <span>Scegli...</span>;
+        if (j.dataConsegnaFinale) {
+            try {
+                const parsed = parseISO(j.dataConsegnaFinale);
+                if (isValid(parsed)) {
+                    displayDate = <span>{format(parsed, "dd/MM/yyyy")}</span>;
+                }
+            } catch (e) {}
+        }
+
         return (
           <TableRow key={j.id}>
             <TableCell padding="checkbox">
@@ -316,7 +326,7 @@ export default function DataManagementClientPage() {
                     )}
                   >
                     <CalendarIcon className="mr-2 h-3 w-3" />
-                    {j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : <span>Scegli...</span>}
+                    {displayDate}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
