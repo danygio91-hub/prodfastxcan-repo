@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -16,13 +17,16 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
+import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
 import { logManualWithdrawal } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search } from 'lucide-react';
+import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 const withdrawalFormSchema = z.object({
   materialId: z.string().min(1, "ID Materiale mancante."),
@@ -41,6 +45,7 @@ export default function ManualWithdrawalPage() {
   const { toast } = useToast();
 
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
+  const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,13 +56,41 @@ export default function ManualWithdrawalPage() {
 
   const form = useForm<WithdrawalFormValues>({
     resolver: zodResolver(withdrawalFormSchema),
+    defaultValues: {
+        lotto: '',
+        notes: '',
+        jobOrderPF: ''
+    }
   });
   
+  const lottoValue = form.watch('lotto');
+
   useEffect(() => {
     if (scannedMaterial) {
       setInputUnit('primary');
     }
   }, [scannedMaterial]);
+
+  const updateLotInfo = useCallback(async (materialId: string, lotto: string) => {
+      try {
+          const lots = await getLotInfoForMaterial(materialId);
+          const matched = lots.find(l => l.lotto === lotto);
+          setLotAvailability(matched || null);
+      } catch (e) {
+          setLotAvailability(null);
+      }
+  }, []);
+
+  useEffect(() => {
+    if (lottoValue && lottoValue.length >= 2 && scannedMaterial) {
+        const timer = setTimeout(() => {
+            updateLotInfo(scannedMaterial.id, lottoValue);
+        }, 600);
+        return () => clearTimeout(timer);
+    } else {
+        setLotAvailability(null);
+    }
+  }, [lottoValue, scannedMaterial, updateLotInfo]);
 
   useEffect(() => {
     if (!authLoading && operator && !operator.canAccessMaterialWithdrawal) {
@@ -88,13 +121,15 @@ export default function ManualWithdrawalPage() {
             form.setValue('materialId', lottoData.material.id);
             form.setValue('lotto', code.trim());
             toast({ title: "Lotto Riconosciuto", description: `Materiale: ${lottoData.material.code}, Lotto: ${code.trim()}` });
+            await updateLotInfo(lottoData.material.id, code.trim());
         } else {
-             toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuno storico per questo lotto. Scansionare prima il materiale se necessario.' });
+             form.setValue('lotto', code.trim());
+             toast({ title: 'Lotto Nuovo', description: 'Nessuno storico trovato per questo lotto.' });
         }
     }
-    setScanType(null); // Close the dialog after scan
+    setScanType(null); 
     setIsCapturing(false);
-  }, [scanType, form, toast, scannedMaterial]);
+  }, [scanType, form, toast, scannedMaterial, updateLotInfo]);
   
   const triggerScan = async () => {
     if (!videoRef.current || videoRef.current.paused || videoRef.current.readyState < 2) {
@@ -147,7 +182,12 @@ export default function ManualWithdrawalPage() {
 
   const resetFlow = () => {
     setScannedMaterial(null);
-    form.reset();
+    setLotAvailability(null);
+    form.reset({
+        lotto: '',
+        notes: '',
+        jobOrderPF: ''
+    });
   };
   
   const renderScanView = () => (
@@ -204,12 +244,40 @@ export default function ManualWithdrawalPage() {
                 <CardContent className="pt-6 space-y-4">
                   
                   {scannedMaterial ? (
-                    <div className="p-4 border rounded-lg bg-muted text-center">
-                        <p className="font-semibold text-lg">{scannedMaterial.code}</p>
-                        <p className="text-sm text-muted-foreground">{scannedMaterial.description}</p>
-                        <p className="text-xl font-bold text-primary mt-1">
-                            Stock: {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()} / {formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG
-                        </p>
+                    <div className="p-4 border rounded-lg bg-muted/50 border-primary/20 space-y-4">
+                        <div className="text-center">
+                            <p className="font-black text-xl tracking-tight uppercase">{scannedMaterial.code}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{scannedMaterial.description}</p>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="p-2 rounded-md bg-background border flex flex-col items-center justify-center text-center">
+                                <Label className="text-[8px] uppercase font-black text-muted-foreground">Totale Magazzino</Label>
+                                <p className="text-sm font-black text-primary leading-tight">
+                                    {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
+                                </p>
+                                <p className="text-[9px] font-bold text-muted-foreground">
+                                    ({formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG)
+                                </p>
+                            </div>
+
+                            <div className={cn(
+                                "p-2 rounded-md border flex flex-col items-center justify-center text-center transition-all",
+                                lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
+                            )}>
+                                <Label className="text-[8px] uppercase font-black text-muted-foreground">Stock Lotto Attivo</Label>
+                                {lotAvailability ? (
+                                    <>
+                                        <p className="text-sm font-black text-primary leading-tight">
+                                            {formatDisplayStock(lotAvailability.available, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
+                                        </p>
+                                        <p className="text-[9px] font-bold text-primary/70">Lotto: {lotAvailability.lotto}</p>
+                                    </>
+                                ) : (
+                                    <p className="text-[10px] font-bold text-muted-foreground italic">Nessun Lotto</p>
+                                )}
+                            </div>
+                        </div>
                     </div>
                   ) : (
                     <div className="p-4 border rounded-lg bg-muted text-center text-sm text-muted-foreground">
@@ -221,7 +289,7 @@ export default function ManualWithdrawalPage() {
                       <Button type="button" onClick={() => setScanType('material')} className="w-full h-12">
                           <QrCode className="mr-2 h-4 w-4" /> Scansiona Materiale
                       </Button>
-                       <Button type="button" onClick={() => setScanType('lotto')} className="w-full h-12">
+                       <Button type="button" onClick={() => setScanType('lotto')} className="w-full h-12" variant="secondary">
                           <Barcode className="mr-2 h-4 w-4" /> Scansiona Lotto
                       </Button>
                   </div>
@@ -238,50 +306,67 @@ export default function ManualWithdrawalPage() {
                     </div>
                   )}
 
-                  <FormField
-                    control={form.control}
-                    name="lotto"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Lotto da Scaricare</FormLabel>
-                        <FormControl><Input placeholder="Scansiona o digita il lotto..." {...field} value={field.value ?? ''} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
+                  <div className="space-y-4">
+                    <FormField
+                        control={form.control}
+                        name="lotto"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Numero Lotto</FormLabel>
+                            <FormControl><Input placeholder="Scansiona o digita il lotto..." {...field} value={field.value ?? ''} className="font-mono font-bold" /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+
+                    {lotAvailability && (
+                        <Alert className="bg-green-500/10 border-green-500/30 py-2 animate-in fade-in slide-in-from-top-1">
+                            <div className="flex items-center gap-3">
+                                <Boxes className="h-5 w-5 text-green-600" />
+                                <div>
+                                    <AlertTitle className="text-xs font-bold text-green-700 uppercase">Lotto {lotAvailability.lotto} Riconosciuto</AlertTitle>
+                                    <AlertDescription className="text-sm font-black text-green-600">
+                                        Disponibilità: {formatDisplayStock(lotAvailability.available, scannedMaterial!.unitOfMeasure)} {scannedMaterial!.unitOfMeasure.toUpperCase()}
+                                    </AlertDescription>
+                                </div>
+                            </div>
+                        </Alert>
                     )}
-                  />
-                   <FormField
-                    control={form.control}
-                    name="jobOrderPF"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Commessa / PF (Opzionale)</FormLabel>
-                        <FormControl><Input placeholder="Es. Comm-123/24" {...field} value={field.value ?? ''} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="quantity"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Quantità da Scaricare ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
-                        <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Note (Opzionale)</FormLabel>
-                        <FormControl><Input placeholder="Es. Prelievo per campioni" {...field} value={field.value ?? ''} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+
+                    <FormField
+                        control={form.control}
+                        name="jobOrderPF"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Commessa / PF (Opzionale)</FormLabel>
+                            <FormControl><Input placeholder="Es. Comm-123/24" {...field} value={field.value ?? ''} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="quantity"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="text-primary font-black uppercase text-xs">Quantità da Scaricare ({inputUnit === 'primary' ? scannedMaterial?.unitOfMeasure.toUpperCase() : 'KG'})</FormLabel>
+                            <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} className="font-mono text-lg font-bold" /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="notes"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Note (Opzionale)</FormLabel>
+                            <FormControl><Input placeholder="Es. Prelievo per campioni" {...field} value={field.value ?? ''} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                  </div>
                 </CardContent>
                 <CardFooter className="justify-between">
                   <Button type="button" variant="ghost" onClick={resetFlow}>Annulla</Button>
