@@ -282,13 +282,6 @@ export default function MaterialAssociationDialog({
   );
 
   const renderForm = () => {
-    let stockDisplay = '';
-    if (selectedMaterial) {
-      const kgStock = formatDisplayStock(selectedMaterial.currentWeightKg, 'kg');
-      const unitStockDisplay = formatDisplayStock(selectedMaterial.currentStockUnits ?? 0, selectedMaterial.unitOfMeasure);
-      stockDisplay = `${unitStockDisplay} ${selectedMaterial.unitOfMeasure.toUpperCase()} / ${kgStock} KG`;
-    }
-
     const isBobina = phase.name.toUpperCase().includes("TRECCIA") || phase.name.toUpperCase().includes("CORDA") || selectedMaterial?.type === 'BOB' || selectedMaterial?.type === 'PF3V0';
 
     return (
@@ -297,12 +290,39 @@ export default function MaterialAssociationDialog({
           <ScrollArea className="flex-1 px-6 py-2">
             <div className="space-y-4">
               {selectedMaterial ? (
-                  <div className="p-4 border rounded-lg bg-muted/50 text-center border-primary/20">
-                      <p className="font-bold text-lg">{selectedMaterial.code}</p>
-                      <p className="text-xs text-muted-foreground uppercase tracking-tight mb-2">{selectedMaterial.description}</p>
-                      <div className="flex flex-col items-center">
-                        <Label className="text-[9px] uppercase font-black text-primary/70">Stock Totale Magazzino</Label>
-                        <p className="text-xl font-black text-primary">{stockDisplay}</p>
+                  <div className="p-4 border rounded-lg bg-muted/50 border-primary/20 space-y-4">
+                      <div className="text-center">
+                        <p className="font-black text-xl tracking-tight">{selectedMaterial.code}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{selectedMaterial.description}</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2 rounded-md bg-background border flex flex-col items-center justify-center text-center">
+                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Totale Magazzino</Label>
+                            <p className="text-sm font-black text-primary leading-tight">
+                                {formatDisplayStock(selectedMaterial.currentStockUnits, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                            </p>
+                            <p className="text-[9px] font-bold text-muted-foreground">
+                                ({formatDisplayStock(selectedMaterial.currentWeightKg, 'kg')} KG)
+                            </p>
+                        </div>
+
+                        <div className={cn(
+                            "p-2 rounded-md border flex flex-col items-center justify-center text-center transition-all",
+                            lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
+                        )}>
+                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Stock Lotto Attivo</Label>
+                            {lotAvailability ? (
+                                <>
+                                    <p className="text-sm font-black text-primary leading-tight">
+                                        {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                                    </p>
+                                    <p className="text-[9px] font-bold text-primary/70">Lotto: {lotAvailability.lotto}</p>
+                                </>
+                            ) : (
+                                <p className="text-[10px] font-bold text-muted-foreground italic">Nessun Lotto</p>
+                            )}
+                        </div>
                       </div>
                   </div>
               ) : <Alert><AlertDescription>Scansiona un materiale o un lotto per iniziare.</AlertDescription></Alert>}
@@ -320,19 +340,19 @@ export default function MaterialAssociationDialog({
                 <div className="space-y-4">
                     <FormField control={form.control} name="lotto" render={({field}) => (
                         <FormItem>
-                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Numero Lotto</FormLabel>
-                            <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita il lotto" className="font-mono font-bold" /></FormControl>
+                            <FormLabel className="font-bold text-xs uppercase text-muted-foreground">Numero Lotto Scansionato</FormLabel>
+                            <FormControl><Input {...field} value={field.value ?? ''} placeholder="Scansiona o digita il lotto" className="font-mono font-bold border-primary/30" /></FormControl>
                         </FormItem>
                     )}/>
 
                     {lotAvailability && (
-                        <Alert className="bg-green-500/10 border-green-500/30 py-2">
+                        <Alert className="bg-green-500/10 border-green-500/30 py-2 animate-in fade-in slide-in-from-top-1">
                             <div className="flex items-center gap-3">
                                 <Boxes className="h-5 w-5 text-green-600" />
                                 <div>
-                                    <AlertTitle className="text-xs font-bold text-green-700">Disponibilità Lotto {lotAvailability.lotto}</AlertTitle>
+                                    <AlertTitle className="text-xs font-bold text-green-700 uppercase">Lotto {lotAvailability.lotto} Riconosciuto</AlertTitle>
                                     <AlertDescription className="text-sm font-black text-green-600">
-                                        {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
+                                        Disponibilità: {formatDisplayStock(lotAvailability.available, selectedMaterial.unitOfMeasure)} {selectedMaterial.unitOfMeasure.toUpperCase()}
                                     </AlertDescription>
                                 </div>
                             </div>
