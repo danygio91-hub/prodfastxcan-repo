@@ -15,14 +15,17 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Timer, RefreshCcw, Save, Loader2, Info } from 'lucide-react';
+import { Timer, RefreshCcw, Save, Loader2, Info, GitMerge } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { Article, WorkPhaseTemplate, ArticlePhaseTime } from '@/lib/mock-data';
+import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport } from '../reports/actions';
 import { saveArticlePhaseTimes } from './actions';
+import { getWorkCycles } from '../work-cycle-management/actions';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 interface ArticleTimesDialogProps {
   isOpen: boolean;
@@ -35,12 +38,18 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('manual');
   
   const [localPhaseTimes, setLocalPhaseTimes] = useState<Record<string, ArticlePhaseTime>>({});
 
   useEffect(() => {
-    if (isOpen && article) {
-      setLocalPhaseTimes(article.phaseTimes || {});
+    if (isOpen) {
+        getWorkCycles().then(setWorkCycles);
+        if (article) {
+            setLocalPhaseTimes(article.phaseTimes || {});
+            setSelectedCycleId('manual');
+        }
     }
   }, [isOpen, article]);
 
@@ -81,6 +90,27 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
     }
   };
 
+  const handleCycleChange = (cycleId: string) => {
+    setSelectedCycleId(cycleId);
+    if (cycleId === 'manual') return;
+
+    const selectedCycle = workCycles.find(c => c.id === cycleId);
+    if (!selectedCycle) return;
+
+    const cyclePhases = new Set(selectedCycle.phaseTemplateIds);
+    const newPhaseTimes = { ...localPhaseTimes };
+
+    phaseTemplates.forEach(t => {
+        newPhaseTimes[t.id] = {
+            ...(newPhaseTimes[t.id] || { expectedMinutesPerPiece: 0, detectedMinutesPerPiece: 0 }),
+            enabled: cyclePhases.has(t.id)
+        };
+    });
+
+    setLocalPhaseTimes(newPhaseTimes);
+    toast({ title: "Ciclo Applicato", description: `Le fasi sono state aggiornate in base al ciclo "${selectedCycle.name}".` });
+  };
+
   const handleExpectedTimeChange = (phaseId: string, value: string) => {
     const numValue = parseFloat(value);
     setLocalPhaseTimes(prev => ({
@@ -93,6 +123,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   };
 
   const handleToggleEnabled = (phaseId: string, checked: boolean) => {
+    setSelectedCycleId('manual');
     setLocalPhaseTimes(prev => ({
         ...prev,
         [phaseId]: {
@@ -124,36 +155,32 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   const stats = useMemo(() => {
     let totalExpected = 0;
     let totalDetected = 0;
-    let expectedCount = 0;
-    let detectedCount = 0;
+    let expectedCompleteCount = 0;
+    let detectedCompleteCount = 0;
     let enabledCount = 0;
 
     sortedTemplates.forEach(t => {
         const data = localPhaseTimes[t.id];
-        // If data is undefined, we treat it as enabled: true by default
-        const isEnabled = data ? data.enabled !== false : true;
+        const isEnabled = data ? data.enabled !== false : false;
 
         if (isEnabled) {
             enabledCount++;
             const expected = data?.expectedMinutesPerPiece || 0;
             const detected = data?.detectedMinutesPerPiece || 0;
 
-            if (expected > 0) {
-                totalExpected += expected;
-                expectedCount++;
-            }
-            if (detected > 0) {
-                totalDetected += detected;
-                detectedCount++;
-            }
+            totalExpected += expected;
+            totalDetected += detected;
+
+            if (expected > 0) expectedCompleteCount++;
+            if (detected > 0) detectedCompleteCount++;
         }
     });
 
     return {
         totalExpected,
         totalDetected,
-        isExpectedComplete: enabledCount > 0 && expectedCount === enabledCount,
-        isDetectedComplete: enabledCount > 0 && detectedCount === enabledCount,
+        isExpectedComplete: enabledCount > 0 && expectedCompleteCount === enabledCount,
+        isDetectedComplete: enabledCount > 0 && detectedCompleteCount === enabledCount,
         enabledCount
     };
   }, [sortedTemplates, localPhaseTimes]);
@@ -167,15 +194,30 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
               Standard Tempi: {article?.code}
           </DialogTitle>
           <DialogDescription>
-            Visualizza i tempi medi rilevati e imposta i tempi previsti (target) per ogni fase di lavorazione. I tempi sono espressi in **minuti per singolo pezzo**.
+            Visualizza i tempi medi rilevati e imposta i tempi previsti (target) per ogni fase di lavorazione.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden px-6 flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between gap-4 p-4 border rounded-lg bg-muted/20">
+                <div className="flex-1 space-y-1">
+                    <Label className="flex items-center gap-2"><GitMerge className="h-4 w-4 text-primary" /> Applica Ciclo di Lavorazione</Label>
+                    <Select onValueChange={handleCycleChange} value={selectedCycleId}>
+                        <SelectTrigger className="w-full sm:w-[300px]">
+                            <SelectValue placeholder="Seleziona un ciclo o personalizza..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="manual">Personalizzazione Manuale</SelectItem>
+                            {workCycles.map(c => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                
                 <div className="flex gap-4">
                     <div className={cn(
-                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px]",
+                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px] transition-colors",
                         stats.enabledCount === 0 ? "bg-muted" : stats.isExpectedComplete ? "bg-green-500/10 border-green-500/50" : "bg-yellow-500/10 border-yellow-500/50"
                     )}>
                         <span className="text-[10px] uppercase font-bold text-muted-foreground">Tempo Previsto Totale</span>
@@ -188,7 +230,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     </div>
 
                     <div className={cn(
-                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px]",
+                        "p-3 border rounded-lg flex flex-col items-center justify-center min-w-[180px] transition-colors",
                         stats.enabledCount === 0 ? "bg-muted" : stats.isDetectedComplete ? "bg-green-500/10 border-green-500/50" : "bg-yellow-500/10 border-yellow-500/50"
                     )}>
                         <span className="text-[10px] uppercase font-bold text-muted-foreground">Tempo Rilevato Totale</span>
@@ -200,7 +242,9 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                         </span>
                     </div>
                 </div>
+            </div>
 
+            <div className="flex justify-end">
                 <Button variant="outline" size="sm" onClick={handleUpdateTimes} disabled={isUpdating || !article}>
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
                     Aggiorna Tempi Rilevati
@@ -226,8 +270,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
                     <TableBody>
                         {sortedTemplates.map((phase) => {
                             const data = localPhaseTimes[phase.id];
-                            // Default to enabled: true if not explicitly set
-                            const isEnabled = data ? data.enabled !== false : true;
+                            const isEnabled = data ? data.enabled !== false : false;
                             const detectedTime = data?.detectedMinutesPerPiece || 0;
                             const expectedTime = data?.expectedMinutesPerPiece || 0;
 
