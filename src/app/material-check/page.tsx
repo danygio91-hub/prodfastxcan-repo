@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -20,50 +19,44 @@ import { Badge as UiBadge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getRawMaterialByCode } from '@/app/scan-job/actions';
-import { getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
-import type { RawMaterial, MaterialWithdrawal } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, TestTube } from 'lucide-react';
+import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
+import { getMaterialWithdrawalsForMaterial, getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
+import type { RawMaterial } from '@/lib/mock-data';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, Barcode, Package, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
-
-
-interface BarcodeDetectorOptions { formats?: string[]; }
-interface DetectedBarcode { rawValue: string; }
-declare class BarcodeDetector {
-  constructor(options?: BarcodeDetectorOptions);
-  detect(image: ImageBitmapSource): Promise<DetectedBarcode[]>;
-}
+import { Separator } from '@/components/ui/separator';
 
 type Movement = {
   type: 'Carico' | 'Scarico';
-  date: string; // ISO String
+  date: string;
   description: string;
-  quantity: number; // Positive for income, negative for outcome
+  quantity: number;
   unit: string;
-  id: string; // Batch or Withdrawal ID
+  id: string;
 };
 
+type Step = 'initial' | 'scanning_material' | 'scanning_lotto' | 'manual_input' | 'result';
 
 export default function MaterialCheckPage() {
     const { operator, loading: authLoading } = useAuth();
     const router = useRouter();
     const { toast } = useToast();
 
-    const [step, setStep] = useState<'initial' | 'scanning' | 'manual_input' | 'result'>('initial');
+    const [step, setStep] = useState<Step>('initial');
     const [foundMaterial, setFoundMaterial] = useState<RawMaterial | null>(null);
+    const [foundLotInfo, setFoundLotInfo] = useState<LotInfo | null>(null);
+    const [allLots, setAllLots] = useState<LotInfo[]>([]);
     const [manualCode, setManualCode] = useState('');
     const [isSearching, setIsSearching] = useState(false);
     const [isCapturing, setIsCapturing] = useState(false);
     
-    // History State
     const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
     const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const [hasCameraPermission, setHasCameraPermission] = useState(true);
-
 
     useEffect(() => {
         if (!authLoading && operator) {
@@ -87,35 +80,54 @@ export default function MaterialCheckPage() {
         }
     }, []);
     
+    const fetchMaterialDetails = async (material: RawMaterial, specificLotto?: string) => {
+        try {
+            const lots = await getLotInfoForMaterial(material.id);
+            setAllLots(lots);
+            if (specificLotto) {
+                const matched = lots.find(l => l.lotto === specificLotto);
+                setFoundLotInfo(matched || null);
+            }
+        } catch (e) {
+            console.error("Error fetching lots:", e);
+        }
+    };
+
     const handleCodeSubmit = useCallback(async (code: string) => {
         stopCamera();
-        setStep('initial');
         const trimmedCode = code.trim();
         if (!trimmedCode) {
             toast({ variant: 'destructive', title: "Codice Vuoto", description: "Inserisci un codice valido." });
-            setStep('manual_input');
             return;
         }
         setIsSearching(true);
-        // Do not reveal the scanned code in the toast message for security.
-        toast({ title: "Ricerca in corso", description: `Sto cercando la materia prima...` });
         
-        const result = await getRawMaterialByCode(trimmedCode);
-        
-        if ('error' in result) {
-            toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
-            setFoundMaterial(null);
-            setStep('initial');
+        if (step === 'scanning_lotto') {
+            const lottoData = await findLastWeightForLotto(undefined, trimmedCode);
+            if (lottoData?.material) {
+                setFoundMaterial(lottoData.material);
+                await fetchMaterialDetails(lottoData.material, trimmedCode);
+                setStep('result');
+            } else {
+                toast({ variant: 'destructive', title: 'Lotto non trovato', description: 'Nessuna corrispondenza trovata per questo lotto.' });
+                setStep('initial');
+            }
         } else {
-            setFoundMaterial(result);
-            setStep('result');
+            const result = await getRawMaterialByCode(trimmedCode);
+            if ('error' in result) {
+                toast({ variant: 'destructive', title: result.title || "Errore", description: result.error });
+                setStep('initial');
+            } else {
+                setFoundMaterial(result);
+                await fetchMaterialDetails(result);
+                setStep('result');
+            }
         }
         setIsSearching(false);
-    }, [stopCamera, toast]);
-
+    }, [stopCamera, toast, step]);
 
     useEffect(() => {
-        if (step !== 'scanning') {
+        if (step !== 'scanning_material' && step !== 'scanning_lotto') {
             stopCamera();
             return;
         }
@@ -129,16 +141,14 @@ export default function MaterialCheckPage() {
                     videoRef.current.srcObject = stream;
                     await videoRef.current.play();
                 }
-
             } catch (err) {
                 setHasCameraPermission(false);
-                toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile. Controlla i permessi del browser." });
+                toast({ variant: "destructive", title: "Errore Fotocamera", description: "Accesso negato o non disponibile." });
                 stopCamera(); 
             }
         };
 
         startCamera();
-
         return () => { stopCamera(); };
     }, [step, stopCamera, toast]);
     
@@ -170,6 +180,8 @@ export default function MaterialCheckPage() {
     
     const resetFlow = () => {
         setFoundMaterial(null);
+        setFoundLotInfo(null);
+        setAllLots([]);
         setManualCode('');
         setStep('initial');
     };
@@ -177,12 +189,9 @@ export default function MaterialCheckPage() {
     const handleOpenHistoryDialog = async () => {
         if (!foundMaterial) return;
         setIsHistoryDialogOpen(true);
-        
         const withdrawals = await getMaterialWithdrawalsForMaterial(foundMaterial.id);
-        const batches = foundMaterial.batches || [];
-        
         const combinedMovements: Movement[] = [
-            ...batches.map(b => ({
+            ...(foundMaterial.batches || []).map(b => ({
                 type: 'Carico' as const,
                 date: b.date,
                 description: `Lotto: ${b.lotto || 'N/D'} - DDT: ${b.ddt}`,
@@ -199,7 +208,6 @@ export default function MaterialCheckPage() {
                 id: w.id
             }))
         ];
-
         combinedMovements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setMaterialMovements(combinedMovements);
     };
@@ -212,21 +220,25 @@ export default function MaterialCheckPage() {
         <AuthGuard>
             <AppShell>
                 <div className="space-y-6 max-w-2xl mx-auto">
-
                     {step === 'initial' && (
                          <Card>
                             <CardHeader>
-                                <CardTitle className="flex items-center gap-3"><SearchCheck className="h-7 w-7 text-primary" /> Verifica Materia Prima</CardTitle>
-                                <CardDescription>Avvia la scansione o inserisci un codice per cercare una materia prima e visualizzarne i dettagli.</CardDescription>
+                                <CardTitle className="flex items-center gap-3"><SearchCheck className="h-7 w-7 text-primary" /> Verifica Materiale</CardTitle>
+                                <CardDescription>Cerca una materia prima per codice o lotto per visualizzare stock e dettagli.</CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                                <Button onClick={() => setStep('scanning')} className="w-full" size="lg">
-                                    <QrCode className="mr-2 h-5 w-5" />
-                                    Avvia Scansione
+                            <CardContent className="grid grid-cols-1 gap-4 pt-4">
+                                <Button onClick={() => setStep('scanning_material')} className="h-16 text-lg" variant="default">
+                                    <QrCode className="mr-2 h-6 w-6" />
+                                    Scansione Materiale
                                 </Button>
-                                <Button onClick={() => setStep('manual_input')} variant="outline" className="w-full">
+                                <Button onClick={() => setStep('scanning_lotto')} className="h-16 text-lg" variant="secondary">
+                                    <Barcode className="mr-2 h-6 w-6" />
+                                    Scansione Lotto
+                                </Button>
+                                <Separator className="my-2" />
+                                <Button onClick={() => setStep('manual_input')} variant="outline">
                                     <Keyboard className="mr-2 h-5 w-5" />
-                                    Inserisci Codice Manualmente
+                                    Inserimento Manuale
                                 </Button>
                             </CardContent>
                         </Card>
@@ -235,64 +247,55 @@ export default function MaterialCheckPage() {
                      {step === 'manual_input' && (
                         <Card>
                             <CardHeader>
-                                <CardTitle>Inserimento Manuale</CardTitle>
-                                <CardDescription>Digita il codice della materia prima da cercare.</CardDescription>
+                                <CardTitle>Ricerca Manuale</CardTitle>
+                                <CardDescription>Inserisci il codice della materia prima.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="relative">
-                                    <Label htmlFor="manualCode">Codice Materia Prima</Label>
-                                    <div className="flex items-center gap-2 mt-1">
+                                <div className="space-y-2">
+                                    <Label htmlFor="manualCode">Codice Materiale</Label>
+                                    <div className="flex items-center gap-2">
                                         <Input
                                             id="manualCode"
                                             value={manualCode}
                                             onChange={(e) => setManualCode(e.target.value)}
-                                            placeholder="Es. BOB-123 o TUBI..."
+                                            placeholder="Es. BOB-123"
                                             autoFocus
-                                            autoComplete="off"
                                         />
                                         <Button onClick={() => handleCodeSubmit(manualCode)} disabled={!manualCode || isSearching}>
                                             {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                            <span className="sr-only">Cerca</span>
                                         </Button>
                                     </div>
                                 </div>
                             </CardContent>
-                            <CardFooter className="flex-col gap-4">
-                                <Button type="button" variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
+                            <CardFooter>
+                                <Button variant="outline" onClick={() => setStep('initial')} className="w-full">Annulla</Button>
                             </CardFooter>
                         </Card>
                     )}
 
-                    {step === 'scanning' && (
+                    {(step === 'scanning_material' || step === 'scanning_lotto') && (
                         <Card>
                             <CardHeader>
-                                <CardTitle className="text-center">Inquadra il Codice Materiale</CardTitle>
-                                <CardDescription className="text-center">Posiziona il QR code o il codice a barre all'interno del riquadro.</CardDescription>
+                                <CardTitle className="text-center">Inquadra il Codice {step === 'scanning_lotto' ? 'Lotto' : 'Materiale'}</CardTitle>
                             </CardHeader>
                             <CardContent className="relative grid place-items-center aspect-video bg-black rounded-lg overflow-hidden">
                                 <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
-                                {!hasCameraPermission ? (
+                                {!hasCameraPermission && (
                                     <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-center p-4">
                                         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-                                        <p className="text-destructive-foreground font-semibold">Accesso alla fotocamera negato</p>
-                                        <p className="text-sm text-muted-foreground mt-2">Controlla i permessi del browser per continuare.</p>
-                                    </div>
-                                ) : (
-                                    <div className="absolute inset-0 grid place-items-center pointer-events-none">
-                                        <div className="w-5/6 h-2/5 relative">
-                                            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
-                                            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
-                                            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
-                                            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
-                                            <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
-                                        </div>
+                                        <p className="text-white font-semibold">Accesso fotocamera negato</p>
                                     </div>
                                 )}
+                                <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                                    <div className="w-5/6 h-2/5 border-2 border-primary/50 rounded-lg relative">
+                                        <div className="absolute w-full top-1/2 -translate-y-1/2 h-0.5 bg-red-500/80 shadow-[0_0_4px_1px_#ef4444]"></div>
+                                    </div>
+                                </div>
                             </CardContent>
                             <CardFooter className="flex-col gap-2">
                                 <Button onClick={triggerScan} disabled={isCapturing || !hasCameraPermission} className="w-full h-12">
-                                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="h-5 w-5" />}
-                                    <span className="ml-2">{isCapturing ? 'Scansione...' : 'Scansiona Ora'}</span>
+                                    {isCapturing ? <Loader2 className="h-5 w-5 animate-spin"/> : <Camera className="mr-2 h-5 w-5" />}
+                                    <span className="ml-2">Scansiona Ora</span>
                                 </Button>
                                 <Button variant="outline" className="w-full" onClick={() => setStep('initial')}>Annulla</Button>
                             </CardFooter>
@@ -300,85 +303,111 @@ export default function MaterialCheckPage() {
                     )}
 
                     {step === 'result' && foundMaterial && (
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Scheda Prodotto: {foundMaterial.code}</CardTitle>
-                                <CardDescription>{foundMaterial.description}</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-3 rounded-lg border bg-background">
-                                        <Label>Stock Attuale ({foundMaterial.unitOfMeasure.toUpperCase()})</Label>
-                                        <p className="text-2xl font-bold">{formatDisplayStock(foundMaterial.currentStockUnits, foundMaterial.unitOfMeasure)}</p>
+                        <div className="space-y-4">
+                            <Card className="border-primary/20 shadow-md">
+                                <CardHeader className="bg-muted/30 pb-4">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <CardTitle className="text-2xl font-bold">{foundMaterial.code}</CardTitle>
+                                            <CardDescription className="text-foreground/70">{foundMaterial.description}</CardDescription>
+                                        </div>
+                                        <UiBadge variant="outline">{foundMaterial.type}</UiBadge>
                                     </div>
-                                    <div className="p-3 rounded-lg border bg-background">
-                                        <Label>Stock Attuale (KG)</Label>
-                                        <p className="text-2xl font-bold">{formatDisplayStock(foundMaterial.currentWeightKg, 'kg')}</p>
+                                </CardHeader>
+                                <CardContent className="pt-6 space-y-6">
+                                    {foundLotInfo && (
+                                        <Alert className="bg-primary/5 border-primary/20">
+                                            <Info className="h-4 w-4 text-primary" />
+                                            <AlertTitle className="font-bold text-primary">Lotto Selezionato: {foundLotInfo.lotto}</AlertTitle>
+                                            <AlertDescription className="text-base font-semibold">
+                                                Disponibilità: {formatDisplayStock(foundLotInfo.available, foundMaterial.unitOfMeasure)} {foundMaterial.unitOfMeasure.toUpperCase()}
+                                            </AlertDescription>
+                                        </Alert>
+                                    )}
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="p-4 rounded-lg border bg-background text-center space-y-1">
+                                            <Label className="text-muted-foreground uppercase text-[10px] font-bold tracking-wider">Stock Totale ({foundMaterial.unitOfMeasure.toUpperCase()})</Label>
+                                            <p className="text-2xl font-black text-primary">{formatDisplayStock(foundMaterial.currentStockUnits, foundMaterial.unitOfMeasure)}</p>
+                                        </div>
+                                        <div className="p-4 rounded-lg border bg-background text-center space-y-1">
+                                            <Label className="text-muted-foreground uppercase text-[10px] font-bold tracking-wider">Peso Netto Totale (KG)</Label>
+                                            <p className="text-2xl font-black text-primary">{formatDisplayStock(foundMaterial.currentWeightKg, 'kg')}</p>
+                                        </div>
                                     </div>
-                                </div>
-                            </CardContent>
-                            <CardFooter className="flex-col gap-2">
-                                <Button onClick={handleOpenHistoryDialog} variant="secondary" className="w-full">
-                                    <History className="mr-2 h-4 w-4" />
-                                    Vedi Storico Movimenti
-                                </Button>
-                                <Button onClick={resetFlow} className="w-full">Cerca un Altro Materiale</Button>
-                            </CardFooter>
-                        </Card>
+
+                                    <div className="space-y-3">
+                                        <h4 className="font-bold flex items-center gap-2"><Boxes className="h-4 w-4 text-muted-foreground" /> Breakdown Lotti Disponibili</h4>
+                                        <ScrollArea className="h-48 border rounded-md">
+                                            <Table>
+                                                <TableHeader className="bg-muted/50">
+                                                    <TableRow>
+                                                        <TableHead>Lotto</TableHead>
+                                                        <TableHead className="text-right">Residuo ({foundMaterial.unitOfMeasure.toUpperCase()})</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {allLots.length > 0 ? allLots.map(lot => (
+                                                        <TableRow key={lot.lotto} className={cn(lot.lotto === foundLotInfo?.lotto && "bg-primary/5")}>
+                                                            <TableCell className="font-mono font-bold">{lot.lotto}</TableCell>
+                                                            <TableCell className="text-right font-semibold">{formatDisplayStock(lot.available, foundMaterial.unitOfMeasure)}</TableCell>
+                                                        </TableRow>
+                                                    )) : (
+                                                        <TableRow><TableCell colSpan={2} className="text-center py-4 text-muted-foreground italic">Nessun lotto con stock positivo.</TableCell></TableRow>
+                                                    )}
+                                                </TableBody>
+                                            </Table>
+                                        </ScrollArea>
+                                    </div>
+                                </CardContent>
+                                <CardFooter className="bg-muted/30 pt-6 flex flex-col sm:flex-row gap-2">
+                                    <Button onClick={handleOpenHistoryDialog} variant="secondary" className="flex-1">
+                                        <History className="mr-2 h-4 w-4" />
+                                        Storico Movimenti
+                                    </Button>
+                                    <Button onClick={resetFlow} className="flex-1">Nuova Ricerca</Button>
+                                </CardFooter>
+                            </Card>
+                        </div>
                     )}
                 </div>
 
                 <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
                     <DialogContent className="sm:max-w-4xl">
                         <DialogHeader>
-                            <DialogTitle>Storico Movimenti per: {foundMaterial?.code}</DialogTitle>
-                            <DialogDescription>
-                                Elenco di tutti i carichi e scarichi registrati per questo materiale.
-                            </DialogDescription>
+                            <DialogTitle>Storico Movimenti: {foundMaterial?.code}</DialogTitle>
                         </DialogHeader>
-                          <ScrollArea className="max-h-[60vh]">
-                              <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Data</TableHead>
-                                  <TableHead>Tipo</TableHead>
-                                  <TableHead>Descrizione</TableHead>
-                                  <TableHead className="text-right">Quantità</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {materialMovements.length > 0 ? (
-                                    materialMovements.map(mov => (
-                                    <TableRow key={mov.id}>
-                                        <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
-                                        <TableCell>
-                                            <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'} className={cn(mov.type === 'Carico' && 'bg-green-600 hover:bg-green-700')}>
-                                              {mov.type === 'Carico' ? <ArrowUpCircle className="mr-2 h-4 w-4"/> : <ArrowDownCircle className="mr-2 h-4 w-4"/>}
-                                              {mov.type}
-                                            </UiBadge>
-                                        </TableCell>
-                                        <TableCell>{mov.description}</TableCell>
-                                        <TableCell className={cn("text-right font-mono", mov.type === 'Carico' ? 'text-green-500' : 'text-destructive')}>
-                                          {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as 'n' | 'mt' | 'kg')} {mov.unit}
-                                        </TableCell>
+                        <ScrollArea className="max-h-[60vh]">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead>Descrizione</TableHead>
+                                        <TableHead className="text-right">Quantità</TableHead>
                                     </TableRow>
-                                    ))
-                                ) : (
-                                  <TableRow>
-                                    <TableCell colSpan={5} className="h-24 text-center">Nessuno storico movimenti per questo materiale.</TableCell>
-                                  </TableRow>
-                                )}
-                              </TableBody>
+                                </TableHeader>
+                                <TableBody>
+                                    {materialMovements.map((mov, idx) => (
+                                        <TableRow key={idx}>
+                                            <TableCell>{format(parseISO(mov.date), 'dd/MM/yyyy HH:mm', { locale: it })}</TableCell>
+                                            <TableCell>
+                                                <UiBadge variant={mov.type === 'Carico' ? 'default' : 'destructive'}>{mov.type}</UiBadge>
+                                            </TableCell>
+                                            <TableCell className="text-xs truncate max-w-sm">{mov.description}</TableCell>
+                                            <TableCell className={cn("text-right font-mono font-bold", mov.type === 'Carico' ? 'text-green-600' : 'text-destructive')}>
+                                                {formatDisplayStock(mov.quantity, mov.unit.toLowerCase() as any)} {mov.unit}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
                             </Table>
                         </ScrollArea>
                         <DialogFooter>
-                            <DialogClose asChild>
-                                <Button type="button" variant="outline">Chiudi</Button>
-                            </DialogClose>
+                            <DialogClose asChild><Button variant="outline">Chiudi</Button></DialogClose>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-
             </AppShell>
         </AuthGuard>
     );
