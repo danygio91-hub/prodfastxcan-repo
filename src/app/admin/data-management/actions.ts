@@ -196,6 +196,17 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     return { success: true, message: 'Completato.' };
 }
 
+export async function updateJobOrderDeliveryDate(jobId: string, newDate: string) {
+    try {
+        const jobRef = doc(db, "jobOrders", jobId);
+        await updateDoc(jobRef, { dataConsegnaFinale: newDate });
+        revalidatePath('/admin/data-management');
+        return { success: true, message: 'Data consegna aggiornata.' };
+    } catch (error) {
+        return { success: false, message: 'Errore durante l\'aggiornamento della data.' };
+    }
+}
+
 export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {
   try {
     const jobRef = doc(db, "jobOrders", jobId);

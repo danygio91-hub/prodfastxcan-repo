@@ -22,7 +22,7 @@ import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, S
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted } from './actions';
+import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, updateJobOrderDeliveryDate } from './actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -204,6 +204,16 @@ export default function DataManagementClientPage() {
     }
   };
 
+  const handleUpdateDeliveryDate = async (jobId: string, newDate: string) => {
+      const res = await updateJobOrderDeliveryDate(jobId, newDate);
+      if (res.success) {
+          toast({ title: "Data aggiornata" });
+          fetchData();
+      } else {
+          toast({ variant: "destructive", title: "Errore", description: res.message });
+      }
+  };
+
   const handleManualSubmit = async (values: ManualCreateValues) => {
     const result = await saveManualJobOrder(values);
     if (result.success) {
@@ -263,6 +273,60 @@ export default function DataManagementClientPage() {
     </TableHead>
   );
 
+  const JobTableRows = ({ data }: { data: JobOrder[] }) => (
+    <>
+      {data.map(j => {
+        const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
+        return (
+          <TableRow key={j.id}>
+            <TableCell padding="checkbox">
+              <Checkbox 
+                checked={selectedRows.includes(j.id)} 
+                onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} 
+              />
+            </TableCell>
+            <TableCell className="font-bold">{j.ordinePF}</TableCell>
+            <TableCell>{j.details}</TableCell>
+            <TableCell>{j.qta}</TableCell>
+            <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
+            <TableCell>
+              <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
+                <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
+                <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </TableCell>
+            <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+            <TableCell>
+              <Input 
+                type="date" 
+                className="h-8 w-[130px] text-xs" 
+                value={j.dataConsegnaFinale || ''} 
+                onChange={(e) => handleUpdateDeliveryDate(j.id, e.target.value)}
+              />
+            </TableCell>
+            <TableCell className="text-right space-x-1">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
+                onClick={() => handleDownloadPdf(j)}
+                disabled={isDownloadingPdf === j.id}
+                title="Scarica PDF ODL"
+              >
+                {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+              </Button>
+              {j.status === 'planned' ? (
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) fetchData(); })}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button>
+              ) : (
+                <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>
+              )}
+            </TableCell>
+          </TableRow>
+        );
+      })}
+    </>
+  );
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -309,46 +373,17 @@ export default function DataManagementClientPage() {
                   <TableRow>
                     <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
                     <SortHeader label="Ordine PF" sortKey="ordinePF" />
-                    <SortHeader label="Codice Articolo" sortKey="details" />
+                    <SortHeader label="Articolo" sortKey="details" />
                     <SortHeader label="Qta" sortKey="qta" />
                     <SortHeader label="Reparto" sortKey="reparto_codice" />
                     <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
+                    <TableHead>Consegna</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPlanned.map(j => {
-                    const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-                    return (
-                    <TableRow key={j.id}>
-                      <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
-                      <TableCell className="font-bold">{j.ordinePF}</TableCell>
-                      <TableCell>{j.details}</TableCell>
-                      <TableCell>{j.qta}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
-                      <TableCell>
-                        <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
-                          <SelectTrigger className="w-[180px] h-8"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                          <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
-                          onClick={() => handleDownloadPdf(j)}
-                          disabled={isDownloadingPdf === j.id}
-                          title="Scarica PDF ODL"
-                        >
-                          {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) fetchData(); })}><PlayCircle className="mr-2 h-4 w-4" /> Avvia ODL</Button>
-                      </TableCell>
-                    </TableRow>
-                  )})}
+                  <JobTableRows data={filteredPlanned} />
                 </TableBody>
               </Table>
             </CardContent>
@@ -367,35 +402,19 @@ export default function DataManagementClientPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
                     <SortHeader label="Ordine PF" sortKey="ordinePF" />
-                    <SortHeader label="Codice Articolo" sortKey="details" />
+                    <SortHeader label="Articolo" sortKey="details" />
                     <SortHeader label="Qta" sortKey="qta" />
+                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
+                    <TableHead>Consegna</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredProduction.map(j => (
-                    <TableRow key={j.id}>
-                      <TableCell className="font-bold">{j.ordinePF}</TableCell>
-                      <TableCell>{j.details}</TableCell>
-                      <TableCell>{j.qta}</TableCell>
-                      <TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
-                          onClick={() => handleDownloadPdf(j)}
-                          disabled={isDownloadingPdf === j.id}
-                          title="Scarica PDF ODL"
-                        >
-                          {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                        </Button>
-                        <Button variant="destructive" size="sm" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-2 h-4 w-4" /> Annulla ODL</Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  <JobTableRows data={filteredProduction} />
                 </TableBody>
               </Table>
            </CardContent>
