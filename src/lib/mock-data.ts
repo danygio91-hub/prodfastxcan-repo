@@ -372,11 +372,13 @@ export interface WorkingShift {
   name: string;
   startTime: string; // HH:mm
   endTime: string;   // HH:mm
+  breakMinutes: number; // Nuova campo: Pausa in minuti
 }
 
 export interface WorkingHoursConfig {
   workingDays: number[]; // 1=Mon, ..., 7=Sun
   shifts: WorkingShift[];
+  efficiencyPercentage: number; // Nuova campo: Efficienza / Pause fisiologiche
 }
 
 

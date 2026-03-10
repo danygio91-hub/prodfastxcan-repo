@@ -16,23 +16,30 @@ export async function getWorkingHoursConfig(): Promise<WorkingHoursConfig> {
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-      return docSnap.data() as WorkingHoursConfig;
+      const data = docSnap.data();
+      return { 
+        workingDays: data.workingDays || [1, 2, 3, 4, 5],
+        shifts: data.shifts || [{ id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00', breakMinutes: 60 }],
+        efficiencyPercentage: data.efficiencyPercentage || 95
+      };
     }
     
     // Default: Mon-Fri, 8 hours single shift
     return { 
       workingDays: [1, 2, 3, 4, 5],
       shifts: [
-        { id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00' }
-      ]
+        { id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00', breakMinutes: 60 }
+      ],
+      efficiencyPercentage: 95
     };
   } catch (error) {
     console.error("Error fetching working hours:", error);
     return { 
       workingDays: [1, 2, 3, 4, 5],
       shifts: [
-        { id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00' }
-      ]
+        { id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00', breakMinutes: 60 }
+      ],
+      efficiencyPercentage: 95
     };
   }
 }
