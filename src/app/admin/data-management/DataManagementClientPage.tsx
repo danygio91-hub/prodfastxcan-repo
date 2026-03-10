@@ -18,7 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory } from 'lucide-react';
+import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
 import { format } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
@@ -44,6 +44,11 @@ const manualCreateSchema = z.object({
 });
 type ManualCreateValues = z.infer<typeof manualCreateSchema>;
 
+type SortConfig = {
+  key: keyof JobOrder | 'reparto_codice';
+  direction: 'asc' | 'desc';
+} | null;
+
 export default function DataManagementClientPage() {
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
@@ -62,7 +67,11 @@ export default function DataManagementClientPage() {
   
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
   const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
+  
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
+  const [productionSearchTerm, setProductionSearchTerm] = useState('');
+  const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
 
@@ -97,17 +106,55 @@ export default function DataManagementClientPage() {
   }, [toast]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-  
-  const filteredPlanned = useMemo(() => {
-    if (!plannedSearchTerm) return plannedJobOrders;
-    const l = plannedSearchTerm.toLowerCase();
-    return plannedJobOrders.filter(j => 
-        j.ordinePF.toLowerCase().includes(l) || 
-        j.details.toLowerCase().includes(l) || 
-        j.cliente.toLowerCase().includes(l) || 
-        (j.numeroODLInterno || '').toLowerCase().includes(l)
-    );
-  }, [plannedJobOrders, plannedSearchTerm]);
+
+  const handleSort = (key: keyof JobOrder | 'reparto_codice') => {
+    setSortConfig(current => {
+      if (current?.key === key) {
+        return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const processData = (data: JobOrder[], search: string) => {
+    let filtered = data;
+    if (search) {
+      const l = search.toLowerCase();
+      filtered = data.filter(j => 
+          j.ordinePF.toLowerCase().includes(l) || 
+          j.details.toLowerCase().includes(l) || 
+          j.cliente.toLowerCase().includes(l) || 
+          (j.numeroODLInterno || '').toLowerCase().includes(l)
+      );
+    }
+
+    if (sortConfig) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal: any;
+        let bVal: any;
+
+        if (sortConfig.key === 'reparto_codice') {
+          aVal = departments.find(d => d.name === a.department || d.code === a.department)?.code || a.department;
+          bVal = departments.find(d => d.name === b.department || d.code === b.department)?.code || b.department;
+        } else {
+          aVal = a[sortConfig.key as keyof JobOrder];
+          bVal = b[sortConfig.key as keyof JobOrder];
+        }
+
+        if (aVal === bVal) return 0;
+        if (aVal === null || aVal === undefined) return 1;
+        if (bVal === null || bVal === undefined) return -1;
+
+        const result = aVal < bVal ? -1 : 1;
+        return sortConfig.direction === 'asc' ? result : -result;
+      });
+    }
+
+    return filtered;
+  };
+
+  const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, sortConfig, departments]);
+  const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, sortConfig, departments]);
 
   const handleDownloadPdf = async (job: JobOrder) => {
     setIsDownloadingPdf(job.id);
@@ -204,6 +251,18 @@ export default function DataManagementClientPage() {
       fetchData();
   };
 
+  const SortHeader = ({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) => (
+    <TableHead 
+      className="cursor-pointer hover:text-primary transition-colors select-none"
+      onClick={() => handleSort(sortKey)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} />
+      </div>
+    </TableHead>
+  );
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -229,12 +288,16 @@ export default function DataManagementClientPage() {
           <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
           <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
         </TabsList>
+        
         <TabsContent value="planned">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} /></div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Cerca commessa..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
+              </div>
               {selectedRows.length > 0 && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 animate-in fade-in slide-in-from-right-2">
                   <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: "Risultato Avvio", description: r.message, variant: r.success ? 'default' : 'destructive' }); fetchData(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ODL ({selectedRows.length})</Button>
                   <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); fetchData(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina ({selectedRows.length})</Button>
                 </div>
@@ -242,14 +305,27 @@ export default function DataManagementClientPage() {
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><TableHead>Ordine PF</TableHead><TableHead>Codice Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <SortHeader label="Codice Articolo" sortKey="details" />
+                    <SortHeader label="Qta" sortKey="qta" />
+                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <TableHead>Ciclo</TableHead>
+                    <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
                   {filteredPlanned.map(j => {
                     const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
                     return (
                     <TableRow key={j.id}>
                       <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
-                      <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell>
+                      <TableCell className="font-bold">{j.ordinePF}</TableCell>
+                      <TableCell>{j.details}</TableCell>
+                      <TableCell>{j.qta}</TableCell>
                       <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
                       <TableCell>
                         <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
@@ -278,14 +354,33 @@ export default function DataManagementClientPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
         <TabsContent value="production">
-           <Card><CardContent className="pt-6">
+           <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Cerca in produzione..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} />
+              </div>
+            </CardHeader>
+            <CardContent>
               <Table>
-                <TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Codice</TableHead><TableHead>Qta</TableHead><TableHead>N° ODL</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow>
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <SortHeader label="Codice Articolo" sortKey="details" />
+                    <SortHeader label="Qta" sortKey="qta" />
+                    <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
-                  {productionJobOrders.map(j => (
+                  {filteredProduction.map(j => (
                     <TableRow key={j.id}>
-                      <TableCell className="font-bold">{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell>{j.qta}</TableCell><TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
+                      <TableCell className="font-bold">{j.ordinePF}</TableCell>
+                      <TableCell>{j.details}</TableCell>
+                      <TableCell>{j.qta}</TableCell>
+                      <TableCell className="font-mono">{j.numeroODLInterno}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button 
                           variant="ghost" 
@@ -303,7 +398,8 @@ export default function DataManagementClientPage() {
                   ))}
                 </TableBody>
               </Table>
-           </CardContent></Card>
+           </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

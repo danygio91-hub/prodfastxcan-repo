@@ -89,7 +89,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
       justifyContent: "center",
       height: "100%",
       width: "100%",
-      paddingBottom: "1.5mm", // Sollevamento millimetrico richiesto
+      paddingBottom: "1.5mm",
     },
     label: {
         fontSize: "7pt",
@@ -100,8 +100,8 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
     },
     headerGray: "#f3f4f6",
     headerBlue: "#337ab7",
-    bgValueGreen: "#c8e6c9", // Verde Pastello
-    bgValueYellow: "#fff9c4", // Giallo Pastello
+    bgValueGreen: "#c8e6c9",
+    bgValueYellow: "#fff9c4",
     bgTreccia: "#e8f5e9",
     bgTubi: "#f5f5f5",
     bgGuaina: "#e1f5fe",
@@ -120,7 +120,7 @@ export default function ODLPrintTemplate({ job, article, materials, printDate }:
         justifyContent: 'center',
         height: '100%',
         width: '100%',
-        padding: '3mm', // Margine quadrato richiesto
+        padding: '3mm',
         boxSizing: 'border-box' as const,
     },
     qrInner: {

@@ -62,7 +62,6 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                     : record.netWeight / (material.rapportoKgMt || material.conversionFactor || 1)) 
                 : record.inputQuantity;
             
-            // Handle Timestamp to ISO string correctly
             const dateStr = (record.recordedAt instanceof Timestamp) 
                 ? record.recordedAt.toDate().toISOString() 
                 : (record.recordedAt?.toDate?.())
