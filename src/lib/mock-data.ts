@@ -367,6 +367,18 @@ export interface PurchaseOrder {
   notes?: string;
 }
 
+export interface WorkingShift {
+  id: string;
+  name: string;
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+}
+
+export interface WorkingHoursConfig {
+  workingDays: number[]; // 1=Mon, ..., 7=Sun
+  shifts: WorkingShift[];
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
