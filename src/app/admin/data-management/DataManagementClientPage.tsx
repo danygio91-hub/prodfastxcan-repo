@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -111,15 +110,15 @@ export default function DataManagementClientPage() {
   const handleDownloadTemplate = () => {
     const templateData = [
       {
+        "Cliente": "Cliente Esempio",
         "Ordine PF": "1234/25",
-        "Articolo": "ART-001",
+        "Ordine Nr Est": "EXT-999",
+        "Codice": "ART-001",
         "Qta": 100,
+        "Data Consegna": "25/12/2025",
         "Reparto": "Assemblaggio",
         "Ciclo": "Ciclo Standard",
-        "N° ODL": "0001-25",
-        "Consegna": "25/12/2025",
-        "Cliente": "Cliente Esempio",
-        "Ordine Nr Est": "EXT-999"
+        "N° ODL": "0001-25"
       }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -257,7 +256,6 @@ export default function DataManagementClientPage() {
       
       const mapped = json.map((row: any) => {
           const r: any = {};
-          // Mappa flessibile che accetta sia i vecchi nomi che i nuovi basati sul template ordinato
           const map: any = { 
             'cliente': 'cliente', 
             'ordine pf': 'ordinePF', 
@@ -271,7 +269,10 @@ export default function DataManagementClientPage() {
             'reparto': 'department', 
             'ciclo': 'workCycleName' 
           };
-          Object.keys(row).forEach(k => { if(map[k.trim().toLowerCase()]) r[map[k.trim().toLowerCase()]] = row[k]; });
+          Object.keys(row).forEach(k => { 
+            const cleanKey = k.trim().toLowerCase();
+            if(map[cleanKey]) r[map[cleanKey]] = row[k]; 
+          });
           if (r.dataConsegnaFinale && typeof r.dataConsegnaFinale === 'number') {
               const epoch = new Date(Date.UTC(1899, 11, 30));
               r.dataConsegnaFinale = format(new Date(epoch.getTime() + r.dataConsegnaFinale * 86400 * 1000), 'yyyy-MM-dd');
@@ -589,7 +590,7 @@ export default function DataManagementClientPage() {
                 <Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead><TableHead>Stato</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell><Badge>Nuova</Badge></TableCell></TableRow>)}
-                  {importReport?.jobsToUpdate.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell><Badge variant="outline">Duplicata</Badge></TableCell></TableRow>)}
+                  {importReport?.jobsToUpdate.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><Badge variant="outline">Duplicata</Badge></TableRow>)}
                 </TableBody></Table>
             </ScrollArea></TabsContent>
             <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
