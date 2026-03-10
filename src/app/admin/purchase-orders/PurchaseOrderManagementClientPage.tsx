@@ -41,7 +41,8 @@ import {
   AlertDialogDescription, 
   AlertDialogFooter, 
   AlertDialogHeader, 
-  AlertDialogTitle 
+  AlertDialogTitle,
+  AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
 import { 
   Dialog, 
@@ -153,7 +154,6 @@ export default function PurchaseOrderManagementClientPage({
 
     let result = Object.values(groups);
 
-    // Apply search filter
     if (searchTerm) {
         const lower = searchTerm.toLowerCase();
         result = result.filter(g => 
@@ -163,7 +163,6 @@ export default function PurchaseOrderManagementClientPage({
         );
     }
 
-    // Apply sort
     result.sort((a, b) => {
         const dateA = new Date(a.earliestDelivery).getTime();
         const dateB = new Date(b.earliestDelivery).getTime();

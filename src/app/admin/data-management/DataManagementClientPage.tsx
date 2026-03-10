@@ -280,12 +280,15 @@ export default function DataManagementClientPage() {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
         
-        let displayDate = <span>Scegli...</span>;
+        let displayDateText = "Scegli...";
+        let isDateValid = false;
+        
         if (j.dataConsegnaFinale) {
             try {
                 const parsed = parseISO(j.dataConsegnaFinale);
                 if (isValid(parsed)) {
-                    displayDate = <span>{format(parsed, "dd/MM/yyyy")}</span>;
+                    displayDateText = format(parsed, "dd/MM/yyyy");
+                    isDateValid = true;
                 }
             } catch (e) {}
         }
@@ -322,17 +325,17 @@ export default function DataManagementClientPage() {
                     variant={"outline"}
                     className={cn(
                       "w-[130px] h-8 justify-start text-left font-normal text-xs",
-                      !j.dataConsegnaFinale && "text-muted-foreground"
+                      !isDateValid && "text-muted-foreground"
                     )}
                   >
                     <CalendarIcon className="mr-2 h-3 w-3" />
-                    {displayDate}
+                    <span>{displayDateText}</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
                     mode="single"
-                    selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined}
+                    selected={isDateValid ? parseISO(j.dataConsegnaFinale) : undefined}
                     onSelect={(date) => {
                       if (date) {
                         handleUpdateDeliveryDate(j.id, format(date, 'yyyy-MM-dd'));
