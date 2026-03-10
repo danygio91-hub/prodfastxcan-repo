@@ -111,15 +111,15 @@ export default function DataManagementClientPage() {
   const handleDownloadTemplate = () => {
     const templateData = [
       {
-        "Cliente": "Cliente Esempio",
         "Ordine PF": "1234/25",
-        "Ordine Nr Est": "EXT-999",
-        "N° ODL": "0001-25",
-        "Codice": "ART-001",
+        "Articolo": "ART-001",
         "Qta": 100,
-        "Data Consegna": "25/12/2025",
         "Reparto": "Assemblaggio",
-        "Ciclo": "Ciclo Standard"
+        "Ciclo": "Ciclo Standard",
+        "N° ODL": "0001-25",
+        "Consegna": "25/12/2025",
+        "Cliente": "Cliente Esempio",
+        "Ordine Nr Est": "EXT-999"
       }
     ];
     const ws = XLSX.utils.json_to_sheet(templateData);
@@ -257,7 +257,20 @@ export default function DataManagementClientPage() {
       
       const mapped = json.map((row: any) => {
           const r: any = {};
-          const map: any = { 'cliente': 'cliente', 'ordine pf': 'ordinePF', 'ordine nr est': 'numeroODL', 'n° odl': 'numeroODLInternoImport', 'codice': 'details', 'qta': 'qta', 'data consegna': 'dataConsegnaFinale', 'reparto': 'department', 'ciclo': 'workCycleName' };
+          // Mappa flessibile che accetta sia i vecchi nomi che i nuovi basati sul template ordinato
+          const map: any = { 
+            'cliente': 'cliente', 
+            'ordine pf': 'ordinePF', 
+            'ordine nr est': 'numeroODL', 
+            'n° odl': 'numeroODLInternoImport', 
+            'codice': 'details', 
+            'articolo': 'details',
+            'qta': 'qta', 
+            'data consegna': 'dataConsegnaFinale', 
+            'consegna': 'dataConsegnaFinale',
+            'reparto': 'department', 
+            'ciclo': 'workCycleName' 
+          };
           Object.keys(row).forEach(k => { if(map[k.trim().toLowerCase()]) r[map[k.trim().toLowerCase()]] = row[k]; });
           if (r.dataConsegnaFinale && typeof r.dataConsegnaFinale === 'number') {
               const epoch = new Date(Date.UTC(1899, 11, 30));
