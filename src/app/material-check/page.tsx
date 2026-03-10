@@ -22,7 +22,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
 import { getMaterialWithdrawalsForMaterial, getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, Barcode, Package, Info } from 'lucide-react';
+import { QrCode, AlertTriangle, SearchCheck, Send, Loader2, Keyboard, History, ArrowUpCircle, ArrowDownCircle, Camera, Barcode, Package, Info, Boxes } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDisplayStock } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
