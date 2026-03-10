@@ -17,20 +17,30 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon } from 'lucide-react';
+import { 
+  ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
+  FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
+  CheckCircle2, AlertTriangle, Info
+} from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
 import { format, parseISO, isValid } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
-import { processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, updateJobOrderDeliveryDate } from './actions';
+import { 
+  processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, 
+  createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, 
+  getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, 
+  updateJobOrderDeliveryDate 
+} from './actions';
 import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { cn } from '@/lib/utils';
+import { cn, calculateCommitmentQty, formatDisplayStock } from '@/lib/utils';
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { Calendar } from '@/components/ui/calendar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const manualCreateSchema = z.object({
     cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -108,15 +118,16 @@ export default function DataManagementClientPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDownloadTemplate = () => {
+    // Ordine colonne richiesto: Cliente, Ordine PF, Ordine Nr Est, Codice, Qta, Data Consegna, Reparto, Ciclo, N° ODL
     const templateData = [
       {
-        "Cliente": "Cliente Esempio",
+        "Cliente": "CLIENTE-ALFA",
         "Ordine PF": "1234/25",
         "Ordine Nr Est": "EXT-999",
         "Codice": "ART-001",
         "Qta": 100,
         "Data Consegna": "25/12/2025",
-        "Reparto": "Assemblaggio",
+        "Reparto": "MAG",
         "Ciclo": "Ciclo Standard",
         "N° ODL": "0001-25"
       }
@@ -326,6 +337,33 @@ export default function DataManagementClientPage() {
             } catch (e) {}
         }
 
+        // Calcolo Semaforo Materiali
+        const stockStatus = (() => {
+            if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
+            
+            const missingDetails: string[] = [];
+            let okItems = 0;
+            
+            j.billOfMaterials.forEach(item => {
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
+                if (!mat) {
+                    missingDetails.push(`${item.component}: Non trovato in anagrafica`);
+                    return;
+                }
+                const required = calculateCommitmentQty(j.qta, item, mat);
+                const stock = mat.currentStockUnits || 0;
+                if (stock < required - 0.001) {
+                    missingDetails.push(`${item.component}: Mancano ${formatDisplayStock(required - stock, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()}`);
+                } else {
+                    okItems++;
+                }
+            });
+
+            if (okItems === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: [] };
+            if (okItems === 0) return { color: 'text-red-500', icon: XCircle, label: 'Mancante', details: missingDetails };
+            return { color: 'text-yellow-500', icon: AlertTriangle, label: 'Parziale', details: missingDetails };
+        })();
+
         return (
           <TableRow key={j.id}>
             <TableCell padding="checkbox">
@@ -378,6 +416,25 @@ export default function DataManagementClientPage() {
                   />
                 </PopoverContent>
               </Popover>
+            </TableCell>
+            <TableCell className="text-center">
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
+                                <stockStatus.icon className="h-5 w-5" />
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[300px]">
+                            <p className="font-bold mb-1">{stockStatus.label}</p>
+                            {stockStatus.details.length > 0 ? (
+                                <ul className="text-xs space-y-1">
+                                    {stockStatus.details.map((d, i) => <li key={i}>• {d}</li>)}
+                                </ul>
+                            ) : <p className="text-xs">Tutti i componenti sono pronti.</p>}
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             </TableCell>
             <TableCell className="text-right space-x-1">
               <Button 
@@ -455,6 +512,7 @@ export default function DataManagementClientPage() {
                     <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
                     <TableHead>Consegna</TableHead>
+                    <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -486,6 +544,7 @@ export default function DataManagementClientPage() {
                     <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
                     <TableHead>Consegna</TableHead>
+                    <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
