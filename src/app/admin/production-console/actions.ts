@@ -352,17 +352,66 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
   return { success: true, message: 'Completato.' };
 }
 
+export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const isGroup = itemId.startsWith('group-');
+  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  try {
+    await runTransaction(db, async (t) => {
+      const [itemSnap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
+      if (!itemSnap.exists()) throw new Error("Non trovato.");
+      const itemData = itemSnap.data() as JobOrder;
+      const phases = [...itemData.phases];
+      const idx = phases.findIndex(p => p.id === phaseId);
+      if (idx === -1) throw new Error("Fase non trovata.");
+      phases[idx].materialStatus = 'missing';
+      phases[idx].materialReady = false;
+      const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
+      t.update(itemRef, up);
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+    });
+    revalidatePath('/admin/production-console');
+    return { success: true, message: 'Segnalato.' };
+  } catch (error) { return { success: false, message: "Errore." }; }
+}
+
+export async function resolveMaterialMissing(itemId: string, phaseId: string, uid: string): Promise<{ success: boolean; message: string }> {
+  await ensureAdmin(uid);
+  const isGroup = itemId.startsWith('group-');
+  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  try {
+    await runTransaction(db, async (t) => {
+      const itemSnap = await t.get(itemRef);
+      if (!itemSnap.exists()) throw new Error("Non trovato.");
+      const itemData = itemSnap.data() as JobOrder;
+      let phases = [...itemData.phases];
+      const idx = phases.findIndex(p => p.id === phaseId);
+      if (idx === -1) throw new Error("Fase non trovata.");
+      phases[idx].materialStatus = 'available';
+      phases = updatePhasesMaterialReadiness(phases);
+      const anyLeft = phases.some(p => p.materialStatus === 'missing');
+      const otherProb = itemData.problemType && itemData.problemType !== 'MANCA_MATERIALE';
+      const up: any = { phases };
+      if (!anyLeft && !otherProb) { up.isProblemReported = false; up.problemType = deleteField(); up.problemReportedBy = deleteField(); }
+      t.update(itemRef, up);
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+    });
+    revalidatePath('/admin/production-console');
+    return { success: true, message: 'Risolto.' };
+  } catch (error) { return { success: false, message: "Errore." }; }
+}
+
 export async function updateJobDeliveryDate(itemId: string, newDate: string, uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
     const isGroup = itemId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
     await runTransaction(db, async (t) => {
-        const snap = await t.get(itemRef);
-        if (!snap.exists()) throw new Error("Non trovato.");
+        const itemSnap = await t.get(itemRef);
+        if (!itemSnap.exists()) throw new Error("Non trovato.");
         t.update(itemRef, { dataConsegnaFinale: newDate });
         if (isGroup) {
-            const data = snap.data() as WorkGroup;
+            const data = itemSnap.data() as WorkGroup;
             (data.jobOrderIds || []).forEach(id => { t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate }); });
         }
     });

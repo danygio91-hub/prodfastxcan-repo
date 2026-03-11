@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { 
   Briefcase, 
   Loader2, 
@@ -36,14 +36,17 @@ import {
   PackageX, 
   Package2, 
   PackageCheck,
-  ChevronDown
+  ChevronDown,
+  AlertCircle,
+  CalendarDays,
+  Clock
 } from 'lucide-react';
-import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import { useToast } from '@/hooks/use-toast';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   AlertDialog,
@@ -89,21 +92,30 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, isSameDay, isPast, parseISO } from 'date-fns';
+import { format, isSameDay, isPast, parseISO, startOfWeek, endOfWeek, getWeek, isValid } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { getWorkingHoursConfig } from '@/app/admin/working-hours/actions';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
+
+interface WeeklyGroup {
+    weekNumber: number;
+    weekLabel: string;
+    items: (JobOrder | WorkGroup)[];
+    totalPcs: number;
+}
 
 export default function ProductionConsoleClientPage() {
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [allRawMaterials, setAllRawMaterials] = useState<RawMaterial[]>([]);
+  const [workingHours, setWorkingHours] = useState<WorkingHoursConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
@@ -144,6 +156,8 @@ export default function ProductionConsoleClientPage() {
 
   useEffect(() => {
     setIsLoading(true);
+    getWorkingHoursConfig().then(setWorkingHours);
+
     const unsubscribeJobs = onSnapshot(query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "completed", "paused"])), (snap) => {
         const jobs = snap.docs.map(doc => JSON.parse(JSON.stringify(doc.data()), (key, value) => {
             if ((['start', 'end', 'overallStartTime', 'overallEndTime', 'odlCreationDate', 'createdAt']).includes(key) && value && typeof value === 'object' && value.seconds !== undefined) return new Date(value.seconds * 1000);
@@ -164,6 +178,7 @@ export default function ProductionConsoleClientPage() {
   }, [toast]);
   
   const workGroupsMap = useMemo(() => new Map(workGroups.map(g => [g.id, g])), [workGroups]);
+  
   const { standaloneJobs, jobsByGroupId } = useMemo(() => {
     const grouped = new Map<string, JobOrder[]>();
     const standalone: JobOrder[] = [];
@@ -197,36 +212,56 @@ export default function ProductionConsoleClientPage() {
       return f;
   };
 
-  const filteredStandaloneJobs = useMemo(() => applyFilters(standaloneJobs), [standaloneJobs, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
-  const filteredGroups = useMemo(() => applyFilters(Array.from(workGroupsMap.values())), [workGroupsMap, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
+  const filteredItems = useMemo(() => {
+      const filteredStandalone = applyFilters(standaloneJobs);
+      const filteredGroups = applyFilters(Array.from(workGroupsMap.values()));
+      return [...filteredStandalone, ...filteredGroups];
+  }, [standaloneJobs, workGroupsMap, activeFilter, searchTerm, showCompleted, isDateFilterActive, completedDateFilter, showOnlyOverdue, isJobLive, jobsByGroupId]);
 
-  const jobCount = filteredStandaloneJobs.length + filteredGroups.length;
+  const { weeklyGroups, daVerificare } = useMemo(() => {
+      const weeksMap = new Map<string, WeeklyGroup>();
+      const daVerificare: (JobOrder | WorkGroup)[] = [];
 
-  useEffect(() => {
-    setSelectedIds([]);
-  }, [activeFilter, searchTerm, showCompleted]);
+      filteredItems.forEach(item => {
+          const dateStr = item.dataConsegnaFinale;
+          if (!dateStr || dateStr === 'N/D' || !isValid(parseISO(dateStr))) {
+              daVerificare.push(item);
+              return;
+          }
 
-  const selectedItems = useMemo(() => {
-      const selectedJobs = standaloneJobs.filter(j => selectedIds.includes(j.id));
-      const selectedGroups = workGroups.filter(g => selectedIds.includes(g.id));
-      return [...selectedJobs, ...selectedGroups];
-  }, [selectedIds, standaloneJobs, workGroups]);
-  
-  const bulkActionsState = useMemo(() => {
-    if (selectedItems.length === 0) return { canForceFinish: false, canForceComplete: false, canReset: false };
-    const statuses = selectedItems.map(item => getOverallStatus(item));
-    const canForceFinish = statuses.every(status => ['In Preparazione', 'Pronto per Produzione', 'In Lavorazione', 'Sospesa', 'Problema', 'Manca Materiale'].includes(status));
-    const canForceComplete = selectedItems.every(item => !isJobLive(item)) && statuses.every(status => status !== 'Completata');
-    const canReset = selectedItems.length > 0;
-    return { canForceFinish, canForceComplete, canReset };
-  }, [selectedItems, isJobLive]);
+          const date = parseISO(dateStr);
+          const weekNum = getWeek(date, { weekStartsOn: 1 });
+          const weekStart = startOfWeek(date, { weekStartsOn: 1 });
+          const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
+          const year = format(date, 'yyyy');
+          const key = `${year}-W${String(weekNum).padStart(2, '0')}`;
+
+          if (!weeksMap.has(key)) {
+              weeksMap.set(key, {
+                  weekNumber: weekNum,
+                  weekLabel: `Settimana ${weekNum} (${format(weekStart, 'dd/MM')} - ${format(weekEnd, 'dd/MM')})`,
+                  items: [],
+                  totalPcs: 0
+              });
+          }
+
+          const group = weeksMap.get(key)!;
+          group.items.push(item);
+          group.totalPcs += ('totalQuantity' in item) ? (item.totalQuantity || 0) : (item.qta || 0);
+      });
+
+      return Array.from(weeksMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([_, group]) => group);
+
+      return { weeklyGroups: sortedWeeks, daVerificare };
+  }, [filteredItems]);
 
   const handleSelectAll = () => {
-    const allVisibleIds = [...filteredStandaloneJobs.map(j => j.id), ...filteredGroups.map(g => g.id)];
-    if (selectedIds.length === allVisibleIds.length) {
+    if (selectedIds.length === filteredItems.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(allVisibleIds);
+      setSelectedIds(filteredItems.map(i => i.id));
     }
   };
   
@@ -363,6 +398,64 @@ export default function ProductionConsoleClientPage() {
     }
   }
 
+  const renderItem = (item: JobOrder | WorkGroup) => {
+      const isGroup = 'jobOrderIds' in item;
+      if (isGroup) {
+          return (
+            <WorkGroupCard 
+                key={item.id} 
+                group={item as WorkGroup} 
+                jobsInGroup={jobsByGroupId.get(item.id) || []} 
+                allOperators={allOperators} 
+                allRawMaterials={allRawMaterials} 
+                onProblemClick={() => setProblemJob(item as WorkGroup)} 
+                onForceFinishClick={handleForceFinish} 
+                onForcePauseClick={handleForcePause} 
+                onForceCompleteClick={handleForceComplete} 
+                onDissolveGroupClick={handleDissolveGroup} 
+                onOpenPhaseManager={handleOpenPhaseManager} 
+                onOpenMaterialManager={() => setMaterialManagedItem(item as WorkGroup)} 
+                onToggleGuainaClick={handleToggleGuaina} 
+                onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+                isSelected={selectedIds.includes(item.id)} 
+                onSelect={handleSelectItem} 
+                overallStatus={getOverallStatus(item as WorkGroup)} 
+                getOverallStatus={getOverallStatus} 
+                onNavigateToAnalysis={handleNavigateToAnalysis} 
+                onCopyArticleCode={handleCopy}
+            />
+          );
+      }
+      return (
+        <JobOrderCard 
+            key={item.id} 
+            jobOrder={item as JobOrder} 
+            allOperators={allOperators} 
+            allRawMaterials={allRawMaterials} 
+            analysisData={analysisDataMap.get(item.id)} 
+            onFetchAnalysis={() => handleFetchAnalysis(item as JobOrder)} 
+            isAnalysisLoading={jobsWithLoadingAnalysis.has(item.id)} 
+            onProblemClick={() => setProblemJob(item as JobOrder)} 
+            onForceFinishClick={handleForceFinish} 
+            onRevertForceFinishClick={handleRevertForceFinish} 
+            onToggleGuainaClick={handleToggleGuaina} 
+            onRevertPhaseClick={handleRevertPhase} 
+            onRevertCompletionClick={handleRevertCompletion} 
+            onForcePauseClick={handleForcePause} 
+            onForceCompleteClick={handleForceComplete} 
+            onResetJobOrderClick={onResetJobOrderClick} 
+            onOpenPhaseManager={handleOpenPhaseManager} 
+            onOpenMaterialManager={() => setMaterialManagedItem(item as JobOrder)} 
+            onUpdateDeliveryDate={handleUpdateDeliveryDate} 
+            isSelected={selectedIds.includes(item.id)} 
+            onSelect={handleSelectItem} 
+            overallStatus={getOverallStatus(item as JobOrder)} 
+            onNavigateToAnalysis={handleNavigateToAnalysis} 
+            onCopyArticleCode={handleCopy}
+        />
+      );
+  };
+
   return (
     <>
       <div className="space-y-6">
@@ -399,24 +492,22 @@ export default function ProductionConsoleClientPage() {
            </div>
         </Card>
         
-         {jobCount > 0 && (
+         {filteredItems.length > 0 && (
           <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                  <Checkbox id="sel-all" checked={selectedIds.length > 0 && selectedIds.length === jobCount} onCheckedChange={handleSelectAll} />
-                  <Label htmlFor="sel-all">Seleziona Tutte ({jobCount})</Label>
+                  <Checkbox id="sel-all" checked={selectedIds.length > 0 && selectedIds.length === filteredItems.length} onCheckedChange={handleSelectAll} />
+                  <Label htmlFor="sel-all">Seleziona Tutte ({filteredItems.length})</Label>
               </div>
               {selectedIds.length > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild><Button variant="outline" size="sm">Azioni di Gruppo ({selectedIds.length}) <MoreVertical className="ml-2 h-4 w-4" /></Button></DropdownMenuTrigger>
                      <DropdownMenuContent align="start">
-                        {bulkActionsState.canForceFinish && (
-                            <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" /> Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
-                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi l'avanzamento forzato?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-                        )}
-                        {bulkActionsState.canForceComplete && (
-                            <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" /> Chiudi Item</DropdownMenuItem></AlertDialogTrigger>
-                            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi la chiusura forzata?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-                        )}
+                        <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" /> Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
+                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi l'avanzamento forzato?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        
+                        <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" /> Chiudi Item</DropdownMenuItem></AlertDialogTrigger>
+                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi la chiusura forzata?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        
                         <DropdownMenuSeparator />
                         <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><RefreshCcw className="mr-2 h-4 w-4" /> Annulla e Resetta</DropdownMenuItem></AlertDialogTrigger>
                         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler resettare?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive">Sì, Resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
@@ -428,18 +519,41 @@ export default function ProductionConsoleClientPage() {
 
         {isLoading ? (
             <div className="flex flex-col items-center justify-center py-20"><Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="mt-4 text-muted-foreground">Aggiornamento...</p></div>
-        ) : jobCount > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredGroups.map(group => (
-              <WorkGroupCard 
-                  key={group.id} group={group} jobsInGroup={jobsByGroupId.get(group.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} onProblemClick={() => setProblemJob(group)} onForceFinishClick={handleForceFinish} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onDissolveGroupClick={handleDissolveGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(group)} onToggleGuainaClick={handleToggleGuaina} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(group.id)} onSelect={handleSelectItem} overallStatus={getOverallStatus(group)} getOverallStatus={getOverallStatus} onNavigateToAnalysis={handleNavigateToAnalysis} onCopyArticleCode={handleCopy}
-              />
+        ) : filteredItems.length > 0 ? (
+          <div className="space-y-12">
+            
+            {daVerificare.length > 0 && (
+                <section className="space-y-4">
+                    <div className="flex items-center gap-3 border-b-2 border-destructive/20 pb-2">
+                        <AlertCircle className="h-6 w-6 text-destructive" />
+                        <h2 className="text-xl font-black uppercase tracking-tight text-destructive">Da Gestire e Verificare (N/D)</h2>
+                        <Badge variant="destructive">{daVerificare.length}</Badge>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {daVerificare.map(renderItem)}
+                    </div>
+                </section>
+            )}
+
+            {weeklyGroups.map((group) => (
+                <section key={group.weekLabel} className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b-2 border-primary/20 pb-2">
+                        <div className="flex items-center gap-3">
+                            <CalendarDays className="h-6 w-6 text-primary" />
+                            <h2 className="text-xl font-black uppercase tracking-tight text-primary">{group.weekLabel}</h2>
+                            <Badge variant="outline" className="border-primary text-primary">{group.items.length} Item</Badge>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm font-bold text-muted-foreground">
+                            <div className="flex items-center gap-1.5"><Package2 className="h-4 w-4"/> {group.totalPcs} pz totali</div>
+                            <div className="flex items-center gap-1.5"><Clock className="h-4 w-4"/> Capacità: -- / -- h</div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {group.items.map(renderItem)}
+                    </div>
+                </section>
             ))}
-            {filteredStandaloneJobs.map(job => (
-                <JobOrderCard 
-                  key={job.id} jobOrder={job} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(job.id)} onFetchAnalysis={() => handleFetchAnalysis(job)} isAnalysisLoading={jobsWithLoadingAnalysis.has(job.id)} onProblemClick={() => setProblemJob(job)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} onToggleGuainaClick={handleToggleGuaina} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(job)} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(job.id)} onSelect={handleSelectItem} overallStatus={getOverallStatus(job)} onNavigateToAnalysis={handleNavigateToAnalysis} onCopyArticleCode={handleCopy}
-                />
-            ))}
+
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed rounded-lg mt-8"><Package2 className="h-16 w-16 text-muted-foreground mb-4" /><h2 className="text-xl font-semibold text-muted-foreground">Nessuna Commessa Trovata</h2></div>

@@ -1,9 +1,10 @@
+
 import type { JobOrder, JobPhase, Operator, RawMaterial } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { StatusBadge } from '@/components/production-console/StatusBadge';
-import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, HelpCircle, ChevronDown, Loader2 } from 'lucide-react';
+import { Package, Building, Circle, Hourglass, CheckCircle2, ShieldAlert, PauseCircle, Calendar, Printer, MoreVertical, FastForward, CheckSquare, CornerDownRight, CornerUpLeft, Undo2, ClipboardList, Factory, Users, PowerOff, RefreshCcw, EyeOff, ListOrdered, ArrowUp, ArrowDown, ArchiveRestore, Boxes, User, BarChart3, Copy, Timer, ChevronDown, Loader2 } from 'lucide-react';
 import { format, parseISO, isPast, differenceInSeconds } from 'date-fns';
 import Link from 'next/link';
 import { it } from 'date-fns/locale';
@@ -185,7 +186,6 @@ export default function JobOrderCard({
   }, [analysisData, jobOrder]);
   
   useEffect(() => {
-    // We only automatically calculate the time if the data is already present.
     if (analysisData) {
       updateRemainingTime();
     }
@@ -208,7 +208,6 @@ export default function JobOrderCard({
                 }
             });
 
-            // Filter out duplicates before adding to the map
             const uniqueOperators = Array.from(new Map(phaseOperators.map(op => [op.id, op])).values());
 
             if (uniqueOperators.length > 0) {

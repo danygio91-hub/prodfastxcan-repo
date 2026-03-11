@@ -103,7 +103,6 @@ export default function WorkGroupCard({
     : null;
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
 
-  // FIX: Filtriamo l'array jobsInGroup per assicurarci di non visualizzare accidentalmente oggetti di sistema
   const validJobsInGroup = useMemo(() => {
       return jobsInGroup.filter(job => !job.id.startsWith('group-'));
   }, [jobsInGroup]);
@@ -139,8 +138,37 @@ export default function WorkGroupCard({
                                 )}
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onSelect={() => { setSelectedOperators([]); setIsPauseDialogOpen(true); }} disabled={!isLive}><Users className="mr-2 h-4 w-4" /> Forza Pausa</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => onForceFinishClick(group.id)} disabled={!['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus)}><FastForward className="mr-2 h-4 w-4" /> Forza Finitura</DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => onForceCompleteClick(group.id)} disabled={isLive || overallStatus === 'Completata'}><PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura</DropdownMenuItem>
+                                
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={!['In Preparazione', 'Pronto per Produzione', 'In Lavorazione'].includes(overallStatus)}>
+                                            <FastForward className="mr-2 h-4 w-4" /> Forza Finitura
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Confermi l'avanzamento?</AlertDialogTitle></AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => onForceFinishClick(group.id)}>Conferma</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <DropdownMenuItem onSelect={e => e.preventDefault()} disabled={isLive || overallStatus === 'Completata'}>
+                                            <PowerOff className="mr-2 h-4 w-4" /> Forza Chiusura
+                                        </DropdownMenuItem>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader><AlertDialogTitle>Confermi la chiusura?</AlertDialogTitle></AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => onForceCompleteClick(group.id)}>Conferma</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+
                                 <DropdownMenuSeparator />
                                 <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><Unlink className="mr-2 h-4 w-4" /> Annulla Gruppo</DropdownMenuItem></AlertDialogTrigger>
                                 <AlertDialogContent>
