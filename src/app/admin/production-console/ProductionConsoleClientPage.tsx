@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -234,7 +233,6 @@ export default function ProductionConsoleClientPage() {
           const weekStart = startOfWeek(date, { weekStartsOn: 1 });
           const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
           const year = format(date, 'yyyy');
-          const month = format(date, 'MMMM', { locale: it });
           const key = `${year}-W${String(weekNum).padStart(2, '0')}`;
 
           if (!weeksMap.has(key)) {

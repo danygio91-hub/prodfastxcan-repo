@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -163,7 +162,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - units });
         itemSnaps.forEach(snap => {
             if (snap.exists()) {
-                const data = snap.data();
+                const data = snap.data() as any;
                 const phs = (data.phases || []).map((p: any) => ({
                     ...p, materialConsumptions: (p.materialConsumptions || []).map((mc: any) => {
                         const isMatch = mc.materialId === mSnap.id && (mc.lottoBobina === session.lotto || (!mc.lottoBobina && !session.lotto));
