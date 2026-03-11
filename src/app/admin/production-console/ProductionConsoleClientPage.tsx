@@ -99,8 +99,7 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { getTimeTrackingSettings } from '../time-tracking-settings/actions';
-import { getWorkingHoursConfig } from '../working-hours/actions';
+import { getWorkingHoursConfig } from '@/app/admin/working-hours/actions';
 
 type FilterStatus = OverallStatus | 'all' | 'LIVE';
 
@@ -157,7 +156,6 @@ export default function ProductionConsoleClientPage() {
 
   useEffect(() => {
     setIsLoading(true);
-    // Fetch working hours config for future capacity calculations
     getWorkingHoursConfig().then(setWorkingHours);
 
     const unsubscribeJobs = onSnapshot(query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "completed", "paused"])), (snap) => {
@@ -253,7 +251,6 @@ export default function ProductionConsoleClientPage() {
           group.totalPcs += ('totalQuantity' in item) ? (item.totalQuantity || 0) : (item.qta || 0);
       });
 
-      // Sort weeks chronologically
       const sortedWeeks = Array.from(weeksMap.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([_, group]) => group);
@@ -302,6 +299,11 @@ export default function ProductionConsoleClientPage() {
     const result = await resolveJobProblem(problemJob.id, user.uid);
     toast({ title: result.success ? "Problema Risolto" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     setProblemJob(null);
+  };
+
+  const handleFilterClick = (filter: FilterStatus) => {
+    setActiveFilter(filter);
+    setShowCompleted(false);
   };
 
   const handleForceFinish = async (jobId: string) => { if (!user) return; await forceFinishProduction(jobId, user.uid); };
@@ -521,7 +523,6 @@ export default function ProductionConsoleClientPage() {
         ) : filteredItems.length > 0 ? (
           <div className="space-y-12">
             
-            {/* Sezione N/D (Da Verificare) */}
             {daVerificare.length > 0 && (
                 <section className="space-y-4">
                     <div className="flex items-center gap-3 border-b-2 border-destructive/20 pb-2">
@@ -535,7 +536,6 @@ export default function ProductionConsoleClientPage() {
                 </section>
             )}
 
-            {/* Sezioni Settimanali */}
             {weeklyGroups.map((group) => (
                 <section key={group.weekLabel} className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b-2 border-primary/20 pb-2">
@@ -561,7 +561,6 @@ export default function ProductionConsoleClientPage() {
         )}
       </div>
       
-      {/* Modals same as before... */}
       <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>
         <DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Gestione Fasi: {phaseManagedItem?.id}</DialogTitle></DialogHeader>
            <div className="py-4 space-y-2 max-h-[60vh] overflow-y-auto">
