@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, JobBillOfMaterialsItem } from '@/lib/mock-data';
@@ -102,6 +103,11 @@ export default function WorkGroupCard({
     : null;
   const isOverdue = deliveryDate && isPast(new Date(deliveryDate.toDateString())) && overallStatus !== 'Completata';
 
+  // FIX: Filtriamo l'array jobsInGroup per assicurarci di non visualizzare accidentalmente oggetti di sistema
+  const validJobsInGroup = useMemo(() => {
+      return jobsInGroup.filter(job => !job.id.startsWith('group-'));
+  }, [jobsInGroup]);
+
   return (
     <>
     <Collapsible asChild>
@@ -197,7 +203,7 @@ export default function WorkGroupCard({
             {group.phases?.sort((a,b) => a.sequence - b.sequence).map(p => (
                 <div key={p.id} className="flex items-center gap-3 text-sm text-muted-foreground">{getPhaseIcon(p.status)}<span className={cn(p.status === 'skipped' && 'line-through')}>{p.name}</span></div>
             ))}
-            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}><View className="mr-2 h-4 w-4" /> Esplodi Commesse ({jobsInGroup.length})</Button>
+            <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => setIsExplodeViewOpen(true)}><View className="mr-2 h-4 w-4" /> Esplodi Commesse ({validJobsInGroup.length})</Button>
         </div></CollapsibleContent>
       </Card></Collapsible>
       
@@ -219,7 +225,9 @@ export default function WorkGroupCard({
       
       <Dialog open={isExplodeViewOpen} onOpenChange={setIsExplodeViewOpen}>
           <DialogContent className="max-w-7xl h-[90vh]"><DialogHeader><DialogTitle>Dettaglio Commesse nel Gruppo</DialogTitle></DialogHeader>
-              <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{jobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}</div></ScrollArea>
+              <ScrollArea className="h-full mt-4"><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {validJobsInGroup.map(j => <JobOrderCard key={j.id} jobOrder={j} allRawMaterials={allRawMaterials} groupPhases={group.phases} allOperators={allOperators} onProblemClick={() => {}} onFetchAnalysis={() => {}} isAnalysisLoading={false} onForceFinishClick={() => {}} onRevertForceFinishClick={() => {}} onToggleGuainaClick={() => {}} onRevertPhaseClick={() => {}} onRevertCompletionClick={() => {}} onForcePauseClick={() => {}} onForceCompleteClick={() => {}} onResetJobOrderClick={() => {}} onOpenPhaseManager={() => {}} onOpenMaterialManager={() => {}} onUpdateDeliveryDate={onUpdateDeliveryDate} isSelected={false} onSelect={() => {}} overallStatus={getOverallStatus(j)} onNavigateToAnalysis={onNavigateToAnalysis} onCopyArticleCode={onCopyArticleCode} />)}
+              </div></ScrollArea>
           </DialogContent>
       </Dialog>
     </>
