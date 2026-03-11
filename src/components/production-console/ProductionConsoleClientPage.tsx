@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -250,7 +249,7 @@ export default function ProductionConsoleClientPage() {
           group.totalPcs += ('totalQuantity' in item) ? (item.totalQuantity || 0) : (item.qta || 0);
       });
 
-      return Array.from(weeksMap.entries())
+      const sortedWeeks = Array.from(weeksMap.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([_, group]) => group);
 
@@ -298,6 +297,11 @@ export default function ProductionConsoleClientPage() {
     const result = await resolveJobProblem(problemJob.id, user.uid);
     toast({ title: result.success ? "Problema Risolto" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     setProblemJob(null);
+  };
+
+  const handleFilterClick = (filter: FilterStatus) => {
+    setActiveFilter(filter);
+    setShowCompleted(false);
   };
 
   const handleForceFinish = async (jobId: string) => { if (!user) return; await forceFinishProduction(jobId, user.uid); };
@@ -371,11 +375,6 @@ export default function ProductionConsoleClientPage() {
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({ title: "Copiato!" });
-  };
-
-  const handleFilterClick = (filter: FilterStatus) => {
-    setActiveFilter(filter);
-    setShowCompleted(false);
   };
 
   const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus?: string) => {
