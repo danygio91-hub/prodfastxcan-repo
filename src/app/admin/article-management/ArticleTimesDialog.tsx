@@ -48,7 +48,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         getWorkCycles().then(setWorkCycles);
         if (article) {
             setLocalPhaseTimes(article.phaseTimes || {});
-            setSelectedCycleId('manual');
+            // Inizializza con il ciclo salvato nell'articolo, se presente
+            setSelectedCycleId(article.workCycleId || 'manual');
         }
     }
   }, [isOpen, article]);
@@ -136,7 +137,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   const handleSave = async () => {
     if (!article) return;
     setIsPending(true);
-    const result = await saveArticlePhaseTimes(article.id, localPhaseTimes);
+    // Salva sia i tempi delle fasi che l'ID del ciclo applicato
+    const result = await saveArticlePhaseTimes(article.id, localPhaseTimes, selectedCycleId);
     toast({
         title: result.success ? "Successo" : "Errore",
         description: result.message,

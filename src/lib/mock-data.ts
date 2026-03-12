@@ -205,6 +205,7 @@ export interface Article {
   code: string;
   billOfMaterials: BillOfMaterialsItem[];
   phaseTimes?: Record<string, ArticlePhaseTime>;
+  workCycleId?: string; // Nuova campo per persistere il ciclo scelto
 }
 
 

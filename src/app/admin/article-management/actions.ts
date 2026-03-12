@@ -106,13 +106,13 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
     return { success: true, message: `${articles.length} articoli elaborati.` };
 }
 
-export async function saveArticlePhaseTimes(articleId: string, phaseTimes: Record<string, ArticlePhaseTime>) {
+export async function saveArticlePhaseTimes(articleId: string, phaseTimes: Record<string, ArticlePhaseTime>, workCycleId: string) {
     const articleRef = doc(db, 'articles', articleId);
     try {
-        await setDoc(articleRef, { phaseTimes }, { merge: true });
+        await setDoc(articleRef, { phaseTimes, workCycleId }, { merge: true });
         revalidatePath('/admin/article-management');
-        return { success: true, message: 'Tempi aggiornati con successo.' };
+        return { success: true, message: 'Tempi e Ciclo aggiornati con successo.' };
     } catch (e) {
-        return { success: false, message: 'Errore durante il salvataggio dei tempi.' };
+        return { success: false, message: 'Errore durante il salvataggio.' };
     }
 }
