@@ -142,8 +142,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const articlesMap = new Map(articlesSnap.docs.map(d => [d.data().code.toUpperCase(), d.data() as Article]));
     const cyclesMap = new Map(cyclesSnap.docs.map(d => [d.data().name.toUpperCase(), { ...d.data(), id: d.id } as WorkCycle]));
     const importSchema = z.object({ ordinePF: z.coerce.string().min(1), details: z.coerce.string().min(1), qta: z.coerce.number().positive(), cliente: z.coerce.string().optional(), numeroODL: z.coerce.string().optional(), numeroODLInternoImport: z.any().optional(), dataConsegnaFinale: z.string().optional(), department: z.coerce.string().optional(), workCycleName: z.coerce.string().optional() });
-    const now = new Date();
-    const shortYear = now.getFullYear().toString().slice(-2);
     
     for (const row of data) {
         const validated = importSchema.safeParse(row);
@@ -152,8 +150,16 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const articleCode = validData.details.toUpperCase().trim();
         const articleData = articlesMap.get(articleCode);
         if (!articleData) { blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica.` }); continue; }
+        
         const sanitizedId = sanitizeDocumentId(validData.ordinePF);
         const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
+
+        if (docSnap.exists()) {
+            // BUG FIX: Se esiste già, deve essere nelle BLOCCATE e non nelle PRONTE
+            blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
+            continue;
+        }
+
         const workCycle = validData.workCycleName ? cyclesMap.get(validData.workCycleName.toUpperCase().trim()) : undefined;
         const phases = workCycle ? await createPhasesFromCycle(workCycle.id) : [];
         const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
@@ -170,19 +176,14 @@ export async function processAndValidateImport(data: any[]): Promise<{
                 }
             } else {
                 const digits = rawVal.match(/\d+/)?.[0] || '';
+                const shortYear = new Date().getFullYear().toString().slice(-2);
                 if (digits) {
                     odlToAssign = `${digits.padStart(4, '0')}-${shortYear}`;
                 }
             }
         }
 
-        if (docSnap.exists()) {
-            const existing = convertTimestampsToDates(docSnap.data()) as JobOrder;
-            if (existing.status === 'planned') jobsToUpdate.push({ ...existing, ...validData, id: sanitizedId, billOfMaterials: jobBOM, phases: phases.length > 0 ? phases : existing.phases, workCycleId: workCycle?.id || existing.workCycleId, numeroODLInterno: odlToAssign || existing.numeroODLInterno });
-            else blockedJobs.push({ row, reason: "Commessa esistente e in produzione/conclusa." });
-        } else {
-            newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', department: validData.department || "N/D", workCycleId: workCycle?.id || '' });
-        }
+        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', department: validData.department || "N/D", workCycleId: workCycle?.id || '' });
     }
     return { success: true, message: "Analisi completata.", newJobs, jobsToUpdate, blockedJobs };
 }

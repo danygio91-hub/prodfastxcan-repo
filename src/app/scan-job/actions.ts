@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -290,7 +291,7 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
             if (!snap.exists()) throw new Error("Non trovato.");
             const item = snap.data() as JobOrder;
             const phs = (item.phases || []).map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), cons], materialReady: true } : p);
-            t.update(itemRef, { phases: phs });
+            t.update(itemRef, { phs });
             if (isGroup) await propagateGroupUpdatesToJobs(t, { ...item, phases: phs } as any);
         });
         return { success: true, message: 'Sessione avviata.' };

@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -117,7 +118,7 @@ export default function ProductionConsoleClientPage() {
   const [workingHours, setWorkingHours] = useState<WorkingHoursConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
-  const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
+  const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(problemJob => null);
   const [phaseManagedItem, setPhaseManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [materialManagedItem, setMaterialManagedItem] = useState<JobOrder | WorkGroup | null>(null);
   const [analysisDataMap, setAnalysisDataMap] = useState<Map<string, ProductionTimeData | null>>(new Map());
