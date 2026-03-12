@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -159,7 +158,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
         if (consumedWeight < -0.001) throw new Error("Peso finale superiore a apertura.");
         const units = mat.unitOfMeasure === 'kg' ? consumedWeight : (mat.conversionFactor && mat.conversionFactor > 0 ? consumedWeight / mat.conversionFactor : 0);
         const wRef = doc(collection(db, "materialWithdrawals"));
-        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: mSnap.id, materialCode: session.materialCode, consumedWeight, consumedUnits: units, operatorId: opId, operatorName: opSnap.data()?.nome || 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
+        t.set(wRef, { jobIds: session.associatedJobs.map(j => j.jobId), jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF), materialId: mSnap.id, materialCode: session.materialCode, consumedWeight, consumedUnits: units, operatorId: opId, operatorName: (opSnap.data() as any)?.nome || 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: session.lotto || null });
         t.update(mRef, { currentWeightKg: (mat.currentWeightKg || 0) - consumedWeight, currentStockUnits: (mat.currentStockUnits || 0) - units });
         itemSnaps.forEach(snap => {
             if (snap.exists()) {
@@ -202,7 +201,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
         const wRef = doc(collection(db, "materialWithdrawals"));
         const jobIds = isGroup ? (item as any).jobOrderIds || [] : [jobId];
         const jobOrderPFs = isGroup ? (item as any).jobOrderPFs || [] : [(data.jobOrderPF as string) || item.ordinePF || 'N/D'];
-        t.set(wRef, { jobIds, jobOrderPFs, materialId: mSnap.id, materialCode: mat.code, consumedWeight: w, consumedUnits: u, operatorId, operatorName: opSnap.data()?.nome || 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
+        t.set(wRef, { jobIds, jobOrderPFs, materialId: mSnap.id, materialCode: mat.code, consumedWeight: w, consumedUnits: u, operatorId, operatorName: (opSnap.data() as any)?.nome || 'Sconosciuto', withdrawalDate: Timestamp.now(), lotto: (data.lotto as string) || null });
         const phs = [...(item.phases || [])];
         const idx = phs.findIndex(p => p.id === phaseId);
         if (idx !== -1) {
@@ -291,7 +290,7 @@ export async function startMaterialSessionInJob(itemId: string, phaseId: string,
             if (!snap.exists()) throw new Error("Non trovato.");
             const item = snap.data() as JobOrder;
             const phs = (item.phases || []).map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), cons], materialReady: true } : p);
-            t.update(itemRef, { phs });
+            t.update(itemRef, { phases: phs });
             if (isGroup) await propagateGroupUpdatesToJobs(t, { ...item, phases: phs } as any);
         });
         return { success: true, message: 'Sessione avviata.' };
@@ -316,7 +315,7 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             const commonPhases = firstJob.phases.filter(p => (p.type === 'preparation' || p.type === 'production' || p.type === 'packaging') && jobs.every(j => j.phases.some(jp => jp.id === p.id)));
             if (commonPhases.length === 0) throw new Error("Nessuna fase comune compatibile.");
             const groupRef = doc(collection(db, 'workGroups'), `group-${Date.now()}`);
-            const groupData: WorkGroup = { id: groupRef.id, jobOrderIds: jobIds, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: opSnap.data()?.nome || 'Operatore', totalQuantity: jobs.reduce((sum, j) => sum + j.qta, 0), workCycleId: firstJob.workCycleId || '', department: firstJob.department, cliente: Array.from(new Set(jobs.map(j => j.cliente))).join(', '), details: Array.from(new Set(jobs.map(j => j.details))).join(', '), phases: JSON.parse(JSON.stringify(commonPhases)) };
+            const groupData: WorkGroup = { id: groupRef.id, jobOrderIds: jobIds, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), createdBy: (opSnap.data() as any)?.nome || 'Operatore', totalQuantity: jobs.reduce((sum, j) => sum + j.qta, 0), workCycleId: firstJob.workCycleId || '', department: firstJob.department, cliente: Array.from(new Set(jobs.map(j => j.cliente))).join(', '), details: Array.from(new Set(jobs.map(j => j.details))).join(', '), phases: JSON.parse(JSON.stringify(commonPhases)) };
             t.set(groupRef, JSON.parse(JSON.stringify(groupData)));
             jobIds.forEach(id => t.update(doc(db, 'jobOrders', id), { workGroupId: groupRef.id }));
             return { success: true, workGroupId: groupRef.id };

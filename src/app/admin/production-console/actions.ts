@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -366,7 +365,7 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       if (idx === -1) throw new Error("Fase non trovata.");
       phases[idx].materialStatus = 'missing';
       phases[idx].materialReady = false;
-      const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: opSnap.data()?.nome || 'Admin', problemNotes: notes || '' };
+      const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: (opSnap.data() as any)?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);
       if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
     });
