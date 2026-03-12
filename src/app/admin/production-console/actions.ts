@@ -358,8 +358,7 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
   try {
     await runTransaction(db, async (t) => {
-      const itemSnap = await t.get(itemRef);
-      const opSnap = await t.get(doc(db, 'operators', uid));
+      const [itemSnap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
       if (!itemSnap.exists()) throw new Error("Non trovato.");
       const itemData = itemSnap.data() as JobOrder;
       const phases = [...itemData.phases];

@@ -155,7 +155,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
 
         if (docSnap.exists()) {
-            // BUG FIX: Se esiste già, deve essere nelle BLOCCATE e non nelle PRONTE
             blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
             continue;
         }

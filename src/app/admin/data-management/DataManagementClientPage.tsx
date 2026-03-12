@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -336,7 +337,6 @@ export default function DataManagementClientPage() {
             } catch (e) {}
         }
 
-        // Calcolo Semaforo Materiali Potenziato
         const stockStatus = (() => {
             if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
             
@@ -515,7 +515,7 @@ export default function DataManagementClientPage() {
                     <SortHeader label="Reparto" sortKey="reparto_codice" />
                     <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
-                    <TableHead>Consegna</TableHead>
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
@@ -547,7 +547,7 @@ export default function DataManagementClientPage() {
                     <SortHeader label="Reparto" sortKey="reparto_codice" />
                     <TableHead>Ciclo</TableHead>
                     <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
-                    <TableHead>Consegna</TableHead>
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
