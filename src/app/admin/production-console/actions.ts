@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query as firestoreQuery, where, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { JobOrder, JobPhase, WorkGroup, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
 
 export type ProductionTimeData = {
