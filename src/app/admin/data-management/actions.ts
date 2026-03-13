@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -155,7 +154,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
 
         if (docSnap.exists()) {
-            // SPOSTA DUPLICATI TRA LE BLOCCATE
+            // REGOLE DUPLICATI: Le commesse esistenti vengono marcate come bloccate
             blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
             continue;
         }

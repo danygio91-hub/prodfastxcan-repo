@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -59,9 +58,18 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
   const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
+  
   const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
   if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
+  
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
+  
+  // REGOLE GRUPPI: Se la commessa appartiene a un gruppo, carica il gruppo!
+  if (job.workGroupId) {
+      const group = await getJobOrderById(job.workGroupId);
+      if (group) return JSON.parse(JSON.stringify(group));
+  }
+
   return JSON.parse(JSON.stringify(job));
 }
 

@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -358,9 +357,9 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
   try {
     await runTransaction(db, async (t) => {
-      const [itemSnap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
-      if (!itemSnap.exists()) throw new Error("Non trovato.");
-      const itemData = itemSnap.data() as JobOrder;
+      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
+      if (!snap.exists()) throw new Error("Non trovato.");
+      const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
       const idx = phases.findIndex(p => p.id === phaseId);
       if (idx === -1) throw new Error("Fase non trovata.");
@@ -381,9 +380,9 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
   const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
   try {
     await runTransaction(db, async (t) => {
-      const itemSnap = await t.get(itemRef);
-      if (!itemSnap.exists()) throw new Error("Non trovato.");
-      const itemData = itemSnap.data() as JobOrder;
+      const snap = await t.get(itemRef);
+      if (!snap.exists()) throw new Error("Non trovato.");
+      const itemData = snap.data() as JobOrder;
       let phases = [...itemData.phases];
       const idx = phases.findIndex(p => p.id === phaseId);
       if (idx === -1) throw new Error("Fase non trovata.");
@@ -407,11 +406,11 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
     const isGroup = itemId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
     await runTransaction(db, async (t) => {
-        const itemSnap = await t.get(itemRef);
-        if (!itemSnap.exists()) throw new Error("Non trovato.");
+        const snap = await t.get(itemRef);
+        if (!snap.exists()) throw new Error("Non trovato.");
         t.update(itemRef, { dataConsegnaFinale: newDate });
         if (isGroup) {
-            const data = itemSnap.data() as WorkGroup;
+            const data = snap.data() as WorkGroup;
             (data.jobOrderIds || []).forEach(id => { t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate }); });
         }
     });
