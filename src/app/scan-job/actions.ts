@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -5,6 +6,7 @@ import { collection, doc, getDoc, setDoc, writeBatch, Timestamp, runTransaction,
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsumption, RawMaterialType, ActiveMaterialSessionData, WorkGroup, Operator, WorkPhaseTemplate } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
+import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -64,7 +66,6 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
   
-  // REGOLE GRUPPI: Se la commessa appartiene a un gruppo, carica il gruppo!
   if (job.workGroupId) {
       const group = await getJobOrderById(job.workGroupId);
       if (group) return JSON.parse(JSON.stringify(group));
@@ -330,35 +331,4 @@ export async function createWorkGroup(jobIds: string[], opId: string): Promise<{
             return { success: true, workGroupId: groupRef.id };
         });
     } catch (e) { return { success: false, message: e instanceof Error ? e.message : 'Errore.' }; }
-}
-
-export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
-  try {
-    const groupRef = doc(db, 'workGroups', groupId);
-    const opsSnap = await getDocs(collection(db, "operators"));
-    const hasActiveSession = opsSnap.docs.some(docSnap => (docSnap.data().activeMaterialSessions || []).some((s:any) => s.originatorJobId === groupId || s.associatedJobs.some((aj:any) => aj.jobId === groupId)));
-    if (hasActiveSession) throw new Error("SESSIONE MATERIALE ATTIVA: IMPOSSIBILE SCOLLEGARE");
-    await runTransaction(db, async (transaction) => {
-        const groupSnap = await transaction.get(groupRef);
-        if (!groupSnap.exists()) throw new Error("Gruppo non trovato.");
-        const groupData = groupSnap.data() as WorkGroup;
-        const jobRefs = (groupData.jobOrderIds || []).map(id => doc(db, 'jobOrders', id));
-        const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
-        for (const jobDoc of jobDocs) {
-             if (!jobDoc.exists()) continue;
-             const jobOriginalData = jobDoc.data() as JobOrder;
-             const groupPhases: JobPhase[] = JSON.parse(JSON.stringify(groupData.phases));
-             const finalJobPhases = (jobOriginalData.phases || []).map(originalPhase => {
-                 const matched = groupPhases.find(gp => gp.id === originalPhase.id);
-                 if (matched) return { ...originalPhase, status: matched.status, workPeriods: matched.workPeriods || originalPhase.workPeriods, materialConsumptions: matched.materialConsumptions || originalPhase.materialConsumptions, materialReady: matched.materialReady };
-                 return originalPhase;
-             });
-             transaction.update(jobDoc.ref, { workGroupId: deleteField(), phases: updatePhasesMaterialReadiness(finalJobPhases), status: forceComplete ? 'completed' : 'paused', overallStartTime: groupData.overallStartTime || jobOriginalData.overallStartTime || null, overallEndTime: forceComplete ? (groupData.overallEndTime || new Date()) : null });
-        }
-        transaction.delete(groupRef);
-    });
-    revalidatePath('/admin/production-console');
-    revalidatePath('/scan-job');
-    return { success: true, message: `Gruppo sciolto.` };
-  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }

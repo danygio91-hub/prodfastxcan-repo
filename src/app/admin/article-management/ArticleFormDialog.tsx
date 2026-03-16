@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as z from 'zod';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,9 +21,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
-import { PlusCircle, Trash2, Save, Loader2, ChevronsUpDown, Check } from 'lucide-react';
+import { PlusCircle, Trash2, Save, Loader2, Check } from 'lucide-react';
 
 import type { Article, RawMaterial } from '@/lib/mock-data';
 import { saveArticle } from './actions';
@@ -54,7 +53,8 @@ interface ArticleFormDialogProps {
 export default function ArticleFormDialog({ isOpen, onClose, article, rawMaterials }: ArticleFormDialogProps) {
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
-  const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const suggestionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const form = useForm<ArticleFormValues>({
     resolver: zodResolver(articleSchema),
@@ -78,7 +78,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
             billOfMaterials: article.billOfMaterials || [],
         });
         } else {
-        const defaultBOM = Array(10).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
+        const defaultBOM = Array(5).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
         form.reset({
             id: undefined,
             code: '',
@@ -89,8 +89,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
   }, [article, form, isOpen]);
 
   const onSubmit = async (data: ArticleFormValues) => {
-    const materialCodes = new Set(rawMaterials.map(m => m.code));
-    const invalidItem = data.billOfMaterials.find(item => item.component && !materialCodes.has(item.component));
+    const materialCodes = new Set(rawMaterials.map(m => m.code.toUpperCase()));
+    const invalidItem = data.billOfMaterials.find(item => item.component && !materialCodes.has(item.component.toUpperCase()));
 
     if (invalidItem) {
         toast({
@@ -109,18 +109,28 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
       variant: result.success ? "default" : "destructive",
     });
     if (result.success) {
-      onClose(true); // Close and refresh
+      onClose(true);
     }
     setIsPending(false);
   };
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (focusedIndex !== null && !suggestionRefs.current[focusedIndex]?.contains(event.target as Node)) {
+            setFocusedIndex(null);
+        }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [focusedIndex]);
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl h-[90vh] flex flex-col">
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{article ? `Modifica Distinta Base: ${article.code}` : 'Crea Nuovo Articolo'}</DialogTitle>
           <DialogDescription>
-            Definisci il codice articolo e i componenti necessari per la sua produzione.
+            Definisci i componenti. Puoi digitare, incollare o selezionare dai suggerimenti.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -133,7 +143,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                   <FormItem>
                     <FormLabel>Codice Articolo</FormLabel>
                     <FormControl>
-                      <Input placeholder="Es. ART-00123" {...field} disabled={!!article} />
+                      <Input placeholder="Es. ART-00123" {...field} disabled={!!article} className="font-bold" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -143,72 +153,55 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
 
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-4">
-                <h4 className="font-semibold">Componenti Distinta Base</h4>
+                <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Componenti Distinta Base</h4>
                 {fields.map((field, index) => {
-                  const selectedComponentCode = form.watch(`billOfMaterials.${index}.component`);
-                  const componentMaterial = rawMaterials.find(m => m.code === selectedComponentCode);
+                  const currentValue = form.watch(`billOfMaterials.${index}.component`) || '';
+                  const suggestions = rawMaterials.filter(m => 
+                    currentValue.length >= 2 && m.code.toLowerCase().includes(currentValue.toLowerCase())
+                  ).slice(0, 10);
+
+                  const componentMaterial = rawMaterials.find(m => m.code.toUpperCase() === currentValue.toUpperCase());
 
                   return (
-                  <div key={field.id} className="grid grid-cols-12 gap-2 p-3 border rounded-md relative">
+                  <div key={field.id} className="grid grid-cols-12 gap-3 p-4 border rounded-lg relative bg-muted/10">
                     <div className="col-span-12 sm:col-span-4">
                        <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.component`}
                         render={({ field }) => (
-                          <FormItem className="flex flex-col">
+                          <FormItem className="relative">
                             <FormLabel>Componente</FormLabel>
-                             <Popover open={openComboboxIndex === index} onOpenChange={(isOpen) => setOpenComboboxIndex(isOpen ? index : null)}>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    className={cn(
-                                      "w-full justify-between",
-                                      !field.value && "text-muted-foreground"
-                                    )}
-                                  >
-                                    {field.value
-                                      ? rawMaterials.find(
-                                          (material) => material.code === field.value
-                                        )?.code
-                                      : "Seleziona componente..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                                <Command>
-                                  <CommandInput placeholder="Cerca componente..." />
-                                  <CommandEmpty>Nessun componente trovato.</CommandEmpty>
-                                  <CommandGroup>
-                                    <ScrollArea className="h-48">
-                                    {rawMaterials.map((material) => (
-                                      <CommandItem
-                                        value={material.code}
-                                        key={material.id}
-                                        onSelect={() => {
-                                          form.setValue(`billOfMaterials.${index}.component`, material.code);
-                                          form.setValue(`billOfMaterials.${index}.unit`, material.unitOfMeasure);
-                                          setOpenComboboxIndex(null);
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            material.code === field.value
-                                              ? "opacity-100"
-                                              : "opacity-0"
-                                          )}
-                                        />
-                                        {material.code}
-                                      </CommandItem>
+                            <FormControl>
+                                <Input 
+                                    {...field} 
+                                    placeholder="Digita o incolla..." 
+                                    className="font-mono uppercase"
+                                    autoComplete="off"
+                                    onFocus={() => setFocusedIndex(index)}
+                                />
+                            </FormControl>
+                            {focusedIndex === index && suggestions.length > 0 && (
+                                <div 
+                                    ref={el => suggestionRefs.current[index] = el}
+                                    className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto"
+                                >
+                                    {suggestions.map(m => (
+                                        <button
+                                            key={m.id}
+                                            type="button"
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between group"
+                                            onClick={() => {
+                                                form.setValue(`billOfMaterials.${index}.component`, m.code);
+                                                form.setValue(`billOfMaterials.${index}.unit`, m.unitOfMeasure);
+                                                setFocusedIndex(null);
+                                            }}
+                                        >
+                                            <span className="font-mono">{m.code}</span>
+                                            <span className="text-[10px] text-muted-foreground group-hover:text-accent-foreground">{m.description.slice(0, 20)}...</span>
+                                        </button>
                                     ))}
-                                    </ScrollArea>
-                                  </CommandGroup>
-                                </Command>
-                              </PopoverContent>
-                            </Popover>
+                                </div>
+                            )}
                             <FormMessage />
                           </FormItem>
                         )}
@@ -221,48 +214,44 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Q.tà per Pz</FormLabel>
-                            <FormControl><Input type="number" step="any" placeholder="0.0" {...field} /></FormControl>
+                            <FormControl><Input type="number" step="any" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                     </div>
 
-                    {componentMaterial?.unitOfMeasure !== 'n' ? (
-                       <div className="col-span-6 sm:col-span-3">
+                    <div className="col-span-6 sm:col-span-2">
                         <FormField
                             control={form.control}
                             name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
                             render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Lunghezza Taglio (mm)</FormLabel>
-                                <FormControl><Input type="number" step="any" placeholder="Es. 500" {...field} value={field.value ?? ''} /></FormControl>
+                                <FormLabel>L. Taglio (mm)</FormLabel>
+                                <FormControl><Input type="number" step="any" placeholder="-" {...field} value={field.value ?? ''} disabled={componentMaterial?.unitOfMeasure === 'n'} /></FormControl>
                                 <FormMessage />
                             </FormItem>
                             )}
                         />
-                       </div>
-                    ) : (
-                         <div className="col-span-6 sm:col-span-3" /> // Placeholder
-                    )}
+                    </div>
                     
-                    <div className="col-span-12 sm:col-span-3">
+                    <div className="col-span-10 sm:col-span-3">
                       <FormField
                         control={form.control}
                         name={`billOfMaterials.${index}.note`}
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Note</FormLabel>
-                            <FormControl><Input placeholder="Es. 3,5x16mm, taglio a 45°..." {...field} value={field.value ?? ''} /></FormControl>
+                            <FormControl><Input placeholder="..." {...field} value={field.value ?? ''} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
                     </div>
 
-                    <div className="absolute top-2 right-2">
-                      <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                    <div className="col-span-2 sm:col-span-1 flex items-end pb-2">
+                      <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="text-destructive">
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -270,11 +259,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                 <Button
                   type="button"
                   variant="outline"
-                  className="w-full mt-4"
+                  className="w-full mt-4 border-dashed"
                   onClick={() => append({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' })}
                 >
                   <PlusCircle className="mr-2 h-4 w-4" />
-                  Aggiungi Componente
+                  Aggiungi Riga Componente
                 </Button>
               </div>
             </ScrollArea>
@@ -283,7 +272,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
               <Button type="button" variant="outline" onClick={() => onClose()}>Annulla</Button>
               <Button type="submit" disabled={isPending}>
                  {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
-                {article ? 'Salva Modifiche' : 'Crea Articolo'}
+                Salva Distinta Base
               </Button>
             </DialogFooter>
           </form>
