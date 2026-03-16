@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, writeBatch, updateDoc, where } from 'firebase/firestore';
+import { collection, getDocs, doc, query, orderBy, Timestamp, writeBatch, updateDoc, where, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { PurchaseOrder } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -24,6 +24,30 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
 }
 
+export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin(uid);
+        const poRef = doc(db, "purchaseOrders", id);
+        const poSnap = await getDoc(poRef);
+        if (!poSnap.exists()) throw new Error("Ordine non trovato.");
+        
+        const data = poSnap.data() as PurchaseOrder;
+        const finalQty = data.receivedQuantity || 0;
+
+        await updateDoc(poRef, {
+            quantity: finalQty,
+            status: 'received',
+            updatedAt: Timestamp.now()
+        });
+
+        revalidatePath('/admin/purchase-orders');
+        revalidatePath('/admin/raw-material-management');
+        return { success: true, message: 'Riga ordine chiusa con successo.' };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : 'Errore durante la chiusura.' };
+    }
+}
+
 export async function savePurchaseOrder(data: {
   orderNumber: string;
   supplierName: string;
@@ -39,13 +63,10 @@ export async function savePurchaseOrder(data: {
     await ensureAdmin(uid);
     const batch = writeBatch(db);
     
-    // Find existing items for this order number to identify deletions
     const existingQ = query(collection(db, "purchaseOrders"), where("orderNumber", "==", data.orderNumber));
     const existingSnap = await getDocs(existingQ);
-    const existingIds = new Set(existingSnap.docs.map(d => d.id));
     const incomingIds = new Set(data.items.map(i => i.id).filter(Boolean));
 
-    // Delete items that are no longer present in the updated list
     existingSnap.docs.forEach(docSnap => {
         if (!incomingIds.has(docSnap.id)) {
             batch.delete(docSnap.ref);
@@ -80,7 +101,6 @@ export async function savePurchaseOrder(data: {
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Ordine salvato correttamente.' };
   } catch (e) {
-    console.error("Error saving purchase orders:", e);
     return { success: false, message: 'Errore durante il salvataggio.' };
   }
 }
@@ -96,21 +116,7 @@ export async function deleteOrderGroup(orderNumber: string, uid: string) {
         revalidatePath('/admin/purchase-orders');
         return { success: true, message: "Intero ordine eliminato." };
     } catch (e) {
-        return { success: false, message: "Errore durante l'eliminazione dell'ordine." };
-    }
-}
-
-export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
-    await ensureAdmin(uid);
-    try {
-        await updateDoc(doc(db, "purchaseOrders", id), {
-            status: 'received'
-        });
-        revalidatePath('/admin/purchase-orders');
-        revalidatePath('/admin/raw-material-management');
-        return { success: true, message: 'Ordine chiuso correttamente.' };
-    } catch (e) {
-        return { success: false, message: 'Errore durante la chiusura.' };
+        return { success: false, message: "Errore durante l'eliminazione." };
     }
 }
 
@@ -119,7 +125,6 @@ export async function deletePurchaseOrder(id: string, uid: string): Promise<{ su
   try {
     await deleteDoc(doc(db, "purchaseOrders", id));
     revalidatePath('/admin/purchase-orders');
-    revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Riga ordine eliminata.' };
   } catch (e) {
     return { success: false, message: 'Errore.' };
@@ -152,17 +157,7 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             let parsed = null;
             for(const fmt of formatsToTry) {
                 const temp = parse(rawDate, fmt, new Date());
-                // Fallback attempt manually if parse fails
-                if(!isValid(temp)) {
-                    const parts = rawDate.split('/');
-                    if (parts.length === 3) {
-                        const d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-                        if (isValid(d)) { parsed = d; break; }
-                    }
-                } else {
-                    parsed = temp;
-                    break;
-                }
+                if(isValid(temp)) { parsed = temp; break; }
             }
             deliveryDate = parsed ? parsed.toISOString() : new Date().toISOString();
         } else {
@@ -187,6 +182,5 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
 
     if (added > 0) await batch.commit();
     revalidatePath('/admin/purchase-orders');
-    revalidatePath('/admin/raw-material-management');
     return { success: true, message: `Importati ${added} righe ordine fornitore.` };
 }

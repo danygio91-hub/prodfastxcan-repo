@@ -3,8 +3,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { format, parseISO, isValid } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { format, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -17,7 +16,6 @@ import {
   PlusCircle, 
   Search, 
   Trash2, 
-  Download, 
   Upload, 
   Loader2, 
   Calendar as CalendarIcon, 
@@ -29,10 +27,10 @@ import {
   X, 
   Boxes, 
   ArrowUpDown,
-  ChevronDown,
+  CheckCircle2,
   Package2
 } from 'lucide-react';
-import { getPurchaseOrders, deletePurchaseOrder, importPurchaseOrders, savePurchaseOrder, deleteOrderGroup } from './actions';
+import { getPurchaseOrders, deleteOrderGroup, importPurchaseOrders, savePurchaseOrder, closePurchaseOrder } from './actions';
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -133,7 +131,6 @@ export default function PurchaseOrderManagementClientPage({
         status: 'pending' | 'received';
     }> = {};
 
-    // First pass: Group items and determine group status
     orders.forEach(o => {
         if (!groups[o.orderNumber]) {
             groups[o.orderNumber] = {
@@ -150,17 +147,13 @@ export default function PurchaseOrderManagementClientPage({
         }
     });
 
-    // Second pass: Correctly calculate SCADENZA PROSSIMA (Next Deadline)
-    // We only consider items that are NOT fully received for the "Next" deadline.
     Object.values(groups).forEach(group => {
         const pendingItems = group.items.filter(i => i.status === 'pending' || i.status === 'partially_received');
         if (pendingItems.length > 0) {
-            // Find the earliest date among PENDING items
             group.earliestDelivery = pendingItems.reduce((min, i) => 
                 (min === '' || i.expectedDeliveryDate < min) ? i.expectedDeliveryDate : min, ''
             );
         } else {
-            // If everything is received, use the overall earliest date as reference
             group.earliestDelivery = group.items.reduce((min, i) => 
                 (min === '' || i.expectedDeliveryDate < min) ? i.expectedDeliveryDate : min, ''
             );
@@ -259,6 +252,18 @@ export default function PurchaseOrderManagementClientPage({
       if (res.success) {
           toast({ title: "Ordine Eliminato" });
           setOrders(prev => prev.filter(o => o.orderNumber !== orderNumber));
+      } else {
+          toast({ variant: "destructive", title: "Errore", description: res.message });
+      }
+  };
+
+  const handleCloseItem = async (itemId: string) => {
+      if (!user) return;
+      const res = await closePurchaseOrder(itemId, user.uid);
+      if (res.success) {
+          toast({ title: "Riga chiusa" });
+          const updated = await getPurchaseOrders();
+          setOrders(updated);
       } else {
           toast({ variant: "destructive", title: "Errore", description: res.message });
       }
@@ -367,6 +372,7 @@ export default function PurchaseOrderManagementClientPage({
                                         <TableHead>Ricevuta</TableHead>
                                         <TableHead>Data Consegna</TableHead>
                                         <TableHead>Stato</TableHead>
+                                        <TableHead className="text-right">Azioni</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -380,6 +386,30 @@ export default function PurchaseOrderManagementClientPage({
                                                 <Badge variant={item.status === 'received' ? 'default' : 'outline'} className={cn(item.status === 'received' && 'bg-green-600 hover:bg-green-700')}>
                                                     {item.status === 'received' ? 'OK' : item.status === 'partially_received' ? 'Parziale' : 'In Attesa'}
                                                 </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {item.status !== 'received' && (
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <Button size="sm" variant="ghost" className="h-8 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                                                                <CheckCircle2 className="mr-1 h-3 w-3" /> Chiudi
+                                                            </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader>
+                                                                <AlertDialogTitle>Chiudere forzatamente la riga?</AlertDialogTitle>
+                                                                <AlertDialogDescription>
+                                                                    La quantità ordinata ({item.quantity}) verrà equiparata a quella ricevuta ({item.receivedQuantity || 0}). 
+                                                                    La riga non risulterà più come "in arrivo".
+                                                                </AlertDialogDescription>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogFooter>
+                                                                <AlertDialogCancel>Annulla</AlertDialogCancel>
+                                                                <AlertDialogAction onClick={() => handleCloseItem(item.id)}>Conferma Chiusura</AlertDialogAction>
+                                                            </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+                                                )}
                                             </TableCell>
                                         </TableRow>
                                     ))}
