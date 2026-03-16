@@ -39,7 +39,8 @@ import {
   ChevronDown,
   AlertCircle,
   CalendarDays,
-  Clock
+  Clock,
+  Timer
 } from 'lucide-react';
 import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
