@@ -7,6 +7,8 @@ import type { JobOrder, JobPhase, RawMaterial, RawMaterialBatch, MaterialConsump
 import { ensureAdmin } from '@/lib/server-auth';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 
+export { dissolveWorkGroup };
+
 function convertTimestampsToDates(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj.toDate && typeof obj.toDate === 'function') return obj.toDate();

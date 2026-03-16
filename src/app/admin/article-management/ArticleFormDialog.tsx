@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -182,7 +181,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                             </FormControl>
                             {focusedIndex === index && suggestions.length > 0 && (
                                 <div 
-                                    ref={el => suggestionRefs.current[index] = el}
+                                    ref={(el) => { suggestionRefs.current[index] = el; }}
                                     className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto"
                                 >
                                     {suggestions.map(m => (
