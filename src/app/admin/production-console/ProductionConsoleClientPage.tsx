@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
@@ -23,9 +22,9 @@ import {
   ArrowUp, 
   ArrowDown, 
   Circle, 
+  CheckCircle2,
   Hourglass, 
   PauseCircle, 
-  CheckCircle2, 
   EyeOff, 
   RefreshCcw, 
   BarChart3, 
@@ -46,7 +45,7 @@ import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import { useToast } from '@/hooks/use-toast';
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   AlertDialog,
@@ -137,7 +136,7 @@ export default function ProductionConsoleClientPage() {
   const [isOrderChanged, setIsOrderChanged] = useState(false);
 
   const { toast } = useToast();
-  const { user, operator } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   
   const jobsLoadedRef = useRef(false);
@@ -221,54 +220,30 @@ export default function ProductionConsoleClientPage() {
   const { weeklyGroups, daVerificare } = useMemo(() => {
       const weeksMap = new Map<string, WeeklyGroup>();
       const daVerificare: (JobOrder | WorkGroup)[] = [];
-
       filteredItems.forEach(item => {
           const dateStr = item.dataConsegnaFinale;
-          if (!dateStr || dateStr === 'N/D' || !isValid(parseISO(dateStr))) {
-              daVerificare.push(item);
-              return;
-          }
-
+          if (!dateStr || dateStr === 'N/D' || !isValid(parseISO(dateStr))) { daVerificare.push(item); return; }
           const date = parseISO(dateStr);
           const weekNum = getWeek(date, { weekStartsOn: 1 });
           const weekStart = startOfWeek(date, { weekStartsOn: 1 });
           const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
           const year = format(date, 'yyyy');
           const key = `${year}-W${String(weekNum).padStart(2, '0')}`;
-
-          if (!weeksMap.has(key)) {
-              weeksMap.set(key, {
-                  weekNumber: weekNum,
-                  weekLabel: `Settimana ${weekNum} (${format(weekStart, 'dd/MM')} - ${format(weekEnd, 'dd/MM')})`,
-                  items: [],
-                  totalPcs: 0
-              });
-          }
-
+          if (!weeksMap.has(key)) { weeksMap.set(key, { weekNumber: weekNum, weekLabel: `Settimana ${weekNum} (${format(weekStart, 'dd/MM')} - ${format(weekEnd, 'dd/MM')})`, items: [], totalPcs: 0 }); }
           const group = weeksMap.get(key)!;
           group.items.push(item);
           group.totalPcs += ('totalQuantity' in item) ? (item.totalQuantity || 0) : (item.qta || 0);
       });
-
-      const sortedWeeks = Array.from(weeksMap.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([_, group]) => group);
-
+      const sortedWeeks = Array.from(weeksMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([_, group]) => group);
       return { weeklyGroups: sortedWeeks, daVerificare };
   }, [filteredItems]);
 
   const handleSelectAll = () => {
-    if (selectedIds.length === filteredItems.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredItems.map(i => i.id));
-    }
+    if (selectedIds.length === filteredItems.length) { setSelectedIds([]); } else { setSelectedIds(filteredItems.map(i => i.id)); }
   };
   
   const handleSelectItem = (itemId: string) => {
-    setSelectedIds(prev =>
-      prev.includes(itemId) ? prev.filter(selectedId => selectedId !== itemId) : [...prev, itemId]
-    );
+    setSelectedIds(prev => prev.includes(itemId) ? prev.filter(selectedId => selectedId !== itemId) : [...prev, itemId]);
   };
   
   const handleBulkForceFinish = async () => {
@@ -369,22 +344,13 @@ export default function ProductionConsoleClientPage() {
     finally { setJobsWithLoadingAnalysis(prev => { const n = new Set(prev); n.delete(job.id); return n; }); }
   };
 
-  const handleNavigateToAnalysis = (articleCode: string) => {
-    router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`);
-  };
-
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: "Copiato!" });
-  };
+  const handleNavigateToAnalysis = (articleCode: string) => { router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(articleCode)}`); };
+  const handleCopy = (text: string) => { navigator.clipboard.writeText(text); toast({ title: "Copiato!" }); };
 
   const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus?: string) => {
       if (!user) return;
-      if (currentStatus === 'missing') {
-          await resolveMaterialMissing(itemId, phaseId, user.uid);
-      } else {
-          await reportMaterialMissing(itemId, phaseId, user.uid);
-      }
+      if (currentStatus === 'missing') await resolveMaterialMissing(itemId, phaseId, user.uid);
+      else await reportMaterialMissing(itemId, phaseId, user.uid);
   };
 
   function getPhaseIconLocal(status: JobPhase['status']) {
@@ -402,57 +368,11 @@ export default function ProductionConsoleClientPage() {
       const isGroup = 'jobOrderIds' in item;
       if (isGroup) {
           return (
-            <WorkGroupCard 
-                key={item.id} 
-                group={item as WorkGroup} 
-                jobsInGroup={jobsByGroupId.get(item.id) || []} 
-                allOperators={allOperators} 
-                allRawMaterials={allRawMaterials} 
-                onProblemClick={() => setProblemJob(item as WorkGroup)} 
-                onForceFinishClick={handleForceFinish} 
-                onForcePauseClick={handleForcePause} 
-                onForceCompleteClick={handleForceComplete} 
-                onDissolveGroupClick={handleDissolveGroup} 
-                onOpenPhaseManager={handleOpenPhaseManager} 
-                onOpenMaterialManager={() => setMaterialManagedItem(item as WorkGroup)} 
-                onToggleGuainaClick={handleToggleGuaina} 
-                onUpdateDeliveryDate={handleUpdateDeliveryDate} 
-                isSelected={selectedIds.includes(item.id)} 
-                onSelect={handleSelectItem} 
-                overallStatus={getOverallStatus(item as WorkGroup)} 
-                getOverallStatus={getOverallStatus} 
-                onNavigateToAnalysis={handleNavigateToAnalysis} 
-                onCopyArticleCode={handleCopy}
-            />
+            <WorkGroupCard key={item.id} group={item as WorkGroup} jobsInGroup={jobsByGroupId.get(item.id) || []} allOperators={allOperators} allRawMaterials={allRawMaterials} onProblemClick={() => setProblemJob(item as WorkGroup)} onForceFinishClick={handleForceFinish} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onDissolveGroupClick={handleDissolveGroup} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(item as WorkGroup)} onToggleGuainaClick={handleToggleGuaina} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(item.id)} onSelect={handleSelectItem} overallStatus={getOverallStatus(item as WorkGroup)} getOverallStatus={getOverallStatus} onNavigateToAnalysis={handleNavigateToAnalysis} onCopyArticleCode={handleCopy} />
           );
       }
       return (
-        <JobOrderCard 
-            key={item.id} 
-            jobOrder={item as JobOrder} 
-            allOperators={allOperators} 
-            allRawMaterials={allRawMaterials} 
-            analysisData={analysisDataMap.get(item.id)} 
-            onFetchAnalysis={() => handleFetchAnalysis(item as JobOrder)} 
-            isAnalysisLoading={jobsWithLoadingAnalysis.has(item.id)} 
-            onProblemClick={() => setProblemJob(item as JobOrder)} 
-            onForceFinishClick={handleForceFinish} 
-            onRevertForceFinishClick={handleRevertForceFinish} 
-            onToggleGuainaClick={handleToggleGuaina} 
-            onRevertPhaseClick={handleRevertPhase} 
-            onRevertCompletionClick={handleRevertCompletion} 
-            onForcePauseClick={handleForcePause} 
-            onForceCompleteClick={handleForceComplete} 
-            onResetJobOrderClick={onResetJobOrderClick} 
-            onOpenPhaseManager={handleOpenPhaseManager} 
-            onOpenMaterialManager={() => setMaterialManagedItem(item as JobOrder)} 
-            onUpdateDeliveryDate={handleUpdateDeliveryDate} 
-            isSelected={selectedIds.includes(item.id)} 
-            onSelect={handleSelectItem} 
-            overallStatus={getOverallStatus(item as JobOrder)} 
-            onNavigateToAnalysis={handleNavigateToAnalysis} 
-            onCopyArticleCode={handleCopy}
-        />
+        <JobOrderCard key={item.id} jobOrder={item as JobOrder} allOperators={allOperators} allRawMaterials={allRawMaterials} analysisData={analysisDataMap.get(item.id)} onFetchAnalysis={() => handleFetchAnalysis(item as JobOrder)} isAnalysisLoading={jobsWithLoadingAnalysis.has(item.id)} onProblemClick={() => setProblemJob(item as JobOrder)} onForceFinishClick={handleForceFinish} onRevertForceFinishClick={handleRevertForceFinish} onToggleGuainaClick={handleToggleGuaina} onRevertPhaseClick={handleRevertPhase} onRevertCompletionClick={handleRevertCompletion} onForcePauseClick={handleForcePause} onForceCompleteClick={handleForceComplete} onResetJobOrderClick={onResetJobOrderClick} onOpenPhaseManager={handleOpenPhaseManager} onOpenMaterialManager={() => setMaterialManagedItem(item as JobOrder)} onUpdateDeliveryDate={handleUpdateDeliveryDate} isSelected={selectedIds.includes(item.id)} onSelect={handleSelectItem} overallStatus={getOverallStatus(item as JobOrder)} onNavigateToAnalysis={handleNavigateToAnalysis} onCopyArticleCode={handleCopy} />
       );
   };
 
@@ -504,10 +424,8 @@ export default function ProductionConsoleClientPage() {
                      <DropdownMenuContent align="start">
                         <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><FastForward className="mr-2 h-4 w-4" /> Forza a Finitura</DropdownMenuItem></AlertDialogTrigger>
                         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi l'avanzamento forzato?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceFinish}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-                        
                         <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()}><PowerOff className="mr-2 h-4 w-4" /> Chiudi Item</DropdownMenuItem></AlertDialogTrigger>
                         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confermi la chiusura forzata?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkForceComplete}>Conferma</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-                        
                         <DropdownMenuSeparator />
                         <AlertDialog><AlertDialogTrigger asChild><DropdownMenuItem onSelect={e => e.preventDefault()} className="text-destructive"><RefreshCcw className="mr-2 h-4 w-4" /> Annulla e Resetta</DropdownMenuItem></AlertDialogTrigger>
                         <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro di voler resettare?</AlertDialogTitle></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleBulkReset} className="bg-destructive">Sì, Resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
@@ -521,7 +439,6 @@ export default function ProductionConsoleClientPage() {
             <div className="flex flex-col items-center justify-center py-20"><Loader2 className="h-12 w-12 animate-spin text-primary" /><p className="mt-4 text-muted-foreground">Aggiornamento...</p></div>
         ) : filteredItems.length > 0 ? (
           <div className="space-y-12">
-            
             {daVerificare.length > 0 && (
                 <section className="space-y-4">
                     <div className="flex items-center gap-3 border-b-2 border-destructive/20 pb-2">
@@ -529,12 +446,9 @@ export default function ProductionConsoleClientPage() {
                         <h2 className="text-xl font-black uppercase tracking-tight text-destructive">Da Gestire e Verificare (N/D)</h2>
                         <Badge variant="destructive">{daVerificare.length}</Badge>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {daVerificare.map(renderItem)}
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{daVerificare.map(renderItem)}</div>
                 </section>
             )}
-
             {weeklyGroups.map((group) => (
                 <section key={group.weekLabel} className="space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b-2 border-primary/20 pb-2">
@@ -548,12 +462,9 @@ export default function ProductionConsoleClientPage() {
                             <div className="flex items-center gap-1.5"><Clock className="h-4 w-4"/> Capacità: -- / -- h</div>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                        {group.items.map(renderItem)}
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">{group.items.map(renderItem)}</div>
                 </section>
             ))}
-
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed rounded-lg mt-8"><Package2 className="h-16 w-16 text-muted-foreground mb-4" /><h2 className="text-xl font-semibold text-muted-foreground">Nessuna Commessa Trovata</h2></div>

@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -155,6 +154,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
 
         if (docSnap.exists()) {
+            // SPOSTA I DUPLICATI NELLE BLOCCATE
             blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
             continue;
         }
@@ -220,14 +220,11 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
       if (job.status !== 'planned') throw new Error("Stato non valido.");
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
       if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo.");
-      
       const counterRef = doc(db, "counters", `odl_${year}`);
       const counterSnap = await t.get(counterRef);
       const currentCounter = counterSnap.data()?.value || 0;
-      
       let newOdlId: string;
       let newCounterValue: number;
-
       if (manualOdlNumberStr) {
           const manualNum = parseInt(manualOdlNumberStr, 10);
           newOdlId = `${String(manualNum).padStart(4, '0')}-${shortYear}`;
@@ -239,7 +236,6 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
           newCounterValue = currentCounter + 1;
           newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
       }
-
       t.update(jobRef, { status: 'production', odlCreationDate: Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
       if (newCounterValue > currentCounter) t.set(counterRef, { value: newCounterValue });
       return newOdlId;
@@ -287,8 +283,5 @@ export async function markJobAsPrinted(jobId: string) {
     await updateDoc(jobRef, { isPrinted: true });
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Commessa segnata come stampata.' };
-  } catch (error) {
-    console.error("Error marking job as printed:", error);
-    return { success: false, message: "Errore durante l'aggiornamento dello stato di stampa." };
-  }
+  } catch (error) { return { success: false, message: "Errore." }; }
 }

@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -29,13 +28,8 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
 
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    const updatePayload = { 
-        phases: groupData.phases || [], 
-        status: groupData.status || 'production'
-    };
-    groupData.jobOrderIds.forEach(id => {
-        if (id) transaction.update(doc(db, 'jobOrders', id), updatePayload);
-    });
+    const updatePayload = { phases: groupData.phases || [], status: groupData.status || 'production' };
+    groupData.jobOrderIds.forEach(id => { if (id) transaction.update(doc(db, 'jobOrders', id), updatePayload); });
 }
 
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
@@ -60,17 +54,13 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
   const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
-  
   const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
   if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
-  
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
-  
   if (job.workGroupId) {
       const group = await getJobOrderById(job.workGroupId);
       if (group) return JSON.parse(JSON.stringify(group));
   }
-
   return JSON.parse(JSON.stringify(job));
 }
 
@@ -155,9 +145,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
   try {
     const affectedRefs: any[] = [];
     if (session.originatorJobId) affectedRefs.push(doc(db, session.originatorJobId.startsWith('group-') ? 'workGroups' : 'jobOrders', session.originatorJobId));
-    (session.associatedJobs || []).forEach(j => { 
-        if (j.jobId && j.jobId !== session.originatorJobId) affectedRefs.push(doc(db, 'jobOrders', j.jobId));
-    });
+    (session.associatedJobs || []).forEach(j => { if (j.jobId && j.jobId !== session.originatorJobId) affectedRefs.push(doc(db, 'jobOrders', j.jobId)); });
     return await runTransaction(db, async (t) => {
         const mRef = doc(db, "rawMaterials", session.materialId);
         const opRef = doc(db, "operators", opId);
@@ -253,4 +241,68 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
   if (!opId) return;
   await updateDoc(doc(db, 'operators', opId), { activeMaterialSessions: sessions || [] });
+}
+
+export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: string): Promise<{ available: boolean; activeJobId?: string | null; activePhaseName?: string | null }> {
+    const docSnap = await getDoc(doc(db, "operators", opId));
+    if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.activeJobId && data.activeJobId !== currentJobId) return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
+    }
+    return { available: true };
+}
+
+export async function createWorkGroup(jobIds: string[], opId: string): Promise<{ success: boolean; message: string; workGroupId?: string }> {
+    try {
+        return await runTransaction(db, async (t) => {
+            const jobSnaps = await Promise.all(jobIds.map(id => t.get(doc(db, 'jobOrders', id))));
+            const jobs = jobSnaps.map(s => s.data() as JobOrder);
+            const totalQta = jobs.reduce((sum, j) => sum + j.qta, 0);
+            const workGroupId = `group-${Date.now()}`;
+            const groupRef = doc(db, 'workGroups', workGroupId);
+            const groupData: WorkGroup = { 
+                id: workGroupId, jobOrderIds: jobIds, jobOrderPFs: jobs.map(j => j.ordinePF), status: 'production', createdAt: new Date(), 
+                createdBy: opId, totalQuantity: totalQta, workCycleId: jobs[0].workCycleId || '', department: jobs[0].department, 
+                cliente: 'Multi-Cliente', phases: jobs[0].phases, details: jobs[0].details 
+            };
+            t.set(groupRef, JSON.parse(JSON.stringify(groupData)));
+            jobSnaps.forEach(snap => t.update(snap.ref, { workGroupId, phases: groupData.phases, status: 'production' }));
+            return { success: true, message: 'Gruppo creato.', workGroupId };
+        });
+    } catch (e) { return { success: false, message: "Errore." }; }
+}
+
+export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
+    const isGroup = jobId.startsWith('group-');
+    await runTransaction(db, async (t) => {
+        const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
+        const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', opId))]);
+        if (!snap.exists()) throw new Error("Non trovato.");
+        const data = snap.data() as JobOrder;
+        const phs = [...data.phases];
+        const idx = phs.findIndex(p => p.id === phaseId);
+        if (idx !== -1) {
+            phs[idx].status = 'in-progress';
+            phs[idx].workPeriods = [...(phs[idx].workPeriods || []), { start: new Date(), end: null, operatorId: opId }];
+            t.update(itemRef, { phases: phs, status: 'production', overallStartTime: data.overallStartTime || new Date() });
+            if (isGroup) (data.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), { phases: phs, status: 'production', overallStartTime: data.overallStartTime || new Date() }));
+            t.update(doc(db, 'operators', opId), { activeJobId: jobId, activePhaseName: phs[idx].name, stato: 'attivo' });
+        }
+    });
+}
+
+export async function startMaterialSessionInJob(jobId: string, phaseId: string, consumption: MaterialConsumption) {
+    const isGroup = jobId.startsWith('group-');
+    try {
+        await runTransaction(db, async (t) => {
+            const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
+            const snap = await t.get(itemRef);
+            if (!snap.exists()) throw new Error("Non trovato.");
+            const data = snap.data() as JobOrder;
+            const phs = (data.phases || []).map(p => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
+            t.update(itemRef, { phases: phs });
+            if (isGroup) (data.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), { phases: phs }));
+        });
+        return { success: true, message: 'Sessione avviata.' };
+    } catch (e) { return { success: false, message: "Errore." }; }
 }

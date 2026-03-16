@@ -1,4 +1,3 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -17,34 +16,19 @@ export type ProductionTimeData = {
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
     const report = await fetchProductionTimeAnalysisReport();
     const analysisMap = new Map<string, ProductionTimeData>();
-
     for (const articleReport of report) {
         const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
-        articleReport.averagePhaseTimes.forEach(phase => {
-            if (phase.averageMinutesPerPiece > 0) {
-                phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece };
-            }
-        });
-
-        analysisMap.set(articleReport.articleCode, {
-            averageMinutesPerPiece: articleReport.averageMinutesPerPiece,
-            isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)),
-            phases: phaseTimes,
-        });
+        articleReport.averagePhaseTimes.forEach(phase => { if (phase.averageMinutesPerPiece > 0) phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece }; });
+        analysisMap.set(articleReport.articleCode, { averageMinutesPerPiece: articleReport.averageMinutesPerPiece, isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)), phases: phaseTimes });
     }
     return analysisMap;
 }
 
 async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
-    const updatePayload: { [key: string]: any } = {
-        phases: groupData.phases,
-        status: groupData.status,
-    };
+    const updatePayload: { [key: string]: any } = { phases: groupData.phases, status: groupData.status };
     const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
-    jobRefs.forEach(jobRef => {
-        transaction.update(jobRef, updatePayload);
-    });
+    jobRefs.forEach(jobRef => { transaction.update(jobRef, updatePayload); });
 }
 
 function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
@@ -67,26 +51,18 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(itemRef);
         if (!snap.exists()) throw new Error('Elemento non trovato.');
         const item = snap.data() as JobOrder;
-        const updatedPhases = item.phases.map(phase => {
-          if (phase.type === 'production' && phase.status !== 'completed') {
-            return { ...phase, status: 'completed' as const, forced: true };
-          }
-          return phase;
-        });
+        const updatedPhases = item.phases.map(phase => { if (phase.type === 'production' && phase.status !== 'completed') return { ...phase, status: 'completed' as const, forced: true }; return phase; });
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
         transaction.update(itemRef, { phases: finalPhases });
         if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, phases: finalPhases } as any);
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Produzione forzata.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function revertForceFinish(jobId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
@@ -94,27 +70,18 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
     const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(itemRef);
       if (!snap.exists()) throw new Error('Elemento non trovato.');
       const item = snap.data() as JobOrder;
-      let updatedPhases = item.phases.map(phase => {
-        if (phase.forced) {
-          const { forced, ...rest } = phase;
-          return { ...rest, status: 'pending' as const };
-        }
-        return phase;
-      });
+      let updatedPhases = item.phases.map(phase => { if (phase.forced) { const { forced, ...rest } = phase; return { ...rest, status: 'pending' as const }; } return phase; });
       updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
       transaction.update(itemRef, { phases: updatedPhases });
       if (isGroup) await propagateGroupUpdatesToJobs(transaction, { ...item, phases: updatedPhases } as any);
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Annullata forzatura.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
@@ -144,9 +111,7 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Posizione aggiornata.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function revertPhaseCompletion(jobId: string, phaseId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
@@ -168,9 +133,7 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Fase riaperta.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function forcePauseOperators(jobId: string, operatorIdsToPause: string[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
@@ -184,12 +147,7 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
       const updatedPhases = itemData.phases.map(phase => {
         if (phase.status === 'in-progress') {
-          const updatedWorkPeriods = (phase.workPeriods || []).map(wp => {
-            if (wp.end === null && operatorIdsToPause.includes(wp.operatorId)) {
-              return { ...wp, end: new Date() };
-            }
-            return wp;
-          });
+          const updatedWorkPeriods = (phase.workPeriods || []).map(wp => { if (wp.end === null && operatorIdsToPause.includes(wp.operatorId)) { return { ...wp, end: new Date() }; } return wp; });
           const isAnyoneStillWorking = updatedWorkPeriods.some(wp => wp.end === null);
           return { ...phase, workPeriods: updatedWorkPeriods, status: isAnyoneStillWorking ? 'in-progress' : 'paused' as const };
         }
@@ -198,22 +156,13 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       const isAnyActive = updatedPhases.some(p => p.status === 'in-progress');
       const isAnyPaused = updatedPhases.some(p => p.status === 'paused');
       const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
-      
       transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
-      if (isGroup) {
-        (itemData.jobOrderIds || []).forEach(id => {
-            transaction.update(doc(db, 'jobOrders', id), { phases: updatedPhases, status: newStatus });
-        });
-      }
-      operatorIdsToPause.forEach(opId => {
-          transaction.update(doc(db, "operators", opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null });
-      });
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => { transaction.update(doc(db, 'jobOrders', id), { phases: updatedPhases, status: newStatus }); });
+      operatorIdsToPause.forEach(opId => { transaction.update(doc(db, "operators", opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null }); });
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Operatori messi in pausa.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function forceCompleteJob(jobId: string, uid: string | undefined | null): Promise<{ success: boolean, message: string }> {
@@ -232,9 +181,7 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Chiusa.` };
-  } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : "Errore." };
-  }
+  } catch (error) { return { success: false, message: error instanceof Error ? error.message : "Errore." }; }
 }
 
 export async function resetSingleCompletedJobOrder(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
@@ -255,31 +202,20 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
       for (const wd of wSnap.docs) {
         const w = wd.data() as MaterialWithdrawal;
         const m = matMap.get(w.materialId);
-        if (m) {
-            transaction.update(doc(db, 'rawMaterials', w.materialId), { 
-                currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, 
-                currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) 
-            });
-        }
+        if (m) { transaction.update(doc(db, 'rawMaterials', w.materialId), { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) }); }
         transaction.delete(wd.ref);
       }
       if (isGroup) {
           const gData = itemData as WorkGroup;
           (gData.jobOrderIds || []).forEach(id => {
               const jRef = doc(db, 'jobOrders', id);
-              const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({
-                  ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null,
-                  materialReady: p.isIndependent || p.type === 'preparation',
-              }));
+              const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
               transaction.update(jRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
           });
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
-          const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({
-              ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null,
-              materialReady: p.isIndependent || p.type === 'preparation',
-          }));
+          const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
           transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
       }
     });
@@ -301,11 +237,7 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
           const isAct = (itemData.phases || []).some(p => p.status === 'in-progress');
           const newStatus = isAct ? 'production' : 'paused';
           transaction.update(itemRef, { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() });
-          if (isGroup) {
-              (itemData.jobOrderIds || []).forEach(id => {
-                  transaction.update(doc(db, 'jobOrders', id), { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() });
-              });
-          }
+          if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(doc(db, 'jobOrders', id), { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() }); }); }
       });
       revalidatePath('/admin/production-console');
       return { success: true, message: "Riaperta." };
@@ -333,10 +265,7 @@ export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid:
 
 export async function forceFinishMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
-  try {
-      for (const id of jobIds) await forceFinishProduction(id, uid);
-      return { success: true, message: 'Completato.' };
-  } catch (e) { return { success: false, message: 'Errore.' }; }
+  try { for (const id of jobIds) await forceFinishProduction(id, uid); return { success: true, message: 'Completato.' }; } catch (e) { return { success: false, message: 'Errore.' }; }
 }
 
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
