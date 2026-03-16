@@ -136,7 +136,7 @@ export default function ProductionConsoleClientPage() {
   const [isOrderChanged, setIsOrderChanged] = useState(false);
 
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, operator } = useAuth();
   const router = useRouter();
   
   const jobsLoadedRef = useRef(false);
