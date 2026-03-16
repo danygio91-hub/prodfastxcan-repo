@@ -123,7 +123,6 @@ export default function DataManagementClientPage({
 
   const mrpTimelines = useMemo(() => {
     const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
-    
     const demands: { materialCode: string, qty: number, date: string, id: string }[] = [];
     
     const allJobs = [...plannedJobOrders, ...productionJobOrders];
@@ -216,7 +215,7 @@ export default function DataManagementClientPage({
     });
   };
 
-  const processData = (data: JobOrder[], search: string) => {
+  const processData = useCallback((data: JobOrder[], search: string) => {
     let filtered = data;
     if (search) {
       const l = search.toLowerCase();
@@ -250,14 +249,15 @@ export default function DataManagementClientPage({
     }
 
     return filtered;
-  };
+  }, [sortConfig, departments]);
 
-  const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, sortConfig, departments]);
-  const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, sortConfig, departments]);
+  const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, processData]);
+  const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, processData]);
 
   const handleRefreshMRP = () => {
     setIsRefreshingMRP(true);
     router.refresh();
+    toast({ title: "MRP Aggiornato", description: "I dati di disponibilità sono stati rinfrescati." });
     setTimeout(() => setIsRefreshingMRP(false), 1500);
   };
 
@@ -291,12 +291,10 @@ export default function DataManagementClientPage({
       {data.map(j => {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
-        
         let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
 
         const stockStatus = (() => {
             if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
-            
             const lines: string[] = [];
             let ok = 0;
             let totalCoveredByOrders = 0;
@@ -306,15 +304,11 @@ export default function DataManagementClientPage({
                 const matCode = item.component.toUpperCase();
                 const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
                 if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
-                
                 const required = calculateCommitmentQty(j.qta, item, mat);
                 const timeline = mrpTimelines.get(matCode) || [];
                 const jobEntry = timeline.find(entry => entry.jobId === j.id);
-                
                 if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
-
                 const coverStatus = jobEntry.date;
-
                 if (coverStatus === 'IMMEDIATA') {
                     lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
                     ok++;
@@ -324,20 +318,13 @@ export default function DataManagementClientPage({
                     const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
                     lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
                     totalCoveredByOrders++;
-                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) {
-                        earliestCoverDate = coverStatus;
-                    }
+                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
                 }
             });
 
             if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
             if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
-                return { 
-                    color: 'text-yellow-500', 
-                    icon: AlertTriangle, 
-                    label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, 
-                    details: lines 
-                };
+                return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
             }
             return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
         })();

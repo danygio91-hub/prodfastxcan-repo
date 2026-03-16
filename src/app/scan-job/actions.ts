@@ -40,7 +40,7 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     const isGroup = id.startsWith('group-');
     const snap = await getDoc(doc(db, isGroup ? 'workGroups' : 'jobOrders', id));
     if (!snap.exists()) return null;
-    const data = convertTimestampsToDates(snap.data());
+    const data = convertTimestampsToDates(snap.data()) as any;
     if (isGroup) {
         const group = data as WorkGroup;
         return { 
