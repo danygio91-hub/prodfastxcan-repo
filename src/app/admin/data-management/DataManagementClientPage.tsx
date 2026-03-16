@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -8,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,18 +21,16 @@ import { Badge } from '@/components/ui/badge';
 import { 
   ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
   FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info
+  CheckCircle2, AlertTriangle, Info, RefreshCw
 } from 'lucide-react';
-import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial } from '@/lib/mock-data';
-import { format, parseISO, isValid } from 'date-fns';
+import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
+import { format, parseISO, isValid, isBefore } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { 
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL, 
-  createMultipleODLs, cancelODL, updateJobOrderCycle, getPlannedJobOrders, getProductionJobOrders, 
-  getWorkCycles, getArticles, getDepartments, saveManualJobOrder, markJobAsPrinted, 
+  createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted, 
   updateJobOrderDeliveryDate 
 } from './actions';
-import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -40,7 +39,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { Calendar } from '@/components/ui/calendar';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const manualCreateSchema = z.object({
     cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -59,14 +58,31 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 } | null;
 
-export default function DataManagementClientPage() {
-  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>([]);
-  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>([]);
-  const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+interface DataManagementClientPageProps {
+    initialPlanned: JobOrder[];
+    initialProduction: JobOrder[];
+    initialCycles: WorkCycle[];
+    initialArticles: Article[];
+    initialDepartments: Department[];
+    initialMaterials: RawMaterial[];
+    initialPurchaseOrders: PurchaseOrder[];
+    initialManualCommitments: ManualCommitment[];
+}
+
+export default function DataManagementClientPage({
+    initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
+}: DataManagementClientPageProps) {
+  const router = useRouter();
+  const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlanned);
+  const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProduction);
+  const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialCycles);
+  const [articles, setArticles] = useState<Article[]>(initialArticles);
+  const [departments, setDepartments] = useState<Department[]>(initialDepartments);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(initialMaterials);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
+  const [manualCommitments, setManualCommitments] = useState<ManualCommitment[]>(initialManualCommitments);
+  
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importReport, setImportReport] = useState<{
@@ -93,49 +109,97 @@ export default function DataManagementClientPage() {
     defaultValues: { qta: 1, department: '' }
   });
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [planned, production, cycles, artList, depts, materials] = await Promise.all([
-        getPlannedJobOrders(), 
-        getProductionJobOrders(), 
-        getWorkCycles(),
-        getArticles(),
-        getDepartments(),
-        getRawMaterials()
-      ]);
-      setPlannedJobOrders(planned);
-      setProductionJobOrders(production);
-      setWorkCycles(cycles);
-      setArticles(artList);
-      setDepartments(depts);
-      setRawMaterials(materials);
-    } catch (error) {
-      toast({ variant: "destructive", title: "Errore nel Caricamento", description: "Impossibile caricare i dati." });
-    } finally { setIsLoading(false); }
-  }, [toast]);
+  // --- MRP LOGIC: PRE-CALCULATE AVAILABILITY TIMELINE ---
+  const mrpTimelines = useMemo(() => {
+    const timelines = new Map<string, { date: string, qty: number }[]>();
+    
+    // 1. Gather all demands (Pending Jobs + Production Jobs + Manual Commitments)
+    const demands: { materialCode: string, qty: number, date: string, id: string }[] = [];
+    
+    const allJobs = [...plannedJobOrders, ...productionJobOrders];
+    allJobs.forEach(job => {
+        (job.billOfMaterials || []).forEach(item => {
+            if (item.status !== 'withdrawn') {
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
+                if (mat) {
+                    demands.push({
+                        materialCode: mat.code.toUpperCase(),
+                        qty: calculateCommitmentQty(job.qta, item, mat),
+                        date: job.dataConsegnaFinale || '9999-12-31',
+                        id: job.id
+                    });
+                }
+            }
+        });
+    });
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+    manualCommitments.filter(c => c.status === 'pending').forEach(c => {
+        const art = articles.find(a => a.code.toUpperCase() === c.articleCode.toUpperCase());
+        if (art) {
+            art.billOfMaterials.forEach(item => {
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
+                if (mat) {
+                    demands.push({
+                        materialCode: mat.code.toUpperCase(),
+                        qty: calculateCommitmentQty(c.quantity, item, mat),
+                        date: c.deliveryDate || '9999-12-31',
+                        id: c.id
+                    });
+                }
+            });
+        }
+    });
 
-  const handleDownloadTemplate = () => {
-    const templateData = [
-      {
-        "Cliente": "CLIENTE-ESEMPIO",
-        "Ordine PF": "1234/25",
-        "Ordine Nr Est": "EXT-999",
-        "Codice": "ART-001",
-        "Qta": 100,
-        "Data Consegna": "25/12/2025",
-        "Reparto": "MAG",
-        "Ciclo": "Ciclo Standard",
-        "N° ODL": "0001-25"
-      }
-    ];
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Template Import");
-    XLSX.writeFile(wb, "template_import_commesse.xlsx");
-  };
+    // Sort demands by date
+    demands.sort((a, b) => a.date.localeCompare(b.date));
+
+    // 2. Gather all supplies (Purchase Orders)
+    const supplies = purchaseOrders
+        .filter(po => po.status === 'pending' || po.status === 'partially_received')
+        .map(po => ({
+            materialCode: po.materialCode.toUpperCase(),
+            qty: po.quantity - (po.receivedQuantity || 0),
+            date: po.expectedDeliveryDate,
+            id: po.id
+        }));
+    
+    supplies.sort((a, b) => a.date.localeCompare(b.date));
+
+    // 3. Project timeline for each material
+    rawMaterials.forEach(mat => {
+        const code = mat.code.toUpperCase();
+        let balance = mat.currentStockUnits || 0;
+        const matDemands = demands.filter(d => d.materialCode === code);
+        const matSupplies = [...supplies.filter(s => s.materialCode === code)];
+        
+        const timeline: { date: string, qty: number, jobId: string }[] = [];
+
+        matDemands.forEach(demand => {
+            balance -= demand.qty;
+            
+            let coverDate = 'IMMEDIATA';
+            if (balance < -0.001) {
+                // Try to cover with supplies
+                let tempBalance = balance;
+                for (const supply of matSupplies) {
+                    if (tempBalance >= -0.001) break;
+                    tempBalance += supply.qty;
+                    coverDate = supply.date;
+                }
+                
+                if (tempBalance < -0.001) {
+                    coverDate = 'MAI'; // Not covered by orders
+                }
+            }
+
+            timeline.push({ date: coverDate, qty: demand.qty, jobId: demand.id });
+        });
+
+        timelines.set(code, timeline as any);
+    });
+
+    return timelines;
+  }, [plannedJobOrders, productionJobOrders, rawMaterials, purchaseOrders, manualCommitments, articles]);
 
   const handleSort = (key: keyof JobOrder | 'reparto_codice') => {
     setSortConfig(current => {
@@ -190,132 +254,25 @@ export default function DataManagementClientPage() {
     try {
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase()) || null;
         setPdfData({ job, article, materials: rawMaterials, printDate: new Date() });
-
         await new Promise(r => setTimeout(r, 1000));
-
         const container = document.getElementById('odl-pdf-pages');
         if (!container) throw new Error("Template non trovato.");
-
         const pageElements = container.querySelectorAll('.odl-page');
-        if (pageElements.length === 0) throw new Error("Nessuna pagina generata.");
-
-        const pdf = new jsPDF({
-            orientation: 'landscape',
-            unit: 'mm',
-            format: 'a4',
-            compress: true
-        });
-
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
         for (let i = 0; i < pageElements.length; i++) {
             const page = pageElements[i] as HTMLElement;
-            const canvas = await html2canvas(page, { 
-                scale: 3, 
-                useCORS: true,
-                logging: false,
-                backgroundColor: '#ffffff'
-            });
-            
+            const canvas = await html2canvas(page, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
             const imgData = canvas.toDataURL('image/png', 1.0);
             if (i > 0) pdf.addPage();
             pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
         }
-
         pdf.save(`ODL_${job.ordinePF.replace(/\//g, '_')}.pdf`);
         await markJobAsPrinted(job.id);
-        fetchData();
+        router.refresh();
         toast({ title: "PDF Scaricato" });
-    } catch (error) {
-        console.error("PDF Error:", error);
-        toast({ variant: "destructive", title: "Errore Download" });
-    } finally {
-        setIsDownloadingPdf(null);
-        setPdfData(null);
-    }
+    } catch (error) { toast({ variant: "destructive", title: "Errore Download" }); } 
+    finally { setIsDownloadingPdf(null); setPdfData(null); }
   };
-
-  const handleUpdateDeliveryDate = async (jobId: string, newDate: string) => {
-      const res = await updateJobOrderDeliveryDate(jobId, newDate);
-      if (res.success) {
-          toast({ title: "Data aggiornata" });
-          fetchData();
-      } else {
-          toast({ variant: "destructive", title: "Errore", description: res.message });
-      }
-  };
-
-  const handleManualSubmit = async (values: ManualCreateValues) => {
-    const result = await saveManualJobOrder(values);
-    if (result.success) {
-        toast({ title: "Successo", description: result.message });
-        setIsManualCreateOpen(false);
-        manualForm.reset();
-        fetchData();
-    } else {
-        toast({ variant: "destructive", title: "Errore", description: result.message });
-    }
-  };
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setIsImporting(true);
-    try {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: true });
-      
-      const mapped = json.map((row: any) => {
-          const r: any = {};
-          const map: any = { 
-            'cliente': 'cliente', 
-            'ordine pf': 'ordinePF', 
-            'ordine nr est': 'numeroODL', 
-            'n° odl': 'numeroODLInternoImport', 
-            'codice': 'details', 
-            'articolo': 'details',
-            'qta': 'qta', 
-            'data consegna': 'dataConsegnaFinale', 
-            'consegna': 'dataConsegnaFinale',
-            'reparto': 'department', 
-            'ciclo': 'workCycleName' 
-          };
-          Object.keys(row).forEach(k => { 
-            const cleanKey = k.trim().toLowerCase();
-            if(map[cleanKey]) r[map[cleanKey]] = row[k]; 
-          });
-          if (r.dataConsegnaFinale && typeof r.dataConsegnaFinale === 'number') {
-              const epoch = new Date(Date.UTC(1899, 11, 30));
-              r.dataConsegnaFinale = format(new Date(epoch.getTime() + r.dataConsegnaFinale * 86400 * 1000), 'yyyy-MM-dd');
-          }
-          return r;
-      }).filter(r => r.ordinePF);
-
-      const result = await processAndValidateImport(mapped);
-      setImportReport(result);
-    } catch (e) {
-      toast({ variant: "destructive", title: "Errore Importazione" });
-    } finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
-  };
-
-  const handleConfirmCommit = async (confirm: boolean) => {
-      if (!confirm || !importReport) { setImportReport(null); return; }
-      const res = await commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: importReport.jobsToUpdate });
-      toast({ title: res.message });
-      setImportReport(null);
-      fetchData();
-  };
-
-  const SortHeader = ({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) => (
-    <TableHead 
-      className="cursor-pointer hover:text-primary transition-colors select-none"
-      onClick={() => handleSort(sortKey)}
-    >
-      <div className="flex items-center gap-1">
-        {label}
-        <ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} />
-      </div>
-    </TableHead>
-  );
 
   const JobTableRows = ({ data }: { data: JobOrder[] }) => (
     <>
@@ -323,138 +280,89 @@ export default function DataManagementClientPage() {
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
         
-        let displayDateText = "Scegli...";
-        let isDateValid = false;
-        
-        if (j.dataConsegnaFinale) {
-            try {
-                const parsed = parseISO(j.dataConsegnaFinale);
-                if (isValid(parsed)) {
-                    displayDateText = format(parsed, "dd/MM/yyyy");
-                    isDateValid = true;
-                }
-            } catch (e) {}
-        }
+        let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
 
         const stockStatus = (() => {
             if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
             
-            const detailedLines: string[] = [];
-            let okItems = 0;
-            
-            j.billOfMaterials.forEach(item => {
-                const mat = rawMaterials.find(m => m.code.toUpperCase() === item.component.toUpperCase());
-                if (!mat) {
-                    detailedLines.push(`❌ ${item.component}: Non trovato in anagrafica`);
-                    return;
-                }
-                const required = calculateCommitmentQty(j.qta, item, mat);
-                const stock = mat.currentStockUnits || 0;
-                const missing = required - stock;
+            const lines: string[] = [];
+            let ok = 0;
+            let totalCoveredByOrders = 0;
+            let earliestCoverDate: string | null = null;
 
-                if (missing > 0.001) {
-                    detailedLines.push(`⚠️ ${item.component}: Mancano ${formatDisplayStock(missing, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()} (Req: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+            j.billOfMaterials.forEach(item => {
+                const matCode = item.component.toUpperCase();
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
+                if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
+                
+                const required = calculateCommitmentQty(j.qta, item, mat);
+                const timeline = mrpTimelines.get(matCode) || [];
+                const jobEntry = timeline.find(entry => (entry as any).jobId === j.id);
+                
+                if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
+
+                const coverStatus = (jobEntry as any).date;
+
+                if (coverStatus === 'IMMEDIATA') {
+                    lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
+                    ok++;
+                } else if (coverStatus === 'MAI') {
+                    lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
                 } else {
-                    okItems++;
-                    detailedLines.push(`✅ ${item.component}: Disponibile (${formatDisplayStock(stock, mat.unitOfMeasure)} ${mat.unitOfMeasure.toUpperCase()})`);
+                    const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
+                    lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+                    totalCoveredByOrders++;
+                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) {
+                        earliestCoverDate = coverStatus;
+                    }
                 }
             });
 
-            if (okItems === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Completo', details: detailedLines };
-            if (okItems === 0) return { color: 'text-red-500', icon: XCircle, label: 'Mancante', details: detailedLines };
-            return { color: 'text-yellow-500', icon: AlertTriangle, label: 'Parziale', details: detailedLines };
+            if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
+            if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
+                return { 
+                    color: 'text-yellow-500', 
+                    icon: AlertTriangle, 
+                    label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, 
+                    details: lines 
+                };
+            }
+            return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
         })();
 
         return (
           <TableRow key={j.id}>
-            <TableCell padding="checkbox">
-              <Checkbox 
-                checked={selectedRows.includes(j.id)} 
-                onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} 
-              />
-            </TableCell>
+            <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
             <TableCell className="font-bold">{j.ordinePF}</TableCell>
             <TableCell>{j.details}</TableCell>
             <TableCell>{j.qta}</TableCell>
             <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
             <TableCell>
               {isPlanned ? (
-                <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); fetchData(); })} value={j.workCycleId}>
+                <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); router.refresh(); })} value={j.workCycleId}>
                   <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
                   <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>)}</SelectContent>
                 </Select>
-              ) : (
-                <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs text-muted-foreground italic">
-                  {workCycles.find(c => c.id === j.workCycleId)?.name || '-'}
-                </div>
-              )}
+              ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
             </TableCell>
             <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
             <TableCell>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant={"outline"}
-                    className={cn(
-                      "w-[130px] h-8 justify-start text-left font-normal text-xs",
-                      !isDateValid && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-3 w-3" />
-                    <span>{displayDateText}</span>
-                  </Button>
-                </PopoverTrigger>
+              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={isDateValid ? parseISO(j.dataConsegnaFinale) : undefined}
-                    onSelect={(date) => {
-                      if (date) {
-                        handleUpdateDeliveryDate(j.id, format(date, 'yyyy-MM-dd'));
-                      }
-                    }}
-                    initialFocus
-                  />
+                  <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => d && updateJobOrderDeliveryDate(j.id, format(d, 'yyyy-MM-dd')).then(() => router.refresh())} initialFocus />
                 </PopoverContent>
               </Popover>
             </TableCell>
             <TableCell className="text-center">
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
-                                <stockStatus.icon className="h-5 w-5" />
-                            </div>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[400px]">
-                            <p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p>
-                            <ul className="text-xs space-y-1.5">
-                                {stockStatus.details.map((d, i) => (
-                                    <li key={i} className="flex items-start gap-2">
-                                        <span>{d}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
+                <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                    <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
+                        <stockStatus.icon className="h-5 w-5" />
+                    </div>
+                </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
             </TableCell>
             <TableCell className="text-right space-x-1">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className={cn("h-8 w-8", j.isPrinted ? "text-green-500 hover:text-green-600" : "text-muted-foreground")} 
-                onClick={() => handleDownloadPdf(j)}
-                disabled={isDownloadingPdf === j.id}
-                title="Scarica PDF ODL"
-              >
-                {isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-              </Button>
-              {j.status === 'planned' ? (
-                <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) fetchData(); })}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button>
-              ) : (
-                <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={async () => { const r = await cancelODL(j.id); toast({ title: r.message }); fetchData(); }}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>
-              )}
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => handleDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
+              {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) router.refresh(); })}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => cancelODL(j.id).then(r => { toast({ title: r.message }); router.refresh(); })}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
             </TableCell>
           </TableRow>
         );
@@ -467,207 +375,79 @@ export default function DataManagementClientPage() {
       <header className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold font-headline tracking-tight flex items-center gap-3"><ListChecks className="h-8 w-8 text-primary" />Gestione Dati Commesse</h1>
-          <p className="text-muted-foreground">Importa da Excel e gestisci le commesse.</p>
+          <p className="text-muted-foreground">Analisi MRP e pianificazione produzione.</p>
         </div>
         <div className="flex gap-2">
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
-          <Button onClick={handleDownloadTemplate} variant="outline"><Download className="mr-2 h-4 w-4" /> Scarica Template</Button>
+          <input type="file" ref={fileInputRef} onChange={async (e) => {
+              const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
+              try {
+                  const buffer = await file.arrayBuffer(); const workbook = XLSX.read(buffer, { type: 'array' });
+                  const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: true });
+                  const result = await processAndValidateImport(json); setImportReport(result);
+              } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); } 
+              finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
+          }} accept=".xlsx, .xls" className="hidden" />
+          <Button onClick={() => router.refresh()} variant="outline"><RefreshCw className="mr-2 h-4 w-4" /> Aggiorna MRP</Button>
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
         </div>
       </header>
 
-      {pdfData && (
-        <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}>
-            <ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} />
-        </div>
-      )}
+      {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} /></div>}
 
       <Tabs defaultValue="planned">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
           <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
         </TabsList>
-        
-        <TabsContent value="planned">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Cerca commessa..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
-              </div>
-              {selectedRows.length > 0 && (
-                <div className="flex gap-2 animate-in fade-in slide-in-from-right-2">
-                  <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: "Risultato Avvio", description: r.message, variant: r.success ? 'default' : 'destructive' }); fetchData(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ODL ({selectedRows.length})</Button>
-                  <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); fetchData(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina ({selectedRows.length})</Button>
-                </div>
-              )}
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
-                    <SortHeader label="Articolo" sortKey="details" />
-                    <SortHeader label="Qta" sortKey="qta" />
-                    <SortHeader label="Reparto" sortKey="reparto_codice" />
-                    <TableHead>Ciclo</TableHead>
-                    <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <JobTableRows data={filteredPlanned} />
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="production">
-           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Cerca in produzione..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
-                    <SortHeader label="Articolo" sortKey="details" />
-                    <SortHeader label="Qta" sortKey="qta" />
-                    <SortHeader label="Reparto" sortKey="reparto_codice" />
-                    <TableHead>Ciclo</TableHead>
-                    <SortHeader label="N° ODL" sortKey="numeroODLInterno" />
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <JobTableRows data={filteredProduction} />
-                </TableBody>
-              </Table>
-           </CardContent>
-          </Card>
-        </TabsContent>
+        <TabsContent value="planned"><Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} /></div>
+              {selectedRows.length > 0 && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ({selectedRows.length})</Button><Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina</Button></div>}
+            </CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredPlanned} /></TableBody></Table></CardContent></Card></TabsContent>
+        <TabsContent value="production"><Card><CardHeader><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} /></div></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredProduction} /></TableBody></Table></CardContent></Card></TabsContent>
       </Tabs>
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
-            <DialogHeader>
-                <DialogTitle>Nuova Commessa Manuale</DialogTitle>
-                <DialogDescription>Compila i campi per pianificare una nuova commessa.</DialogDescription>
-            </DialogHeader>
-            <Form {...manualForm}>
-                <form onSubmit={manualForm.handleSubmit(handleManualSubmit)} className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={manualForm.control} name="cliente" render={({ field }) => ( <FormItem><FormLabel>Cliente</FormLabel><FormControl><Input placeholder="Es. Mario Rossi" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={manualForm.control} name="ordinePF" render={({ field }) => ( <FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input placeholder="Es. 1234/25" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                                <FormLabel>Codice Articolo</FormLabel>
-                                <Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}>
-                                    <PopoverTrigger asChild>
-                                        <FormControl>
-                                            <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                                                {field.value ? articles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </FormControl>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-                                        <Command>
-                                            <CommandInput placeholder="Cerca articolo..." />
-                                            <CommandList>
-                                                <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
-                                                <CommandGroup>
-                                                    {articles.map((article) => (
-                                                        <CommandItem
-                                                            key={article.id}
-                                                            value={article.code}
-                                                            onSelect={() => { manualForm.setValue("articleCode", article.code); setIsArticlePopoverOpen(false); }}
-                                                        >
-                                                            <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
-                                                            {article.code}
-                                                        </CommandItem>
-                                                    ))}
-                                                </CommandGroup>
-                                            </CommandList>
-                                        </Command>
-                                    </PopoverContent>
-                                </Popover>
-                                <FormMessage />
-                            </FormItem>
-                        )} />
-                        <FormField control={manualForm.control} name="qta" render={({ field }) => ( <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem><FormLabel>Data Consegna</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                        <FormField control={manualForm.control} name="numeroODLInterno" render={({ field }) => ( <FormItem><FormLabel>N° ODL (Opzionale)</FormLabel><FormControl><Input placeholder="Es. 0001" {...field} /></FormControl><FormMessage /></FormItem> )} />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={manualForm.control} name="department" render={({ field }) => (
-                            <FormItem><FormLabel>Reparto</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona reparto..." /></SelectTrigger></FormControl>
-                                    <SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent>
-                                </Select><FormMessage /></FormItem>
-                        )} />
-                        <FormField control={manualForm.control} name="workCycleId" render={({ field }) => (
-                            <FormItem><FormLabel>Ciclo di Lavoro</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <FormControl><SelectTrigger><SelectValue placeholder="Seleziona ciclo..." /></SelectTrigger></FormControl>
-                                    <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                                </Select><FormMessage /></FormItem>
-                        )} />
-                    </div>
-                    <DialogFooter className="mt-6">
-                        <Button variant="outline" type="button" onClick={() => setIsManualCreateOpen(false)}>Annulla</Button>
-                        <Button type="submit">Salva Commessa</Button>
-                    </DialogFooter>
-                </form>
-            </Form>
+        <DialogContent className="max-w-2xl">
+            <DialogHeader><DialogTitle>Nuova Commessa Manuale</DialogTitle></DialogHeader>
+            <Form {...manualForm}><form onSubmit={manualForm.handleSubmit(async (v) => { const r = await saveManualJobOrder(v); if(r.success) { toast({ title: r.message }); setIsManualCreateOpen(false); manualForm.reset(); router.refresh(); } else toast({ variant: "destructive", title: r.message }); })} className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={manualForm.control} name="cliente" render={({ field }) => ( <FormItem><FormLabel>Cliente</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+                    <FormField control={manualForm.control} name="ordinePF" render={({ field }) => ( <FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
+                </div>
+                <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
+                    <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca..." /><CommandList><CommandEmpty>No Articolo.</CommandEmpty><CommandGroup>{articles.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
+                )} />
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={manualForm.control} name="qta" render={({ field }) => ( <FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem> )} />
+                    <FormField control={manualForm.control} name="dataConsegnaFinale" render={({ field }) => ( <FormItem><FormLabel>Data Consegna</FormLabel><FormControl><Input type="date" {...field} /></FormControl></FormItem> )} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={manualForm.control} name="department" render={({ field }) => ( <FormItem><FormLabel>Reparto</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{departments.map(d => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent></Select></FormItem> )} />
+                    <FormField control={manualForm.control} name="workCycleId" render={({ field }) => ( <FormItem><FormLabel>Ciclo</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></FormItem> )} />
+                </div>
+                <DialogFooter><Button type="submit">Salva</Button></DialogFooter>
+            </form></Form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!importReport} onOpenChange={o => !o && setImportReport(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-          <DialogHeader><DialogTitle>Analisi Importazione</DialogTitle></DialogHeader>
-          <Tabs defaultValue="valid" className="flex-1 overflow-hidden mt-4">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport ? (importReport.newJobs.length + importReport.jobsToUpdate.length) : 0})</TabsTrigger>
-              <TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger>
-            </TabsList>
-            <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
-                <Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead><TableHead>Stato</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><TableCell><Badge>Nuova</Badge></TableCell></TableRow>)}
-                  {importReport?.jobsToUpdate.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell><Badge variant="outline">Duplicata</Badge></TableRow>)}
-                </TableBody></Table>
-            </ScrollArea></TabsContent>
-            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4">
-                <Table><TableHeader><TableRow><TableHead>Riga Excel</TableHead><TableHead>Motivo Blocco</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell className="font-mono">{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}
-                </TableBody></Table>
-            </ScrollArea></TabsContent>
+        <DialogContent className="max-w-4xl"><DialogHeader><DialogTitle>Analisi Importazione</DialogTitle></DialogHeader>
+          <Tabs defaultValue="valid" className="mt-4">
+            <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0})</TabsTrigger><TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger></TabsList>
+            <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead></TableRow></TableHeader><TableBody>{importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
+            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableRow></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
           </Tabs>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
-            <Button onClick={() => handleConfirmCommit(true)} disabled={!importReport?.newJobs.length && !importReport?.jobsToUpdate.length}>Carica Valide</Button>
-          </DialogFooter>
+          <DialogFooter className="mt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla</Button><Button onClick={() => { if(!importReport) return; commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: [] }).then(r => { toast({ title: r.message }); setImportReport(null); router.refresh(); }); }} disabled={!importReport?.newJobs.length}>Carica Valide</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
+
+  function SortHeader({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) {
+    return (
+        <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => handleSort(sortKey)}>
+            <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
+        </TableHead>
+    );
+  }
 }
