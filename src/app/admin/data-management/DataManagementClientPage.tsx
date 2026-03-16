@@ -39,7 +39,7 @@ import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
 import { Calendar } from '@/components/ui/calendar';
-import { Tooltip, TooltipProvider, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const manualCreateSchema = z.object({
     cliente: z.string().min(1, "Il cliente è obbligatorio."),
@@ -83,6 +83,7 @@ export default function DataManagementClientPage({
   const [manualCommitments, setManualCommitments] = useState<ManualCommitment[]>(initialManualCommitments);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshingMRP, setIsRefreshingMRP] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importReport, setImportReport] = useState<{
@@ -109,11 +110,20 @@ export default function DataManagementClientPage({
     defaultValues: { qta: 1, department: '' }
   });
 
-  // --- MRP LOGIC: PRE-CALCULATE AVAILABILITY TIMELINE ---
+  useEffect(() => {
+    setPlannedJobOrders(initialPlanned);
+    setProductionJobOrders(initialProduction);
+    setWorkCycles(initialCycles);
+    setArticles(initialArticles);
+    setDepartments(initialDepartments);
+    setRawMaterials(initialMaterials);
+    setPurchaseOrders(initialPurchaseOrders);
+    setManualCommitments(initialManualCommitments);
+  }, [initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments]);
+
   const mrpTimelines = useMemo(() => {
-    const timelines = new Map<string, { date: string, qty: number }[]>();
+    const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
     
-    // 1. Gather all demands (Pending Jobs + Production Jobs + Manual Commitments)
     const demands: { materialCode: string, qty: number, date: string, id: string }[] = [];
     
     const allJobs = [...plannedJobOrders, ...productionJobOrders];
@@ -150,10 +160,8 @@ export default function DataManagementClientPage({
         }
     });
 
-    // Sort demands by date
     demands.sort((a, b) => a.date.localeCompare(b.date));
 
-    // 2. Gather all supplies (Purchase Orders)
     const supplies = purchaseOrders
         .filter(po => po.status === 'pending' || po.status === 'partially_received')
         .map(po => ({
@@ -165,7 +173,6 @@ export default function DataManagementClientPage({
     
     supplies.sort((a, b) => a.date.localeCompare(b.date));
 
-    // 3. Project timeline for each material
     rawMaterials.forEach(mat => {
         const code = mat.code.toUpperCase();
         let balance = mat.currentStockUnits || 0;
@@ -179,7 +186,6 @@ export default function DataManagementClientPage({
             
             let coverDate = 'IMMEDIATA';
             if (balance < -0.001) {
-                // Try to cover with supplies
                 let tempBalance = balance;
                 for (const supply of matSupplies) {
                     if (tempBalance >= -0.001) break;
@@ -188,14 +194,14 @@ export default function DataManagementClientPage({
                 }
                 
                 if (tempBalance < -0.001) {
-                    coverDate = 'MAI'; // Not covered by orders
+                    coverDate = 'MAI';
                 }
             }
 
             timeline.push({ date: coverDate, qty: demand.qty, jobId: demand.id });
         });
 
-        timelines.set(code, timeline as any);
+        timelines.set(code, timeline);
     });
 
     return timelines;
@@ -249,6 +255,12 @@ export default function DataManagementClientPage({
   const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, sortConfig, departments]);
   const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, sortConfig, departments]);
 
+  const handleRefreshMRP = () => {
+    setIsRefreshingMRP(true);
+    router.refresh();
+    setTimeout(() => setIsRefreshingMRP(false), 1500);
+  };
+
   const handleDownloadPdf = async (job: JobOrder) => {
     setIsDownloadingPdf(job.id);
     try {
@@ -297,11 +309,11 @@ export default function DataManagementClientPage({
                 
                 const required = calculateCommitmentQty(j.qta, item, mat);
                 const timeline = mrpTimelines.get(matCode) || [];
-                const jobEntry = timeline.find(entry => (entry as any).jobId === j.id);
+                const jobEntry = timeline.find(entry => entry.jobId === j.id);
                 
                 if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
 
-                const coverStatus = (jobEntry as any).date;
+                const coverStatus = jobEntry.date;
 
                 if (coverStatus === 'IMMEDIATA') {
                     lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
@@ -387,7 +399,10 @@ export default function DataManagementClientPage({
               } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); } 
               finally { setIsImporting(false); if(fileInputRef.current) fileInputRef.current.value = ""; }
           }} accept=".xlsx, .xls" className="hidden" />
-          <Button onClick={() => router.refresh()} variant="outline"><RefreshCw className="mr-2 h-4 w-4" /> Aggiorna MRP</Button>
+          <Button onClick={handleRefreshMRP} variant="outline" disabled={isRefreshingMRP}>
+            {isRefreshingMRP ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Aggiorna MRP
+          </Button>
           <Button onClick={() => setIsManualCreateOpen(true)} variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Nuova Commessa</Button>
           <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4"/>} Importa Excel</Button>
         </div>
@@ -402,8 +417,8 @@ export default function DataManagementClientPage({
         </TabsList>
         <TabsContent value="planned"><Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} /></div>
               {selectedRows.length > 0 && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ({selectedRows.length})</Button><Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina</Button></div>}
-            </CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredPlanned} /></TableBody></Table></CardContent></Card></TabsContent>
-        <TabsContent value="production"><Card><CardHeader><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} /></div></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><TableHead>Reparto</TableHead><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredProduction} /></TableBody></Table></CardContent></Card></TabsContent>
+            </CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><SortHeader label="Reparto" sortKey="reparto_codice" /><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredPlanned} /></TableBody></Table></CardContent></Card></TabsContent>
+        <TabsContent value="production"><Card><CardHeader><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} /></div></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><SortHeader label="Reparto" sortKey="reparto_codice" /><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredProduction} /></TableBody></Table></CardContent></Card></TabsContent>
       </Tabs>
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>

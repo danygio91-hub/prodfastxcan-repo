@@ -57,6 +57,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -236,7 +237,7 @@ export default function ProductionConsoleClientPage() {
   }, [filteredItems]);
 
   const handleSelectAll = () => { if (selectedIds.length === filteredItems.length) setSelectedIds([]); else setSelectedIds(filteredItems.map(i => i.id)); };
-  const handleSelectItem = (itemId: string) => setSelectedIds(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]);
+  const handleSelectItem = (itemId: string) => setSelectedIds(prev => prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, id]);
   
   const handleFilterClick = (filter: FilterStatus) => { setActiveFilter(filter); setShowCompleted(false); };
 
@@ -267,7 +268,13 @@ export default function ProductionConsoleClientPage() {
   const handleMovePhase = (idx: number, dir: 'up'|'down') => { setEditablePhases(prev => { const n = [...prev]; const target = dir === 'up' ? idx - 1 : idx + 1; if(target >= 0 && target < n.length) [n[idx], n[target]] = [n[target], n[idx]]; setIsOrderChanged(true); return n; }); };
   const handlePhaseStatusToggle = (pid: string) => { setEditablePhases(p => { const n = p.map(x => x.id === pid ? { ...x, status: x.status === 'skipped' ? 'pending' : 'skipped' as any } : x); setIsOrderChanged(true); return n; }); };
   const handleSaveChanges = async () => { if (!user || !phaseManagedItem) return; const res = await updatePhasesForJob(phaseManagedItem.id, editablePhases, user.uid); if(res.success) { toast({ title: "Fasi aggiornate" }); setPhaseManagedItem(null); } };
-  const handleFetchAnalysis = async (job: JobOrder) => { setJobsWithLoadingAnalysis(p => new Set(p).add(job.id)); try { const map = await getProductionTimeAnalysisMap(); setAnalysisDataMap(prev => new Map(prev).set(job.id, map.get(job.details) || null)); } catch(e) {} finally { setJobsWithLoadingAnalysis(p => { const n = new Set(p); n.delete(job.id); return n; }); } };
+  const handleFetchAnalysis = async (job: JobOrder) => { if(!job.id) return; setJobsWithLoadingAnalysis(p => new Set(p).add(job.id)); try { const map = await getProductionTimeAnalysisMap(); setAnalysisDataMap(prev => new Map(prev).set(job.id, map.get(job.details) || null)); } catch(e) {} finally { setJobsWithLoadingAnalysis(p => { const n = new Set(p); n.delete(job.id); return n; }); } };
+
+  const handleMaterialStatusToggle = async (itemId: string, phaseId: string, currentStatus?: string) => {
+      if (!user) return;
+      if (currentStatus === 'missing') { await resolveMaterialMissing(itemId, phaseId, user.uid); } 
+      else { await reportMaterialMissing(itemId, phaseId, user.uid); }
+  };
 
   return (
     <>
