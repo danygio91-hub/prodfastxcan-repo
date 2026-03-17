@@ -22,6 +22,7 @@ const operatorFormSchema = z.object({
   }),
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
+  isReal: z.boolean().optional(),
 }).refine(data => {
     // If the role is 'operator', 'reparto' must be an array with at least one item.
     if (data.role === 'operator') {
@@ -79,6 +80,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
       email: email.trim().toLowerCase(), // Use the provided email
       canAccessInventory: validatedFields.data.canAccessInventory || false,
       canAccessMaterialWithdrawal: validatedFields.data.canAccessMaterialWithdrawal || false,
+      isReal: validatedFields.data.isReal || false,
   };
 
   if (id) {
@@ -86,6 +88,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
     const operatorRef = doc(db, "operators", id);
     await setDoc(operatorRef, dataToSave, { merge: true });
     revalidatePath('/admin/operator-management');
+    revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
     // Add new operator
@@ -99,6 +102,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
     } as Operator;
     await setDoc(operatorRef, newOperator);
     revalidatePath('/admin/operator-management');
+    revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore aggiunto con successo.' };
   }
 }
@@ -107,6 +111,7 @@ export async function deleteOperator(id: string): Promise<{ success: boolean; me
   try {
     await deleteDoc(doc(db, "operators", id));
     revalidatePath('/admin/operator-management');
+    revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore eliminato con successo.' };
   } catch (error) {
     console.error("Error deleting operator:", error);

@@ -111,6 +111,7 @@ export interface Operator {
   email?: string;
   canAccessInventory?: boolean; // New privilege for inventory access
   canAccessMaterialWithdrawal?: boolean; // New privilege for manual withdrawal
+  isReal?: boolean; // Flag to indicate if the operator is an actual worker for capacity calculation
   // Fields to track active state across devices
   activeJobId?: string | null;
   activePhaseName?: string | null;
@@ -400,10 +401,10 @@ export interface CalendarException {
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
-    { id: 'op-1', nome: 'Daniel', reparto: [], stato: 'inattivo', role: 'admin', privacySigned: false, nome_normalized: 'daniel' },
-    { id: 'op-2', nome: 'Ruben', reparto: [], stato: 'inattivo', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben' },
-    { id: 'op-3', nome: 'Giovanna', reparto: ['BF'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'giovanna' },
-    { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola' },
+    { id: 'op-1', nome: 'Daniel', reparto: [], stato: 'inattivo', role: 'admin', privacySigned: false, nome_normalized: 'daniel', isReal: false },
+    { id: 'op-2', nome: 'Ruben', reparto: [], stato: 'inattivo', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben', isReal: true },
+    { id: 'op-3', nome: 'Giovanna', reparto: ['BF'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'giovanna', isReal: true },
+    { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola', isReal: true },
 ];
 export const initialDepartments: Department[] = [
     { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici' },

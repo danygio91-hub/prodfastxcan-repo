@@ -7,6 +7,7 @@ import { db } from '@/lib/firebase';
 import type { CalendarException, WorkingHoursConfig, Operator } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, isSameDay } from 'date-fns';
+import { it } from 'date-fns/locale';
 import { getWorkingHoursConfig } from '../working-hours/actions';
 import { getOperators } from '../operator-management/actions';
 
@@ -93,7 +94,7 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
     const dailyEffectiveHours = (dailyStandardMinutes / 60) * efficiencyFactor;
 
     const report: OperatorCapacity[] = operators
-        .filter(op => op.role !== 'admin')
+        .filter(op => op.role !== 'admin' && op.isReal !== false) // Filter only REAL workers
         .map(op => {
             let totalWeeklyHours = 0;
             const dailyCapacities: DailyCapacity[] = daysInWeek.map(day => {

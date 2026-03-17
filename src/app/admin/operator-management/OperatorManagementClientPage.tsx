@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -24,9 +23,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse, MinusSquare } from 'lucide-react';
+import { Users, PlusCircle, Edit, Trash2, CheckCircle2, ShieldAlert, Download, Mail, Loader2, Warehouse, MinusSquare, UserCheck, UserX } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRouter } from 'next/navigation';
+import { Switch } from '@/components/ui/switch';
 
 
 const operatorFormSchema = z.object({
@@ -39,6 +39,7 @@ const operatorFormSchema = z.object({
   role: z.enum(['admin', 'supervisor', 'operator']),
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
+  isReal: z.boolean().optional(),
 }).refine(data => {
     if (data.role === 'operator') {
         return data.reparto && data.reparto.length > 0;
@@ -88,6 +89,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       role: 'operator',
       canAccessInventory: false,
       canAccessMaterialWithdrawal: false,
+      isReal: true,
     },
   });
 
@@ -119,9 +121,10 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         role: operator.role,
         canAccessInventory: operator.canAccessInventory || false,
         canAccessMaterialWithdrawal: operator.canAccessMaterialWithdrawal || false,
+        isReal: operator.isReal !== undefined ? operator.isReal : true,
       });
     } else {
-      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false, isReal: true });
     }
     setIsDialogOpen(true);
   };
@@ -166,6 +169,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         'Reparto': (op.reparto || []).map(r => departments.find(d => d.code === r)?.name || r).join(', '),
         'Ruolo': op.role,
         'Stato': op.stato,
+        'Operatore Reale': op.isReal ? 'Sì' : 'No',
         'Privacy Firmata': op.privacySigned ? 'Sì' : 'No',
         'Accesso Inventario': op.canAccessInventory ? 'Sì' : 'No',
         'Accesso Scarico Materiale': op.canAccessMaterialWithdrawal ? 'Sì' : 'No',
@@ -210,6 +214,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Reale</TableHead>
                     <TableHead>Nome</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Reparto</TableHead>
@@ -227,6 +232,24 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                       
                       return (
                       <TableRow key={op.id}>
+                        <TableCell className="text-center">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="flex justify-center">
+                                            {op.isReal !== false ? (
+                                                <UserCheck className="h-5 w-5 text-green-500" />
+                                            ) : (
+                                                <UserX className="h-5 w-5 text-muted-foreground opacity-50" />
+                                            )}
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>{op.isReal !== false ? 'Lavoratore Reale (Incluso in Capacità)' : 'Profilo Sviluppo/Test'}</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </TableCell>
                         <TableCell className="font-medium">{op.nome}</TableCell>
                         <TableCell>{op.email}</TableCell>
                         <TableCell>
@@ -325,7 +348,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center h-24">Nessun operatore trovato.</TableCell>
+                      <TableCell colSpan={9} className="text-center h-24">Nessun operatore trovato.</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -417,6 +440,31 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                     )}
                   />
                 )}
+
+                <FormField
+                  control={form.control}
+                  name="isReal"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 bg-primary/5 border-primary/20">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base flex items-center gap-2">
+                           <UserCheck className="h-5 w-5 text-primary" />
+                           Lavoratore Reale
+                        </FormLabel>
+                        <FormDescription>
+                          Spegni se il profilo è usato solo per test o sviluppo.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
                  <FormField
                   control={form.control}
                   name="canAccessInventory"
