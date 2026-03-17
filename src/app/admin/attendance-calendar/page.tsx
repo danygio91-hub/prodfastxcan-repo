@@ -21,14 +21,18 @@ import {
   AlertTriangle,
   MonitorOff,
   User,
-  Settings
+  Settings,
+  Zap,
+  ChevronLeft,
+  ChevronRight,
+  TrendingUp
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { getCalendarExceptions, saveCalendarException, deleteCalendarException } from './actions';
+import { getCalendarExceptions, saveCalendarException, deleteCalendarException, getWeeklyCapacityReport, type OperatorCapacity } from './actions';
 import { getOperators } from '../operator-management/actions';
 import { getWorkstations } from '../workstation-management/actions';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, addWeeks, subWeeks, startOfWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import {
   Dialog,
@@ -45,6 +49,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import type { CalendarException, Operator, Workstation } from '@/lib/mock-data';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 const exceptionSchema = z.object({
   resourceType: z.enum(['operator', 'machine']),
@@ -64,9 +70,12 @@ export default function AttendanceCalendarPage() {
   const [exceptions, setExceptions] = useState<CalendarException[]>([]);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [workstations, setWorkstations] = useState<Workstation[]>([]);
+  const [capacityReport, setCapacityReport] = useState<OperatorCapacity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCapacityLoading, setIsCapacityLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
+  const [referenceDate, setReferenceDate] = useState(new Date());
 
   const form = useForm<FormValues>({
     resolver: zodResolver(exceptionSchema),
@@ -89,6 +98,7 @@ export default function AttendanceCalendarPage() {
       setExceptions(exc);
       setOperators(ops);
       setWorkstations(ws);
+      await fetchCapacity();
     } catch (e) {
       toast({ variant: 'destructive', title: 'Errore caricamento dati' });
     } finally {
@@ -96,7 +106,20 @@ export default function AttendanceCalendarPage() {
     }
   };
 
+  const fetchCapacity = async () => {
+    setIsCapacityLoading(true);
+    try {
+        const report = await getWeeklyCapacityReport(referenceDate.toISOString());
+        setCapacityReport(report);
+    } catch (e) {
+        console.error(e);
+    } finally {
+        setIsCapacityLoading(false);
+    }
+  };
+
   useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchCapacity(); }, [referenceDate]);
 
   const onSubmit = async (values: FormValues) => {
     if (!user) return;
@@ -143,6 +166,8 @@ export default function AttendanceCalendarPage() {
     }
   };
 
+  const weekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -160,57 +185,136 @@ export default function AttendanceCalendarPage() {
             </Button>
           </header>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Registro Eccezioni</CardTitle>
-              <CardDescription>Elenco cronologico degli eventi registrati.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data Inizio</TableHead>
-                        <TableHead>Data Fine</TableHead>
-                        <TableHead>Risorsa</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Ore Perse</TableHead>
-                        <TableHead>Note</TableHead>
-                        <TableHead className="text-right">Azioni</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {exceptions.length > 0 ? exceptions.map((ex) => (
-                        <TableRow key={ex.id}>
-                          <TableCell>{format(parseISO(ex.startDate), 'dd/MM/yyyy')}</TableCell>
-                          <TableCell>{format(parseISO(ex.endDate), 'dd/MM/yyyy')}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {ex.resourceType === 'operator' ? <User className="h-4 w-4 text-muted-foreground" /> : <Settings className="h-4 w-4 text-muted-foreground" />}
-                              <span className="font-semibold">{ex.targetName}</span>
+          <Tabs defaultValue="capacity" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 max-w-md">
+                <TabsTrigger value="capacity">Vista Capacità</TabsTrigger>
+                <TabsTrigger value="registry">Registro Eccezioni</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="capacity" className="pt-4">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                        <div>
+                            <CardTitle className="flex items-center gap-2">
+                                <TrendingUp className="h-5 w-5 text-primary" />
+                                Capacità Operativa Settimanale
+                            </CardTitle>
+                            <CardDescription>Ore disponibili effettive per operatore (già scontate di efficienza ed eccezioni).</CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => subWeeks(prev, 1))}><ChevronLeft className="h-4 w-4" /></Button>
+                            <span className="text-sm font-bold min-w-[150px] text-center">
+                                {format(weekStart, 'dd MMM')} - {format(addWeeks(weekStart, 0.9), 'dd MMM yyyy')}
+                            </span>
+                            <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => addWeeks(prev, 1))}><ChevronRight className="h-4 w-4" /></Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        {isCapacityLoading ? (
+                            <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <Table className="border rounded-md">
+                                    <TableHeader className="bg-muted/50">
+                                        <TableRow>
+                                            <TableHead className="font-bold border-r">Operatore</TableHead>
+                                            {capacityReport[0]?.dailyCapacities.map(day => (
+                                                <TableHead key={day.date} className="text-center min-w-[100px]">
+                                                    <div className="capitalize font-bold">{day.dayName.slice(0, 3)}</div>
+                                                    <div className="text-[10px] text-muted-foreground">{format(parseISO(day.date), 'dd/MM')}</div>
+                                                </TableHead>
+                                            ))}
+                                            <TableHead className="text-right font-bold border-l bg-primary/5">Totale Sett.</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {capacityReport.map(report => (
+                                            <TableRow key={report.operatorId}>
+                                                <TableCell className="font-semibold border-r">{report.operatorName}</TableCell>
+                                                {report.dailyCapacities.map(day => (
+                                                    <TableCell key={day.date} className={cn(
+                                                        "text-center font-mono py-4",
+                                                        !day.isWorkingDay && "bg-muted/30 text-muted-foreground",
+                                                        day.effectiveHours === 0 && day.isWorkingDay && "bg-destructive/5 text-destructive",
+                                                        day.effectiveHours > 0 && day.effectiveHours < day.standardHours && "bg-amber-500/5 text-amber-600"
+                                                    )}>
+                                                        <div className="text-sm font-bold">{day.effectiveHours.toFixed(2)}h</div>
+                                                        {day.exceptions.length > 0 && (
+                                                            <div className="flex justify-center gap-0.5 mt-1">
+                                                                {day.exceptions.map(ex => (
+                                                                    <div key={ex.id} className="w-1.5 h-1.5 rounded-full bg-current opacity-50" title={ex.exceptionType}></div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </TableCell>
+                                                ))}
+                                                <TableCell className="text-right font-bold border-l bg-primary/5 text-primary">
+                                                    {report.totalWeeklyHours.toFixed(2)}h
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
                             </div>
-                          </TableCell>
-                          <TableCell>{getTypeBadge(ex.exceptionType)}</TableCell>
-                          <TableCell>{ex.hoursLost ? `${ex.hoursLost} h` : 'Giornata intera'}</TableCell>
-                          <TableCell className="max-w-[200px] truncate italic text-xs">{ex.notes || '-'}</TableCell>
-                          <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(ex.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      )) : (
-                        <TableRow><TableCell colSpan={7} className="text-center h-24">Nessuna eccezione registrata.</TableCell></TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                        )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="registry" className="pt-4">
+                <Card>
+                    <CardHeader>
+                    <CardTitle>Registro Eccezioni</CardTitle>
+                    <CardDescription>Elenco cronologico degli eventi registrati.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                    {isLoading ? (
+                        <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                            <TableRow>
+                                <TableHead>Data Inizio</TableHead>
+                                <TableHead>Data Fine</TableHead>
+                                <TableHead>Risorsa</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Ore Perse</TableHead>
+                                <TableHead>Note</TableHead>
+                                <TableHead className="text-right">Azioni</TableHead>
+                            </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                            {exceptions.length > 0 ? exceptions.map((ex) => (
+                                <TableRow key={ex.id}>
+                                <TableCell>{format(parseISO(ex.startDate), 'dd/MM/yyyy')}</TableCell>
+                                <TableCell>{format(parseISO(ex.endDate), 'dd/MM/yyyy')}</TableCell>
+                                <TableCell>
+                                    <div className="flex items-center gap-2">
+                                    {ex.resourceType === 'operator' ? <User className="h-4 w-4 text-muted-foreground" /> : <Settings className="h-4 w-4 text-muted-foreground" />}
+                                    <span className="font-semibold">{ex.targetName}</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell>{getTypeBadge(ex.exceptionType)}</TableCell>
+                                <TableCell>{ex.hoursLost ? `${ex.hoursLost} h` : 'Giornata intera'}</TableCell>
+                                <TableCell className="max-w-[200px] truncate italic text-xs">{ex.notes || '-'}</TableCell>
+                                <TableCell className="text-right">
+                                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(ex.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </TableCell>
+                                </TableRow>
+                            )) : (
+                                <TableRow><TableCell colSpan={7} className="text-center h-24">Nessuna eccezione registrata.</TableCell></TableRow>
+                            )}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+          </Tabs>
         </div>
 
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
