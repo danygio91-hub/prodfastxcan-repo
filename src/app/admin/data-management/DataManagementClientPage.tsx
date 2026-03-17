@@ -391,6 +391,14 @@ export default function DataManagementClientPage({
     </>
   );
 
+  function SortHeader({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) {
+    return (
+        <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => handleSort(sortKey)}>
+            <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
+        </TableHead>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex justify-between items-center flex-wrap gap-4">
@@ -467,12 +475,4 @@ export default function DataManagementClientPage({
       </Dialog>
     </div>
   );
-
-  function SortHeader({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) {
-    return (
-        <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => handleSort(sortKey)}>
-            <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
-        </TableHead>
-    );
-  }
 }
