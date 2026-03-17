@@ -382,6 +382,20 @@ export interface WorkingHoursConfig {
   efficiencyPercentage: number; // Nuova campo: Efficienza / Pause fisiologiche
 }
 
+export interface CalendarException {
+  id: string;
+  resourceType: 'operator' | 'machine';
+  targetId: string; // operatorId or workstationId
+  targetName: string;
+  exceptionType: 'sick' | 'vacation' | 'permit' | 'maintenance' | 'other';
+  startDate: string; // ISO Date
+  endDate: string; // ISO Date
+  hoursLost?: number; // per partial days
+  notes?: string;
+  createdAt: any;
+  createdBy: string;
+}
+
 
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];

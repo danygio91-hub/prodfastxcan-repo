@@ -4,13 +4,14 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive, LockKeyhole, Combine, Timer, Clock } from 'lucide-react';
+import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive, LockKeyhole, Combine, Timer, Clock, CalendarDays } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 export default function AdminCompanySettingsPage() {
 
   const navItems = [
     { href: '/admin/operator-management', label: 'Gestione Operatori', description: 'Aggiungi, modifica o rimuovi gli operatori e i loro permessi.', icon: Users, disabled: false },
+    { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays, disabled: false },
     { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Aggiungi, modifica e importa le materie prime.', icon: Boxes, disabled: false },
     { href: '/admin/department-management', label: 'Gestione Reparti', description: 'Aggiungi, modifica o rimuovi i reparti aziendali.', icon: ListTodo, disabled: false },
     { href: '/admin/work-phase-management', label: 'Gestione Fasi di Lavorazione', description: 'Definisci le fasi standard per ogni reparto.', icon: Workflow, disabled: false },
