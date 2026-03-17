@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -181,7 +182,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             numeroODLInternoImport: String(row['N° ODL'] || row['numeroODLInternoImport'] || '').trim(),
             dataConsegnaFinale: dateStr,
             department: String(row['Reparto'] || row['department'] || 'N/D').trim(),
-            workCycleName: String(row['Ciclo'] || row['workCycleName'] || 'STANDARD').trim()
+            workCycleName: String(row['Ciclo'] || row['workCycleName'] || '').trim()
         };
 
         const validated = importSchema.safeParse(mappedRow);
@@ -207,8 +208,15 @@ export async function processAndValidateImport(data: any[]): Promise<{
             continue;
         }
 
-        const workCycle = validData.workCycleName ? cyclesMap.get(validData.workCycleName.toUpperCase().trim()) : undefined;
-        const phases = workCycle ? await createPhasesFromCycle(workCycle.id) : [];
+        // LOGICA CICLO PREDEFINITO: Se non specificato nell'excel, usa quello dell'articolo
+        let workCycleId = '';
+        if (validData.workCycleName) {
+            workCycleId = cyclesMap.get(validData.workCycleName.toUpperCase().trim()) || '';
+        } else {
+            workCycleId = articleData.workCycleId || '';
+        }
+
+        const phases = workCycleId ? await createPhasesFromCycle(workCycleId) : [];
         const jobBOM: JobBillOfMaterialsItem[] = (articleData.billOfMaterials || []).map(item => ({ ...item, status: 'pending', isFromTemplate: true }));
         
         let odlToAssign = null;
@@ -230,7 +238,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
             }
         }
 
-        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', department: validData.department || "N/D", workCycleId: workCycle?.id || '' });
+        newJobs.push({ id: sanitizedId, status: 'planned', postazioneLavoro: 'Da Assegnare', cliente: validData.cliente || "N/D", ordinePF: validData.ordinePF, numeroODL: validData.numeroODL || "N/D", numeroODLInterno: odlToAssign, details: articleCode, qta: validData.qta, billOfMaterials: jobBOM, phases: phases, dataConsegnaFinale: validData.dataConsegnaFinale || '', department: validData.department || "N/D", workCycleId: workCycleId });
     }
     return { success: true, message: "Analisi completata.", newJobs, jobsToUpdate, blockedJobs };
 }

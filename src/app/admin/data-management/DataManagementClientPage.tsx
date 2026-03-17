@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -20,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
   FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info, RefreshCw
+  CheckCircle2, AlertTriangle, Info, RefreshCw, GitMerge
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
 import { format, parseISO, isValid, isBefore } from 'date-fns';
@@ -292,6 +293,9 @@ export default function DataManagementClientPage({
         const isPlanned = j.status === 'planned';
         let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
 
+        const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
+        const hasSecondaryCycle = article && article.secondaryWorkCycleId;
+
         const stockStatus = (() => {
             if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
             const lines: string[] = [];
@@ -337,10 +341,29 @@ export default function DataManagementClientPage({
             <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
             <TableCell>
               {isPlanned ? (
-                <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); router.refresh(); })} value={j.workCycleId}>
-                  <SelectTrigger className="w-[180px] h-8 text-xs"><SelectValue placeholder="Seleziona..." /></SelectTrigger>
-                  <SelectContent>{workCycles.map(c => <SelectItem key={c.id} value={c.id} className="text-xs">{c.name}</SelectItem>)}</SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                    <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); router.refresh(); })} value={j.workCycleId}>
+                    <SelectTrigger className={cn("w-[180px] h-8 text-xs", hasSecondaryCycle && "border-amber-500")}>
+                        <SelectValue placeholder="Seleziona..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {workCycles.map(c => {
+                            const isSecondary = c.id === article?.secondaryWorkCycleId;
+                            return (
+                                <SelectItem key={c.id} value={c.id} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                        {c.name}
+                                        {isSecondary && <Badge variant="outline" className="text-[8px] h-4 bg-amber-500/10">SEC</Badge>}
+                                    </div>
+                                </SelectItem>
+                            );
+                        })}
+                    </SelectContent>
+                    </Select>
+                    {hasSecondaryCycle && (
+                        <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
+                    )}
+                </div>
               ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
             </TableCell>
             <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
