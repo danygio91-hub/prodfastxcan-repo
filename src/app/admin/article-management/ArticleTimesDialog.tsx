@@ -15,18 +15,18 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Timer, RefreshCcw, Save, Loader2, Info, GitMerge } from 'lucide-react';
+import { Timer, RefreshCcw, Save, Loader2, GitMerge } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Article, WorkPhaseTemplate, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport } from '../reports/actions';
 import { saveArticleStandardTimes } from './actions';
 import { getWorkCycles } from '../work-cycle-management/actions';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface ArticleTimesDialogProps {
   isOpen: boolean;
@@ -199,15 +199,6 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   const handleSave = async () => {
     if (!article) return;
     setIsPending(true);
-
-    // Logic: if all enabled phases have a time > 0, the sum overwrites the manual input
-    const finalExpectedDefault = stats.isExpectedComplete && activeView === 'default' 
-        ? stats.totalExpected 
-        : expectedTotalDefault;
-        
-    const finalExpectedSecondary = stats.isExpectedComplete && activeView === 'secondary' 
-        ? stats.totalExpected 
-        : expectedTotalSecondary;
 
     const data: Partial<Article> = {
         workCycleId: primaryCycleId,
