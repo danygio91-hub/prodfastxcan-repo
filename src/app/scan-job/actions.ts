@@ -224,10 +224,10 @@ export async function findLastWeightForLotto(matId: string | undefined, lotto: s
     const jSnap = await getDocs(collection(db, "jobOrders"));
     const cons: any[] = [];
     jSnap.forEach(d => {
-        const job = convertTimestampsToDates(d.data()) as JobOrder;
-        (job.phases || []).forEach(p => (p.materialConsumptions || []).forEach(c => {
+        const job = convertTimestampsToDates(d.data()) as any;
+        (job.phases || []).forEach((p:any) => (p.materialConsumptions || []).forEach((c:any) => {
             if (c.materialId === mat!.id && c.lottoBobina === lotto && c.closingWeight !== undefined) {
-                const last = (p.workPeriods || []).reduce((lat, wp) => wp.end && (!lat || new Date(wp.end) > lat) ? new Date(wp.end) : lat, null as Date | null);
+                const last = (p.workPeriods || []).reduce((lat:any, wp:any) => wp.end && (!lat || new Date(wp.end) > lat) ? new Date(wp.end) : lat, null as Date | null);
                 if (last) cons.push({ weight: c.closingWeight, tare: c.tareWeight || 0, packId: c.packagingId || 'none', date: last });
             }
         }));
