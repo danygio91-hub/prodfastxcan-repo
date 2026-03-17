@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -380,7 +379,8 @@ export default function DataManagementClientPage({
           <input type="file" ref={fileInputRef} onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return; setIsImporting(true);
               try {
-                  const buffer = await file.arrayBuffer(); const workbook = XLSX.read(buffer, { type: 'array' });
+                  const buffer = await file.arrayBuffer(); 
+                  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
                   const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { raw: true });
                   const result = await processAndValidateImport(json); setImportReport(result);
               } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); } 

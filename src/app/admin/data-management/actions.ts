@@ -137,24 +137,72 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const newJobs: JobOrder[] = [];
     const jobsToUpdate: JobOrder[] = [];
     const blockedJobs: Array<{ row: any; reason: string }> = [];
-    const [articlesSnap, cyclesSnap] = await Promise.all([getDocs(collection(db, "articles")), getDocs(collection(db, "workCycles"))]);
+    
+    const [articlesSnap, cyclesSnap] = await Promise.all([
+        getDocs(collection(db, "articles")), 
+        getDocs(collection(db, "workCycles"))
+    ]);
+    
     const articlesMap = new Map(articlesSnap.docs.map(d => [d.data().code.toUpperCase(), d.data() as Article]));
     const cyclesMap = new Map(cyclesSnap.docs.map(d => [d.data().name.toUpperCase(), { ...d.data(), id: d.id } as WorkCycle]));
-    const importSchema = z.object({ ordinePF: z.coerce.string().min(1), details: z.coerce.string().min(1), qta: z.coerce.number().positive(), cliente: z.coerce.string().optional(), numeroODL: z.coerce.string().optional(), numeroODLInternoImport: z.any().optional(), dataConsegnaFinale: z.string().optional(), department: z.coerce.string().optional(), workCycleName: z.coerce.string().optional() });
+    
+    const importSchema = z.object({ 
+        ordinePF: z.coerce.string().min(1), 
+        details: z.coerce.string().min(1), 
+        qta: z.coerce.number().positive(), 
+        cliente: z.coerce.string().optional(), 
+        numeroODL: z.coerce.string().optional(), 
+        numeroODLInternoImport: z.any().optional(), 
+        dataConsegnaFinale: z.string().optional(), 
+        department: z.coerce.string().optional(), 
+        workCycleName: z.coerce.string().optional() 
+    });
     
     for (const row of data) {
-        const validated = importSchema.safeParse(row);
-        if (!validated.success) { blockedJobs.push({ row, reason: "Dati mancanti o errati." }); continue; }
+        // MAPPATURA TESTATE EXCEL -> CAMPI INTERNI
+        let rawDate = row['Data Consegna'] || row['dataConsegnaFinale'];
+        let dateStr = '';
+        if (rawDate instanceof Date) {
+            dateStr = rawDate.toISOString().split('T')[0];
+        } else if (typeof rawDate === 'number') {
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const d = new Date(excelEpoch.getTime() + rawDate * 86400 * 1000);
+            dateStr = d.toISOString().split('T')[0];
+        } else if (typeof rawDate === 'string') {
+            dateStr = rawDate;
+        }
+
+        const mappedRow = {
+            ordinePF: String(row['Ordine PF'] || row['ordinePF'] || '').trim(),
+            details: String(row['Codice'] || row['details'] || '').trim(),
+            qta: Number(row['Qta'] || row['qta'] || 0),
+            cliente: String(row['Cliente'] || row['cliente'] || 'N/D').trim(),
+            numeroODL: String(row['Ordine Nr Est'] || row['numeroODL'] || 'N/D').trim(),
+            numeroODLInternoImport: String(row['N° ODL'] || row['numeroODLInternoImport'] || '').trim(),
+            dataConsegnaFinale: dateStr,
+            department: String(row['Reparto'] || row['department'] || 'N/D').trim(),
+            workCycleName: String(row['Ciclo'] || row['workCycleName'] || 'STANDARD').trim()
+        };
+
+        const validated = importSchema.safeParse(mappedRow);
+        if (!validated.success) { 
+            blockedJobs.push({ row, reason: "Dati obbligatori mancanti (PF, Codice o Qta)." }); 
+            continue; 
+        }
+        
         const { data: validData } = validated;
         const articleCode = validData.details.toUpperCase().trim();
         const articleData = articlesMap.get(articleCode);
-        if (!articleData) { blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica.` }); continue; }
+        
+        if (!articleData) { 
+            blockedJobs.push({ row, reason: `Articolo "${articleCode}" non trovato in Anagrafica.` }); 
+            continue; 
+        }
         
         const sanitizedId = sanitizeDocumentId(validData.ordinePF);
         const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
 
         if (docSnap.exists()) {
-            // SPOSTA I DUPLICATI NELLE BLOCCATE
             blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
             continue;
         }
@@ -193,7 +241,7 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
     data.jobsToUpdate.forEach(j => batch.set(doc(db, "jobOrders", j.id), j, { merge: true }));
     await batch.commit();
     revalidatePath('/admin/data-management');
-    return { success: true, message: 'Completato.' };
+    return { success: true, message: 'Caricamento completato.' };
 }
 
 export async function updateJobOrderDeliveryDate(jobId: string, newDate: string) {
