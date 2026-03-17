@@ -178,12 +178,12 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
     return { success: true, message: `${updates.length} articoli aggiornati.` };
 }
 
-export async function saveArticlePhaseTimes(articleId: string, phaseTimes: Record<string, ArticlePhaseTime>, workCycleId: string) {
+export async function saveArticleStandardTimes(articleId: string, data: Partial<Article>) {
     const articleRef = doc(db, 'articles', articleId);
     try {
-        await setDoc(articleRef, { phaseTimes, workCycleId }, { merge: true });
+        await setDoc(articleRef, data, { merge: true });
         revalidatePath('/admin/article-management');
-        return { success: true, message: 'Tempi e Ciclo aggiornati con successo.' };
+        return { success: true, message: 'Standard Tempi e Cicli aggiornati con successo.' };
     } catch (e) {
         return { success: false, message: 'Errore durante il salvataggio.' };
     }

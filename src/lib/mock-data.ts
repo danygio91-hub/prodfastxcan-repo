@@ -206,6 +206,7 @@ export interface Article {
   code: string;
   billOfMaterials: BillOfMaterialsItem[];
   phaseTimes?: Record<string, ArticlePhaseTime>;
+  phaseTimesSecondary?: Record<string, ArticlePhaseTime>;
   workCycleId?: string; // Predefinito
   secondaryWorkCycleId?: string; // Secondario
   expectedMinutesDefault?: number; // Tempo previsto totale ciclo predefinito
