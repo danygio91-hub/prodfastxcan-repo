@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
   FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info, RefreshCw, GitMerge
+  CheckCircle2, AlertTriangle, Info, RefreshCw
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
 import { format, parseISO, isValid, isBefore } from 'date-fns';
@@ -468,7 +468,7 @@ export default function DataManagementClientPage({
           <Tabs defaultValue="valid" className="mt-4">
             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0})</TabsTrigger><TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger></TabsList>
             <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead></TableRow></TableHeader><TableBody>{importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
-            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableRow></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
+            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
           </Tabs>
           <DialogFooter className="mt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla</Button><Button onClick={() => { if(!importReport) return; commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: [] }).then(r => { toast({ title: r.message }); setImportReport(null); router.refresh(); }); }} disabled={!importReport?.newJobs.length}>Carica Valide</Button></DialogFooter>
         </DialogContent>
