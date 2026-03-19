@@ -34,6 +34,7 @@ export async function saveCalendarException(data: Omit<CalendarException, 'id' |
     
     const fullData = {
       ...data,
+      id: newId,
       createdAt: Timestamp.now(),
       createdBy: uid,
     };
