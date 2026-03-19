@@ -454,7 +454,7 @@ export default function DataManagementClientPage({
             } catch (e) { toast({ variant: "destructive", title: "Errore Import" }); }
             finally { setIsImporting(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
           }} accept=".xlsx, .xls" className="hidden" />
-          <Button onClick={handleRefreshMRP} variant="outline" disabled={isRefreshingMRP}>
+          <Button handleRefreshMRP variant="outline" onClick={handleRefreshMRP} disabled={isRefreshingMRP}>
             {isRefreshingMRP ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Aggiorna MRP
           </Button>
