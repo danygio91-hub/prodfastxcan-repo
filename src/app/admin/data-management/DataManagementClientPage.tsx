@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -402,7 +401,7 @@ export default function DataManagementClientPage({
       for (let i = 0; i < pageElements.length; i++) {
         const page = pageElements[i] as HTMLElement;
         const canvas = await html2canvas(page, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-        const imgData = canvas.toVDataURL('image/png', 1.0);
+        const imgData = canvas.toDataURL('image/png', 1.0);
         if (i > 0) pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
       }
