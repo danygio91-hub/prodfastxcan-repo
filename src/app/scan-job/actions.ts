@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -5,6 +6,7 @@ import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, wher
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
+import { ensureAdmin } from '@/lib/server-auth';
 
 export { dissolveWorkGroup };
 
@@ -15,6 +17,43 @@ function convertTimestampsToDates(obj: any): any {
     const newObj: { [key: string]: any } = {};
     for (const key in obj) { newObj[key] = convertTimestampsToDates(obj[key]); }
     return newObj;
+}
+
+export async function resolveJobProblem(jobId: string, uid: string): Promise<{ success: boolean; message: string }> {
+    try {
+        await ensureAdmin(uid);
+        const isGroup = jobId.startsWith('group-');
+        const itemRef = doc(db, isGroup ? "workGroups" : "jobOrders", jobId);
+        
+        await updateDoc(itemRef, {
+            isProblemReported: false,
+            problemType: deleteField(),
+            problemNotes: deleteField(),
+            problemReportedBy: deleteField()
+        });
+
+        if (isGroup) {
+            const gSnap = await getDoc(itemRef);
+            if (gSnap.exists()) {
+                const gData = gSnap.data() as WorkGroup;
+                const batch = writeBatch(db);
+                (gData.jobOrderIds || []).forEach(id => {
+                    batch.update(doc(db, "jobOrders", id), {
+                        isProblemReported: false,
+                        problemType: deleteField(),
+                        problemNotes: deleteField(),
+                        problemReportedBy: deleteField()
+                    });
+                });
+                await batch.commit();
+            }
+        }
+
+        revalidatePath('/admin/production-console');
+        return { success: true, message: "Problema segnato come risolto." };
+    } catch (e) {
+        return { success: false, message: "Errore durante la risoluzione del problema." };
+    }
 }
 
 export async function getRawMaterialByCode(code: string | undefined): Promise<RawMaterial | { error: string; title?: string }> {

@@ -160,7 +160,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
     });
     
     for (const row of data) {
-        // MAPPATURA TESTATE EXCEL -> CAMPI INTERNI
         let rawDate = row['Data Consegna'] || row['dataConsegnaFinale'];
         let dateStr = '';
         if (rawDate instanceof Date) {
@@ -208,7 +207,6 @@ export async function processAndValidateImport(data: any[]): Promise<{
             continue;
         }
 
-        // LOGICA CICLO PREDEFINITO: Se non specificato nell'excel, usa quello dell'articolo
         let workCycleId = '';
         if (validData.workCycleName) {
             workCycleId = cyclesMap.get(validData.workCycleName.toUpperCase().trim())?.id || '';

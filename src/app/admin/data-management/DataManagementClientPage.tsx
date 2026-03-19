@@ -57,6 +57,12 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 } | null;
 
+const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sortKey: keyof JobOrder | 'reparto_codice', sortConfig: SortConfig, onSort: (key: any) => void }) => (
+  <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => onSort(sortKey)}>
+    <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
+  </TableHead>
+);
+
 const JobTableRows = ({
   data, departments, workCycles, articles, rawMaterials, mrpTimelines,
   selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf
@@ -182,12 +188,6 @@ const JobTableRows = ({
     </>
   );
 };
-
-const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sortKey: keyof JobOrder | 'reparto_codice', sortConfig: SortConfig, onSort: (key: any) => void }) => (
-  <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => onSort(sortKey)}>
-    <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
-  </TableHead>
-);
 
 export default function DataManagementClientPage({
   initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
