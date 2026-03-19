@@ -41,16 +41,11 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
   const [isUpdating, setIsUpdating] = useState(false);
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>([]);
   
-  // View states
   const [activeView, setActiveView] = useState<'default' | 'secondary'>('default');
-  
-  // Data states
   const [primaryCycleId, setPrimaryCycleId] = useState<string>('manual');
   const [secondaryCycleId, setSecondaryCycleId] = useState<string>('manual');
-  
   const [expectedTotalDefault, setExpectedTotalDefault] = useState<number>(0);
   const [expectedTotalSecondary, setExpectedTotalSecondary] = useState<number>(0);
-
   const [localPhaseTimesDefault, setLocalPhaseTimesDefault] = useState<Record<string, ArticlePhaseTime>>({});
   const [localPhaseTimesSecondary, setLocalPhaseTimesSecondary] = useState<Record<string, ArticlePhaseTime>>({});
 
@@ -60,10 +55,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         if (article) {
             setPrimaryCycleId(article.workCycleId || 'manual');
             setSecondaryCycleId(article.secondaryWorkCycleId || 'manual');
-            
             setExpectedTotalDefault(article.expectedMinutesDefault || 0);
             setExpectedTotalSecondary(article.expectedMinutesSecondary || 0);
-
             setLocalPhaseTimesDefault(article.phaseTimes || {});
             setLocalPhaseTimesSecondary(article.phaseTimesSecondary || {});
         }
@@ -382,7 +375,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             Salva Standard Tempi
           </Button>
         </DialogFooter>
-      </Dialog>
+      </DialogContent>
     </Dialog>
   );
 }

@@ -57,7 +57,142 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 } | null;
 
-interface DataManagementClientPageProps {
+// Sub-component for individual job rows to avoid syntax ambiguity and improve readability
+interface JobTableRowsProps {
+    data: JobOrder[];
+    departments: Department[];
+    workCycles: WorkCycle[];
+    articles: Article[];
+    rawMaterials: RawMaterial[];
+    mrpTimelines: Map<string, any[]>;
+    selectedRows: string[];
+    onToggleRow: (id: string, checked: boolean) => void;
+    onUpdateCycle: (id: string, cycleId: string) => void;
+    onUpdateDate: (id: string, date: Date | undefined) => void;
+    onDownloadPdf: (job: JobOrder) => void;
+    onAction: (id: string, type: 'start' | 'cancel') => void;
+    isDownloadingPdf: string | null;
+}
+
+const JobTableRows = ({ 
+    data, departments, workCycles, articles, rawMaterials, mrpTimelines, 
+    selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf 
+}: JobTableRowsProps) => (
+    <>
+      {data.map(j => {
+        const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
+        const isPlanned = j.status === 'planned';
+        let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
+
+        const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
+        const hasSecondaryCycle = article && article.secondaryWorkCycleId;
+
+        const stockStatus = (() => {
+            if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
+            const lines: string[] = [];
+            let ok = 0;
+            let totalCoveredByOrders = 0;
+            let earliestCoverDate: string | null = null;
+
+            j.billOfMaterials.forEach(item => {
+                const matCode = item.component.toUpperCase();
+                const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
+                if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
+                const required = calculateCommitmentQty(j.qta, item, mat);
+                const timeline = mrpTimelines.get(matCode) || [];
+                const jobEntry = timeline.find(entry => entry.jobId === j.id);
+                if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
+                const coverStatus = jobEntry.date;
+                if (coverStatus === 'IMMEDIATA') {
+                    lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
+                    ok++;
+                } else if (coverStatus === 'MAI') {
+                    lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+                } else {
+                    const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
+                    lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+                    totalCoveredByOrders++;
+                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
+                }
+            });
+
+            if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
+            if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
+                return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
+            }
+            return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
+        })();
+
+        const StockIcon = stockStatus.icon;
+
+        return (
+          <TableRow key={j.id}>
+            <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => onToggleRow(j.id, !!c)} /></TableCell>
+            <TableCell className="font-bold">{j.ordinePF}</TableCell>
+            <TableCell>{j.details}</TableCell>
+            <TableCell>{j.qta}</TableCell>
+            <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
+            <TableCell>
+              {isPlanned ? (
+                <div className="flex items-center gap-2">
+                    <Select onValueChange={cid => onUpdateCycle(j.id, cid)} value={j.workCycleId}>
+                    <SelectTrigger className={cn("w-[180px] h-8 text-xs", hasSecondaryCycle && "border-amber-500")}>
+                        <SelectValue placeholder="Seleziona..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {workCycles.map(c => {
+                            const isSecondary = c.id === article?.secondaryWorkCycleId;
+                            return (
+                                <SelectItem key={c.id} value={c.id} className="text-xs">
+                                    <div className="flex items-center gap-2">
+                                        {c.name}
+                                        {isSecondary && <Badge variant="outline" className="text-[8px] h-4 bg-amber-500/10">SEC</Badge>}
+                                    </div>
+                                </SelectItem>
+                            );
+                        })}
+                    </SelectContent>
+                    </Select>
+                    {hasSecondaryCycle && (
+                        <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
+                    )}
+                </div>
+              ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
+            </TableCell>
+            <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+            <TableCell>
+              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => onUpdateDate(j.id, d)} initialFocus />
+                </PopoverContent>
+              </Popover>
+            </TableCell>
+            <TableCell className="text-center">
+                <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                    <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
+                        <StockIcon className="h-5 w-5" />
+                    </div>
+                </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
+            </TableCell>
+            <TableCell className="text-right space-x-1">
+              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
+              {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
+            </TableCell>
+          </TableRow>
+        );
+      })}
+    </>
+);
+
+const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sortKey: keyof JobOrder | 'reparto_codice', sortConfig: SortConfig, onSort: (key: any) => void }) => (
+    <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => onSort(sortKey)}>
+        <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
+    </TableHead>
+);
+
+export default function DataManagementClientPage({
+    initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
+}: {
     initialPlanned: JobOrder[];
     initialProduction: JobOrder[];
     initialCycles: WorkCycle[];
@@ -66,11 +201,7 @@ interface DataManagementClientPageProps {
     initialMaterials: RawMaterial[];
     initialPurchaseOrders: PurchaseOrder[];
     initialManualCommitments: ManualCommitment[];
-}
-
-export default function DataManagementClientPage({
-    initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
-}: DataManagementClientPageProps) {
+}) {
   const router = useRouter();
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlanned);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProduction);
@@ -284,118 +415,28 @@ export default function DataManagementClientPage({
     finally { setIsDownloadingPdf(null); setPdfData(null); }
   };
 
-  const JobTableRows = ({ data }: { data: JobOrder[] }) => (
-    <>
-      {data.map(j => {
-        const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-        const isPlanned = j.status === 'planned';
-        let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
+  const handleToggleRow = (id: string, checked: boolean) => {
+      setSelectedRows(prev => checked ? [...prev, id] : prev.filter(rowId => rowId !== id));
+  };
 
-        const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
-        const hasSecondaryCycle = article && article.secondaryWorkCycleId;
+  const handleUpdateCycleLocal = async (jobId: string, cycleId: string) => {
+      const res = await updateJobOrderCycle(jobId, cycleId);
+      toast({ title: res.message });
+      router.refresh();
+  };
 
-        const stockStatus = (() => {
-            if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
-            const lines: string[] = [];
-            let ok = 0;
-            let totalCoveredByOrders = 0;
-            let earliestCoverDate: string | null = null;
+  const handleUpdateDateLocal = async (jobId: string, date: Date | undefined) => {
+      if (date) {
+          await updateJobOrderDeliveryDate(jobId, format(date, 'yyyy-MM-dd'));
+          router.refresh();
+      }
+  };
 
-            j.billOfMaterials.forEach(item => {
-                const matCode = item.component.toUpperCase();
-                const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
-                if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
-                const required = calculateCommitmentQty(j.qta, item, mat);
-                const timeline = mrpTimelines.get(matCode) || [];
-                const jobEntry = timeline.find(entry => entry.jobId === j.id);
-                if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
-                const coverStatus = jobEntry.date;
-                if (coverStatus === 'IMMEDIATA') {
-                    lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
-                    ok++;
-                } else if (coverStatus === 'MAI') {
-                    lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-                } else {
-                    const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
-                    lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-                    totalCoveredByOrders++;
-                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
-                }
-            });
-
-            if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
-            if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
-                return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
-            }
-            return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
-        })();
-
-        const StockIcon = stockStatus.icon;
-
-        return (
-          <TableRow key={j.id}>
-            <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
-            <TableCell className="font-bold">{j.ordinePF}</TableCell>
-            <TableCell>{j.details}</TableCell>
-            <TableCell>{j.qta}</TableCell>
-            <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
-            <TableCell>
-              {isPlanned ? (
-                <div className="flex items-center gap-2">
-                    <Select onValueChange={cid => updateJobOrderCycle(j.id, cid).then(res => { toast({ title: res.message }); router.refresh(); })} value={j.workCycleId}>
-                    <SelectTrigger className={cn("w-[180px] h-8 text-xs", hasSecondaryCycle && "border-amber-500")}>
-                        <SelectValue placeholder="Seleziona..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {workCycles.map(c => {
-                            const isSecondary = c.id === article?.secondaryWorkCycleId;
-                            return (
-                                <SelectItem key={c.id} value={c.id} className="text-xs">
-                                    <div className="flex items-center gap-2">
-                                        {c.name}
-                                        {isSecondary && <Badge variant="outline" className="text-[8px] h-4 bg-amber-500/10">SEC</Badge>}
-                                    </div>
-                                </SelectItem>
-                            );
-                        })}
-                    </SelectContent>
-                    </Select>
-                    {hasSecondaryCycle && (
-                        <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
-                    )}
-                </div>
-              ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
-            </TableCell>
-            <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
-            <TableCell>
-              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => d && updateJobOrderDeliveryDate(j.id, format(d, 'yyyy-MM-dd')).then(() => router.refresh())} initialFocus />
-                </PopoverContent>
-              </Popover>
-            </TableCell>
-            <TableCell className="text-center">
-                <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                    <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
-                        <StockIcon className="h-5 w-5" />
-                    </div>
-                </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
-            </TableCell>
-            <TableCell className="text-right space-x-1">
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => handleDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
-              {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => createODL(j.id).then(r => { toast({ title: r.message }); if(r.success) router.refresh(); })}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => cancelODL(j.id).then(r => { toast({ title: r.message }); router.refresh(); })}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
-            </TableCell>
-          </TableRow>
-        );
-      })}
-    </>
-  );
-
-  const SortHeader = ({ label, sortKey }: { label: string, sortKey: keyof JobOrder | 'reparto_codice' }) => (
-    <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => handleSort(sortKey)}>
-        <div className="flex items-center gap-1">{label}<ArrowUpDown className={cn("h-3 w-3", sortConfig?.key === sortKey ? "text-primary" : "text-muted-foreground opacity-50")} /></div>
-    </TableHead>
-  );
+  const handleActionLocal = async (id: string, type: 'start' | 'cancel') => {
+      const res = type === 'start' ? await createODL(id) : await cancelODL(id);
+      toast({ title: res.message });
+      router.refresh();
+  };
 
   return (
     <div className="space-y-6">
@@ -449,19 +490,33 @@ export default function DataManagementClientPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Articolo</TableHead>
                     <TableHead>Qta</TableHead>
-                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Ciclo</TableHead>
                     <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <JobTableRows data={filteredPlanned} />
+                  <JobTableRows 
+                    data={filteredPlanned} 
+                    departments={departments}
+                    workCycles={workCycles}
+                    articles={articles}
+                    rawMaterials={rawMaterials}
+                    mrpTimelines={mrpTimelines}
+                    selectedRows={selectedRows}
+                    onToggleRow={handleToggleRow}
+                    onUpdateCycle={handleUpdateCycleLocal}
+                    onUpdateDate={handleUpdateDateLocal}
+                    onDownloadPdf={handleDownloadPdf}
+                    onAction={handleActionLocal}
+                    isDownloadingPdf={isDownloadingPdf}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
@@ -479,19 +534,33 @@ export default function DataManagementClientPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
-                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Articolo</TableHead>
                     <TableHead>Qta</TableHead>
-                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead>Ciclo</TableHead>
                     <TableHead>N° ODL</TableHead>
-                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
                     <TableHead className="text-center">Stock</TableHead>
                     <TableHead className="text-right">Azioni</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <JobTableRows data={filteredProduction} />
+                  <JobTableRows 
+                    data={filteredProduction} 
+                    departments={departments}
+                    workCycles={workCycles}
+                    articles={articles}
+                    rawMaterials={rawMaterials}
+                    mrpTimelines={mrpTimelines}
+                    selectedRows={selectedRows}
+                    onToggleRow={handleToggleRow}
+                    onUpdateCycle={handleUpdateCycleLocal}
+                    onUpdateDate={handleUpdateDateLocal}
+                    onDownloadPdf={handleDownloadPdf}
+                    onAction={handleActionLocal}
+                    isDownloadingPdf={isDownloadingPdf}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
@@ -528,7 +597,7 @@ export default function DataManagementClientPage({
           <Tabs defaultValue="valid" className="mt-4">
             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0})</TabsTrigger><TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger></TabsList>
             <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead></TableRow></TableHeader><TableBody>{importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
-            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableRow></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
+            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableRow></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></ScrollArea></TabsContent>
           </Tabs>
           <DialogFooter className="mt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla</Button><Button onClick={() => { if(!importReport) return; commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: [] }).then(r => { toast({ title: r.message }); setImportReport(null); router.refresh(); }); }} disabled={!importReport?.newJobs.length}>Carica Valide</Button></DialogFooter>
         </DialogContent>
