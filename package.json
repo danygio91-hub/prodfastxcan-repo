@@ -67,6 +67,6 @@
     "eslint-config-next": "14.2.4"
   },
   "overrides": {
-    "magic-string": "0.30.17"
+    "magic-string": "0.30.10"
   }
 }
