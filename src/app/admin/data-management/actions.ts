@@ -211,7 +211,7 @@ export async function processAndValidateImport(data: any[]): Promise<{
         // LOGICA CICLO PREDEFINITO: Se non specificato nell'excel, usa quello dell'articolo
         let workCycleId = '';
         if (validData.workCycleName) {
-            workCycleId = cyclesMap.get(validData.workCycleName.toUpperCase().trim()) || '';
+            workCycleId = cyclesMap.get(validData.workCycleName.toUpperCase().trim())?.id || '';
         } else {
             workCycleId = articleData.workCycleId || '';
         }
