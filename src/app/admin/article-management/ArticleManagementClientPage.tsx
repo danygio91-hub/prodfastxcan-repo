@@ -360,8 +360,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                     <Card className="flex-1 border-destructive/20 bg-destructive/5">
                         <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-destructive">Errori (Bloccati)</CardTitle></CardHeader>
                         <CardContent className="text-2xl font-black text-destructive">{settingsReport?.invalidRows.length || 0}</CardContent>
-                    </Card>
-                </div>
+                    </div>
 
                 <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col">
                     <TabsList className="grid w-full grid-cols-2">

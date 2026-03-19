@@ -24,7 +24,7 @@ export async function getCalendarExceptions(): Promise<CalendarException[]> {
 
 /**
  * Saves a new calendar exception.
- * createdBy is omitted from the input because it's populated server-side from the auth UID.
+ * createdBy is populated server-side from the auth UID.
  */
 export async function saveCalendarException(data: Omit<CalendarException, 'id' | 'createdAt' | 'createdBy'>, uid: string) {
   try {
