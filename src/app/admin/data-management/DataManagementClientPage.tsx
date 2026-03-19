@@ -9,7 +9,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
   FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info, RefreshCw, FileDown as FileEdit
+  CheckCircle2, AlertTriangle, Info, RefreshCw, Save
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
 import { format, parseISO, isValid, isBefore } from 'date-fns';
@@ -82,7 +81,6 @@ export default function DataManagementClientPage({
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
   const [manualCommitments, setManualCommitments] = useState<ManualCommitment[]>(initialManualCommitments);
   
-  const [isLoading, setIsLoading] = useState(false);
   const [isRefreshingMRP, setIsRefreshingMRP] = useState(false);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -332,6 +330,8 @@ export default function DataManagementClientPage({
             return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
         })();
 
+        const StockIcon = stockStatus.icon;
+
         return (
           <TableRow key={j.id}>
             <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => setSelectedRows(prev => c ? [...prev, j.id] : prev.filter(id => id !== j.id))} /></TableCell>
@@ -377,7 +377,7 @@ export default function DataManagementClientPage({
             <TableCell className="text-center">
                 <TooltipProvider><Tooltip><TooltipTrigger asChild>
                     <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
-                        <stockStatus.icon className="h-5 w-5" />
+                        <StockIcon className="h-5 w-5" />
                     </div>
                 </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
             </TableCell>
@@ -528,7 +528,7 @@ export default function DataManagementClientPage({
           <Tabs defaultValue="valid" className="mt-4">
             <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="valid" className="text-green-600">PRONTE ({importReport?.newJobs.length || 0})</TabsTrigger><TabsTrigger value="blocked" className="text-destructive">BLOCCATE ({importReport?.blockedJobs.length || 0})</TabsTrigger></TabsList>
             <TabsContent value="valid" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Ordine PF</TableHead><TableHead>Articolo</TableHead></TableRow></TableHeader><TableBody>{importReport?.newJobs.map((j, i) => <TableRow key={i}><TableCell>{j.ordinePF}</TableCell><TableCell>{j.details}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
-            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
+            <TabsContent value="blocked" className="h-[400px] border rounded-md mt-2"><ScrollArea className="h-full p-4"><Table><TableHeader><TableRow><TableHead>Riga</TableHead><TableHead>Motivo</TableHead></TableRow></TableHeader><TableBody>{importReport?.blockedJobs.map((b, i) => <TableRow key={i} className="bg-destructive/5"><TableCell>{b.row.ordinePF || 'N/D'}</TableCell><TableCell className="text-destructive">{b.reason}</TableCell></TableRow>)}</TableBody></Table></ScrollArea></TabsContent>
           </Tabs>
           <DialogFooter className="mt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla</Button><Button onClick={() => { if(!importReport) return; commitImportedJobOrders({ newJobs: importReport.newJobs, jobsToUpdate: [] }).then(r => { toast({ title: r.message }); setImportReport(null); router.refresh(); }); }} disabled={!importReport?.newJobs.length}>Carica Valide</Button></DialogFooter>
         </DialogContent>

@@ -382,7 +382,7 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
             Salva Standard Tempi
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

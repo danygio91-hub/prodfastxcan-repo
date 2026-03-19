@@ -2,11 +2,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp, where } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { CalendarException, WorkingHoursConfig, Operator } from '@/lib/mock-data';
+import type { CalendarException } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, isSameDay } from 'date-fns';
+import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getWorkingHoursConfig } from '../working-hours/actions';
 import { getOperators } from '../operator-management/actions';
@@ -81,7 +81,6 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
         getCalendarExceptions()
     ]);
 
-    // Calculate standard daily capacity from config
     let dailyStandardMinutes = 0;
     config.shifts.forEach(shift => {
         const [startH, startM] = shift.startTime.split(':').map(Number);
@@ -94,12 +93,12 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
     const dailyEffectiveHours = (dailyStandardMinutes / 60) * efficiencyFactor;
 
     const report: OperatorCapacity[] = operators
-        .filter(op => op.role !== 'admin' && op.isReal !== false) // Filter only REAL workers
+        .filter(op => op.role !== 'admin' && op.isReal !== false)
         .map(op => {
             let totalWeeklyHours = 0;
             const dailyCapacities: DailyCapacity[] = daysInWeek.map(day => {
                 const dateStr = format(day, 'yyyy-MM-dd');
-                const dayOfWeek = day.getDay() === 0 ? 7 : day.getDay(); // Sunday is 0, map to 7
+                const dayOfWeek = day.getDay() === 0 ? 7 : day.getDay();
                 const isWorkingDay = config.workingDays.includes(dayOfWeek);
                 
                 const dayExceptions = exceptions.filter(ex => 
@@ -112,12 +111,10 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
 
                 let effectiveHours = isWorkingDay ? dailyEffectiveHours : 0;
                 
-                // Subtract exception time
                 dayExceptions.forEach(ex => {
                     if (ex.hoursLost !== undefined && ex.hoursLost !== null) {
                         effectiveHours = Math.max(0, effectiveHours - ex.hoursLost);
                     } else {
-                        // Full day exception
                         effectiveHours = 0;
                     }
                 });

@@ -239,7 +239,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
               <ClipboardList className="h-8 w-8 text-primary" />
               Anagrafica Articoli
             </h1>
-            <p className="text-muted-foreground mt-1">Visualizza e gestisci la distinta base e i tempi standard per ogni articolo.</p>
+            <p className="text-muted-foreground mt-1">Gestisci la distinta base e i tempi standard per ogni articolo.</p>
           </div>
           <div className="flex items-center gap-2 pt-2 w-full sm:w-auto flex-wrap">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
@@ -331,7 +331,6 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         />
       )}
 
-      {/* Dialog Analisi Importazione DB (Distinte) */}
       <Dialog open={!!importReport} onOpenChange={(o) => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
             <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-6 w-6 text-primary" /> Analisi Importazione Distinte</DialogTitle></DialogHeader>
@@ -345,11 +344,10 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                 <TabsContent value="update" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><Table><TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableRow></TableHeader><TableBody>{importReport?.updatedArticles.map((art, idx) => (<TableRow key={idx} className="bg-blue-500/5"><TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell><TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell></TableRow>))}</TableBody></Table></ScrollArea></TabsContent>
                 <TabsContent value="errors" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><div className="space-y-4">{importReport?.invalidArticles.map((item, idx) => (<div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5"><p className="font-bold text-destructive">{item.code}</p><ul className="text-xs mt-1">{item.errors.map((err, eIdx) => <li key={eIdx}>• {err}</li>)}</ul></div>))}</div></ScrollArea></TabsContent>
             </Tabs>
-            <DialogFooter className="mt-6 border-t pt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button><Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700">{isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}Conferma Caricamento ({(importReport?.newArticles.length || 0) + (importReport?.updatedArticles.length || 0)})</Button></DialogFooter>
+            <DialogFooter className="mt-6 border-t pt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button><Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700">{isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}Conferma Caricamento</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Analisi Importazione Impostazioni (Cicli/Tempi) */}
       <Dialog open={!!settingsReport} onOpenChange={(o) => !o && setSettingsReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
             <DialogHeader><DialogTitle className="flex items-center gap-2"><FileEdit className="h-6 w-6 text-amber-500" /> Analisi Aggiornamento Cicli/Tempi</DialogTitle></DialogHeader>

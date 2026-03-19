@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,17 +12,13 @@ import {
   CalendarDays, 
   PlusCircle, 
   Trash2, 
-  UserMinus, 
   Settings2, 
   Stethoscope, 
   Plane, 
   Clock, 
   Loader2, 
-  AlertTriangle,
-  MonitorOff,
   User,
   Settings,
-  Zap,
   ChevronLeft,
   ChevronRight,
   TrendingUp
@@ -199,7 +195,7 @@ export default function AttendanceCalendarPage() {
                                 <TrendingUp className="h-5 w-5 text-primary" />
                                 Capacità Operativa Settimanale
                             </CardTitle>
-                            <CardDescription>Ore disponibili effettive per operatore (già scontate di efficienza ed eccezioni).</CardDescription>
+                            <CardDescription>Ore disponibili effettive per operatore.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
                             <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => subWeeks(prev, 1))}><ChevronLeft className="h-4 w-4" /></Button>
@@ -239,13 +235,6 @@ export default function AttendanceCalendarPage() {
                                                         day.effectiveHours > 0 && day.effectiveHours < day.standardHours && "bg-amber-500/5 text-amber-600"
                                                     )}>
                                                         <div className="text-sm font-bold">{day.effectiveHours.toFixed(2)}h</div>
-                                                        {day.exceptions.length > 0 && (
-                                                            <div className="flex justify-center gap-0.5 mt-1">
-                                                                {day.exceptions.map(ex => (
-                                                                    <div key={ex.id} className="w-1.5 h-1.5 rounded-full bg-current opacity-50" title={ex.exceptionType}></div>
-                                                                ))}
-                                                            </div>
-                                                        )}
                                                     </TableCell>
                                                 ))}
                                                 <TableCell className="text-right font-bold border-l bg-primary/5 text-primary">
