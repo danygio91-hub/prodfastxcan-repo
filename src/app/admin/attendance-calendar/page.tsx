@@ -378,6 +378,6 @@ export default function AttendanceCalendarPage() {
           </DialogContent>
         </Dialog>
       </AppShell>
-    </AuthGuard>
+    </AdminAuthGuard>
   );
 }

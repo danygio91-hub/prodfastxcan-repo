@@ -64,6 +64,31 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
 
     const currentPhaseTimes = activeView === 'default' ? localPhaseTimesDefault : localPhaseTimesSecondary;
 
+    const stats = useMemo(() => {
+        let totalExpected = 0;
+        let totalDetected = 0;
+        let expectedCompleteCount = 0;
+        let enabledCount = 0;
+
+        phaseTemplates.forEach(t => {
+            const data = currentPhaseTimes[t.id];
+            const isEnabled = data ? data.enabled !== false : false;
+            if (isEnabled) {
+                enabledCount++;
+                const expected = data?.expectedMinutesPerPiece || 0;
+                totalExpected += expected;
+                totalDetected += (data?.detectedMinutesPerPiece || 0);
+                if (expected > 0) expectedCompleteCount++;
+            }
+        });
+
+        return {
+            totalExpected,
+            totalDetected,
+            isExpectedComplete: enabledCount > 0 && expectedCompleteCount === enabledCount,
+        };
+    }, [phaseTemplates, currentPhaseTimes]);
+
     const handleUpdateTimes = async () => {
         if (!article) return;
         setIsUpdating(true);
@@ -140,33 +165,6 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         }
     };
 
-    const sortedTemplates = useMemo(() => [...phaseTemplates].sort((a, b) => a.sequence - b.sequence), [phaseTemplates]);
-
-    const stats = useMemo(() => {
-        let totalExpected = 0;
-        let totalDetected = 0;
-        let expectedCompleteCount = 0;
-        let enabledCount = 0;
-
-        sortedTemplates.forEach(t => {
-            const data = currentPhaseTimes[t.id];
-            const isEnabled = data ? data.enabled !== false : false;
-            if (isEnabled) {
-                enabledCount++;
-                const expected = data?.expectedMinutesPerPiece || 0;
-                totalExpected += expected;
-                totalDetected += (data?.detectedMinutesPerPiece || 0);
-                if (expected > 0) expectedCompleteCount++;
-            }
-        });
-
-        return {
-            totalExpected,
-            totalDetected,
-            isExpectedComplete: enabledCount > 0 && expectedCompleteCount === enabledCount,
-        };
-    }, [sortedTemplates, currentPhaseTimes]);
-
     const handleSave = async () => {
         if (!article) return;
         setIsPending(true);
@@ -185,6 +183,8 @@ export default function ArticleTimesDialog({ isOpen, onClose, article, phaseTemp
         if (result.success) onClose(true);
         setIsPending(false);
     };
+
+    const sortedTemplates = [...phaseTemplates].sort((a, b) => a.sequence - b.sequence);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

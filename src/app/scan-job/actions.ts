@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, where, updateDoc, orderBy, limit, runTransaction, Timestamp, deleteField } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, where, updateDoc, orderBy, limit, runTransaction, Timestamp, deleteField, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
@@ -248,4 +248,48 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         return { material: mSnap.exists() ? { ...mSnap.data(), id: mSnap.id } : null, netWeight: rec.netWeight, packagingId: rec.packagingId };
     }
     return null;
+}
+
+export async function createWorkGroup(jobIds: string[], creatorId: string) {
+    try {
+        const batch = writeBatch(db);
+        const newGroupId = `group-${Date.now()}`;
+        const groupRef = doc(db, "workGroups", newGroupId);
+        
+        const jobSnaps = await Promise.all(jobIds.map(id => getDoc(doc(db, "jobOrders", id))));
+        const jobs = jobSnaps.map(s => ({ ...s.data(), id: s.id } as JobOrder));
+        
+        const firstJob = jobs[0];
+        if (!firstJob) throw new Error("Nessuna commessa valida.");
+
+        const totalQty = jobs.reduce((sum, j) => sum + j.qta, 0);
+        const jobPFs = jobs.map(j => j.ordinePF);
+        
+        const newGroup: any = {
+            id: newGroupId,
+            jobOrderIds: jobIds,
+            jobOrderPFs: jobPFs,
+            status: 'production',
+            createdAt: Timestamp.now(),
+            createdBy: creatorId,
+            totalQuantity: totalQty,
+            workCycleId: firstJob.workCycleId || '',
+            department: firstJob.department,
+            cliente: firstJob.cliente,
+            details: firstJob.details,
+            phases: firstJob.phases.map(p => ({ ...p, status: 'pending', workPeriods: [], materialConsumptions: [] })),
+            numeroODLInterno: firstJob.numeroODLInterno || null,
+            dataConsegnaFinale: firstJob.dataConsegnaFinale || '',
+        };
+
+        batch.set(groupRef, newGroup);
+        jobIds.forEach(id => batch.update(doc(db, "jobOrders", id), { workGroupId: newGroupId }));
+        
+        await batch.commit();
+        revalidatePath('/admin/work-group-management');
+        revalidatePath('/admin/production-console');
+        return { success: true, workGroupId: newGroupId };
+    } catch (e) {
+        return { success: false, message: e instanceof Error ? e.message : "Errore creazione gruppo." };
+    }
 }

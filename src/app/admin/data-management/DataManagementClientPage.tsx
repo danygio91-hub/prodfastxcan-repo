@@ -19,11 +19,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
-  FileDown, PlusCircle, ChevronsUpDown, ArrowUpDown, Calendar as CalendarIcon,
+  FileDown, PlusCircle, ArrowUpDown, Calendar as CalendarIcon,
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
-import { format, parseISO, isValid, isBefore } from 'date-fns';
+import { format, parseISO, isBefore } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,
@@ -402,7 +402,7 @@ export default function DataManagementClientPage({
       for (let i = 0; i < pageElements.length; i++) {
         const page = pageElements[i] as HTMLElement;
         const canvas = await html2canvas(page, { scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-        const imgData = canvas.toDataURL('image/png', 1.0);
+        const imgData = canvas.toVDataURL('image/png', 1.0);
         if (i > 0) pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, 0, 297, 210, undefined, 'FAST');
       }
@@ -576,7 +576,7 @@ export default function DataManagementClientPage({
               <FormField control={manualForm.control} name="ordinePF" render={({ field }) => (<FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
             </div>
             <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
-              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca..." /><CommandList><CommandEmpty>No Articolo.</CommandEmpty><CommandGroup>{articles.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
+              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca..." /><CommandList><CommandEmpty>No Articolo.</CommandEmpty><CommandGroup>{articles.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
             )} />
             <div className="grid grid-cols-2 gap-4">
               <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />
