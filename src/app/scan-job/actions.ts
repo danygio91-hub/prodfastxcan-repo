@@ -106,7 +106,7 @@ function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
         if (curr.requiresMaterialAssociation || curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
         if (!allPrepDone) { curr.materialReady = false; continue; }
         let prev: JobPhase | null = null;
-        for (let j = i - 1; j >= 0; j--) { if (!sorted[j].isIndependent) { prev = sorted[j]; break; } }
+        for (let i_prev = i - 1; i_prev >= 0; i_prev--) { if (!sorted[i_prev].isIndependent) { prev = sorted[i_prev]; break; } }
         if (!prev) curr.materialReady = true;
         else curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
     }

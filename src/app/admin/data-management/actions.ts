@@ -208,7 +208,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
 
         let workCycleId = '';
         if (validData.workCycleName) {
-            workCycleId = cyclesMap.get(validData.workCycleName.toUpperCase().trim())?.id || '';
+            const foundCycle = cyclesMap.get(validData.workCycleName.toUpperCase().trim());
+            workCycleId = foundCycle ? foundCycle.id : '';
         } else {
             workCycleId = articleData.workCycleId || '';
         }
