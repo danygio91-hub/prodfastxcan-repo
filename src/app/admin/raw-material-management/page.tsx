@@ -24,7 +24,7 @@ export default async function AdminRawMaterialManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento gestione materiali...</p>
           </div>
         }>
-          <RawMaterialManagementClientPage 
+          <RawMaterialManagementClientPage
             initialDepartments={departments}
             initialArticles={articles}
             initialCommitments={manualCommitments}
