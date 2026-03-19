@@ -1,10 +1,9 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { CalendarException, WorkingHoursConfig } from '@/lib/mock-data';
+import type { CalendarException } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { it } from 'date-fns/locale';

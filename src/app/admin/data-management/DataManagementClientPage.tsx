@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -19,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import {
   ListChecks, Upload, Loader2, Trash2, Briefcase, PlayCircle, Search, XCircle,
-  FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
+  FileDown, PlusCircle, ChevronsUpDown, ArrowUpDown, Calendar as CalendarIcon,
   CheckCircle2, AlertTriangle, Info, RefreshCw, Save
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';

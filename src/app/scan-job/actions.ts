@@ -1,8 +1,7 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, where, updateDoc, orderBy, limit, runTransaction, Timestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, where, updateDoc, orderBy, limit, runTransaction, Timestamp, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
@@ -187,10 +186,6 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 withdrawalDate: Timestamp.now(),
                 lotto: session.lotto || null,
             });
-            
-            // Note: the actual clearing of the session in the Job document is omitted for simplicity 
-            // as it would require iterating over multiple jobs. The system treats the withdrawal record 
-            // as the source of truth for completion.
         });
         return { success: true, message: "Sessione chiusa e magazzino aggiornato." };
     } catch (e) {
