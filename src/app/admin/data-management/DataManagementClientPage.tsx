@@ -21,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
   ListChecks, Upload, Loader2, Download, Trash2, Briefcase, PlayCircle, Search, XCircle, 
   FileDown, PlusCircle, Check, ChevronsUpDown, Factory, ArrowUpDown, Calendar as CalendarIcon,
-  CheckCircle2, AlertTriangle, Info, RefreshCw
+  CheckCircle2, AlertTriangle, Info, RefreshCw, FileDown as FileEdit
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
 import { format, parseISO, isValid, isBefore } from 'date-fns';
@@ -431,10 +431,72 @@ export default function DataManagementClientPage({
           <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
           <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
         </TabsList>
-        <TabsContent value="planned"><Card><CardHeader className="flex flex-row items-center justify-between space-y-0"><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} /></div>
-              {selectedRows.length > 0 && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ({selectedRows.length})</Button><Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina</Button></div>}
-            </CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><SortHeader label="Reparto" sortKey="reparto_codice" /><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredPlanned} /></TableBody></Table></CardContent></Card></TabsContent>
-        <TabsContent value="production"><Card><CardHeader><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} /></div></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead><SortHeader label="Ordine PF" sortKey="ordinePF" /><TableHead>Articolo</TableHead><TableHead>Qta</TableHead><SortHeader label="Reparto" sortKey="reparto_codice" /><TableHead>Ciclo</TableHead><TableHead>N° ODL</TableHead><SortHeader label="Consegna" sortKey="dataConsegnaFinale" /><TableHead className="text-center">Stock</TableHead><TableHead className="text-right">Azioni</TableHead></TableRow></TableHeader><TableBody><JobTableRows data={filteredProduction} /></TableBody></Table></CardContent></Card></TabsContent>
+        <TabsContent value="planned">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={plannedSearchTerm} onChange={e => setPlannedSearchTerm(e.target.value)} />
+              </div>
+              {selectedRows.length > 0 && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { const r = await createMultipleODLs(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><PlayCircle className="mr-2 h-4 w-4"/> Avvia ({selectedRows.length})</Button>
+                  <Button size="sm" variant="destructive" onClick={async () => { const r = await deleteSelectedJobOrders(selectedRows); toast({ title: r.message }); router.refresh(); setSelectedRows([]); }}><Trash2 className="mr-2 h-4 w-4"/> Elimina</Button>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredPlanned.length && filteredPlanned.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredPlanned.map(j => j.id) : [])} /></TableHead>
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <TableHead>Articolo</TableHead>
+                    <TableHead>Qta</TableHead>
+                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <TableHead>Ciclo</TableHead>
+                    <TableHead>N° ODL</TableHead>
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
+                    <TableHead className="text-center">Stock</TableHead>
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <JobTableRows data={filteredPlanned} />
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="production">
+          <Card>
+            <CardHeader>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={productionSearchTerm} onChange={e => setProductionSearchTerm(e.target.value)} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredProduction.length && filteredProduction.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredProduction.map(j => j.id) : [])} /></TableHead>
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" />
+                    <TableHead>Articolo</TableHead>
+                    <TableHead>Qta</TableHead>
+                    <SortHeader label="Reparto" sortKey="reparto_codice" />
+                    <TableHead>Ciclo</TableHead>
+                    <TableHead>N° ODL</TableHead>
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" />
+                    <TableHead className="text-center">Stock</TableHead>
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <JobTableRows data={filteredProduction} />
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
