@@ -57,7 +57,6 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 } | null;
 
-// Sub-component for individual job rows to avoid syntax ambiguity and improve readability
 interface JobTableRowsProps {
     data: JobOrder[];
     departments: Department[];
@@ -77,112 +76,114 @@ interface JobTableRowsProps {
 const JobTableRows = ({ 
     data, departments, workCycles, articles, rawMaterials, mrpTimelines, 
     selectedRows, onToggleRow, onUpdateCycle, onUpdateDate, onDownloadPdf, onAction, isDownloadingPdf 
-}: JobTableRowsProps) => (
-    <>
-      {data.map(j => {
-        const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
-        const isPlanned = j.status === 'planned';
-        let displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
+}: JobTableRowsProps) => {
+    return (
+        <>
+          {data.map(j => {
+            const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
+            const isPlanned = j.status === 'planned';
+            const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
 
-        const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
-        const hasSecondaryCycle = article && article.secondaryWorkCycleId;
+            const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
+            const hasSecondaryCycle = article && article.secondaryWorkCycleId;
 
-        const stockStatus = (() => {
-            if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
-            const lines: string[] = [];
-            let ok = 0;
-            let totalCoveredByOrders = 0;
-            let earliestCoverDate: string | null = null;
+            const stockStatus = (() => {
+                if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
+                const lines: string[] = [];
+                let ok = 0;
+                let totalCoveredByOrders = 0;
+                let earliestCoverDate: string | null = null;
 
-            j.billOfMaterials.forEach(item => {
-                const matCode = item.component.toUpperCase();
-                const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
-                if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
-                const required = calculateCommitmentQty(j.qta, item, mat);
-                const timeline = mrpTimelines.get(matCode) || [];
-                const jobEntry = timeline.find(entry => entry.jobId === j.id);
-                if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
-                const coverStatus = jobEntry.date;
-                if (coverStatus === 'IMMEDIATA') {
-                    lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
-                    ok++;
-                } else if (coverStatus === 'MAI') {
-                    lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-                } else {
-                    const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
-                    lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
-                    totalCoveredByOrders++;
-                    if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
+                j.billOfMaterials.forEach(item => {
+                    const matCode = item.component.toUpperCase();
+                    const mat = rawMaterials.find(m => m.code.toUpperCase() === matCode);
+                    if (!mat) { lines.push(`❌ ${item.component}: Non in anagrafica`); return; }
+                    const required = calculateCommitmentQty(j.qta, item, mat);
+                    const timeline = mrpTimelines.get(matCode) || [];
+                    const jobEntry = timeline.find(entry => entry.jobId === j.id);
+                    if (!jobEntry) { lines.push(`✅ ${item.component}: Disponibile`); ok++; return; }
+                    const coverStatus = jobEntry.date;
+                    if (coverStatus === 'IMMEDIATA') {
+                        lines.push(`✅ ${item.component}: Disponibile Stock (${formatDisplayStock(mat.currentStockUnits, mat.unitOfMeasure)})`);
+                        ok++;
+                    } else if (coverStatus === 'MAI') {
+                        lines.push(`❌ ${item.component}: Mancante e NON ordinato (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+                    } else {
+                        const poDate = format(parseISO(coverStatus), 'dd/MM/yy');
+                        lines.push(`⚠️ ${item.component}: In arrivo il ${poDate} (Fabb: ${formatDisplayStock(required, mat.unitOfMeasure)})`);
+                        totalCoveredByOrders++;
+                        if (!earliestCoverDate || isBefore(parseISO(coverStatus), parseISO(earliestCoverDate))) earliestCoverDate = coverStatus;
+                    }
+                });
+
+                if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
+                if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
+                    return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
                 }
-            });
+                return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
+            })();
 
-            if (ok === j.billOfMaterials.length) return { color: 'text-green-500', icon: CheckCircle2, label: 'Disponibile', details: lines };
-            if (totalCoveredByOrders > 0 && (ok + totalCoveredByOrders === j.billOfMaterials.length)) {
-                return { color: 'text-yellow-500', icon: AlertTriangle, label: `In arrivo dal ${format(parseISO(earliestCoverDate!), 'dd/MM/yy')}`, details: lines };
-            }
-            return { color: 'text-red-500', icon: XCircle, label: 'Materiale Mancante', details: lines };
-        })();
+            const StockIcon = stockStatus.icon;
 
-        const StockIcon = stockStatus.icon;
-
-        return (
-          <TableRow key={j.id}>
-            <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => onToggleRow(j.id, !!c)} /></TableCell>
-            <TableCell className="font-bold">{j.ordinePF}</TableCell>
-            <TableCell>{j.details}</TableCell>
-            <TableCell>{j.qta}</TableCell>
-            <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
-            <TableCell>
-              {isPlanned ? (
-                <div className="flex items-center gap-2">
-                    <Select onValueChange={cid => onUpdateCycle(j.id, cid)} value={j.workCycleId}>
-                    <SelectTrigger className={cn("w-[180px] h-8 text-xs", hasSecondaryCycle && "border-amber-500")}>
-                        <SelectValue placeholder="Seleziona..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {workCycles.map(c => {
-                            const isSecondary = c.id === article?.secondaryWorkCycleId;
-                            return (
-                                <SelectItem key={c.id} value={c.id} className="text-xs">
-                                    <div className="flex items-center gap-2">
-                                        {c.name}
-                                        {isSecondary && <Badge variant="outline" className="text-[8px] h-4 bg-amber-500/10">SEC</Badge>}
-                                    </div>
-                                </SelectItem>
-                            );
-                        })}
-                    </SelectContent>
-                    </Select>
-                    {hasSecondaryCycle && (
-                        <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
-                    )}
-                </div>
-              ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
-            </TableCell>
-            <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
-            <TableCell>
-              <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => onUpdateDate(j.id, d)} initialFocus />
-                </PopoverContent>
-              </Popover>
-            </TableCell>
-            <TableCell className="text-center">
-                <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                    <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
-                        <StockIcon className="h-5 w-5" />
+            return (
+              <TableRow key={j.id}>
+                <TableCell padding="checkbox"><Checkbox checked={selectedRows.includes(j.id)} onCheckedChange={c => onToggleRow(j.id, !!c)} /></TableCell>
+                <TableCell className="font-bold">{j.ordinePF}</TableCell>
+                <TableCell>{j.details}</TableCell>
+                <TableCell>{j.qta}</TableCell>
+                <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
+                <TableCell>
+                  {isPlanned ? (
+                    <div className="flex items-center gap-2">
+                        <Select onValueChange={cid => onUpdateCycle(j.id, cid)} value={j.workCycleId}>
+                        <SelectTrigger className={cn("w-[180px] h-8 text-xs", hasSecondaryCycle && "border-amber-500")}>
+                            <SelectValue placeholder="Seleziona..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {workCycles.map(c => {
+                                const isSecondary = c.id === article?.secondaryWorkCycleId;
+                                return (
+                                    <SelectItem key={c.id} value={c.id} className="text-xs">
+                                        <div className="flex items-center gap-2">
+                                            {c.name}
+                                            {isSecondary && <Badge variant="outline" className="text-[8px] h-4 bg-amber-500/10">SEC</Badge>}
+                                        </div>
+                                    </SelectItem>
+                                );
+                            })}
+                        </SelectContent>
+                        </Select>
+                        {hasSecondaryCycle && (
+                            <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
+                        )}
                     </div>
-                </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
-            </TableCell>
-            <TableCell className="text-right space-x-1">
-              <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
-              {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
-            </TableCell>
-          </TableRow>
-        );
-      })}
-    </>
-);
+                  ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
+                </TableCell>
+                <TableCell className="font-mono text-xs">{j.numeroODLInterno || '-'}</TableCell>
+                <TableCell>
+                  <Popover><PopoverTrigger asChild><Button variant="outline" className="w-[130px] h-8 justify-start text-xs"><CalendarIcon className="mr-2 h-3 w-3" /><span>{displayDateText}</span></Button></PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={j.dataConsegnaFinale ? parseISO(j.dataConsegnaFinale) : undefined} onSelect={d => onUpdateDate(j.id, d)} initialFocus />
+                    </PopoverContent>
+                  </Popover>
+                </TableCell>
+                <TableCell className="text-center">
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                        <div className={cn("cursor-help inline-flex items-center justify-center p-1 rounded-full hover:bg-muted transition-colors", stockStatus.color)}>
+                            <StockIcon className="h-5 w-5" />
+                        </div>
+                    </TooltipTrigger><TooltipContent className="max-w-[400px]"><p className="font-bold border-b pb-1 mb-2">{stockStatus.label}</p><ul className="text-xs space-y-1">{stockStatus.details.map((d, i) => <li key={i}>{d}</li>)}</ul></TooltipContent></Tooltip></TooltipProvider>
+                </TableCell>
+                <TableCell className="text-right space-x-1">
+                  <Button variant="ghost" size="icon" className={cn("h-8 w-8", j.isPrinted ? "text-green-500" : "text-muted-foreground")} onClick={() => onDownloadPdf(j)} disabled={isDownloadingPdf === j.id}>{isDownloadingPdf === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}</Button>
+                  {isPlanned ? <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'start')}><PlayCircle className="mr-1 h-3 w-3" /> Avvia</Button> : <Button variant="destructive" size="sm" className="h-8 px-2 text-xs" onClick={() => onAction(j.id, 'cancel')}><XCircle className="mr-1 h-3 w-3" /> Annulla</Button>}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </>
+    );
+};
 
 const SortHeader = ({ label, sortKey, sortConfig, onSort }: { label: string, sortKey: keyof JobOrder | 'reparto_codice', sortConfig: SortConfig, onSort: (key: any) => void }) => (
     <TableHead className="cursor-pointer hover:text-primary transition-colors select-none" onClick={() => onSort(sortKey)}>

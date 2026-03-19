@@ -22,7 +22,6 @@ export async function getCalendarExceptions(): Promise<CalendarException[]> {
   } as CalendarException));
 }
 
-// Fixed signature: Exclude 'createdBy' from input as it's populated internally
 export async function saveCalendarException(data: Omit<CalendarException, 'id' | 'createdAt' | 'createdBy'>, uid: string) {
   try {
     await ensureAdmin(uid);
