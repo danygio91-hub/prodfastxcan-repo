@@ -22,7 +22,7 @@ export async function getCalendarExceptions(): Promise<CalendarException[]> {
   } as CalendarException));
 }
 
-export async function saveCalendarException(data: Omit<CalendarException, 'id' | 'createdAt'>, uid: string) {
+export async function saveCalendarException(data: Omit<CalendarException, 'id' | 'createdAt' | 'createdBy'>, uid: string) {
   try {
     await ensureAdmin(uid);
     const newId = `exc-${Date.now()}`;
