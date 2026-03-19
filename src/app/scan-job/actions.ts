@@ -144,7 +144,7 @@ export async function updateWorkGroup(group: WorkGroup, opId: string) {
     try {
         await updateDoc(doc(db, "workGroups", group.id), JSON.parse(JSON.stringify(group)));
         revalidatePath('/scan-job');
-        return { success: true, message: 'Gruppo aggiornato.' };
+        return { success: true, message: 'Gruppo aggiornata.' };
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
