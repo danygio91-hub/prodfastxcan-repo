@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
@@ -8,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy, AlertTriangle, CheckCircle2, XCircle, RefreshCcw, Timer, FileEdit, Save } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy, AlertTriangle, CheckCircle2, XCircle, RefreshCcw, Timer, FileEdit, Save, FileSpreadsheet } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -202,6 +201,31 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         if (settingsInputRef.current) settingsInputRef.current.value = "";
     }
   };
+
+  const handleDownloadSettingsTemplate = () => {
+    const templateData = [
+      {
+        "CODICE ARTICOLO": "ESEMPIO-01",
+        "CICLO PREDEFINITO": "Ciclo Standard",
+        "TEMPO PREVISTO CICLO PREDEFINITO": 10.5,
+        "CICLO SECONDARIO": "Ciclo Alternativo",
+        "TEMPO PREVISTO CICLO SECONDARIO": 12.0
+      },
+      {
+        "CODICE ARTICOLO": "ESEMPIO-02",
+        "CICLO PREDEFINITO": "Manuale",
+        "TEMPO PREVISTO CICLO PREDEFINITO": 5.0,
+        "CICLO SECONDARIO": "",
+        "TEMPO PREVISTO CICLO SECONDARIO": 0
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Cicli e Tempi");
+    XLSX.writeFile(wb, "template_importazione_cicli_tempi.xlsx");
+    toast({ title: "Template Scaricato", description: "Compila il file e caricalo con 'Importa Impostazioni'." });
+  };
   
   const handleConfirmImport = async () => {
     if (!importReport) return;
@@ -245,6 +269,10 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
             <input type="file" ref={settingsInputRef} onChange={handleSettingsFileChange} accept=".xlsx, .xls" className="hidden" />
             
+            <Button onClick={handleDownloadSettingsTemplate} variant="outline" size="sm" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400">
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Scarica Template Impostazioni
+            </Button>
+
             <Button onClick={() => settingsInputRef.current?.click()} variant="outline" size="sm" disabled={isImportingSettings} className="bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/50 text-amber-700 dark:text-amber-400">
                {isImportingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <FileEdit className="mr-2 h-4 w-4" />}
               Importa Impostazioni (Cicli/Tempi)
@@ -258,7 +286,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            <Button onClick={() => handleOpenForm(null)}><PlusCircle className="mr-2 h-4 w-4" />Aggiungi</Button>
+            <Button onClick={() => handleOpenForm(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground"><PlusCircle className="mr-2 h-4 w-4" />Aggiungi</Button>
           </div>
         </header>
 
@@ -387,7 +415,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             </Tabs>
             <DialogFooter className="mt-6 border-t pt-4">
               <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
-              <Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700">
+              <Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700 text-white">
                 {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
                 Conferma Caricamento
               </Button>
@@ -446,7 +474,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             </div>
             <DialogFooter className="mt-6 border-t pt-4">
                 <Button variant="outline" onClick={() => setSettingsReport(null)}>Annulla tutto</Button>
-                <Button onClick={handleConfirmSettingsUpdate} disabled={isSavingBulk || !settingsReport?.validUpdates.length} className="bg-amber-600 hover:bg-amber-700">
+                <Button onClick={handleConfirmSettingsUpdate} disabled={isSavingBulk || !settingsReport?.validUpdates.length} className="bg-amber-600 hover:bg-amber-700 text-white">
                     {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
                     Conferma e Aggiorna Anagrafiche
                 </Button>
