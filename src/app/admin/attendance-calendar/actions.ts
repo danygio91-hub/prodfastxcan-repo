@@ -4,9 +4,9 @@
 import { revalidatePath } from 'next/cache';
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { CalendarException } from '@/lib/mock-data';
+import type { CalendarException, WorkingHoursConfig } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO } from 'date-fns';
+import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getWorkingHoursConfig } from '../working-hours/actions';
 import { getOperators } from '../operator-management/actions';
@@ -22,6 +22,10 @@ export async function getCalendarExceptions(): Promise<CalendarException[]> {
   } as CalendarException));
 }
 
+/**
+ * Saves a new calendar exception.
+ * createdBy is omitted from the input because it's populated server-side from the auth UID.
+ */
 export async function saveCalendarException(data: Omit<CalendarException, 'id' | 'createdAt' | 'createdBy'>, uid: string) {
   try {
     await ensureAdmin(uid);
@@ -140,16 +144,4 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
         });
 
     return JSON.parse(JSON.stringify(report));
-}
-
-function startOfDay(date: Date): Date {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    return d;
-}
-
-function endOfDay(date: Date): Date {
-    const d = new Date(date);
-    d.setHours(23, 59, 59, 999);
-    return d;
 }

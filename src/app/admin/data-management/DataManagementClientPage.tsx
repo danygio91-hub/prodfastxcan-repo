@@ -85,7 +85,7 @@ const JobTableRows = ({
             const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
 
             const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
-            const hasSecondaryCycle = article && article.secondaryWorkCycleId;
+            const hasSecondaryCycle = article && (article.secondaryWorkCycleId && article.secondaryWorkCycleId !== 'manual');
 
             const stockStatus = (() => {
                 if (!j.billOfMaterials || j.billOfMaterials.length === 0) return { color: 'text-gray-400', icon: Info, label: 'No BOM', details: [] };
@@ -154,7 +154,7 @@ const JobTableRows = ({
                         </SelectContent>
                         </Select>
                         {hasSecondaryCycle && (
-                            <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Questo articolo dispone di un ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger><Info className="h-4 w-4 text-amber-500" /></TooltipTrigger><TooltipContent>Disponibile ciclo secondario alternativo.</TooltipContent></Tooltip></TooltipProvider>
                         )}
                     </div>
                   ) : <div className="w-[180px] h-8 flex items-center px-2 border rounded-md bg-muted/30 text-xs italic">{workCycles.find(c => c.id === j.workCycleId)?.name || '-'}</div>}
@@ -571,7 +571,7 @@ export default function DataManagementClientPage({
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
         <DialogContent className="max-w-2xl">
-            <DialogHeader><DialogTitle>Nuova Commessa Manuale</DialogTitle></DialogHeader>
+            <DialogHeader><DialogHeader><DialogTitle>Nuova Commessa Manuale</DialogTitle></DialogHeader></DialogHeader>
             <Form {...manualForm}><form onSubmit={manualForm.handleSubmit(async (v) => { const r = await saveManualJobOrder(v); if(r.success) { toast({ title: r.message }); setIsManualCreateOpen(false); manualForm.reset(); router.refresh(); } else toast({ variant: "destructive", title: r.message }); })} className="space-y-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
                     <FormField control={manualForm.control} name="cliente" render={({ field }) => ( <FormItem><FormLabel>Cliente</FormLabel><FormControl><Input {...field} /></FormControl></FormItem> )} />
