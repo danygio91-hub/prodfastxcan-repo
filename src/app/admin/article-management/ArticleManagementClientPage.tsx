@@ -191,7 +191,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data, { type: 'array' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+        const json: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
         const report = await validateArticleSettingsImport(json);
         setSettingsReport(report);
@@ -299,7 +299,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                             <Timer className="mr-2 h-4 w-4 text-amber-500" /> Cicli/Tempi
                           </Button>
                            <Button variant="outline" size="sm" onClick={() => handleOpenForm(article)}>
-                            <Edit className="mr-2 h-4 w-4" /> Gestisci BOM
+                            <Edit className="mr-2 h-4 w-4" /> BOM
                           </Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild><Button variant="destructive" size="sm"><Trash2 className="mr-2 h-4 w-4" /> Elimina</Button></AlertDialogTrigger>
@@ -341,7 +341,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                     <TabsTrigger value="errors"><XCircle className="h-4 w-4 text-destructive mr-2" /> Errori ({importReport?.invalidArticles.length || 0})</TabsTrigger>
                 </TabsList>
                 <TabsContent value="new" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><Table><TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Componenti</TableHead></TableRow></TableHeader><TableBody>{importReport?.newArticles.map((art, idx) => (<TableRow key={idx}><TableCell className="font-mono">{art.code}</TableCell><TableCell>{art.billOfMaterials.length}</TableCell></TableRow>))}</TableBody></Table></ScrollArea></TabsContent>
-                <TabsContent value="update" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><Table><TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableRow></TableHeader><TableBody>{importReport?.updatedArticles.map((art, idx) => (<TableRow key={idx} className="bg-blue-500/5"><TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell><TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell></TableRow>))}</TableBody></Table></ScrollArea></TabsContent>
+                <TabsContent value="update" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><Table><TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableHeader><TableBody>{importReport?.updatedArticles.map((art, idx) => (<TableRow key={idx} className="bg-blue-500/5"><TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell><TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell></TableRow>))}</TableBody></Table></ScrollArea></TabsContent>
                 <TabsContent value="errors" className="flex-1 overflow-hidden pt-4"><ScrollArea className="h-[400px] border rounded-md p-2"><div className="space-y-4">{importReport?.invalidArticles.map((item, idx) => (<div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5"><p className="font-bold text-destructive">{item.code}</p><ul className="text-xs mt-1">{item.errors.map((err, eIdx) => <li key={eIdx}>• {err}</li>)}</ul></div>))}</div></ScrollArea></TabsContent>
             </Tabs>
             <DialogFooter className="mt-6 border-t pt-4"><Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button><Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700">{isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}Conferma Caricamento</Button></DialogFooter>
@@ -360,7 +360,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                     <Card className="flex-1 border-destructive/20 bg-destructive/5">
                         <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-destructive">Errori (Bloccati)</CardTitle></CardHeader>
                         <CardContent className="text-2xl font-black text-destructive">{settingsReport?.invalidRows.length || 0}</CardContent>
-                    </div>
+                    </Card>
+                </div>
 
                 <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col">
                     <TabsList className="grid w-full grid-cols-2">

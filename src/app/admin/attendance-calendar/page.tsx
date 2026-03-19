@@ -200,7 +200,7 @@ export default function AttendanceCalendarPage() {
                         <div className="flex items-center gap-2">
                             <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => subWeeks(prev, 1))}><ChevronLeft className="h-4 w-4" /></Button>
                             <span className="text-sm font-bold min-w-[150px] text-center">
-                                {format(weekStart, 'dd MMM')} - {format(addWeeks(weekStart, 0.9), 'dd MMM yyyy')}
+                                {format(weekStart, 'dd MMM')} - {format(addWeeks(weekStart, 6), 'dd MMM yyyy')}
                             </span>
                             <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => addWeeks(prev, 1))}><ChevronRight className="h-4 w-4" /></Button>
                         </div>
@@ -378,6 +378,6 @@ export default function AttendanceCalendarPage() {
           </DialogContent>
         </Dialog>
       </AppShell>
-    </AdminAuthGuard>
+    </AuthGuard>
   );
 }
