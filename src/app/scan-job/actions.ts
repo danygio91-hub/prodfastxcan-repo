@@ -97,22 +97,6 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
   return JSON.parse(JSON.stringify(job));
 }
 
-function updatePhasesMaterialReadiness(phases: JobPhase[]): JobPhase[] {
-    const sorted = [...(phases || [])].sort((a, b) => a.sequence - b.sequence);
-    const allPrepDone = sorted.filter(p => p.type === 'preparation' && !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped');
-    for (let i = 0; i < sorted.length; i++) {
-        const curr = sorted[i];
-        if (curr.materialStatus === 'missing') { curr.materialReady = false; continue; }
-        if (curr.requiresMaterialAssociation || curr.isIndependent || curr.type === 'preparation') { curr.materialReady = true; continue; }
-        if (!allPrepDone) { curr.materialReady = false; continue; }
-        let prev: JobPhase | null = null;
-        for (let i_prev = i - 1; i_prev >= 0; i_prev--) { if (!sorted[i_prev].isIndependent) { prev = sorted[i_prev]; break; } }
-        if (!prev) curr.materialReady = true;
-        else curr.materialReady = ['in-progress', 'completed', 'skipped', 'paused'].includes(prev.status);
-    }
-    return sorted;
-}
-
 export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
   if (!opId) return;
   await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId || null, activePhaseName: phaseName || null, stato: jobId ? 'attivo' : 'inattivo' });
@@ -122,11 +106,7 @@ export async function updateOperatorStatus(opId: string, jobId: string | null, p
 export async function updateJob(job: JobOrder) {
     if (!job || !job.id) return { success: false, message: 'Dati commessa incompleti.' };
     if (job.id.startsWith('group-')) return { success: false, message: 'Tentativo di salvataggio errato.' };
-    job.phases = updatePhasesMaterialReadiness(job.phases || []);
-    if (job.phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !job.isProblemReported) {
-        job.status = 'completed';
-        if (!job.overallEndTime) job.overallEndTime = new Date();
-    }
+    
     await setDoc(doc(db, "jobOrders", job.id), JSON.parse(JSON.stringify(job)), { merge: true });
     revalidatePath('/scan-job');
     return { success: true, message: 'Commessa aggiornata.' };
@@ -134,17 +114,10 @@ export async function updateJob(job: JobOrder) {
 
 export async function updateWorkGroup(group: WorkGroup, opId: string) {
     if (!group || !group.id) return { success: false, message: 'Dati gruppo incompleti.' };
-    const phases = group.phases || [];
-    const isAnyActive = phases.some(p => p.status === 'in-progress');
-    const isAnyPaused = phases.some(p => p.status === 'paused');
-    if (phases.filter(p => !p.postponed).every(p => p.status === 'completed' || p.status === 'skipped') && !group.isProblemReported) {
-        return await dissolveWorkGroup(group.id, true);
-    }
-    group.status = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
     try {
         await updateDoc(doc(db, "workGroups", group.id), JSON.parse(JSON.stringify(group)));
         revalidatePath('/scan-job');
-        return { success: true, message: 'Gruppo aggiornata.' };
+        return { success: true, message: 'Gruppo aggiornato.' };
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
@@ -277,12 +250,26 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
-    const q = firestoreQuery(collection(db, "inventoryRecords"), where("lotto", "==", lotto), where("status", "==", "approved"), orderBy("recordedAt", "desc"), limit(1));
+    // Avoid composite index requirement by fetching matching records and sorting in memory
+    const q = firestoreQuery(collection(db, "inventoryRecords"), where("lotto", "==", lotto), where("status", "==", "approved"));
     const snap = await getDocs(q);
+    
     if (!snap.empty) {
-        const rec = snap.docs[0].data() as InventoryRecord;
+        const records = snap.docs.map(d => ({ ...d.data(), id: d.id } as InventoryRecord));
+        // Sort by recordedAt desc in memory
+        records.sort((a, b) => {
+            const timeA = a.recordedAt?.toMillis?.() || new Date(a.recordedAt).getTime();
+            const timeB = b.recordedAt?.toMillis?.() || new Date(b.recordedAt).getTime();
+            return timeB - timeA;
+        });
+        
+        const rec = records[0];
         const mSnap = await getDoc(doc(db, "rawMaterials", rec.materialId));
-        return { material: mSnap.exists() ? { ...mSnap.data(), id: mSnap.id } : null, netWeight: rec.netWeight, packagingId: rec.packagingId };
+        return { 
+            material: mSnap.exists() ? { ...mSnap.data(), id: mSnap.id } : null, 
+            netWeight: rec.netWeight, 
+            packagingId: rec.packagingId || 'none'
+        };
     }
     return null;
 }
