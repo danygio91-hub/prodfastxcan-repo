@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { type JobOrder, type WorkCycle, type Article, type Department, type RawMaterial, type PurchaseOrder, type ManualCommitment } from '@/lib/mock-data';
 import { format, parseISO, isBefore } from 'date-fns';
+import { it } from 'date-fns/locale';
 import { useToast } from "@/hooks/use-toast";
 import {
   processAndValidateImport, commitImportedJobOrders, deleteSelectedJobOrders, createODL,

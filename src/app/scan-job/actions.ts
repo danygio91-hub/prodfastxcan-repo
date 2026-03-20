@@ -250,13 +250,12 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
-    // Avoid composite index requirement by fetching matching records and sorting in memory
+    // 1. Cerca nei record di inventario approvati (Logica Veloce per lotti inventariati)
     const q = firestoreQuery(collection(db, "inventoryRecords"), where("lotto", "==", lotto), where("status", "==", "approved"));
     const snap = await getDocs(q);
     
     if (!snap.empty) {
         const records = snap.docs.map(d => ({ ...d.data(), id: d.id } as InventoryRecord));
-        // Sort by recordedAt desc in memory
         records.sort((a, b) => {
             const timeA = a.recordedAt?.toMillis?.() || new Date(a.recordedAt).getTime();
             const timeB = b.recordedAt?.toMillis?.() || new Date(b.recordedAt).getTime();
@@ -265,12 +264,31 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         
         const rec = records[0];
         const mSnap = await getDoc(doc(db, "rawMaterials", rec.materialId));
-        return { 
-            material: mSnap.exists() ? { ...mSnap.data(), id: mSnap.id } : null, 
-            netWeight: rec.netWeight, 
-            packagingId: rec.packagingId || 'none'
-        };
+        if (mSnap.exists()) {
+            return { 
+                material: { ...mSnap.data(), id: mSnap.id }, 
+                netWeight: rec.netWeight, 
+                packagingId: rec.packagingId || 'none'
+            };
+        }
     }
+
+    // 2. FALLBACK: Cerca nei lotti caricati via Carico Rapido (Storico diretto nei materiali)
+    const materialsSnap = await getDocs(collection(db, "rawMaterials"));
+    for (const mDoc of materialsSnap.docs) {
+        const mData = mDoc.data() as RawMaterial;
+        const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto);
+        if (matchingBatch) {
+            // Calcola il peso netto se non esplicitamente presente
+            const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - matchingBatch.tareWeight);
+            return {
+                material: { ...mData, id: mDoc.id },
+                netWeight: netWeight,
+                packagingId: matchingBatch.packagingId || 'none'
+            };
+        }
+    }
+
     return null;
 }
 
