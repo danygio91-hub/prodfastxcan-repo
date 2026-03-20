@@ -3,11 +3,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ClipboardList, PlusCircle, Search, Trash2, Edit, Download, Upload, Loader2, BarChart3, Copy, AlertTriangle, CheckCircle2, XCircle, RefreshCcw, Timer, FileEdit, Save, FileSpreadsheet } from 'lucide-react';
+import { ClipboardList, PlusCircle, Search, Trash2, Edit, Upload, Loader2, BarChart3, Copy, XCircle, RefreshCcw, Timer, FileEdit, Save, FileSpreadsheet } from 'lucide-react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -28,10 +28,9 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogFooter
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -210,21 +209,14 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         "TEMPO PREVISTO CICLO PREDEFINITO": 10.5,
         "CICLO SECONDARIO": "Ciclo Alternativo",
         "TEMPO PREVISTO CICLO SECONDARIO": 12.0
-      },
-      {
-        "CODICE ARTICOLO": "ESEMPIO-02",
-        "CICLO PREDEFINITO": "Manuale",
-        "TEMPO PREVISTO CICLO PREDEFINITO": 5.0,
-        "CICLO SECONDARIO": "",
-        "TEMPO PREVISTO CICLO SECONDARIO": 0
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Template Cicli e Tempi");
-    XLSX.writeFile(wb, "template_importazione_cicli_tempi.xlsx");
-    toast({ title: "Template Scaricato", description: "Compila il file e caricalo con 'Importa Impostazioni'." });
+    XLSX.writeFile(wb, "template_cicli_tempi.xlsx");
+    toast({ title: "Template Scaricato" });
   };
   
   const handleConfirmImport = async () => {
@@ -265,33 +257,33 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
             </h1>
             <p className="text-muted-foreground mt-1">Gestisci la distinta base e i tempi standard per ogni articolo.</p>
           </div>
-          <div className="flex items-center gap-2 pt-2 w-full sm:w-auto flex-wrap">
+          <div className="flex items-center gap-2 pt-2 w-full sm:w-auto flex-wrap justify-end">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
             <input type="file" ref={settingsInputRef} onChange={handleSettingsFileChange} accept=".xlsx, .xls" className="hidden" />
             
-            <Button onClick={handleDownloadSettingsTemplate} variant="outline" size="sm" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400">
-              <FileSpreadsheet className="mr-2 h-4 w-4" /> Scarica Template Impostazioni
+            <Button onClick={handleDownloadSettingsTemplate} variant="outline" size="sm" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
+              <FileSpreadsheet className="mr-2 h-4 w-4" /> Template Impostazioni
             </Button>
 
-            <Button onClick={() => settingsInputRef.current?.click()} variant="outline" size="sm" disabled={isImportingSettings} className="bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/50 text-amber-700 dark:text-amber-400">
+            <Button onClick={() => settingsInputRef.current?.click()} variant="outline" size="sm" disabled={isImportingSettings} className="bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
                {isImportingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <FileEdit className="mr-2 h-4 w-4" />}
-              Importa Impostazioni (Cicli/Tempi)
+              Importa Cicli/tempi
             </Button>
 
-            <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting}>
+            <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting} className="h-9 px-3">
                {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
-              Importa DB (Distinte)
+              Importa BOM
             </Button>
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-48 lg:w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <Input placeholder="Cerca..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            <Button onClick={() => handleOpenForm(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground"><PlusCircle className="mr-2 h-4 w-4" />Aggiungi</Button>
+            <Button onClick={() => handleOpenForm(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 px-4"><PlusCircle className="mr-2 h-4 w-4" />Aggiungi</Button>
           </div>
         </header>
 
         <Card>
-          <CardHeader><CardTitle>Elenco Articoli</CardTitle><CardDescription>Gestione della distinta base e dei tempi medi rilevati/previsti.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Elenco Articoli</CardTitle></CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <Table>
