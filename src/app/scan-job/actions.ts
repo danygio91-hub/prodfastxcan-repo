@@ -1,3 +1,4 @@
+
 'use server';
 
 import { revalidatePath } from 'next/cache';
@@ -250,7 +251,6 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
-    // 1. Cerca nei record di inventario approvati (Logica Veloce per lotti inventariati)
     const q = firestoreQuery(collection(db, "inventoryRecords"), where("lotto", "==", lotto), where("status", "==", "approved"));
     const snap = await getDocs(q);
     
@@ -273,13 +273,11 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         }
     }
 
-    // 2. FALLBACK: Cerca nei lotti caricati via Carico Rapido (Storico diretto nei materiali)
     const materialsSnap = await getDocs(collection(db, "rawMaterials"));
     for (const mDoc of materialsSnap.docs) {
         const mData = mDoc.data() as RawMaterial;
         const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto);
         if (matchingBatch) {
-            // Calcola il peso netto se non esplicitamente presente
             const netWeight = matchingBatch.netQuantity || (matchingBatch.grossWeight - matchingBatch.tareWeight);
             return {
                 material: { ...mData, id: mDoc.id },
