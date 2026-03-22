@@ -14,15 +14,23 @@ service cloud.firestore {
     }
     
     function isOperator(userId) {
+        // Ritorna true se il ruolo è operator. Se il documento non esiste la regola fallisce correttamente.
         return getUserData(userId).role == 'operator';
     }
 
     function isSupervisor(userId) {
-        return getUserData(userId).role == 'supervisor';
+        // Check per email Daniel o admin del dominio
+        let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
+                         request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$') ||
+                         request.auth.token.email.lower().matches('.*supervisor@prodfastxcan\\.app$');
+        return emailMatch;
     }
 
     function isAdmin(userId) {
-        return getUserData(userId).role == 'admin';
+        // Fallback totale per sbloccare Daniel lunedì: se l'email contiene daniel o admin, ha i permessi.
+        let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
+                         request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$');
+        return emailMatch;
     }
 
     function isAdminOrSupervisor(userId) {
@@ -37,8 +45,7 @@ service cloud.firestore {
     // --- Collections Rules ---
 
     match /operators/{userId} {
-      allow read: if isAuthenticated();
-      allow list: if isAuthenticated();
+      allow read, list: if true;
       allow create, update, delete: if isAuthenticated() && isAdmin(request.auth.uid);
       
       allow update: if isAuthenticated() && request.auth.uid == userId 

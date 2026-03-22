@@ -1,9 +1,10 @@
-
 {
-  "projects": {
-    "default": "prodfastxcanwork"
-  },
-  "firestore": {
-    "rules": "firestore.rules"
+  "hosting": {
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
   }
 }
