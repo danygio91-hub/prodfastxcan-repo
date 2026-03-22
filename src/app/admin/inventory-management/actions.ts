@@ -1,7 +1,7 @@
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, updateDoc, getDoc, arrayRemove, writeBatch, deleteField, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord, Operator } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
@@ -17,12 +17,12 @@ function convertTimestamps(obj: any): any {
 }
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const snap = await getDocs(query(collection(db, 'packaging'), orderBy("name")));
+  const snap = await adminDb.collection('packaging').orderBy("name").get();
   return snap.docs.map(doc => doc.data() as Packaging);
 }
 
 export async function getInventoryRecords(): Promise<InventoryRecord[]> {
-  const snap = await getDocs(query(collection(db, "inventoryRecords"), orderBy("recordedAt", "desc")));
+  const snap = await adminDb.collection("inventoryRecords").orderBy("recordedAt", "desc").get();
   if (snap.empty) return [];
   const materialIds = [...new Set(snap.docs.map(doc => doc.data().materialId).filter(Boolean))];
   const materialsMap = new Map<string, RawMaterial>();
@@ -30,7 +30,7 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
     const CHUNK_SIZE = 30;
     for (let i = 0; i < materialIds.length; i += CHUNK_SIZE) {
         const chunk = materialIds.slice(i, i + CHUNK_SIZE);
-        const mSnap = await getDocs(query(collection(db, 'rawMaterials'), where('__name__', 'in', chunk)));
+        const mSnap = await adminDb.collection('rawMaterials').where(admin.firestore.FieldPath.documentId(), 'in', chunk).get();
         mSnap.forEach(doc => materialsMap.set(doc.id, doc.data() as RawMaterial));
     }
   }
@@ -44,15 +44,15 @@ export async function getInventoryRecords(): Promise<InventoryRecord[]> {
 
 export async function approveInventoryRecord(recordId: string, uid: string): Promise<{ success: boolean; message: string; }> {
     await ensureAdmin(uid);
-    const recordRef = doc(db, 'inventoryRecords', recordId);
+    const recordRef = adminDb.collection('inventoryRecords').doc(recordId);
     try {
-        await runTransaction(db, async (transaction) => {
+        await adminDb.runTransaction(async (transaction) => {
             const rSnap = await transaction.get(recordRef);
-            if (!rSnap.exists() || rSnap.data().status !== 'pending') throw new Error("Gia processata.");
+            if (!rSnap.exists || rSnap.data()?.status !== 'pending') throw new Error("Gia processata.");
             const record = rSnap.data() as InventoryRecord;
-            const mRef = doc(db, 'rawMaterials', record.materialId);
+            const mRef = adminDb.collection('rawMaterials').doc(record.materialId);
             const mSnap = await transaction.get(mRef);
-            if (!mSnap.exists()) throw new Error("Materiale non trovato.");
+            if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
             
             const unitsToAdd = record.inputUnit === 'kg' 
@@ -61,7 +61,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                     : record.netWeight / (material.rapportoKgMt || material.conversionFactor || 1)) 
                 : record.inputQuantity;
             
-            const dateStr = (record.recordedAt instanceof Timestamp) 
+            const dateStr = (record.recordedAt instanceof admin.firestore.Timestamp) 
                 ? record.recordedAt.toDate().toISOString() 
                 : (record.recordedAt?.toDate?.())
                     ? record.recordedAt.toDate().toISOString()
@@ -83,7 +83,7 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
                 currentWeightKg: (material.currentWeightKg || 0) + record.netWeight, 
                 batches: [...(material.batches || []), newBatch] 
             });
-            transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: Timestamp.now() });
+            transaction.update(recordRef, { status: 'approved', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
         });
         revalidatePath('/admin/inventory-management');
         revalidatePath('/admin/raw-material-management');
@@ -96,49 +96,48 @@ export async function approveInventoryRecord(recordId: string, uid: string): Pro
 
 export async function deleteInventoryRecords(ids: string[], uid: string) {
   await ensureAdmin(uid);
-  const batch = writeBatch(db);
-  ids.forEach(id => batch.delete(doc(db, 'inventoryRecords', id)));
+  const batch = adminDb.batch();
+  ids.forEach(id => batch.delete(adminDb.collection('inventoryRecords').doc(id)));
   await batch.commit();
   revalidatePath('/admin/inventory-management');
   return { success: true, message: 'Eliminate.' };
 }
 
 export async function getMaterialById(materialId: string): Promise<RawMaterial | null> {
-    const materialRef = doc(db, 'rawMaterials', materialId);
-    const docSnap = await getDoc(materialRef);
-    if (docSnap.exists()) return docSnap.data() as RawMaterial;
+    const docSnap = await adminDb.collection('rawMaterials').doc(materialId).get();
+    if (docSnap.exists) return docSnap.data() as RawMaterial;
     return null;
 }
 
 export async function rejectInventoryRecord(id: string, uid: string) {
     await ensureAdmin(uid);
-    await updateDoc(doc(db, 'inventoryRecords', id), { status: 'rejected', approvedBy: uid, approvedAt: Timestamp.now() });
+    await adminDb.collection('inventoryRecords').doc(id).update({ status: 'rejected', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() });
     revalidatePath('/admin/inventory-management');
     return { success: true, message: 'Rifiutata.' };
 }
 
 export async function revertInventoryRecordStatus(id: string, uid: string) {
     await ensureAdmin(uid);
-    await runTransaction(db, async (transaction) => {
-        const rSnap = await transaction.get(doc(db, 'inventoryRecords', id));
-        if (!rSnap.exists()) return;
+    await adminDb.runTransaction(async (transaction) => {
+        const rSnap = await transaction.get(adminDb.collection('inventoryRecords').doc(id));
+        if (!rSnap.exists) return;
         const rec = rSnap.data() as InventoryRecord;
         if (rec.status === 'approved') {
-            const mRef = doc(db, 'rawMaterials', rec.materialId);
+            const mRef = adminDb.collection('rawMaterials').doc(rec.materialId);
             const mSnap = await transaction.get(mRef);
-            if (mSnap.exists()) {
+            if (mSnap.exists) {
                 const mat = mSnap.data() as RawMaterial;
                 const batch = (mat.batches || []).find(b => b.inventoryRecordId === id);
                 if (batch) {
                     transaction.update(mRef, { 
-                        batches: arrayRemove(batch), 
+                        batches: admin.firestore.FieldValue.arrayRemove(batch), 
                         currentStockUnits: Math.max(0, (mat.currentStockUnits || 0) - batch.netQuantity), 
                         currentWeightKg: Math.max(0, (mat.currentWeightKg || 0) - rec.netWeight) 
                     });
                 }
             }
         }
-        transaction.update(doc(db, 'inventoryRecords', id), { status: 'pending', approvedBy: deleteField(), approvedAt: deleteField() });
+        transaction.update(adminDb.collection('inventoryRecords').doc(id), { status: 'pending', approvedBy: admin.firestore.FieldValue.delete(), approvedAt: admin.firestore.FieldValue.delete() });
     });
     revalidatePath('/admin/inventory-management');
     revalidatePath('/admin/raw-material-management');
@@ -147,15 +146,15 @@ export async function revertInventoryRecordStatus(id: string, uid: string) {
 
 export async function updateInventoryRecord(id: string, qty: number, unit: string, packId: string, uid: string) {
     await ensureAdmin(uid);
-    const snap = await getDoc(doc(db, 'inventoryRecords', id));
-    if (!snap.exists()) return { success: false, message: 'Registrazione non trovata.' };
+    const snap = await adminDb.collection('inventoryRecords').doc(id).get();
+    if (!snap.exists) return { success: false, message: 'Registrazione non trovata.' };
     
     const mat = await getMaterialById(snap.data()?.materialId);
     if (!mat) return { success: false, message: 'Materiale non trovato.' };
 
     let tare = 0;
     if (packId && packId !== 'none') {
-        const pSnap = await getDoc(doc(db, 'packaging', packId));
+        const pSnap = await adminDb.collection('packaging').doc(packId).get();
         tare = pSnap.data()?.weightKg || 0;
     }
 
@@ -165,7 +164,7 @@ export async function updateInventoryRecord(id: string, qty: number, unit: strin
 
     let net = unit === 'kg' ? qty - tare : qty * factor;
     
-    await updateDoc(doc(db, 'inventoryRecords', id), { 
+    await adminDb.collection('inventoryRecords').doc(id).update({ 
         inputQuantity: qty, 
         inputUnit: unit, 
         packagingId: packId === 'none' ? null : packId, 
@@ -185,8 +184,8 @@ export async function approveMultipleInventoryRecords(ids: string[], uid: string
 
 export async function rejectMultipleInventoryRecords(ids: string[], uid: string) {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
-    ids.forEach(id => batch.update(doc(db, 'inventoryRecords', id), { status: 'rejected', approvedBy: uid, approvedAt: Timestamp.now() }));
+    const batch = adminDb.batch();
+    ids.forEach(id => batch.update(adminDb.collection('inventoryRecords').doc(id), { status: 'rejected', approvedBy: uid, approvedAt: admin.firestore.Timestamp.now() }));
     await batch.commit();
     revalidatePath('/admin/inventory-management');
     return { success: true, message: 'Rifiutate.' };

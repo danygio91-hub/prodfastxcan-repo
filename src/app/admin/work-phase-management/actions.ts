@@ -4,8 +4,8 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, getDoc, writeBatch, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { 
   type WorkPhaseTemplate, 
   type RawMaterialType, // Import RawMaterialType
@@ -30,16 +30,13 @@ const workPhaseSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  const templatesCol = collection(db, 'workPhaseTemplates');
-  const q = query(templatesCol, orderBy("sequence"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("sequence").get();
   const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
   return list;
 }
 
 export async function getDepartments(): Promise<Department[]> {
-  const col = collection(db, "departments");
-  const snapshot = await getDocs(col);
+  const snapshot = await adminDb.collection("departments").get();
   if (snapshot.empty) {
       return [];
   }
@@ -89,14 +86,12 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
 
     if (id) {
         // Update existing phase
-        const phaseRef = doc(db, "workPhaseTemplates", id);
-        await setDoc(phaseRef, dataToSave, { merge: true });
+        await adminDb.collection("workPhaseTemplates").doc(id).set(dataToSave, { merge: true });
         revalidatePath('/admin/work-phase-management');
         return { success: true, message: 'Fase di lavorazione aggiornata con successo.' };
     } else {
         // Add new phase
-        const templatesCol = collection(db, 'workPhaseTemplates');
-        const snapshot = await getDocs(templatesCol);
+        const snapshot = await adminDb.collection('workPhaseTemplates').get();
         
         let newSequence: number;
         const sequences = snapshot.docs.map(doc => doc.data().sequence || 0);
@@ -110,7 +105,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
         }
 
         const newId = `phase-tpl-${Date.now()}`;
-        const phaseRef = doc(db, "workPhaseTemplates", newId);
+        const phaseRef = adminDb.collection("workPhaseTemplates").doc(newId);
         const newPhase: WorkPhaseTemplate = { 
             id: newId, 
             name, 
@@ -125,7 +120,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
             isIndependent: dataToSave.isIndependent,
             sequence: newSequence,
         };
-        await setDoc(phaseRef, newPhase);
+        await phaseRef.set(newPhase);
         revalidatePath('/admin/work-phase-management');
         return { success: true, message: `Fase di lavorazione aggiunta con successo.` };
     }
@@ -134,7 +129,7 @@ export async function saveWorkPhaseTemplate(formData: FormData) {
 
 export async function deleteWorkPhaseTemplate(id: string): Promise<{ success: boolean; message: string }> {
   try {
-    await deleteDoc(doc(db, "workPhaseTemplates", id));
+    await adminDb.collection("workPhaseTemplates").doc(id).delete();
     revalidatePath('/admin/work-phase-management');
     return { success: true, message: 'Fase eliminata con successo.' };
   } catch(error) {
@@ -146,9 +141,9 @@ export async function deleteSelectedWorkPhaseTemplates(ids: string[]): Promise<{
     if (!ids || ids.length === 0) {
         return { success: false, message: 'Nessun ID fornito per l\'eliminazione.' };
     }
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     ids.forEach(id => {
-        const docRef = doc(db, "workPhaseTemplates", id);
+        const docRef = adminDb.collection("workPhaseTemplates").doc(id);
         batch.delete(docRef);
     });
     await batch.commit();
@@ -162,9 +157,9 @@ export async function updatePhasesOrder(phases: { id: string; sequence: number }
         return { success: false, message: 'Nessuna fase fornita per l\'aggiornamento.' };
     }
     try {
-        const batch = writeBatch(db);
+        const batch = adminDb.batch();
         phases.forEach(phase => {
-            const docRef = doc(db, "workPhaseTemplates", phase.id);
+            const docRef = adminDb.collection("workPhaseTemplates").doc(phase.id);
             batch.update(docRef, { sequence: phase.sequence });
         });
         await batch.commit();

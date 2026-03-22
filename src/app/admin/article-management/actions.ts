@@ -2,8 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, query, where, limit, orderBy, startAfter } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { Article, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
 import * as z from 'zod';
 
@@ -26,20 +26,20 @@ const articleSchema = z.object({
 });
 
 export async function getArticles(searchTerm?: string, lastCode?: string, limitCount: number = 50): Promise<Article[]> {
-    let q;
+    let q: admin.firestore.Query = adminDb.collection('articles');
     const searchPart = (searchTerm || '').toUpperCase().trim();
     if (searchPart.length >= 2) {
-        q = query(collection(db, 'articles'), where('code', '>=', searchPart), where('code', '<=', searchPart + '\uf8ff'), limit(100));
+        q = q.where('code', '>=', searchPart).where('code', '<=', searchPart + '\uf8ff').limit(100);
     } else if (searchTerm !== undefined && searchTerm.trim() !== '') {
         return [];
     } else {
-        const queryConstraints: any[] = [orderBy("code"), limit(limitCount)];
+        q = q.orderBy("code");
         if (lastCode) {
-            queryConstraints.push(startAfter(lastCode.toUpperCase().trim()));
+            q = q.startAfter(lastCode.toUpperCase().trim());
         }
-        q = query(collection(db, 'articles'), ...queryConstraints);
+        q = q.limit(limitCount);
     }
-    const articlesSnapshot = await getDocs(q);
+    const articlesSnapshot = await q.get();
     const articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
     return articles;
 }
@@ -55,7 +55,7 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     
     for (let i = 0; i < uniqueCodes.length; i += 30) {
         const chunk = uniqueCodes.slice(i, i + 30);
-        const snap = await getDocs(query(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
         snap.forEach(d => materialCodes.add(d.data().code.toUpperCase()));
     }
 
@@ -65,7 +65,6 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     }
 
     const docId = code.toUpperCase();
-    const articleRef = doc(db, 'articles', docId);
     const articleData: Partial<Article> = {
         id: docId,
         code: docId,
@@ -77,7 +76,7 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
     };
 
     try {
-        await setDoc(articleRef, articleData, { merge: true });
+        await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
         revalidatePath('/admin/article-management');
         return { success: true, message: `Articolo ${docId} salvato.` };
     } catch (error) {
@@ -86,7 +85,7 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 }
 
 export async function deleteArticle(id: string): Promise<{ success: boolean; message: string; }> {
-    await deleteDoc(doc(db, "articles", id));
+    await adminDb.collection("articles").doc(id).delete();
     revalidatePath('/admin/article-management');
     return { success: true, message: 'Articolo eliminato.' };
 }
@@ -99,11 +98,11 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
     const validCodes = new Set<string>();
     for (let i = 0; i < uniqueComponents.length; i += 30) {
         const chunk = uniqueComponents.slice(i, i + 30);
-        const snap = await getDocs(query(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
         snap.forEach(d => validCodes.add(d.data().code.toUpperCase()));
     }
 
-    const existingArticlesSnap = await getDocs(collection(db, "articles"));
+    const existingArticlesSnap = await adminDb.collection("articles").get();
     const existingCodes = new Set(existingArticlesSnap.docs.map(doc => doc.data().code.toUpperCase()));
 
     const newArticles: Omit<Article, 'id'>[] = [];
@@ -134,10 +133,10 @@ export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
 }
 
 export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     articles.forEach(art => {
         const id = art.code.toUpperCase();
-        batch.set(doc(db, 'articles', id), { ...art, id, code: id }, { merge: true });
+        batch.set(adminDb.collection('articles').doc(id), { ...art, id, code: id }, { merge: true });
     });
     await batch.commit();
     revalidatePath('/admin/article-management');
@@ -146,9 +145,9 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
 
 export async function validateArticleSettingsImport(rows: any[]) {
     const [articlesSnap, cyclesSnap, phasesSnap] = await Promise.all([
-        getDocs(collection(db, "articles")),
-        getDocs(collection(db, "workCycles")),
-        getDocs(collection(db, "workPhaseTemplates"))
+        adminDb.collection("articles").get(),
+        adminDb.collection("workCycles").get(),
+        adminDb.collection("workPhaseTemplates").get()
     ]);
 
     const articlesMap = new Map<string, Article>(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
@@ -230,11 +229,10 @@ export async function validateArticleSettingsImport(rows: any[]) {
 }
 
 export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     updates.forEach(upd => {
         if (upd.id) {
-            const ref = doc(db, 'articles', upd.id);
-            batch.set(ref, upd, { merge: true });
+            batch.set(adminDb.collection('articles').doc(upd.id), upd, { merge: true });
         }
     });
     await batch.commit();
@@ -244,9 +242,8 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
 }
 
 export async function saveArticleStandardTimes(articleId: string, data: Partial<Article>) {
-    const articleRef = doc(db, 'articles', articleId);
     try {
-        await setDoc(articleRef, data, { merge: true });
+        await adminDb.collection('articles').doc(articleId).set(data, { merge: true });
         revalidatePath('/admin/article-management');
         return { success: true, message: 'Standard Tempi e Cicli aggiornati con successo.' };
     } catch (e) {

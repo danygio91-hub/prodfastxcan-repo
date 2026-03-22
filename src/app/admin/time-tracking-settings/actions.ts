@@ -1,8 +1,8 @@
 
 'use server';
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 
@@ -14,10 +14,9 @@ export interface TimeTrackingSettings {
 }
 
 export async function getTimeTrackingSettings(): Promise<TimeTrackingSettings> {
-  const docRef = doc(db, CONFIG_COLLECTION, CONFIG_ID);
-  const docSnap = await getDoc(docRef);
+  const docSnap = await adminDb.collection(CONFIG_COLLECTION).doc(CONFIG_ID).get();
 
-  if (docSnap.exists()) {
+  if (docSnap.exists) {
     return docSnap.data() as TimeTrackingSettings;
   }
   
@@ -34,8 +33,7 @@ export async function saveTimeTrackingSettings(
   await ensureAdmin(uid);
   
   try {
-    const docRef = doc(db, CONFIG_COLLECTION, CONFIG_ID);
-    await setDoc(docRef, settings, { merge: true });
+    await adminDb.collection(CONFIG_COLLECTION).doc(CONFIG_ID).set(settings, { merge: true });
     
     revalidatePath('/admin/time-tracking-settings');
     revalidatePath('/admin/production-time-analysis');

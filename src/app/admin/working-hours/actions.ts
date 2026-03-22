@@ -1,8 +1,7 @@
 
 'use server';
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
 import { revalidatePath } from 'next/cache';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { WorkingHoursConfig } from '@/lib/mock-data';
@@ -12,11 +11,12 @@ const CONFIG_COLLECTION = 'configuration';
 
 export async function getWorkingHoursConfig(): Promise<WorkingHoursConfig> {
   try {
-    const docRef = doc(db, CONFIG_COLLECTION, CONFIG_ID);
-    const docSnap = await getDoc(docRef);
+    const docRef = adminDb.collection(CONFIG_COLLECTION).doc(CONFIG_ID);
+    const docSnap = await docRef.get();
 
-    if (docSnap.exists()) {
+    if (docSnap.exists) {
       const data = docSnap.data();
+      if (!data) throw new Error("No data found");
       return { 
         workingDays: data.workingDays || [1, 2, 3, 4, 5],
         shifts: data.shifts || [{ id: 'shift-1', name: 'Turno Centrale', startTime: '08:00', endTime: '17:00', breakMinutes: 60 }],
@@ -51,8 +51,8 @@ export async function saveWorkingHoursConfig(
   await ensureAdmin(uid);
   
   try {
-    const docRef = doc(db, CONFIG_COLLECTION, CONFIG_ID);
-    await setDoc(docRef, config, { merge: true });
+    const docRef = adminDb.collection(CONFIG_COLLECTION).doc(CONFIG_ID);
+    await docRef.set(config, { merge: true });
     
     revalidatePath('/admin/working-hours');
     revalidatePath('/admin/settings');

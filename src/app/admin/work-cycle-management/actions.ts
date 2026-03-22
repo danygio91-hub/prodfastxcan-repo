@@ -3,8 +3,8 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, where, writeBatch, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { type WorkCycle, type WorkPhaseTemplate } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -18,16 +18,13 @@ const workCycleSchema = z.object({
 // --- Actions ---
 
 export async function getWorkPhaseTemplates(): Promise<WorkPhaseTemplate[]> {
-  const templatesCol = collection(db, 'workPhaseTemplates');
-  const q = query(templatesCol, orderBy("sequence"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection('workPhaseTemplates').orderBy("sequence").get();
   const list = snapshot.docs.map(doc => doc.data() as WorkPhaseTemplate);
   return list;
 }
 
 export async function getWorkCycles(): Promise<WorkCycle[]> {
-  const cyclesCol = collection(db, 'workCycles');
-  const snapshot = await getDocs(cyclesCol);
+  const snapshot = await adminDb.collection('workCycles').get();
   const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as WorkCycle);
   return list;
 }
@@ -60,15 +57,13 @@ export async function saveWorkCycle(formData: FormData) {
 
   if (id) {
     // Update existing cycle
-    const cycleRef = doc(db, "workCycles", id);
-    await setDoc(cycleRef, dataToSave, { merge: true });
+    await adminDb.collection("workCycles").doc(id).set(dataToSave, { merge: true });
     revalidatePath('/admin/work-cycle-management');
     return { success: true, message: 'Ciclo di lavorazione aggiornato con successo.' };
   } else {
     // Add new cycle
     const newId = `wc-${Date.now()}`;
-    const cycleRef = doc(db, "workCycles", newId);
-    await setDoc(cycleRef, dataToSave);
+    await adminDb.collection("workCycles").doc(newId).set(dataToSave);
     revalidatePath('/admin/work-cycle-management');
     return { success: true, message: 'Ciclo di lavorazione creato con successo.' };
   }
@@ -76,7 +71,7 @@ export async function saveWorkCycle(formData: FormData) {
 
 export async function deleteWorkCycle(id: string): Promise<{ success: boolean; message: string }> {
   try {
-    await deleteDoc(doc(db, "workCycles", id));
+    await adminDb.collection("workCycles").doc(id).delete();
     revalidatePath('/admin/work-cycle-management');
     return { success: true, message: 'Ciclo di lavorazione eliminato con successo.' };
   } catch(error) {
@@ -89,10 +84,9 @@ export async function deleteSelectedWorkCycles(ids: string[]): Promise<{ success
     if (!ids || ids.length === 0) {
         return { success: false, message: 'Nessun ID fornito per l\'eliminazione.' };
     }
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     ids.forEach(id => {
-        const docRef = doc(db, "workCycles", id);
-        batch.delete(docRef);
+        batch.delete(adminDb.collection("workCycles").doc(id));
     });
     await batch.commit();
     revalidatePath('/admin/work-cycle-management');

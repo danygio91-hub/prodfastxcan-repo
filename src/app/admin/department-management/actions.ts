@@ -2,13 +2,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, setDoc, getDocs, collection, deleteDoc, writeBatch } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { Department } from '@/lib/mock-data';
 
 export async function getDepartments(): Promise<Department[]> {
-  const col = collection(db, "departments");
-  const snapshot = await getDocs(col);
+  const snapshot = await adminDb.collection("departments").get();
   if (snapshot.empty) {
       return [];
   }
@@ -26,17 +25,17 @@ export async function saveDepartment(formData: FormData): Promise<{ success: boo
     }
 
     const docId = id || code; // Use code as ID if new
-    const docRef = doc(db, "departments", docId);
+    const docRef = adminDb.collection("departments").doc(docId);
 
     if (!id) { // It's a new department, check if code already exists
-        const existingDoc = await getDoc(docRef);
-        if (existingDoc.exists()) {
+        const existingDoc = await docRef.get();
+        if (existingDoc.exists) {
             return { success: false, message: `Un reparto con codice '${code}' esiste già.` };
         }
     }
 
     const data: Department = { id: docId, code, name };
-    await setDoc(docRef, data, { merge: true });
+    await docRef.set(data, { merge: true });
 
     revalidatePath('/admin/department-management');
     revalidatePath('/admin/operator-management');
@@ -52,9 +51,9 @@ export async function deleteDepartments(ids: string[]): Promise<{ success: boole
         return { success: false, message: 'Nessun reparto selezionato.' };
     }
     try {
-        const batch = writeBatch(db);
+        const batch = adminDb.batch();
         ids.forEach(id => {
-            batch.delete(doc(db, "departments", id));
+            batch.delete(adminDb.collection("departments").doc(id));
         });
         await batch.commit();
 

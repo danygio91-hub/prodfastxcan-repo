@@ -1,8 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { CalendarException } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
@@ -11,13 +11,11 @@ import { getWorkingHoursConfig } from '../working-hours/actions';
 import { getOperators } from '../operator-management/actions';
 
 export async function getCalendarExceptions(): Promise<CalendarException[]> {
-  const col = collection(db, "calendarExceptions");
-  const q = query(col, orderBy("startDate", "desc"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection("calendarExceptions").orderBy("startDate", "desc").get();
   return snapshot.docs.map(d => ({
     ...d.data(),
     id: d.id,
-    createdAt: d.data().createdAt?.toDate().toISOString() || null
+    createdAt: (d.data().createdAt as admin.firestore.Timestamp)?.toDate().toISOString() || null
   } as CalendarException));
 }
 
@@ -29,16 +27,16 @@ export async function saveCalendarException(data: Omit<CalendarException, 'id' |
   try {
     await ensureAdmin(uid);
     const newId = `exc-${Date.now()}`;
-    const docRef = doc(db, "calendarExceptions", newId);
+    const docRef = adminDb.collection("calendarExceptions").doc(newId);
     
     const fullData = {
       ...data,
       id: newId,
-      createdAt: Timestamp.now(),
+      createdAt: admin.firestore.Timestamp.now(),
       createdBy: uid,
     };
 
-    await setDoc(docRef, fullData);
+    await docRef.set(fullData);
     revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Eccezione registrata con successo.' };
   } catch (error) {
@@ -49,7 +47,7 @@ export async function saveCalendarException(data: Omit<CalendarException, 'id' |
 export async function deleteCalendarException(id: string, uid: string) {
   try {
     await ensureAdmin(uid);
-    await deleteDoc(doc(db, "calendarExceptions", id));
+    await adminDb.collection("calendarExceptions").doc(id).delete();
     revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Eccezione eliminata.' };
   } catch (error) {

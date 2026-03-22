@@ -2,13 +2,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, deleteDoc, writeBatch, query, updateDoc, getDoc, where, Timestamp, runTransaction, deleteField } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { WorkGroup, JobOrder, JobPhase, WorkPeriod, Operator } from '@/lib/mock-data';
 
 export async function getWorkGroups(): Promise<WorkGroup[]> {
-  const groupsCol = collection(db, 'workGroups');
-  const snapshot = await getDocs(groupsCol);
+  const snapshot = await adminDb.collection('workGroups').get();
   const list = snapshot.docs.map(doc => {
     const data = doc.data();
     // Convert Firestore Timestamp to a serializable format (ISO string)
@@ -29,10 +28,10 @@ export async function getWorkGroups(): Promise<WorkGroup[]> {
 
 export async function dissolveWorkGroup(groupId: string, forceComplete: boolean = false): Promise<{ success: boolean; message: string }> {
   try {
-    const groupRef = doc(db, 'workGroups', groupId);
+    const groupRef = adminDb.collection('workGroups').doc(groupId);
     
     // BLOCCA SCIOGLIMENTO SE SESSIONE MATERIALE ATTIVA
-    const opsSnap = await getDocs(collection(db, "operators"));
+    const opsSnap = await adminDb.collection("operators").get();
     const hasActiveSession = opsSnap.docs.some(docSnap => {
         const op = docSnap.data() as Operator;
         return (op.activeMaterialSessions || []).some(s => s.originatorJobId === groupId || s.associatedJobs.some(aj => aj.jobId === groupId));
@@ -42,10 +41,10 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         return { success: false, message: "NON E' POSSIBILE SCOLLEGARE IL GRUPPO: SESSIONE MATERIALE ATTIVA" };
     }
 
-    await runTransaction(db, async (transaction) => {
+    await adminDb.runTransaction(async (transaction) => {
         const groupSnap = await transaction.get(groupRef);
 
-        if (!groupSnap.exists()) {
+        if (!groupSnap.exists) {
           throw new Error("Gruppo di lavoro non trovato.");
         }
         
@@ -59,14 +58,14 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
         }
 
         // 1. READ all associated jobs to get their original data
-        const jobRefs = jobOrderIds.map(id => doc(db, 'jobOrders', id));
+        const jobRefs = jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
         const jobDocs = await Promise.all(jobRefs.map(ref => transaction.get(ref)));
         
         const isGroupCompleted = forceComplete;
 
         // 2. Iterate through each job and build its new phase data
         for (const jobDoc of jobDocs) {
-             if (!jobDoc.exists()) continue;
+             if (!jobDoc.exists) continue;
              
              const jobOriginalData = jobDoc.data() as JobOrder;
              // Deep copy of the group's phase structure
@@ -91,15 +90,15 @@ export async function dissolveWorkGroup(groupId: string, forceComplete: boolean 
              const finalStatus = isGroupCompleted ? 'completed' : 'paused';
                 
              transaction.update(jobDoc.ref, { 
-                workGroupId: deleteField(),
+                workGroupId: admin.firestore.FieldValue.delete(),
                 phases: finalJobPhases, // Inherit phase progress, keeping material consumptions
                 status: finalStatus,
                 overallStartTime: groupData.overallStartTime || jobOriginalData.overallStartTime || null,
                 overallEndTime: isGroupCompleted ? (groupData.overallEndTime || new Date()) : null, 
                 isProblemReported: groupData.isProblemReported || false,
-                problemType: groupData.problemType || deleteField(),
-                problemNotes: groupData.problemNotes || deleteField(),
-                problemReportedBy: groupData.problemReportedBy || deleteField(),
+                problemType: groupData.problemType || admin.firestore.FieldValue.delete(),
+                problemNotes: groupData.problemNotes || admin.firestore.FieldValue.delete(),
+                problemReportedBy: groupData.problemReportedBy || admin.firestore.FieldValue.delete(),
             });
         }
         

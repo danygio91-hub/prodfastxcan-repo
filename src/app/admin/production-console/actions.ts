@@ -2,8 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, updateDoc, runTransaction, writeBatch, collection, getDocs, query as firestoreQuery, where, Timestamp, deleteField } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
@@ -16,7 +16,7 @@ export type ProductionTimeData = {
 
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
     const report = await fetchProductionTimeAnalysisReport();
-    const articlesSnapshot = await getDocs(collection(db, "articles"));
+    const articlesSnapshot = await adminDb.collection("articles").get();
     const articles = articlesSnapshot.docs.map(doc => doc.data() as import('@/lib/mock-data').Article);
     const articlesMap = new Map(articles.map(a => [a.code, a]));
 
@@ -53,10 +53,10 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
     return analysisMap;
 }
 
-async function propagateGroupUpdatesToJobs(transaction: any, groupData: WorkGroup) {
+async function propagateGroupUpdatesToJobs(transaction: admin.firestore.Transaction, groupData: WorkGroup) {
     if (!groupData.jobOrderIds || groupData.jobOrderIds.length === 0) return;
     const updatePayload: { [key: string]: any } = { phases: groupData.phases, status: groupData.status };
-    const jobRefs = groupData.jobOrderIds.map(id => doc(db, 'jobOrders', id));
+    const jobRefs = groupData.jobOrderIds.map(id => adminDb.collection('jobOrders').doc(id));
     jobRefs.forEach(jobRef => { transaction.update(jobRef, updatePayload); });
 }
 
@@ -79,10 +79,10 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
         const snap = await transaction.get(itemRef);
-        if (!snap.exists()) throw new Error('Elemento non trovato.');
+        if (!snap.exists) throw new Error('Elemento non trovato.');
         const item = snap.data() as JobOrder;
         const updatedPhases = item.phases.map(phase => { if (phase.type === 'production' && phase.status !== 'completed') return { ...phase, status: 'completed' as const, forced: true }; return phase; });
         const finalPhases = updatePhasesMaterialReadiness(updatedPhases);
@@ -98,10 +98,10 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
       const snap = await transaction.get(itemRef);
-      if (!snap.exists()) throw new Error('Elemento non trovato.');
+      if (!snap.exists) throw new Error('Elemento non trovato.');
       const item = snap.data() as JobOrder;
       let updatedPhases = item.phases.map(phase => { if (phase.forced) { const { forced, ...rest } = phase; return { ...rest, status: 'pending' as const }; } return phase; });
       updatedPhases = updatePhasesMaterialReadiness(updatedPhases);
@@ -116,11 +116,11 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
 export async function toggleGuainaPhasePosition(itemId: string, phaseId: string, currentState: 'default' | 'postponed'): Promise<{ success: boolean; message: string }> {
   try {
     const isGroup = itemId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
-    const templateRef = doc(db, 'workPhaseTemplates', phaseId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
+    const templateRef = adminDb.collection('workPhaseTemplates').doc(phaseId);
+    await adminDb.runTransaction(async (transaction) => {
         const [itemSnap, tSnap] = await Promise.all([transaction.get(itemRef), transaction.get(templateRef)]);
-        if (!itemSnap.exists()) throw new Error('Non trovato.');
+        if (!itemSnap.exists) throw new Error('Non trovato.');
         const itemData = itemSnap.data() as JobOrder | WorkGroup;
         const updatedPhases = [...(itemData.phases || [])];
         const phaseIndex = updatedPhases.findIndex(p => p.id === phaseId);
@@ -130,7 +130,7 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
           updatedPhases[phaseIndex].sequence = lastProd ? lastProd.sequence + 0.1 : 99;
           updatedPhases[phaseIndex].postponed = true;
         } else {
-          const tData = tSnap.exists() ? (tSnap.data() as WorkPhaseTemplate) : null;
+          const tData = tSnap.exists ? (tSnap.data() as WorkPhaseTemplate) : null;
           updatedPhases[phaseIndex].sequence = tData ? tData.sequence : 1;
           delete updatedPhases[phaseIndex].postponed;
         }
@@ -146,10 +146,10 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
 export async function revertPhaseCompletion(jobId: string, phaseId: string, uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobRef = doc(db, 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const jobRef = adminDb.collection('jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
       const jobSnap = await transaction.get(jobRef);
-      if (!jobSnap.exists()) throw new Error('Commessa non trovata.');
+      if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       const jobData = jobSnap.data() as JobOrder;
       const phases = [...(jobData.phases || [])];
       const idx = phases.findIndex(p => p.id === phaseId);
@@ -158,7 +158,7 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
       phases[idx].status = 'paused';
       phases[idx].qualityResult = null;
       const revertedPhases = updatePhasesMaterialReadiness(phases);
-      transaction.update(jobRef, { phases: revertedPhases, status: 'production', overallEndTime: deleteField() });
+      transaction.update(jobRef, { phases: revertedPhases, status: 'production', overallEndTime: admin.firestore.FieldValue.delete() });
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Fase riaperta.` };
@@ -169,10 +169,10 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
       const itemSnap = await transaction.get(itemRef);
-      if (!itemSnap.exists()) throw new Error('Non trovato.');
+      if (!itemSnap.exists) throw new Error('Non trovato.');
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
       const updatedPhases = itemData.phases.map(phase => {
         if (phase.status === 'in-progress') {
@@ -186,8 +186,8 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
       const isAnyPaused = updatedPhases.some(p => p.status === 'paused');
       const newStatus = isAnyActive ? 'production' : (isAnyPaused ? 'paused' : 'production');
       transaction.update(itemRef, { phases: updatedPhases, status: newStatus });
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => { transaction.update(doc(db, 'jobOrders', id), { phases: updatedPhases, status: newStatus }); });
-      operatorIdsToPause.forEach(opId => { transaction.update(doc(db, "operators", opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null }); });
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { phases: updatedPhases, status: newStatus }); });
+      operatorIdsToPause.forEach(opId => { transaction.update(adminDb.collection("operators").doc(opId), { stato: 'inattivo', activeJobId: null, activePhaseName: null }); });
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: `Operatori messi in pausa.` };
@@ -198,14 +198,14 @@ export async function forceCompleteJob(jobId: string, uid: string | undefined | 
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
         const snap = await transaction.get(itemRef);
-        if (!snap.exists()) throw new Error("Non trovato.");
-        transaction.update(itemRef, { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
+        if (!snap.exists) throw new Error("Non trovato.");
+        transaction.update(itemRef, { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => transaction.update(doc(db, 'jobOrders', id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true }));
+            (data.jobOrderIds || []).forEach(id => transaction.update(adminDb.collection('jobOrders').doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true }));
         }
     });
     revalidatePath('/admin/production-console');
@@ -217,35 +217,36 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
   try {
     await ensureAdmin(uid);
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    await runTransaction(db, async (transaction) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    await adminDb.runTransaction(async (transaction) => {
       const itemSnap = await transaction.get(itemRef);
-      if (!itemSnap.exists()) throw new Error("Non trovata.");
+      if (!itemSnap.exists) throw new Error("Non trovata.");
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
       const jobIds = isGroup ? (itemData as WorkGroup).jobOrderIds : [jobId];
-      const withdrawalsQuery = firestoreQuery(collection(db, "materialWithdrawals"), where("jobIds", "array-contains-any", jobIds || []));
-      const wSnap = await getDocs(withdrawalsQuery);
+      if (!jobIds || jobIds.length === 0) return;
+      const withdrawalsQuery = adminDb.collection("materialWithdrawals").where("jobIds", "array-contains-any", jobIds);
+      const wSnap = await withdrawalsQuery.get();
       const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
-      const matSnaps = await Promise.all(matIds.map(id => transaction.get(doc(db, 'rawMaterials', id))));
+      const matSnaps = await Promise.all(matIds.map(id => transaction.get(adminDb.collection('rawMaterials').doc(id))));
       const matMap = new Map(matSnaps.map(s => [s.id, s.data() as RawMaterial]));
       for (const wd of wSnap.docs) {
         const w = wd.data() as MaterialWithdrawal;
         const m = matMap.get(w.materialId);
-        if (m) { transaction.update(doc(db, 'rawMaterials', w.materialId), { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) }); }
+        if (m) { transaction.update(adminDb.collection('rawMaterials').doc(w.materialId), { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) }); }
         transaction.delete(wd.ref);
       }
       if (isGroup) {
           const gData = itemData as WorkGroup;
           (gData.jobOrderIds || []).forEach(id => {
-              const jRef = doc(db, 'jobOrders', id);
+              const jRef = adminDb.collection('jobOrders').doc(id);
               const updatedPhases: JobPhase[] = (gData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
-              transaction.update(jRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
+              transaction.update(jRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
           });
           transaction.delete(itemRef);
       } else {
           const jData = itemData as JobOrder;
           const updatedPhases: JobPhase[] = (jData.phases || []).map(p => ({ ...p, status: 'pending' as const, workPeriods: [], materialConsumptions: [], qualityResult: null, materialReady: p.isIndependent || p.type === 'preparation', }));
-          transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: deleteField() });
+          transaction.update(itemRef, { status: 'planned', overallStartTime: null, overallEndTime: null, isProblemReported: false, phases: updatedPhases, workGroupId: admin.firestore.FieldValue.delete() });
       }
     });
     revalidatePath('/admin/production-console');
@@ -256,17 +257,17 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 export async function revertCompletion(itemId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-      await runTransaction(db, async (transaction) => {
+      await adminDb.runTransaction(async (transaction) => {
           const itemSnap = await transaction.get(itemRef);
-          if (!itemSnap.exists()) throw new Error("Non trovato.");
+          if (!itemSnap.exists) throw new Error("Non trovato.");
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
           if (!itemData.forcedCompletion) throw new Error("Solo chiusure forzate riapribili.");
           const isAct = (itemData.phases || []).some(p => p.status === 'in-progress');
           const newStatus = isAct ? 'production' : 'paused';
-          transaction.update(itemRef, { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() });
-          if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(doc(db, 'jobOrders', id), { status: newStatus, overallEndTime: deleteField(), forcedCompletion: deleteField() }); }); }
+          transaction.update(itemRef, { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() });
+          if (isGroup) { (itemData.jobOrderIds || []).forEach(id => { transaction.update(adminDb.collection('jobOrders').doc(id), { status: newStatus, overallEndTime: admin.firestore.FieldValue.delete(), forcedCompletion: admin.firestore.FieldValue.delete() }); }); }
       });
       revalidatePath('/admin/production-console');
       return { success: true, message: "Riaperta." };
@@ -276,15 +277,15 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
 export async function updatePhasesForJob(jobId: string, phases: JobPhase[], uid: string): Promise<{ success: boolean, message: string }> {
   await ensureAdmin(uid);
   const isGroup = jobId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
+  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
   const finalPhases = updatePhasesMaterialReadiness(phases.map((p, i) => ({ ...p, sequence: i + 1 })));
   try {
-    await updateDoc(itemRef, { phases: finalPhases });
+    await itemRef.update({ phases: finalPhases });
     if (isGroup) {
-        const gSnap = await getDoc(itemRef);
+        const gSnap = await itemRef.get();
         const gData = gSnap.data() as WorkGroup;
-        const batch = writeBatch(db);
-        (gData.jobOrderIds || []).forEach(id => batch.update(doc(db, 'jobOrders', id), { phases: finalPhases }));
+        const batch = adminDb.batch();
+        (gData.jobOrderIds || []).forEach(id => batch.update(adminDb.collection('jobOrders').doc(id), { phases: finalPhases }));
         await batch.commit();
     }
     revalidatePath('/admin/production-console');
@@ -299,11 +300,11 @@ export async function forceFinishMultiple(jobIds: string[], uid: string): Promis
 
 export async function forceCompleteMultiple(jobIds: string[], uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
-  const batch = writeBatch(db);
+  const batch = adminDb.batch();
   jobIds.forEach(id => {
       const isGroup = id.startsWith('group-');
       const collectionName = isGroup ? 'workGroups' : 'jobOrders';
-      batch.update(doc(db, collectionName, id), { status: 'completed', overallEndTime: Timestamp.now(), forcedCompletion: true });
+      batch.update(adminDb.collection(collectionName).doc(id), { status: 'completed', overallEndTime: admin.firestore.Timestamp.now(), forcedCompletion: true });
   });
   await batch.commit();
   revalidatePath('/admin/production-console');
@@ -313,11 +314,11 @@ export async function forceCompleteMultiple(jobIds: string[], uid: string): Prom
 export async function reportMaterialMissing(itemId: string, phaseId: string, uid: string, notes?: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-    await runTransaction(db, async (t) => {
-      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(doc(db, 'operators', uid))]);
-      if (!snap.exists()) throw new Error("Non trovato.");
+    await adminDb.runTransaction(async (t) => {
+      const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(adminDb.collection('operators').doc(uid))]);
+      if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
       const phases = [...itemData.phases];
       const idx = phases.findIndex(p => p.id === phaseId);
@@ -326,7 +327,7 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
       phases[idx].materialReady = false;
       const up = { phases, isProblemReported: true, problemType: 'MANCA_MATERIALE' as const, problemReportedBy: (opSnap.data() as any)?.nome || 'Admin', problemNotes: notes || '' };
       t.update(itemRef, up);
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: 'Segnalato.' };
@@ -336,11 +337,11 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
 export async function resolveMaterialMissing(itemId: string, phaseId: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   const isGroup = itemId.startsWith('group-');
-  const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
+  const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-    await runTransaction(db, async (t) => {
+    await adminDb.runTransaction(async (t) => {
       const snap = await t.get(itemRef);
-      if (!snap.exists()) throw new Error("Non trovato.");
+      if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
       let phases = [...itemData.phases];
       const idx = phases.findIndex(p => p.id === phaseId);
@@ -350,9 +351,9 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
       const anyLeft = phases.some(p => p.materialStatus === 'missing');
       const otherProb = itemData.problemType && itemData.problemType !== 'MANCA_MATERIALE';
       const up: any = { phases };
-      if (!anyLeft && !otherProb) { up.isProblemReported = false; up.problemType = deleteField(); up.problemReportedBy = deleteField(); }
+      if (!anyLeft && !otherProb) { up.isProblemReported = false; up.problemType = admin.firestore.FieldValue.delete(); up.problemReportedBy = admin.firestore.FieldValue.delete(); }
       t.update(itemRef, up);
-      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(doc(db, 'jobOrders', id), up));
+      if (isGroup) (itemData.jobOrderIds || []).forEach(id => t.update(adminDb.collection('jobOrders').doc(id), up));
     });
     revalidatePath('/admin/production-console');
     return { success: true, message: 'Risolto.' };
@@ -363,14 +364,14 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
   try {
     await ensureAdmin(uid);
     const isGroup = itemId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', itemId);
-    await runTransaction(db, async (t) => {
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
+    await adminDb.runTransaction(async (t) => {
         const snap = await t.get(itemRef);
-        if (!snap.exists()) throw new Error("Non trovato.");
+        if (!snap.exists) throw new Error("Non trovato.");
         t.update(itemRef, { dataConsegnaFinale: newDate });
         if (isGroup) {
             const data = snap.data() as WorkGroup;
-            (data.jobOrderIds || []).forEach(id => { t.update(doc(db, 'jobOrders', id), { dataConsegnaFinale: newDate }); });
+            (data.jobOrderIds || []).forEach(id => { t.update(adminDb.collection('jobOrders').doc(id), { dataConsegnaFinale: newDate }); });
         }
     });
     revalidatePath('/admin/production-console');

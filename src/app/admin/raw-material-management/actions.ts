@@ -1,24 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import {
-    collection,
-    getDocs,
-    doc,
-    setDoc,
-    deleteDoc,
-    writeBatch,
-    query as firestoreQuery,
-    where,
-    getDoc,
-    runTransaction,
-    limit,
-    orderBy,
-    startAfter,
-    Timestamp,
-    deleteField
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type {
     RawMaterial,
     RawMaterialBatch,
@@ -72,27 +56,27 @@ function calculateCommitmentQty(jobQta: number, bomItem: any, material: RawMater
 }
 
 export async function getDepartments(): Promise<Department[]> {
-    const snapshot = await getDocs(collection(db, "departments"));
+    const snapshot = await adminDb.collection("departments").get();
     return snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Department));
 }
 
 export async function getManualCommitments(): Promise<ManualCommitment[]> {
-    const snapshot = await getDocs(firestoreQuery(collection(db, "manualCommitments"), orderBy("createdAt", "desc")));
+    const snapshot = await adminDb.collection("manualCommitments").orderBy("createdAt", "desc").get();
     return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as ManualCommitment);
 }
 
 export async function getRawMaterials(searchTerm?: string, lastCode?: string): Promise<RawMaterial[]> {
-    const materialsCol = collection(db, 'rawMaterials');
+    const materialsCol = adminDb.collection('rawMaterials');
     let snapshot;
     if (searchTerm === undefined || searchTerm.trim() === '') {
-        const queryConstraints: any[] = [orderBy("code_normalized"), limit(50)];
+        let q = materialsCol.orderBy("code_normalized").limit(50);
         if (lastCode) {
-            queryConstraints.push(startAfter(lastCode.toLowerCase().trim()));
+            q = q.startAfter(lastCode.toLowerCase().trim());
         }
-        snapshot = await getDocs(firestoreQuery(materialsCol, ...queryConstraints));
+        snapshot = await q.get();
     } else if (searchTerm && searchTerm.length >= 2) {
         const lower = searchTerm.toLowerCase().trim();
-        snapshot = await getDocs(firestoreQuery(materialsCol, where('code_normalized', '>=', lower), where('code_normalized', '<=', lower + '\uf8ff'), limit(100)));
+        snapshot = await materialsCol.where('code_normalized', '>=', lower).where('code_normalized', '<=', lower + '\uf8ff').limit(100).get();
     } else { return []; }
     return snapshot.docs.map(docSnap => ({ ...docSnap.data(), id: docSnap.id } as RawMaterial));
 }
@@ -105,8 +89,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
 
     // CONVALIDA DUPLICATI
     if (!id) {
-        const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", code_normalized));
-        const snap = await getDocs(q);
+        const snap = await adminDb.collection("rawMaterials").where("code_normalized", "==", code_normalized).get();
         if (!snap.empty) {
             return { success: false, message: `Codice Articolo '${code}' già presente in anagrafica.` };
         }
@@ -125,10 +108,10 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
     };
 
     if (id) {
-        await setDoc(doc(db, "rawMaterials", id), dataToSave, { merge: true });
+        await adminDb.collection("rawMaterials").doc(id).set(dataToSave, { merge: true });
     } else {
-        const newRef = doc(collection(db, "rawMaterials"));
-        await setDoc(newRef, { ...dataToSave, id: newRef.id, currentStockUnits: 0, currentWeightKg: 0, batches: [] });
+        const newRef = adminDb.collection("rawMaterials").doc();
+        await newRef.set({ ...dataToSave, id: newRef.id, currentStockUnits: 0, currentWeightKg: 0, batches: [] });
     }
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima salvata.' };
@@ -138,11 +121,11 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
     const rawData = Object.fromEntries(formData.entries());
     const materialId = rawData.materialId as string;
     const batchId = rawData.batchId as string;
-    const materialRef = doc(db, "rawMaterials", materialId);
+    const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
-        await runTransaction(db, async (t) => {
+        await adminDb.runTransaction(async (t) => {
             const docSnap = await t.get(materialRef);
-            if (!docSnap.exists()) throw new Error('Materia prima non trovata.');
+            if (!docSnap.exists) throw new Error('Materia prima non trovata.');
             const material = docSnap.data() as RawMaterial;
             const batches = [...(material.batches || [])];
             const idx = batches.findIndex(b => b.id === batchId);
@@ -163,11 +146,11 @@ export async function updateBatchInRawMaterial(formData: FormData): Promise<{ su
 export async function addBatchToRawMaterial(formData: FormData): Promise<{ success: boolean; message: string; }> {
     const rawData = Object.fromEntries(formData.entries());
     const materialId = rawData.materialId as string;
-    const materialRef = doc(db, "rawMaterials", materialId);
+    const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
-        await runTransaction(db, async (t) => {
+        await adminDb.runTransaction(async (t) => {
             const docSnap = await t.get(materialRef);
-            if (!docSnap.exists()) throw new Error('Non trovata.');
+            if (!docSnap.exists) throw new Error('Non trovata.');
             const material = docSnap.data() as RawMaterial;
             const netQty = Number(rawData.netQuantity);
             let netWeight = material.unitOfMeasure === 'kg' ? netQty : (material.conversionFactor ? netQty * material.conversionFactor : 0);
@@ -180,11 +163,11 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
 }
 
 export async function deleteBatchFromRawMaterial(materialId: string, batchId: string): Promise<{ success: boolean; message: string; }> {
-    const materialRef = doc(db, "rawMaterials", materialId);
+    const materialRef = adminDb.collection("rawMaterials").doc(materialId);
     try {
-        await runTransaction(db, async (t) => {
+        await adminDb.runTransaction(async (t) => {
             const docSnap = await t.get(materialRef);
-            if (!docSnap.exists()) throw new Error("Materia prima non trovata.");
+            if (!docSnap.exists) throw new Error("Materia prima non trovata.");
             const material = docSnap.data() as RawMaterial;
             const batch = (material.batches || []).find(b => b.id === batchId);
             if (!batch) throw new Error("Lotto non trovato.");
@@ -196,39 +179,38 @@ export async function deleteBatchFromRawMaterial(materialId: string, batchId: st
 }
 
 export async function deleteRawMaterial(id: string): Promise<{ success: boolean; message: string }> {
-    await deleteDoc(doc(db, "rawMaterials", id));
+    await adminDb.collection("rawMaterials").doc(id).delete();
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Materia prima eliminata.' };
 }
 
 export async function getMaterialWithdrawalsForMaterial(materialId: string): Promise<MaterialWithdrawal[]> {
-    const q = firestoreQuery(collection(db, "materialWithdrawals"), where("materialId", "==", materialId));
-    const snap = await getDocs(q);
+    const snap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
     return snap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
 }
 
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
 export async function getMaterialsStatus(searchTerm?: string, lastCode?: string): Promise<MaterialStatus[]> {
-    const materialsCol = collection(db, "rawMaterials");
-    let mq;
+    const materialsCol = adminDb.collection("rawMaterials");
+    let mq: admin.firestore.Query = materialsCol;
     const lowerSearch = (searchTerm || '').toLowerCase().trim();
     if (lowerSearch.length >= 2) {
-        mq = firestoreQuery(materialsCol, where("code_normalized", ">=", lowerSearch), where("code_normalized", "<=", lowerSearch + '\uf8ff'), limit(100));
+        mq = mq.where("code_normalized", ">=", lowerSearch).where("code_normalized", "<=", lowerSearch + '\uf8ff').limit(100);
     } else if (searchTerm !== undefined && searchTerm !== '') { return []; }
     else { 
-        const queryConstraints: any[] = [orderBy("code_normalized"), limit(50)];
+        mq = mq.orderBy("code_normalized");
         if (lastCode) {
-            queryConstraints.push(startAfter(lastCode.toLowerCase().trim()));
+            mq = mq.startAfter(lastCode.toLowerCase().trim());
         }
-        mq = firestoreQuery(materialsCol, ...queryConstraints); 
+        mq = mq.limit(50);
     }
     const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
-        getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
-        getDocs(mq),
-        getDocs(firestoreQuery(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
-        getDocs(collection(db, 'articles')),
-        getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        mq.get(),
+        adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
+        adminDb.collection('articles').get(),
+        adminDb.collection('purchaseOrders').where('status', 'in', ['pending', 'partially_received']).get()
     ]);
     const codeToMat = new Map<string, RawMaterial>();
     materialsSnap.forEach(docSnap => {
@@ -291,10 +273,10 @@ export type CommitmentDetail = { jobId: string; type: 'PRODUZIONE' | 'MANUALE'; 
 export async function getMaterialCommitmentDetails(materialCode: string): Promise<CommitmentDetail[]> {
     const norm = materialCode.toLowerCase().trim();
     const [jobsSnap, commitmentsSnap, articlesSnap, materialsSnap] = await Promise.all([
-        getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
-        getDocs(firestoreQuery(collection(db, 'manualCommitments'), where('status', '==', 'pending'))),
-        getDocs(collection(db, 'articles')),
-        getDocs(firestoreQuery(collection(db, 'rawMaterials'), where('code_normalized', '==', norm)))
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
+        adminDb.collection('articles').get(),
+        adminDb.collection('rawMaterials').where('code_normalized', '==', norm).get()
     ]);
     const mat = materialsSnap.docs[0]?.data() as RawMaterial;
     if (!mat) return [];
@@ -328,8 +310,7 @@ export async function getMaterialCommitmentDetails(materialCode: string): Promis
 export type OrderedDetail = { id: string; orderNumber: string; supplierName: string; quantity: number; receivedQuantity: number; expectedDeliveryDate: string; status: string; unit: string; };
 
 export async function getMaterialOrderedDetails(materialCode: string): Promise<OrderedDetail[]> {
-    const q = firestoreQuery(collection(db, "purchaseOrders"), where("materialCode", "==", materialCode), where("status", "in", ["pending", "partially_received"]));
-    const snap = await getDocs(q);
+    const snap = await adminDb.collection("purchaseOrders").where("materialCode", "==", materialCode).where("status", "in", ["pending", "partially_received"]).get();
     return snap.docs.map(doc => {
         const data = doc.data() as PurchaseOrder;
         return { id: doc.id, orderNumber: data.orderNumber, supplierName: data.supplierName || 'N/D', quantity: data.quantity, receivedQuantity: data.receivedQuantity || 0, expectedDeliveryDate: data.expectedDeliveryDate, status: data.status, unit: data.unitOfMeasure };
@@ -344,20 +325,20 @@ export async function searchMaterialsAndGetStatus(searchTerm?: string, lastCode?
 }
 
 export async function getScrapsForMaterial(id: string): Promise<ScrapRecord[]> {
-    const snap = await getDocs(firestoreQuery(collection(db, "scrapRecords"), where("materialId", "==", id), orderBy("declaredAt", "desc")));
-    return snap.docs.map(doc => ({ ...doc.data(), id: doc.id, declaredAt: doc.data().declaredAt.toDate().toISOString() } as ScrapRecord));
+    const snap = await adminDb.collection("scrapRecords").where("materialId", "==", id).orderBy("declaredAt", "desc").get();
+    return snap.docs.map(doc => ({ ...doc.data(), id: doc.id, declaredAt: (doc.data().declaredAt as admin.firestore.Timestamp).toDate().toISOString() } as ScrapRecord));
 }
 
 export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string): Promise<{ success: boolean; message: string }> {
-    const ref = doc(db, "materialWithdrawals", withdrawalId);
+    const ref = adminDb.collection("materialWithdrawals").doc(withdrawalId);
     try {
-        await runTransaction(db, async (t) => {
+        await adminDb.runTransaction(async (t) => {
             const wSnap = await t.get(ref);
-            if (!wSnap.exists()) throw new Error("Non trovato.");
+            if (!wSnap.exists) throw new Error("Non trovato.");
             const w = wSnap.data() as MaterialWithdrawal;
-            const mRef = doc(db, "rawMaterials", w.materialId);
+            const mRef = adminDb.collection("rawMaterials").doc(w.materialId);
             const mSnap = await t.get(mRef);
-            if (mSnap.exists()) {
+            if (mSnap.exists) {
                 const m = mSnap.data() as RawMaterial;
                 t.update(mRef, { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) });
             }
@@ -371,25 +352,25 @@ export async function deleteSingleWithdrawalAndRestoreStock(withdrawalId: string
 export async function declareCommitmentFulfillment(id: string, good: number, scrap: number, sels: LotSelectionPayload[], uid: string) {
     try {
         await ensureAdmin(uid);
-        await runTransaction(db, async (t) => {
-            const opRef = doc(db, "operators", uid);
-            const cRef = doc(db, "manualCommitments", id);
-            const mRefs = sels.map(s => doc(db, "rawMaterials", s.materialId));
+        await adminDb.runTransaction(async (t) => {
+            const opRef = adminDb.collection("operators").doc(uid);
+            const cRef = adminDb.collection("manualCommitments").doc(id);
+            const mRefs = sels.map(s => adminDb.collection("rawMaterials").doc(s.materialId));
             const [opSnap, cSnap, ...mSnaps] = await Promise.all([t.get(opRef), t.get(cRef), ...mRefs.map(ref => t.get(ref))]);
-            if (!cSnap.exists()) throw new Error("Impegno non trovato.");
+            if (!cSnap.exists) throw new Error("Impegno non trovato.");
             const c = cSnap.data() as ManualCommitment;
-            const opData = opSnap.exists() ? opSnap.data() as Operator : null;
-            const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists() ? snap.data() as RawMaterial : null]));
+            const opData = opSnap.exists ? opSnap.data() as Operator : null;
+            const mDataMap = new Map(mSnaps.map(snap => [snap.id, snap.exists ? snap.data() as RawMaterial : null]));
             for (const s of sels) {
                 const m = mDataMap.get(s.materialId);
                 if (!m) throw new Error("Materia prima non trovata.");
                 let w = m.unitOfMeasure === 'kg' ? s.consumed : (m.conversionFactor ? s.consumed * m.conversionFactor : 0);
-                t.update(doc(db, "rawMaterials", s.materialId), { currentStockUnits: (m.currentStockUnits || 0) - s.consumed, currentWeightKg: (m.currentWeightKg || 0) - w });
-                const wRef = doc(collection(db, "materialWithdrawals"));
-                t.set(wRef, { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: opData?.nome || 'Admin', withdrawalDate: Timestamp.now(), lotto: s.lotto, commitmentId: id });
+                t.update(adminDb.collection("rawMaterials").doc(s.materialId), { currentStockUnits: (m.currentStockUnits || 0) - s.consumed, currentWeightKg: (m.currentWeightKg || 0) - w });
+                const wRef = adminDb.collection("materialWithdrawals").doc();
+                t.set(wRef, { jobOrderPFs: [c.jobOrderCode], jobIds: [], materialId: s.materialId, materialCode: s.componentCode, consumedWeight: w, consumedUnits: s.consumed, operatorId: uid, operatorName: opData?.nome || 'Admin', withdrawalDate: admin.firestore.Timestamp.now(), lotto: s.lotto, commitmentId: id });
             }
-            if (scrap > 0) t.set(doc(collection(db, "scrapRecords")), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: Timestamp.now(), operatorId: uid, operatorName: opData?.nome || 'Admin' });
-            t.update(cRef, { status: 'fulfilled', fulfilledAt: Timestamp.now(), fulfilledBy: uid });
+            if (scrap > 0) t.set(adminDb.collection("scrapRecords").doc(), { commitmentId: id, jobOrderCode: c.jobOrderCode, articleCode: c.articleCode, scrappedQuantity: scrap, declaredAt: admin.firestore.Timestamp.now(), operatorId: uid, operatorName: opData?.nome || 'Admin' });
+            t.update(cRef, { status: 'fulfilled', fulfilledAt: admin.firestore.Timestamp.now(), fulfilledBy: uid });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Evasione registrata." };
@@ -399,21 +380,20 @@ export async function declareCommitmentFulfillment(id: string, good: number, scr
 export async function revertManualCommitmentFulfillment(id: string, uid: string) {
     await ensureAdmin(uid);
     try {
-        const wq = firestoreQuery(collection(db, "materialWithdrawals"), where("commitmentId", "==", id));
-        const sq = firestoreQuery(collection(db, "scrapRecords"), where("commitmentId", "==", id));
-        const [ws, ss] = await Promise.all([getDocs(wq), getDocs(sq)]);
-        await runTransaction(db, async (t) => {
+        const ws = await adminDb.collection("materialWithdrawals").where("commitmentId", "==", id).get();
+        const ss = await adminDb.collection("scrapRecords").where("commitmentId", "==", id).get();
+        await adminDb.runTransaction(async (t) => {
             const mIds = [...new Set(ws.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
-            const mSnaps = await Promise.all(mIds.map(mid => t.get(doc(db, "rawMaterials", mid!))));
-            const mMap = new Map(mSnaps.map(s => [s.id, s.exists() ? s.data() as RawMaterial : null]));
+            const mSnaps = await Promise.all(mIds.map(mid => t.get(adminDb.collection("rawMaterials").doc(mid!))));
+            const mMap = new Map(mSnaps.map(s => [s.id, s.exists ? s.data() as RawMaterial : null]));
             for (const wd of ws.docs) {
                 const w = wd.data() as MaterialWithdrawal;
                 const m = mMap.get(w.materialId);
-                if (m) t.update(doc(db, "rawMaterials", w.materialId), { currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight });
+                if (m) t.update(adminDb.collection("rawMaterials").doc(w.materialId), { currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0), currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight });
                 t.delete(wd.ref);
             }
             ss.forEach(d => t.delete(d.ref));
-            t.update(doc(db, "manualCommitments", id), { status: 'pending', fulfilledAt: deleteField(), fulfilledBy: deleteField() });
+            t.update(adminDb.collection("manualCommitments").doc(id), { status: 'pending', fulfilledAt: admin.firestore.FieldValue.delete(), fulfilledBy: admin.firestore.FieldValue.delete() });
         });
         revalidatePath('/admin/raw-material-management');
         return { success: true, message: "Annullato." };
@@ -422,22 +402,22 @@ export async function revertManualCommitmentFulfillment(id: string, uid: string)
 
 export async function saveManualCommitment(data: any, uid: string) {
     await ensureAdmin(uid);
-    await setDoc(doc(collection(db, "manualCommitments")), { ...data, status: 'pending', createdAt: Timestamp.now(), deliveryDate: data.deliveryDate.toISOString() });
+    await adminDb.collection("manualCommitments").doc().set({ ...data, status: 'pending', createdAt: admin.firestore.Timestamp.now(), deliveryDate: data.deliveryDate.toISOString() });
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Creato.' };
 }
 
 export async function deleteManualCommitment(id: string) {
-    await deleteDoc(doc(db, "manualCommitments", id));
+    await adminDb.collection("manualCommitments").doc(id).delete();
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Eliminato.' };
 }
 
 export async function importManualCommitments(data: any[], uid: string) {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     data.forEach(r => {
-        batch.set(doc(collection(db, "manualCommitments")), { jobOrderCode: String(r.Commessa || "").trim(), articleCode: String(r["Codice Articolo"] || "").trim(), quantity: Number(r.Quantita || 0), deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), status: 'pending', createdAt: Timestamp.now() });
+        batch.set(adminDb.collection("manualCommitments").doc(), { jobOrderCode: String(r.Commessa || "").trim(), articleCode: String(r["Codice Articolo"] || "").trim(), quantity: Number(r.Quantita || 0), deliveryDate: r["Data Consegna"] ? new Date(r["Data Consegna"]).toISOString() : new Date().toISOString(), status: 'pending', createdAt: admin.firestore.Timestamp.now() });
     });
     await batch.commit();
     revalidatePath('/admin/raw-material-management');
@@ -447,17 +427,17 @@ export async function importManualCommitments(data: any[], uid: string) {
 export async function getMaterialsByCodes(codes: string[]): Promise<RawMaterial[]> {
     const validCodes = codes.filter(c => c && typeof c === 'string').map(c => c.trim());
     if (validCodes.length === 0) return [];
-    const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", validCodes)));
+    const snap = await adminDb.collection("rawMaterials").where("code", "in", validCodes).get();
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
 }
 
 export type LotInfo = { lotto: string; available: number; batches: RawMaterialBatch[] };
 
 export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo[]> {
-    const mSnap = await getDoc(doc(db, "rawMaterials", materialId));
-    if (!mSnap.exists()) return [];
+    const mSnap = await adminDb.collection("rawMaterials").doc(materialId).get();
+    if (!mSnap.exists) return [];
     const mat = mSnap.data() as RawMaterial;
-    const wSnap = await getDocs(firestoreQuery(collection(db, "materialWithdrawals"), where("materialId", "==", materialId)));
+    const wSnap = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
     const wByLotto = wSnap.docs.reduce((acc, d) => { const w = d.data(); const l = w.lotto || 'SENZA_LOTTO'; acc[l] = (acc[l] || 0) + (w.consumedUnits || 0); return acc; }, {} as Record<string, number>);
     const bByLotto = (mat.batches || []).reduce((acc, b) => { const l = b.lotto || 'SENZA_LOTTO'; if (!acc[l]) acc[l] = []; acc[l].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
     return Object.entries(bByLotto).map(([lotto, batches]) => { const tL = batches.reduce((s, b) => s + b.netQuantity, 0); const tW = wByLotto[lotto] || 0; return { lotto, available: tL - tW, batches }; }).filter(l => l.available > 0.001);

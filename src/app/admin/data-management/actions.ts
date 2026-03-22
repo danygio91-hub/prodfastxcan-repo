@@ -1,8 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, query as firestoreQuery, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/lib/mock-data';
 import * as z from 'zod';
 
@@ -21,13 +21,12 @@ function convertTimestampsToDates(obj: any): any {
 
 async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
     if (!cycleId) return [];
-    const cycleRef = doc(db, "workCycles", cycleId);
-    const cycleSnap = await getDoc(cycleRef);
-    if (!cycleSnap.exists()) return [];
+    const cycleSnap = await adminDb.collection("workCycles").doc(cycleId).get();
+    if (!cycleSnap.exists) return [];
     const cycle = cycleSnap.data() as WorkCycle;
     const phaseTemplateIds = cycle.phaseTemplateIds;
     if (!phaseTemplateIds || phaseTemplateIds.length === 0) return [];
-    const templatesSnap = await getDocs(collection(db, "workPhaseTemplates"));
+    const templatesSnap = await adminDb.collection("workPhaseTemplates").get();
     const allTemplatesMap = new Map(templatesSnap.docs.map(d => [d.id, d.data() as WorkPhaseTemplate]));
     return phaseTemplateIds.map((templateId, index): JobPhase | null => {
         const template = allTemplatesMap.get(templateId);
@@ -43,14 +42,12 @@ async function createPhasesFromCycle(cycleId: string): Promise<JobPhase[]> {
 }
 
 export async function getPlannedJobOrders(): Promise<JobOrder[]> {
-  const q = firestoreQuery(collection(db, "jobOrders"), where("status", "==", "planned"));
-  const snap = await getDocs(q);
+  const snap = await adminDb.collection("jobOrders").where("status", "==", "planned").get();
   return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
 export async function getProductionJobOrders(): Promise<JobOrder[]> {
-    const q = firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["production", "suspended", "paused"]));
-    const snap = await getDocs(q);
+    const snap = await adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused"]).get();
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
@@ -74,7 +71,7 @@ export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: Manu
 
     for (let i = 0; i < uniqueArticles.length; i += 30) {
         const chunk = uniqueArticles.slice(i, i + 30);
-        const snap = await getDocs(firestoreQuery(collection(db, "articles"), where("code", "in", chunk)));
+        const snap = await adminDb.collection("articles").where("code", "in", chunk).get();
         snap.forEach(d => {
             const a = { id: d.id, ...d.data() } as Article;
             articlesRes.push(a);
@@ -90,7 +87,7 @@ export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: Manu
 
     for (let i = 0; i < uniqueMaterials.length; i += 30) {
         const chunk = uniqueMaterials.slice(i, i + 30);
-        const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
         snap.forEach(d => materialsRes.push({ id: d.id, ...d.data() } as RawMaterial));
     }
 
@@ -98,7 +95,7 @@ export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: Manu
 }
 
 export async function getDepartments(): Promise<Department[]> {
-    const snap = await getDocs(firestoreQuery(collection(db, "departments"), orderBy("name")));
+    const snap = await adminDb.collection("departments").orderBy("name").get();
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department));
 }
 
@@ -106,15 +103,15 @@ export async function saveManualJobOrder(data: any) {
     const { ordinePF, articleCode, qta, cliente, dataConsegnaFinale, department, workCycleId, numeroODLInterno } = data;
     
     const sanitizedId = sanitizeDocumentId(ordinePF);
-    const docRef = doc(db, "jobOrders", sanitizedId);
-    const docSnap = await getDoc(docRef);
+    const docRef = adminDb.collection("jobOrders").doc(sanitizedId);
+    const docSnap = await docRef.get();
     
-    if (docSnap.exists()) {
+    if (docSnap.exists) {
         return { success: false, message: "Esiste già una commessa con questo Ordine PF." };
     }
 
-    const articleSnap = await getDoc(doc(db, "articles", articleCode.toUpperCase()));
-    if (!articleSnap.exists()) {
+    const articleSnap = await adminDb.collection("articles").doc(articleCode.toUpperCase()).get();
+    if (!articleSnap.exists) {
         return { success: false, message: "Articolo non trovato in anagrafica." };
     }
     const articleData = articleSnap.data() as Article;
@@ -161,7 +158,7 @@ export async function saveManualJobOrder(data: any) {
     };
 
     try {
-        await setDoc(docRef, JSON.parse(JSON.stringify(newJob)));
+        await docRef.set(JSON.parse(JSON.stringify(newJob)));
         revalidatePath('/admin/data-management');
         return { success: true, message: 'Commessa creata con successo.' };
     } catch (error) {
@@ -177,8 +174,8 @@ export async function processAndValidateImport(data: any[]): Promise<{
     const blockedJobs: Array<{ row: any; reason: string }> = [];
     
     const [articlesSnap, cyclesSnap] = await Promise.all([
-        getDocs(collection(db, "articles")), 
-        getDocs(collection(db, "workCycles"))
+        adminDb.collection("articles").get(), 
+        adminDb.collection("workCycles").get()
     ]);
     
     const articlesMap = new Map(articlesSnap.docs.map(d => [d.data().code.toUpperCase(), d.data() as Article]));
@@ -237,9 +234,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
         }
         
         const sanitizedId = sanitizeDocumentId(validData.ordinePF);
-        const docSnap = await getDoc(doc(db, "jobOrders", sanitizedId));
+        const docSnap = await adminDb.collection("jobOrders").doc(sanitizedId).get();
 
-        if (docSnap.exists()) {
+        if (docSnap.exists) {
             blockedJobs.push({ row, reason: "Commessa già presente nel sistema (Duplicata)." });
             continue;
         }
@@ -280,9 +277,9 @@ export async function processAndValidateImport(data: any[]): Promise<{
 }
 
 export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsToUpdate: JobOrder[] }) {
-    const batch = writeBatch(db);
-    data.newJobs.forEach(j => batch.set(doc(db, "jobOrders", j.id), j));
-    data.jobsToUpdate.forEach(j => batch.set(doc(db, "jobOrders", j.id), j, { merge: true }));
+    const batch = adminDb.batch();
+    data.newJobs.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), j));
+    data.jobsToUpdate.forEach(j => batch.set(adminDb.collection("jobOrders").doc(j.id), j, { merge: true }));
     await batch.commit();
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Caricamento completato.' };
@@ -290,8 +287,7 @@ export async function commitImportedJobOrders(data: { newJobs: JobOrder[], jobsT
 
 export async function updateJobOrderDeliveryDate(jobId: string, newDate: string) {
     try {
-        const jobRef = doc(db, "jobOrders", jobId);
-        await updateDoc(jobRef, { dataConsegnaFinale: newDate });
+        await adminDb.collection("jobOrders").doc(jobId).update({ dataConsegnaFinale: newDate });
         revalidatePath('/admin/data-management');
         return { success: true, message: 'Data consegna aggiornata.' };
     } catch (error) {
@@ -301,18 +297,18 @@ export async function updateJobOrderDeliveryDate(jobId: string, newDate: string)
 
 export async function createODL(jobId: string, manualOdlNumberStr?: string): Promise<{ success: boolean; message: string }> {
   try {
-    const jobRef = doc(db, "jobOrders", jobId);
+    const jobRef = adminDb.collection("jobOrders").doc(jobId);
     const now = new Date();
     const year = now.getFullYear();
     const shortYear = year.toString().slice(-2);
-    const result = await runTransaction(db, async (t) => {
+    const result = await adminDb.runTransaction(async (t) => {
       const snap = await t.get(jobRef);
-      if (!snap.exists()) throw new Error("Non trovata.");
+      if (!snap.exists) throw new Error("Non trovata.");
       const job = snap.data() as JobOrder;
       if (job.status !== 'planned') throw new Error("Stato non valido.");
       if (!job.billOfMaterials || job.billOfMaterials.length === 0) throw new Error("Distinta Base vuota.");
       if (!job.phases || job.phases.length === 0) throw new Error("Nessun ciclo.");
-      const counterRef = doc(db, "counters", `odl_${year}`);
+      const counterRef = adminDb.collection("counters").doc(`odl_${year}`);
       const counterSnap = await t.get(counterRef);
       const currentCounter = counterSnap.data()?.value || 0;
       let newOdlId: string;
@@ -328,7 +324,7 @@ export async function createODL(jobId: string, manualOdlNumberStr?: string): Pro
           newCounterValue = currentCounter + 1;
           newOdlId = `${String(newCounterValue).padStart(4, '0')}-${shortYear}`;
       }
-      t.update(jobRef, { status: 'production', odlCreationDate: Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
+      t.update(jobRef, { status: 'production', odlCreationDate: admin.firestore.Timestamp.fromDate(now), numeroODLInterno: newOdlId, odlCounter: newCounterValue });
       if (newCounterValue > currentCounter) t.set(counterRef, { value: newCounterValue });
       return newOdlId;
     });
@@ -344,14 +340,14 @@ export async function createMultipleODLs(jobIds: string[]) {
 }
 
 export async function cancelODL(jobId: string) {
-  await updateDoc(doc(db, "jobOrders", jobId), { status: 'planned', odlCreationDate: null });
+  await adminDb.collection("jobOrders").doc(jobId).update({ status: 'planned', odlCreationDate: null });
   revalidatePath('/admin/data-management');
   return { success: true, message: 'Annullato.' };
 }
 
 export async function deleteSelectedJobOrders(ids: string[]) {
-  const batch = writeBatch(db);
-  ids.forEach(id => batch.delete(doc(db, "jobOrders", id)));
+  const batch = adminDb.batch();
+  ids.forEach(id => batch.delete(adminDb.collection("jobOrders").doc(id)));
   await batch.commit();
   revalidatePath('/admin/data-management');
   return { success: true, message: 'Eliminate.' };
@@ -359,20 +355,19 @@ export async function deleteSelectedJobOrders(ids: string[]) {
 
 export async function updateJobOrderCycle(jobId: string, cycleId: string) {
     const phases = await createPhasesFromCycle(cycleId);
-    await updateDoc(doc(db, "jobOrders", jobId), { workCycleId: cycleId, phases });
+    await adminDb.collection("jobOrders").doc(jobId).update({ workCycleId: cycleId, phases });
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Ciclo aggiornato.' };
 }
 
 export async function getWorkCycles(): Promise<WorkCycle[]> {
-  const snap = await getDocs(collection(db, 'workCycles'));
+  const snap = await adminDb.collection('workCycles').get();
   return snap.docs.map(doc => ({ ...doc.data(), id: doc.id }) as WorkCycle);
 }
 
 export async function markJobAsPrinted(jobId: string) {
   try {
-    const jobRef = doc(db, "jobOrders", jobId);
-    await updateDoc(jobRef, { isPrinted: true });
+    await adminDb.collection("jobOrders").doc(jobId).update({ isPrinted: true });
     revalidatePath('/admin/data-management');
     return { success: true, message: 'Commessa segnata come stampata.' };
   } catch (error) { return { success: false, message: "Errore." }; }

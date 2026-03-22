@@ -1,8 +1,8 @@
 
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query as firestoreQuery, query, orderBy, addDoc, Timestamp, getDoc, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { RawMaterial, RawMaterialBatch, NonConformityReport, Packaging, PurchaseOrder } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
@@ -22,9 +22,7 @@ const batchFormSchema = z.object({
  * Fetches open purchase orders for a specific material code.
  */
 export async function getOpenPurchaseOrdersForMaterial(materialCode: string): Promise<PurchaseOrder[]> {
-    const col = collection(db, "purchaseOrders");
-    const q = firestoreQuery(col, where("materialCode", "==", materialCode));
-    const snapshot = await getDocs(q);
+    const snapshot = await adminDb.collection("purchaseOrders").where("materialCode", "==", materialCode).get();
     const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as PurchaseOrder);
     
     return orders
@@ -41,12 +39,12 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
   }
   
   const { materialId, date, ddt, quantity, lotto, packagingId, unit, purchaseOrderId } = validatedFields.data;
-  const materialRef = doc(db, "rawMaterials", materialId);
+  const materialRef = adminDb.collection("rawMaterials").doc(materialId);
   
   try {
-      const finalMaterialState = await runTransaction(db, async (transaction) => {
+      const finalMaterialState = await adminDb.runTransaction(async (transaction) => {
           const docSnap = await transaction.get(materialRef);
-          if (!docSnap.exists()) throw new Error('Materia prima non trovata.');
+          if (!docSnap.exists) throw new Error('Materia prima non trovata.');
 
           const material = docSnap.data() as RawMaterial;
           const existingBatches = material.batches || [];
@@ -55,10 +53,10 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           let validPackagingId: string | undefined = undefined;
 
           if (packagingId && packagingId !== 'none') {
-            const packagingRef = doc(db, 'packaging', packagingId);
+            const packagingRef = adminDb.collection('packaging').doc(packagingId);
             const packagingSnap = await transaction.get(packagingRef);
-            if (packagingSnap.exists()) {
-              tareWeight = packagingSnap.data().weightKg || 0;
+            if (packagingSnap.exists) {
+              tareWeight = (packagingSnap.data() as any).weightKg || 0;
               validPackagingId = packagingId;
             }
           }
@@ -90,9 +88,9 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           }
 
           if (purchaseOrderId) {
-              const poRef = doc(db, "purchaseOrders", purchaseOrderId);
+              const poRef = adminDb.collection("purchaseOrders").doc(purchaseOrderId);
               const poSnap = await transaction.get(poRef);
-              if (poSnap.exists()) {
+              if (poSnap.exists) {
                   const poData = poSnap.data() as PurchaseOrder;
                   const newReceivedTotal = (poData.receivedQuantity || 0) + unitsToAdd;
                   const isFullyReceived = newReceivedTotal >= poData.quantity - 0.001;
@@ -121,7 +119,7 @@ export async function addBatchToRawMaterial(formData: FormData): Promise<{ succe
           const newWeightKg = (material.currentWeightKg || 0) + netWeightKg;
           
           transaction.update(materialRef, { 
-              batches: [...existingBatches, newBatch],
+              batches: admin.firestore.FieldValue.arrayUnion(newBatch),
               currentStockUnits: newStockUnits,
               currentWeightKg: newWeightKg,
           });
@@ -153,13 +151,12 @@ export async function reportNonConformity(data: z.infer<typeof ncReportSchema>):
     if (!validated.success) return { success: false, message: 'Dati non validi.' };
     
     try {
-        const ncCollectionRef = collection(db, "nonConformityReports");
         const reportData: Omit<NonConformityReport, 'id'> = {
             ...validated.data,
             reportDate: new Date().toISOString(),
             status: 'pending',
         }
-        await addDoc(ncCollectionRef, reportData);
+        await adminDb.collection("nonConformityReports").add(reportData);
         revalidatePath('/admin/non-conformity-reports');
         return { success: true, message: 'Segnalazione inviata.' };
     } catch (error) {
@@ -168,6 +165,6 @@ export async function reportNonConformity(data: z.infer<typeof ncReportSchema>):
 }
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const snap = await getDocs(firestoreQuery(collection(db, 'packaging'), orderBy("name")));
+  const snap = await adminDb.collection('packaging').orderBy("name").get();
   return snap.docs.map(doc => doc.data() as Packaging);
 }

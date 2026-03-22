@@ -3,8 +3,8 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { Packaging, PackagingAssociation } from '@/lib/mock-data';
 
 // --- Schemas ---
@@ -19,8 +19,7 @@ const packagingSchema = z.object({
 // --- Actions ---
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const packagingCol = collection(db, 'packaging');
-  const snapshot = await getDocs(packagingCol);
+  const snapshot = await adminDb.collection('packaging').get();
   return snapshot.docs.map(d => d.data() as Packaging);
 }
 
@@ -46,7 +45,7 @@ export async function savePackagingItem(formData: FormData) {
   const { id, ...dataToSave } = validatedFields.data;
   
   const finalId = id || `pack-${Date.now()}`;
-  const packagingRef = doc(db, 'packaging', finalId);
+  const packagingRef = adminDb.collection('packaging').doc(finalId);
 
   const fullData: Packaging = { 
     id: finalId, 
@@ -54,7 +53,7 @@ export async function savePackagingItem(formData: FormData) {
     associatedTypes: (dataToSave.associatedTypes || []) as PackagingAssociation[],
   };
   
-  await setDoc(packagingRef, fullData, { merge: true });
+  await packagingRef.set(fullData, { merge: true });
   
   revalidatePath('/admin/packaging-management');
   return { success: true, message: 'Imballo salvato con successo.' };
@@ -62,7 +61,7 @@ export async function savePackagingItem(formData: FormData) {
 
 export async function deletePackagingItem(id: string): Promise<{ success: boolean; message: string }> {
   try {
-    await deleteDoc(doc(db, 'packaging', id));
+    await adminDb.collection('packaging').doc(id).delete();
     revalidatePath('/admin/packaging-management');
     return { success: true, message: 'Imballo eliminato con successo.' };
   } catch (error) {

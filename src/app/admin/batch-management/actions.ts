@@ -1,8 +1,8 @@
 
 'use server';
 
-import { collection, getDocs, query, where, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { RawMaterial, RawMaterialBatch, MaterialWithdrawal } from '@/lib/mock-data';
 
 export type EnrichedBatch = RawMaterialBatch & {
@@ -30,18 +30,15 @@ export type GroupedBatches = {
 
 
 export async function getAllGroupedBatches(searchTerm?: string): Promise<GroupedBatches[]> {
-    const materialsCol = collection(db, 'rawMaterials');
     let materialsSnapshot;
 
     if (searchTerm && searchTerm.length >= 2) {
         const lowercasedTerm = searchTerm.toLowerCase();
-        const q = query(
-            materialsCol, 
-            where("code_normalized", ">=", lowercasedTerm), 
-            where("code_normalized", "<=", lowercasedTerm + '\uf8ff'),
-            limit(25)
-        );
-        materialsSnapshot = await getDocs(q);
+        materialsSnapshot = await adminDb.collection('rawMaterials')
+            .where("code_normalized", ">=", lowercasedTerm)
+            .where("code_normalized", "<=", lowercasedTerm + '\uf8ff')
+            .limit(25)
+            .get();
     } else {
         return [];
     }
@@ -53,8 +50,9 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
     const materialIds = materialsSnapshot.docs.map(doc => doc.id);
     const allWithdrawals: MaterialWithdrawal[] = [];
     if (materialIds.length > 0) {
-        const withdrawalsQuery = query(collection(db, "materialWithdrawals"), where("materialId", "in", materialIds));
-        const withdrawalsSnapshot = await getDocs(withdrawalsQuery);
+        const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals")
+            .where("materialId", "in", materialIds)
+            .get();
         withdrawalsSnapshot.forEach(doc => {
             allWithdrawals.push({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as MaterialWithdrawal);
         });
@@ -150,9 +148,7 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 export async function getMaterialWithdrawalsForMaterial(materialId: string, lotto?: string | null): Promise<MaterialWithdrawal[]> {
-  const withdrawalsRef = collection(db, "materialWithdrawals");
-  const q = query(withdrawalsRef, where("materialId", "==", materialId));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection("materialWithdrawals").where("materialId", "==", materialId).get();
   const withdrawals = snapshot.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
   
   if (lotto) {

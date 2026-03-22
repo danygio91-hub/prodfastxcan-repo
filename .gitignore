@@ -38,3 +38,11 @@ next-env.d.ts
 
 # generated database
 /db
+
+# firebase
+.firebase
+firebase-debug.log*
+
+# build logs
+build_log*
+type_errors.txt

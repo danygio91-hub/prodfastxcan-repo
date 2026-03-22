@@ -2,8 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, query, orderBy, Timestamp, writeBatch, updateDoc, where, getDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { PurchaseOrder } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 import { parse, isValid } from 'date-fns';
@@ -18,26 +18,24 @@ function convertTimestampsToDates(obj: any): any {
 }
 
 export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
-  const col = collection(db, "purchaseOrders");
-  const q = query(col, orderBy("expectedDeliveryDate", "asc"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection("purchaseOrders").orderBy("expectedDeliveryDate", "asc").get();
   return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as PurchaseOrder);
 }
 
 export async function closePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
     try {
         await ensureAdmin(uid);
-        const poRef = doc(db, "purchaseOrders", id);
-        const poSnap = await getDoc(poRef);
-        if (!poSnap.exists()) throw new Error("Ordine non trovato.");
+        const poRef = adminDb.collection("purchaseOrders").doc(id);
+        const poSnap = await poRef.get();
+        if (!poSnap.exists) throw new Error("Ordine non trovato.");
         
         const data = poSnap.data() as PurchaseOrder;
         const finalQty = data.receivedQuantity || 0;
 
-        await updateDoc(poRef, {
+        await poRef.update({
             quantity: finalQty,
             status: 'received',
-            updatedAt: Timestamp.now()
+            updatedAt: admin.firestore.Timestamp.now()
         });
 
         revalidatePath('/admin/purchase-orders');
@@ -61,10 +59,9 @@ export async function savePurchaseOrder(data: {
 }, uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     
-    const existingQ = query(collection(db, "purchaseOrders"), where("orderNumber", "==", data.orderNumber));
-    const existingSnap = await getDocs(existingQ);
+    const existingSnap = await adminDb.collection("purchaseOrders").where("orderNumber", "==", data.orderNumber).get();
     const incomingIds = new Set(data.items.map(i => i.id).filter(Boolean));
 
     existingSnap.docs.forEach(docSnap => {
@@ -75,7 +72,7 @@ export async function savePurchaseOrder(data: {
 
     for (const item of data.items) {
       const finalId = item.id || `po-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const docRef = doc(db, "purchaseOrders", finalId);
+      const docRef = adminDb.collection("purchaseOrders").doc(finalId);
       
       const existingDoc = existingSnap.docs.find(d => d.id === finalId);
       const existingData = existingDoc ? existingDoc.data() : {};
@@ -91,8 +88,8 @@ export async function savePurchaseOrder(data: {
         unitOfMeasure: item.unitOfMeasure,
         expectedDeliveryDate: item.expectedDeliveryDate,
         status: existingData.status || 'pending',
-        createdAt: existingData.createdAt || Timestamp.now(),
-        updatedAt: Timestamp.now()
+        createdAt: existingData.createdAt || admin.firestore.Timestamp.now(),
+        updatedAt: admin.firestore.Timestamp.now()
       });
     }
 
@@ -108,9 +105,8 @@ export async function savePurchaseOrder(data: {
 export async function deleteOrderGroup(orderNumber: string, uid: string) {
     await ensureAdmin(uid);
     try {
-        const q = query(collection(db, "purchaseOrders"), where("orderNumber", "==", orderNumber));
-        const snap = await getDocs(q);
-        const batch = writeBatch(db);
+        const snap = await adminDb.collection("purchaseOrders").where("orderNumber", "==", orderNumber).get();
+        const batch = adminDb.batch();
         snap.docs.forEach(d => batch.delete(d.ref));
         await batch.commit();
         revalidatePath('/admin/purchase-orders');
@@ -123,7 +119,7 @@ export async function deleteOrderGroup(orderNumber: string, uid: string) {
 export async function deletePurchaseOrder(id: string, uid: string): Promise<{ success: boolean; message: string }> {
   await ensureAdmin(uid);
   try {
-    await deleteDoc(doc(db, "purchaseOrders", id));
+    await adminDb.collection("purchaseOrders").doc(id).delete();
     revalidatePath('/admin/purchase-orders');
     return { success: true, message: 'Riga ordine eliminata.' };
   } catch (e) {
@@ -133,7 +129,7 @@ export async function deletePurchaseOrder(id: string, uid: string): Promise<{ su
 
 export async function importPurchaseOrders(data: any[], uid: string): Promise<{ success: boolean; message: string }> {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     let added = 0;
 
     for (const row of data) {
@@ -164,7 +160,7 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             deliveryDate = new Date().toISOString();
         }
 
-        const newRef = doc(collection(db, "purchaseOrders"));
+        const newRef = adminDb.collection("purchaseOrders").doc();
         batch.set(newRef, {
             id: newRef.id,
             orderNumber,
@@ -175,7 +171,7 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
             unitOfMeasure: unit,
             expectedDeliveryDate: deliveryDate,
             status: 'pending',
-            createdAt: Timestamp.now()
+            createdAt: admin.firestore.Timestamp.now()
         });
         added++;
     }

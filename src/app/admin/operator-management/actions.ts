@@ -3,8 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
 import { type Operator, type Department } from '@/lib/mock-data';
 
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
@@ -48,15 +47,13 @@ const operatorFormSchema = z.object({
 // --- Actions ---
 
 export async function getOperators(): Promise<Operator[]> {
-  const operatorsCol = collection(db, 'operators');
-  const operatorSnapshot = await getDocs(operatorsCol);
+  const operatorSnapshot = await adminDb.collection('operators').get();
   const operatorList = operatorSnapshot.docs.map(doc => doc.data() as Operator);
   return operatorList;
 }
 
 export async function getDepartments(): Promise<Department[]> {
-  const col = collection(db, "departments");
-  const snapshot = await getDocs(col);
+  const snapshot = await adminDb.collection("departments").get();
   if (snapshot.empty) {
       return [];
   }
@@ -94,22 +91,20 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
 
   if (id) {
     // Update existing operator
-    const operatorRef = doc(db, "operators", id);
-    await setDoc(operatorRef, dataToSave, { merge: true });
+    await adminDb.collection("operators").doc(id).set(dataToSave, { merge: true });
     revalidatePath('/admin/operator-management');
     revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore aggiornato con successo.' };
   } else {
     // Add new operator
     const newId = `op-${Date.now()}`;
-    const operatorRef = doc(db, "operators", newId);
     const newOperator: Operator = {
       id: newId,
       ...dataToSave,
       stato: 'inattivo', // Default state for new operators
       privacySigned: false, // Default privacy status
     } as Operator;
-    await setDoc(operatorRef, newOperator);
+    await adminDb.collection("operators").doc(newId).set(newOperator);
     revalidatePath('/admin/operator-management');
     revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore aggiunto con successo.' };
@@ -118,7 +113,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
 
 export async function deleteOperator(id: string): Promise<{ success: boolean; message: string }> {
   try {
-    await deleteDoc(doc(db, "operators", id));
+    await adminDb.collection("operators").doc(id).delete();
     revalidatePath('/admin/operator-management');
     revalidatePath('/admin/attendance-calendar');
     return { success: true, message: 'Operatore eliminato con successo.' };

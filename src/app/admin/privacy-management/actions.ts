@@ -2,8 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { doc, getDoc, setDoc, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { Operator } from '@/lib/mock-data';
 
@@ -12,11 +12,11 @@ const CONFIG_COLLECTION = "configuration";
 
 export async function getPrivacyPolicy(): Promise<{ content: string; lastUpdated: string | null }> {
   try {
-    const docRef = doc(db, CONFIG_COLLECTION, PRIVACY_DOC_ID);
-    const docSnap = await getDoc(docRef);
+    const docSnap = await adminDb.collection(CONFIG_COLLECTION).doc(PRIVACY_DOC_ID).get();
 
-    if (docSnap.exists()) {
+    if (docSnap.exists) {
       const data = docSnap.data();
+      if (!data) throw new Error("Documento vuoto.");
       return {
         content: data.content || '',
         lastUpdated: data.lastUpdated?.toDate().toISOString() || null,
@@ -41,14 +41,12 @@ export async function savePrivacyPolicy(
   await ensureAdmin(uid);
 
   try {
-    const policyRef = doc(db, CONFIG_COLLECTION, PRIVACY_DOC_ID);
-    const operatorsRef = collection(db, "operators");
+    const policyRef = adminDb.collection(CONFIG_COLLECTION).doc(PRIVACY_DOC_ID);
 
     // Reset privacy signature for all non-admin operators
-    const q = query(operatorsRef, where("role", "!=", "admin"));
-    const operatorsSnapshot = await getDocs(q);
+    const operatorsSnapshot = await adminDb.collection("operators").where("role", "!=", "admin").get();
     
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
 
     operatorsSnapshot.forEach(docSnap => {
       batch.update(docSnap.ref, { privacySigned: false, privacyVersion: null });

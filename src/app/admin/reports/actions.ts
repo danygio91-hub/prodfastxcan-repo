@@ -1,7 +1,7 @@
 'use server';
 
-import { collection, getDocs, doc, getDoc, query as firestoreQuery, where, Timestamp, writeBatch, deleteDoc, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { JobOrder, Operator, WorkPeriod, MaterialWithdrawal, RawMaterial, JobPhase, RawMaterialType, WorkPhaseTemplate, WorkGroup } from '@/lib/mock-data';
 import { differenceInMilliseconds, startOfDay, endOfDay, startOfWeek, endOfWeek, format, getWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { it } from 'date-fns/locale';
@@ -40,9 +40,7 @@ function calculateTimeForPeriods(periods: WorkPeriod[]): number {
 export type JobsReport = Awaited<ReturnType<typeof getJobsReport>>;
 
 export async function getJobsReport() {
-    const jobsRef = collection(db, "jobOrders");
-    const q = firestoreQuery(jobsRef, where("status", "in", ["production", "completed", "suspended", "paused"]));
-    const jobsSnapshot = await getDocs(q);
+    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["production", "completed", "suspended", "paused"]).get();
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 
     const allOperatorIds = [...new Set(jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => wp.operatorId))))].filter(id => id && typeof id === 'string' && id.trim() !== '');
@@ -52,8 +50,7 @@ export async function getJobsReport() {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < allOperatorIds.length; i += CHUNK_SIZE) {
             const chunk = allOperatorIds.slice(i, i + CHUNK_SIZE);
-            const operatorsQuery = firestoreQuery(collection(db, "operators"), where("id", "in", chunk));
-            const operatorsSnapshot = await getDocs(operatorsQuery);
+            const operatorsSnapshot = await adminDb.collection("operators").where("id", "in", chunk).get();
             operatorsSnapshot.forEach(doc => { operatorsMap.set(doc.data().id, doc.data() as Operator); });
         }
     }
@@ -68,14 +65,14 @@ export async function getJobsReport() {
 }
 
 export async function getOperatorsReport(targetDateString?: string) {
-    const operatorsSnapshot = await getDocs(collection(db, "operators"));
+    const operatorsSnapshot = await adminDb.collection("operators").get();
     const operators = operatorsSnapshot.docs.map(doc => doc.data() as Operator);
     const referenceDate = targetDateString ? new Date(targetDateString) : new Date();
     const todayInterval = { start: startOfDay(referenceDate), end: endOfDay(referenceDate) };
     const thisWeekInterval = { start: startOfWeek(referenceDate, { weekStartsOn: 1 }), end: endOfWeek(referenceDate, { weekStartsOn: 1 }) };
     const thisMonthInterval = { start: startOfMonth(referenceDate), end: endOfMonth(referenceDate) };
 
-    const jobsSnapshot = await getDocs(collection(db, "jobOrders"));
+    const jobsSnapshot = await adminDb.collection("jobOrders").get();
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
     const allWorkPeriods = jobs.flatMap(job => (job.phases || []).flatMap(phase => (phase.workPeriods || []).map(wp => ({...wp, operatorId: wp.operatorId}))));
 
@@ -107,14 +104,13 @@ export async function getOperatorsReport(targetDateString?: string) {
 }
 
 export async function getOperatorDetailReport(operatorId: string, date: string) {
-    const operatorRef = doc(db, "operators", operatorId);
-    const operatorSnap = await getDoc(operatorRef);
-    if (!operatorSnap.exists()) return null;
+    const operatorSnap = await adminDb.collection("operators").doc(operatorId).get();
+    if (!operatorSnap.exists) return null;
     const operator = operatorSnap.data() as Operator;
     const targetDate = new Date(date);
     const dayStart = startOfDay(targetDate);
     const dayEnd = endOfDay(targetDate);
-    const jobsSnapshot = await getDocs(firestoreQuery(collection(db, "jobOrders")));
+    const jobsSnapshot = await adminDb.collection("jobOrders").get();
     const jobs = jobsSnapshot.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
     const timeMetrics = await getOperatorsReport(date);
     const operatorMetrics = timeMetrics.find(op => op.id === operatorId);
@@ -138,8 +134,8 @@ export async function getOperatorDetailReport(operatorId: string, date: string) 
 
 export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; isReliable: boolean; phasesWithDetails: Array<{ phase: JobPhase; timeMs: number }> }> {
     let totalMs = 0;
-    const settingsDoc = await getDoc(doc(db, 'configuration', 'timeTrackingSettings'));
-    const timeSettings = settingsDoc.exists() ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 };
+    const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
+    const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
     const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
     const getMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => wp.start && wp.end ? acc + (new Date(wp.end).getTime() - new Date(wp.start).getTime()) : acc, 0);
     
@@ -148,8 +144,8 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
 
     // LOGICA PROPORZIONALE: Se la commessa fa parte di un gruppo, distribuisci il tempo in base alla quantità
     if (job.workGroupId) {
-        const gSnap = await getDoc(doc(db, 'workGroups', job.workGroupId));
-        if (gSnap.exists()) {
+        const gSnap = await adminDb.collection('workGroups').doc(job.workGroupId).get();
+        if (gSnap.exists) {
             const group = convertTimestampsToDates(gSnap.data()) as WorkGroup;
             isReliable = false; // I tempi dei gruppi sono sempre considerati stime proporzionali
             phasesWithDetails = (group.phases || []).map(gp => {
@@ -175,9 +171,8 @@ export async function getJobTimeData(job: JobOrder): Promise<{ totalMs: number; 
 }
 
 export async function getJobDetailReport(jobId: string) {
-    const jobRef = doc(db, "jobOrders", jobId);
-    const jobSnap = await getDoc(jobRef);
-    if (!jobSnap.exists()) return null;
+    const jobSnap = await adminDb.collection("jobOrders").doc(jobId).get();
+    if (!jobSnap.exists) return null;
     let jobDetail = convertTimestampsToDates(jobSnap.data()) as JobOrder;
     const { totalMs, phasesWithDetails } = await getJobTimeData(jobDetail);
     const opIds = [...new Set(phasesWithDetails.flatMap(p => (p.phase.workPeriods || []).map(wp => wp.operatorId)))].filter(id => id && id.trim() !== '');
@@ -186,7 +181,7 @@ export async function getJobDetailReport(jobId: string) {
         const CHUNK_SIZE = 30;
         for (let i = 0; i < opIds.length; i += CHUNK_SIZE) {
             const chunk = opIds.slice(i, i + CHUNK_SIZE);
-            const snap = await getDocs(firestoreQuery(collection(db, "operators"), where('id', 'in', chunk)));
+            const snap = await adminDb.collection("operators").where('id', 'in', chunk).get();
             snap.forEach(d => { opMap.set(d.data().id, d.data().nome); });
         }
     }
@@ -195,11 +190,11 @@ export async function getJobDetailReport(jobId: string) {
 
 export async function updateWorkPeriodsForPhase(jobId: string, phaseId: string, updatedPeriods: WorkPeriod[], uid: string) {
     await ensureAdmin(uid);
-    const jobRef = doc(db, "jobOrders", jobId);
-    await runTransaction(db, async (t) => {
+    const jobRef = adminDb.collection("jobOrders").doc(jobId);
+    await adminDb.runTransaction(async (t) => {
         const snap = await t.get(jobRef);
-        if (!snap.exists()) throw new Error("Non trovata.");
-        const phs = snap.data().phases || [];
+        if (!snap.exists) throw new Error("Non trovata.");
+        const phs = snap.data()?.phases || [];
         const idx = phs.findIndex((p:any) => p.id === phaseId);
         if (idx !== -1) { phs[idx].workPeriods = updatedPeriods; t.update(jobRef, { phases: phs }); }
     });
@@ -210,10 +205,10 @@ export async function updateWorkPeriodsForPhase(jobId: string, phaseId: string, 
 export type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType; materialUnitOfMeasure?: 'n' | 'mt' | 'kg'; };
 
 export async function getMaterialWithdrawals(range?: { from?: Date; to?: Date }) {
-    let q = firestoreQuery(collection(db, "materialWithdrawals"));
-    if (range?.from) q = firestoreQuery(q, where("withdrawalDate", ">=", Timestamp.fromDate(startOfDay(range.from))));
-    if (range?.to) q = firestoreQuery(q, where("withdrawalDate", "<=", Timestamp.fromDate(endOfDay(range.to))));
-    const snap = await getDocs(q);
+    let q: admin.firestore.Query = adminDb.collection("materialWithdrawals");
+    if (range?.from) q = q.where("withdrawalDate", ">=", admin.firestore.Timestamp.fromDate(startOfDay(range.from)));
+    if (range?.to) q = q.where("withdrawalDate", "<=", admin.firestore.Timestamp.fromDate(endOfDay(range.to)));
+    const snap = await q.get();
     const withdrawals = snap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as EnrichedMaterialWithdrawal);
     const mIds = [...new Set(withdrawals.map(w => w.materialId))].filter(Boolean);
     const mMap = new Map<string, RawMaterial>();
@@ -221,7 +216,7 @@ export async function getMaterialWithdrawals(range?: { from?: Date; to?: Date })
         const CHUNK_SIZE = 30;
         for (let i = 0; i < mIds.length; i += CHUNK_SIZE) {
             const chunk = mIds.slice(i, i + CHUNK_SIZE);
-            const mSnap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("__name__", "in", chunk)));
+            const mSnap = await adminDb.collection("rawMaterials").where(admin.firestore.FieldPath.documentId(), "in", chunk).get();
             mSnap.forEach(d => mMap.set(d.id, d.data() as RawMaterial));
         }
     }
@@ -230,14 +225,14 @@ export async function getMaterialWithdrawals(range?: { from?: Date; to?: Date })
 }
 
 export async function deleteSelectedWithdrawals(ids: string[]) {
-    await runTransaction(db, async (t) => {
-        const snaps = await Promise.all(ids.map(id => t.get(doc(db, "materialWithdrawals", id))));
+    await adminDb.runTransaction(async (t) => {
+        const snaps = await Promise.all(ids.map(id => t.get(adminDb.collection("materialWithdrawals").doc(id))));
         for (const snap of snaps) {
-            if (!snap.exists()) continue;
+            if (!snap.exists) continue;
             const w = snap.data() as MaterialWithdrawal;
-            const mRef = doc(db, 'rawMaterials', w.materialId);
+            const mRef = adminDb.collection('rawMaterials').doc(w.materialId);
             const mSnap = await t.get(mRef);
-            if (mSnap.exists()) {
+            if (mSnap.exists) {
                 const m = mSnap.data() as RawMaterial;
                 t.update(mRef, { currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) });
             }
@@ -249,7 +244,7 @@ export async function deleteSelectedWithdrawals(ids: string[]) {
 }
 
 export async function deleteAllWithdrawals() {
-    const snap = await getDocs(collection(db, "materialWithdrawals"));
+    const snap = await adminDb.collection("materialWithdrawals").get();
     return await deleteSelectedWithdrawals(snap.docs.map(d => d.id));
 }
 
@@ -260,11 +255,11 @@ export type ProductionTimeAnalysisReport = {
 };
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
-    const jobsSnap = await getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["completed", "production", "suspended", "paused"])));
-    const settingsDoc = await getDoc(doc(db, 'configuration', 'timeTrackingSettings'));
-    const timeSettings = settingsDoc.exists() ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 };
+    const jobsSnap = await adminDb.collection("jobOrders").where("status", "in", ["completed", "production", "suspended", "paused"]).get();
+    const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
+    const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
     const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
-    const tSnap = await getDocs(collection(db, "workPhaseTemplates"));
+    const tSnap = await adminDb.collection("workPhaseTemplates").get();
     const typeMap = new Map<string, WorkPhaseTemplate['type']>();
     tSnap.forEach(d => typeMap.set(d.data().name, d.data().type));
     const analysis: { [code: string]: any } = {};

@@ -2,8 +2,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDocs, getDoc, updateDoc, orderBy, query, runTransaction, writeBatch, where, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { NonConformityReport, RawMaterial, RawMaterialBatch, ProductionProblemReport } from '@/lib/mock-data';
 
 // Helper to convert Timestamps for JSON serialization
@@ -23,9 +23,7 @@ function convertTimestamps(obj: any): any {
 }
 
 export async function getIncomingNonConformityReports(): Promise<NonConformityReport[]> {
-  const reportsRef = collection(db, "nonConformityReports");
-  const q = query(reportsRef, orderBy("reportDate", "desc"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection("nonConformityReports").orderBy("reportDate", "desc").get();
 
   if (snapshot.empty) {
     return [];
@@ -37,20 +35,20 @@ export async function getIncomingNonConformityReports(): Promise<NonConformityRe
 }
 
 export async function approveNonConformity(reportId: string): Promise<{ success: boolean; message: string }> {
-    const reportRef = doc(db, 'nonConformityReports', reportId);
+    const reportRef = adminDb.collection('nonConformityReports').doc(reportId);
     
     try {
-        await runTransaction(db, async (transaction) => {
+        await adminDb.runTransaction(async (transaction) => {
             const reportSnap = await transaction.get(reportRef);
-            if (!reportSnap.exists() || reportSnap.data().status !== 'pending') {
+            if (!reportSnap.exists || reportSnap.data()?.status !== 'pending') {
                 throw new Error("Segnalazione non trovata o già processata.");
             }
             
             const report = reportSnap.data() as NonConformityReport;
-            const materialRef = doc(db, 'rawMaterials', report.materialId);
+            const materialRef = adminDb.collection('rawMaterials').doc(report.materialId);
             const materialSnap = await transaction.get(materialRef);
 
-            if (!materialSnap.exists()) {
+            if (!materialSnap.exists) {
                 throw new Error("Materia prima associata non trovata. Impossibile caricarla.");
             }
             
@@ -103,15 +101,15 @@ export async function approveNonConformity(reportId: string): Promise<{ success:
 
 
 export async function confirmReturn(reportId: string): Promise<{ success: boolean; message: string }> {
-    const reportRef = doc(db, 'nonConformityReports', reportId);
+    const reportRef = adminDb.collection('nonConformityReports').doc(reportId);
     
     try {
-        const reportSnap = await getDoc(reportRef);
-        if (!reportSnap.exists() || reportSnap.data().status !== 'pending') {
+        const reportSnap = await reportRef.get();
+        if (!reportSnap.exists || reportSnap.data()?.status !== 'pending') {
             throw new Error("Segnalazione non trovata o già processata.");
         }
         
-        await updateDoc(reportRef, { status: 'returned' });
+        await reportRef.update({ status: 'returned' });
         
         revalidatePath('/admin/non-conformity-reports');
         return { success: true, message: `Reso confermato. Il materiale non verrà caricato a magazzino.` };
@@ -127,9 +125,9 @@ export async function deleteIncomingNonConformityReports(reportIds: string[]): P
     }
 
     try {
-        const batch = writeBatch(db);
+        const batch = adminDb.batch();
         reportIds.forEach(id => {
-            const reportRef = doc(db, 'nonConformityReports', id);
+            const reportRef = adminDb.collection('nonConformityReports').doc(id);
             batch.delete(reportRef);
         });
 
@@ -145,9 +143,7 @@ export async function deleteIncomingNonConformityReports(reportIds: string[]): P
 // --- Production Problem Reports ---
 
 export async function getProductionProblemReports(): Promise<ProductionProblemReport[]> {
-  const reportsRef = collection(db, "productionProblemReports");
-  const q = query(reportsRef, orderBy("reportDate", "desc"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection("productionProblemReports").orderBy("reportDate", "desc").get();
 
   if (snapshot.empty) {
     return [];
@@ -162,9 +158,9 @@ export async function deleteProductionProblemReports(reportIds: string[]): Promi
         return { success: false, message: 'Nessuna segnalazione selezionata per l\'eliminazione.' };
     }
 
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     reportIds.forEach(id => {
-        const docRef = doc(db, "productionProblemReports", id);
+        const docRef = adminDb.collection("productionProblemReports").doc(id);
         batch.delete(docRef);
     });
 

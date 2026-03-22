@@ -1,16 +1,14 @@
 
 'use server';
 
-import { collection, doc, runTransaction, getDocs, query, orderBy, addDoc, Timestamp, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { RawMaterial, RawMaterialBatch, Packaging, InventoryRecord } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const packagingCol = collection(db, 'packaging');
-  const q = query(packagingCol, orderBy("name"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection('packaging').orderBy("name").get();
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
 
@@ -39,22 +37,22 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
       return { success: false, message: 'Dati operatore mancanti.' };
   }
 
-  const materialRef = doc(db, "rawMaterials", materialId);
-  const inventoryRef = collection(db, "inventoryRecords");
+  const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+  const inventoryRef = adminDb.collection("inventoryRecords");
   
   try {
-      const materialSnap = await getDoc(materialRef);
-      if (!materialSnap.exists()) {
+      const materialSnap = await materialRef.get();
+      if (!materialSnap.exists) {
         throw new Error('Materia prima non trovata.');
       }
       const material = materialSnap.data() as RawMaterial;
 
       let tareWeight = 0;
       if (packagingId && packagingId !== 'none') {
-        const packagingRef = doc(db, 'packaging', packagingId);
-        const packagingSnap = await getDoc(packagingRef);
-        if (packagingSnap.exists()) {
-          tareWeight = packagingSnap.data().weightKg || 0;
+        const packagingRef = adminDb.collection('packaging').doc(packagingId);
+        const packagingSnap = await packagingRef.get();
+        if (packagingSnap.exists) {
+          tareWeight = (packagingSnap.data() as any).weightKg || 0;
         }
       }
 
@@ -88,13 +86,13 @@ export async function registerInventoryBatch(formData: FormData): Promise<{ succ
           packagingId: packagingId === 'none' ? undefined : packagingId,
           operatorId,
           operatorName,
-          recordedAt: Timestamp.now(),
+          recordedAt: admin.firestore.Timestamp.now(),
           status: 'pending',
           inputUnit: inputUnit,
           inputQuantity: inputQuantity,
       };
       
-      await addDoc(inventoryRef, newInventoryRecord);
+      await inventoryRef.add(newInventoryRecord);
       
       revalidatePath('/admin/inventory-management');
       return { success: true, message: 'Inventario registrato. In attesa di approvazione.' };

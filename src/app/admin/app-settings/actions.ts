@@ -2,15 +2,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, writeBatch, query, where, doc, runTransaction, updateDoc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 
 async function deleteAllFromCollection(collectionName: string) {
-    const ref = collection(db, collectionName);
-    const snapshot = await getDocs(ref);
-    const batch = writeBatch(db);
+    const snapshot = await adminDb.collection(collectionName).get();
+    const batch = adminDb.batch();
     snapshot.docs.forEach(docSnap => {
         batch.delete(docSnap.ref);
     });
@@ -21,16 +20,14 @@ async function deleteAllFromCollection(collectionName: string) {
 export async function resetAllJobOrders(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const jobsBatch = writeBatch(db);
-    const jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended"]));
-    const jobsSnapshot = await getDocs(jobsQuery);
+    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended"]).get();
+    const jobsBatch = adminDb.batch();
     jobsSnapshot.forEach(doc => jobsBatch.delete(doc.ref));
     await jobsBatch.commit();
     const jobsCount = jobsSnapshot.size;
 
-    const withdrawalsBatch = writeBatch(db);
-    const withdrawalsRef = collection(db, "materialWithdrawals");
-    const withdrawalsSnapshot = await getDocs(withdrawalsRef);
+    const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals").get();
+    const withdrawalsBatch = adminDb.batch();
     withdrawalsSnapshot.forEach(doc => withdrawalsBatch.delete(doc.ref));
     await withdrawalsBatch.commit();
     const withdrawalsCount = withdrawalsSnapshot.size;
@@ -63,8 +60,8 @@ export async function resetAllRawMaterials(uid: string): Promise<{ success: bool
 export async function resetAllActiveSessions(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const logoutTriggerRef = doc(db, 'system', 'logoutTrigger');
-    await setDoc(logoutTriggerRef, { timestamp: new Date().getTime() }, { merge: true });
+    const logoutTriggerRef = adminDb.collection('system').doc('logoutTrigger');
+    await logoutTriggerRef.set({ timestamp: new Date().getTime() }, { merge: true });
     return { success: true, message: 'Segnale di reset sessioni inviato.' };
   } catch (error) {
     return { success: false, message: "Errore reset sessioni." };
@@ -97,7 +94,7 @@ export async function backupAllData(): Promise<{ success: boolean; message: stri
         let totalDocs = 0;
 
         for (const collectionName of collectionsToBackup) {
-            const snapshot = await getDocs(collection(db, collectionName));
+            const snapshot = await adminDb.collection(collectionName).get();
             backupData[collectionName] = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
             totalDocs += snapshot.size;
         }
@@ -120,12 +117,12 @@ export async function restoreDataFromBackup(backupJson: string, uid: string): Pr
 
         for (const collectionName of collections) {
             await deleteAllFromCollection(collectionName);
-            const restoreBatch = writeBatch(db);
+            const restoreBatch = adminDb.batch();
             const items = backupData[collectionName];
             if (Array.isArray(items)) {
                 items.forEach(item => {
                     const { id, ...data } = item;
-                    restoreBatch.set(doc(db, collectionName, id), data);
+                    restoreBatch.set(adminDb.collection(collectionName).doc(id), data);
                 });
                 await restoreBatch.commit();
             }
@@ -141,9 +138,8 @@ export async function restoreDataFromBackup(backupJson: string, uid: string): Pr
 export async function resetAllPrivacySignatures(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const operatorsRef = collection(db, "operators");
-    const querySnapshot = await getDocs(operatorsRef);
-    const batch = writeBatch(db);
+    const querySnapshot = await adminDb.collection("operators").get();
+    const batch = adminDb.batch();
     let count = 0;
     querySnapshot.docs.forEach(docSnap => {
       if (docSnap.data().privacySigned === true) {
@@ -162,9 +158,8 @@ export async function resetAllPrivacySignatures(uid: string): Promise<{ success:
 export async function resetAllWorkInProgress(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const batch = writeBatch(db);
-    const jobsQuery = query(collection(db, "jobOrders"), where("status", "in", ["production", "suspended"]));
-    const jobsSnapshot = await getDocs(jobsQuery);
+    const batch = adminDb.batch();
+    const jobsSnapshot = await adminDb.collection("jobOrders").where("status", "in", ["production", "suspended"]).get();
     jobsSnapshot.forEach(docSnap => {
       const job = docSnap.data() as JobOrder;
       const updatedPhases = (job.phases || []).map(phase => ({
@@ -181,7 +176,7 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
         phases: updatedPhases,
       });
     });
-    const operatorsSnapshot = await getDocs(query(collection(db, "operators"), where("role", "in", ["operator", "supervisor"])));
+    const operatorsSnapshot = await adminDb.collection("operators").where("role", "in", ["operator", "supervisor"]).get();
     operatorsSnapshot.forEach(docSnap => {
       if (docSnap.data().stato !== 'inattivo') {
         batch.update(docSnap.ref, { stato: 'inattivo', activeJobId: null, activePhaseName: null });
@@ -198,9 +193,8 @@ export async function resetAllWorkInProgress(uid: string): Promise<{ success: bo
 export async function resetRawMaterialHistory(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const materialsRef = collection(db, "rawMaterials");
-    const materialsSnapshot = await getDocs(materialsRef);
-    const batch = writeBatch(db);
+    const materialsSnapshot = await adminDb.collection("rawMaterials").get();
+    const batch = adminDb.batch();
     materialsSnapshot.forEach(doc => {
       batch.update(doc.ref, { batches: [], currentStockUnits: 0, currentWeightKg: 0 });
     });
@@ -216,22 +210,22 @@ export async function resetRawMaterialHistory(uid: string): Promise<{ success: b
 export async function resetAllWithdrawals(uid: string): Promise<{ success: boolean; message: string }> {
   try {
     await ensureAdmin(uid);
-    const withdrawalsSnapshot = await getDocs(collection(db, "materialWithdrawals"));
+    const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals").get();
     const withdrawals = withdrawalsSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }) as any);
     if (withdrawals.length === 0) return { success: true, message: 'Nessun prelievo da resettare.' };
 
-    await runTransaction(db, async (transaction) => {
+    await adminDb.runTransaction(async (transaction) => {
       for (const w of withdrawals) {
-        const mRef = doc(db, 'rawMaterials', w.materialId);
-        const mSnap = await transaction.get(mRef);
-        if (mSnap.exists()) {
-          const mData = mSnap.data();
-          transaction.update(mRef, {
-            currentWeightKg: (mData.currentWeightKg || 0) + w.consumedWeight,
-            currentStockUnits: (mData.currentStockUnits || 0) + (w.consumedUnits || 0)
-          });
-        }
-        transaction.delete(doc(db, "materialWithdrawals", w.id));
+          const mRef = adminDb.collection('rawMaterials').doc(w.materialId);
+          const mSnap = await transaction.get(mRef);
+          if (mSnap.exists) {
+            const mData = mSnap.data() as any;
+            transaction.update(mRef, {
+              currentWeightKg: (mData.currentWeightKg || 0) + w.consumedWeight,
+              currentStockUnits: (mData.currentStockUnits || 0) + (w.consumedUnits || 0)
+            });
+          }
+          transaction.delete(adminDb.collection("materialWithdrawals").doc(w.id));
       }
     });
     revalidatePath('/admin/reports');

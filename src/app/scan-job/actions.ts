@@ -1,8 +1,9 @@
-
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, setDoc, getDocs, query as firestoreQuery, where, updateDoc, orderBy, limit, runTransaction, Timestamp, deleteField, writeBatch } from 'firebase/firestore';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
@@ -23,26 +24,26 @@ export async function resolveJobProblem(jobId: string, uid: string): Promise<{ s
     try {
         await ensureAdmin(uid);
         const isGroup = jobId.startsWith('group-');
-        const itemRef = doc(db, isGroup ? "workGroups" : "jobOrders", jobId);
+        const itemRef = adminDb.collection(isGroup ? "workGroups" : "jobOrders").doc(jobId);
         
-        await updateDoc(itemRef, {
+        await itemRef.update({
             isProblemReported: false,
-            problemType: deleteField(),
-            problemNotes: deleteField(),
-            problemReportedBy: deleteField()
+            problemType: admin.firestore.FieldValue.delete(),
+            problemNotes: admin.firestore.FieldValue.delete(),
+            problemReportedBy: admin.firestore.FieldValue.delete()
         });
 
         if (isGroup) {
-            const gSnap = await getDoc(itemRef);
-            if (gSnap.exists()) {
+            const gSnap = await itemRef.get();
+            if (gSnap.exists) {
                 const gData = gSnap.data() as WorkGroup;
-                const batch = writeBatch(db);
+                const batch = adminDb.batch();
                 (gData.jobOrderIds || []).forEach(id => {
-                    batch.update(doc(db, "jobOrders", id), {
+                    batch.update(adminDb.collection("jobOrders").doc(id), {
                         isProblemReported: false,
-                        problemType: deleteField(),
-                        problemNotes: deleteField(),
-                        problemReportedBy: deleteField()
+                        problemType: admin.firestore.FieldValue.delete(),
+                        problemNotes: admin.firestore.FieldValue.delete(),
+                        problemReportedBy: admin.firestore.FieldValue.delete()
                     });
                 });
                 await batch.commit();
@@ -59,8 +60,7 @@ export async function resolveJobProblem(jobId: string, uid: string): Promise<{ s
 export async function getRawMaterialByCode(code: string | undefined): Promise<RawMaterial | { error: string; title?: string }> {
   const trimmed = (code || '').trim();
   if (!trimmed) return { error: `Il codice inserito è vuoto.`, title: 'Codice Vuoto' };
-  const q = firestoreQuery(collection(db, "rawMaterials"), where("code_normalized", "==", trimmed.toLowerCase()));
-  const snap = await getDocs(q);
+  const snap = await adminDb.collection("rawMaterials").where("code_normalized", "==", trimmed.toLowerCase()).get();
   if (snap.empty) return { error: `Materia prima "${trimmed}" non trovata a sistema.`, title: 'Materiale non Trovato' };
   const material = { ...snap.docs[0].data(), id: snap.docs[0].id } as RawMaterial;
   return JSON.parse(JSON.stringify(material));
@@ -69,8 +69,8 @@ export async function getRawMaterialByCode(code: string | undefined): Promise<Ra
 export async function getJobOrderById(id: string): Promise<JobOrder | null> {
     if (!id || typeof id !== 'string') return null;
     const isGroup = id.startsWith('group-');
-    const snap = await getDoc(doc(db, isGroup ? 'workGroups' : 'jobOrders', id));
-    if (!snap.exists()) return null;
+    const snap = await adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(id).get();
+    if (!snap.exists) return null;
     const data = convertTimestampsToDates(snap.data()) as any;
     if (isGroup) {
         const group = data as WorkGroup;
@@ -88,8 +88,8 @@ export async function getJobOrderById(id: string): Promise<JobOrder | null> {
 export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codice: string; qta: string; }): Promise<JobOrder | { error: string; title?: string }> {
   const sanitizedId = (scannedData.ordinePF || '').replace(/\//g, '-').replace(/[\.#$\[\]]/g, '');
   if (!sanitizedId) return { error: 'ID Commessa non valido.', title: 'Errore' };
-  const snap = await getDoc(doc(db, "jobOrders", sanitizedId));
-  if (!snap.exists()) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
+  const snap = await adminDb.collection("jobOrders").doc(sanitizedId).get();
+  if (!snap.exists) return { error: `Commessa ${sanitizedId} non trovata.`, title: 'Errore' };
   const job = convertTimestampsToDates(snap.data()) as JobOrder;
   if (job.workGroupId) {
       const group = await getJobOrderById(job.workGroupId);
@@ -100,7 +100,7 @@ export async function verifyAndGetJobOrder(scannedData: { ordinePF: string; codi
 
 export async function updateOperatorStatus(opId: string, jobId: string | null, phaseName: string | null) {
   if (!opId) return;
-  await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId || null, activePhaseName: phaseName || null, stato: jobId ? 'attivo' : 'inattivo' });
+  await adminDb.collection('operators').doc(opId).update({ activeJobId: jobId || null, activePhaseName: phaseName || null, stato: jobId ? 'attivo' : 'inattivo' });
   return { success: true };
 }
 
@@ -108,7 +108,7 @@ export async function updateJob(job: JobOrder) {
     if (!job || !job.id) return { success: false, message: 'Dati commessa incompleti.' };
     if (job.id.startsWith('group-')) return { success: false, message: 'Tentativo di salvataggio errato.' };
     
-    await setDoc(doc(db, "jobOrders", job.id), JSON.parse(JSON.stringify(job)), { merge: true });
+    await adminDb.collection("jobOrders").doc(job.id).set(JSON.parse(JSON.stringify(job)), { merge: true });
     revalidatePath('/scan-job');
     return { success: true, message: 'Commessa aggiornata.' };
 }
@@ -116,59 +116,59 @@ export async function updateJob(job: JobOrder) {
 export async function updateWorkGroup(group: WorkGroup, opId: string) {
     if (!group || !group.id) return { success: false, message: 'Dati gruppo incompleti.' };
     try {
-        await updateDoc(doc(db, "workGroups", group.id), JSON.parse(JSON.stringify(group)));
+        await adminDb.collection("workGroups").doc(group.id).update(JSON.parse(JSON.stringify(group)));
         revalidatePath('/scan-job');
         return { success: true, message: 'Gruppo aggiornato.' };
     } catch (e) { return { success: false, message: "Errore." }; }
 }
 
 export async function isOperatorActiveOnAnyJob(opId: string, currentJobId: string): Promise<{ available: boolean; activeJobId?: string | null; activePhaseName?: string | null }> {
-    const docSnap = await getDoc(doc(db, "operators", opId));
-    if (docSnap.exists()) {
+    const docSnap = await adminDb.collection("operators").doc(opId).get();
+    if (docSnap.exists) {
         const data = docSnap.data();
-        if (data.activeJobId && data.activeJobId !== currentJobId) return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
+        if (data && data.activeJobId && data.activeJobId !== currentJobId) return { available: false, activeJobId: data.activeJobId, activePhaseName: data.activePhaseName };
     }
     return { available: true };
 }
 
 export async function handlePhaseScanResult(jobId: string, phaseId: string, opId: string) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    const snap = await getDoc(itemRef);
-    if (!snap.exists()) return;
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    const snap = await itemRef.get();
+    if (!snap.exists) return;
     const data = snap.data() as any;
     const phs = [...data.phases];
     const idx = phs.findIndex(p => p.id === phaseId);
     if (idx !== -1) {
         phs[idx].status = 'in-progress';
         phs[idx].workPeriods = [...(phs[idx].workPeriods || []), { start: new Date(), end: null, operatorId: opId }];
-        await updateDoc(itemRef, { phases: phs, status: 'production', overallStartTime: data.overallStartTime || new Date() });
-        await updateDoc(doc(db, 'operators', opId), { activeJobId: jobId, activePhaseName: phs[idx].name, stato: 'attivo' });
+        await itemRef.update({ phases: phs, status: 'production', overallStartTime: data.overallStartTime || new Date() });
+        await adminDb.collection('operators').doc(opId).update({ activeJobId: jobId, activePhaseName: phs[idx].name, stato: 'attivo' });
     }
 }
 
 export async function startMaterialSessionInJob(jobId: string, phaseId: string, consumption: MaterialConsumption) {
     const isGroup = jobId.startsWith('group-');
-    const itemRef = doc(db, isGroup ? 'workGroups' : 'jobOrders', jobId);
-    const snap = await getDoc(itemRef);
-    if (!snap.exists()) return { success: false, message: 'Non trovato.' };
+    const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
+    const snap = await itemRef.get();
+    if (!snap.exists) return { success: false, message: 'Non trovato.' };
     const data = snap.data() as any;
     const phs = (data.phases || []).map((p: any) => p.id === phaseId ? { ...p, materialConsumptions: [...(p.materialConsumptions || []), consumption], materialReady: true } : p);
-    await updateDoc(itemRef, { phases: phs });
+    await itemRef.update({ phases: phs });
     return { success: true, message: 'Sessione avviata.' };
 }
 
 export async function updateOperatorMaterialSessions(opId: string, sessions: ActiveMaterialSessionData[]) {
-    await updateDoc(doc(db, "operators", opId), { activeMaterialSessions: sessions });
+    await adminDb.collection('operators').doc(opId).update({ activeMaterialSessions: sessions });
     return { success: true };
 }
 
 export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterialSessionData, closingGrossWeight: number, opId: string) {
     try {
-        await runTransaction(db, async (transaction) => {
-            const materialRef = doc(db, 'rawMaterials', session.materialId);
+        await adminDb.runTransaction(async (transaction) => {
+            const materialRef = adminDb.collection('rawMaterials').doc(session.materialId);
             const matSnap = await transaction.get(materialRef);
-            if (!matSnap.exists()) throw new Error("Materiale non trovato.");
+            if (!matSnap.exists) throw new Error("Materiale non trovato.");
             const material = matSnap.data() as RawMaterial;
 
             const consumedWeight = session.grossOpeningWeight - closingGrossWeight;
@@ -186,7 +186,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 currentWeightKg: (material.currentWeightKg || 0) - consumedWeight
             });
 
-            const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+            const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
             transaction.set(withdrawalRef, {
                 jobIds: session.associatedJobs.map(j => j.jobId),
                 jobOrderPFs: session.associatedJobs.map(j => j.jobOrderPF),
@@ -195,7 +195,7 @@ export async function closeMaterialSessionAndUpdateStock(session: ActiveMaterial
                 consumedWeight,
                 consumedUnits: unitsConsumed,
                 operatorId: opId,
-                withdrawalDate: Timestamp.now(),
+                withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: session.lotto || null,
             });
         });
@@ -210,10 +210,10 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
     const { materialId, operatorId, jobId, jobOrderPF, phaseId, quantity, unit, lotto } = rawData;
     
     try {
-        await runTransaction(db, async (t) => {
-            const mRef = doc(db, "rawMaterials", materialId as string);
+        await adminDb.runTransaction(async (t) => {
+            const mRef = adminDb.collection("rawMaterials").doc(materialId as string);
             const mSnap = await t.get(mRef);
-            if (!mSnap.exists()) throw new Error("Materiale non trovato.");
+            if (!mSnap.exists) throw new Error("Materiale non trovato.");
             const material = mSnap.data() as RawMaterial;
             
             let units = 0;
@@ -233,7 +233,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
                 currentWeightKg: (material.currentWeightKg || 0) - weight 
             });
 
-            const wRef = doc(collection(db, "materialWithdrawals"));
+            const wRef = adminDb.collection("materialWithdrawals").doc();
             t.set(wRef, {
                 jobIds: [jobId],
                 jobOrderPFs: [jobOrderPF],
@@ -242,7 +242,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
                 consumedWeight: weight,
                 consumedUnits: units,
                 operatorId,
-                withdrawalDate: Timestamp.now(),
+                withdrawalDate: admin.firestore.Timestamp.now(),
                 lotto: lotto || null,
             });
         });
@@ -251,8 +251,7 @@ export async function logTubiGuainaWithdrawal(formData: FormData) {
 }
 
 export async function findLastWeightForLotto(materialId: string | undefined, lotto: string): Promise<any> {
-    const q = firestoreQuery(collection(db, "inventoryRecords"), where("lotto", "==", lotto), where("status", "==", "approved"));
-    const snap = await getDocs(q);
+    const snap = await adminDb.collection("inventoryRecords").where("lotto", "==", lotto).where("status", "==", "approved").get();
     
     if (!snap.empty) {
         const records = snap.docs.map(d => ({ ...d.data(), id: d.id } as InventoryRecord));
@@ -263,8 +262,8 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         });
         
         const rec = records[0];
-        const mSnap = await getDoc(doc(db, "rawMaterials", rec.materialId));
-        if (mSnap.exists()) {
+        const mSnap = await adminDb.collection("rawMaterials").doc(rec.materialId).get();
+        if (mSnap.exists) {
             return { 
                 material: { ...mSnap.data(), id: mSnap.id }, 
                 netWeight: rec.netWeight, 
@@ -292,11 +291,11 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
 
 export async function createWorkGroup(jobIds: string[], creatorId: string) {
     try {
-        const batch = writeBatch(db);
+        const batch = adminDb.batch();
         const newGroupId = `group-${Date.now()}`;
-        const groupRef = doc(db, "workGroups", newGroupId);
+        const groupRef = adminDb.collection("workGroups").doc(newGroupId);
         
-        const jobSnaps = await Promise.all(jobIds.map(id => getDoc(doc(db, "jobOrders", id))));
+        const jobSnaps = await Promise.all(jobIds.map(id => adminDb.collection("jobOrders").doc(id).get()));
         const jobs = jobSnaps.map(s => ({ ...s.data(), id: s.id } as JobOrder));
         
         const firstJob = jobs[0];
@@ -310,7 +309,7 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
             jobOrderIds: jobIds,
             jobOrderPFs: jobPFs,
             status: 'production',
-            createdAt: Timestamp.now(),
+            createdAt: admin.firestore.Timestamp.now(),
             createdBy: creatorId,
             totalQuantity: totalQty,
             workCycleId: firstJob.workCycleId || '',
@@ -323,7 +322,7 @@ export async function createWorkGroup(jobIds: string[], creatorId: string) {
         };
 
         batch.set(groupRef, newGroup);
-        jobIds.forEach(id => batch.update(doc(db, "jobOrders", id), { workGroupId: newGroupId }));
+        jobIds.forEach(id => batch.update(adminDb.collection("jobOrders").doc(id), { workGroupId: newGroupId }));
         
         await batch.commit();
         revalidatePath('/admin/work-group-management');

@@ -1,7 +1,7 @@
 'use server';
 
-import { doc, runTransaction, Timestamp, collection } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebase-admin';
+import * as admin from 'firebase-admin';
 import type { RawMaterial } from '@/lib/mock-data';
 import * as z from 'zod';
 import { revalidatePath } from 'next/cache';
@@ -26,9 +26,10 @@ export async function logManualWithdrawal(
   const { materialId, operatorId, operatorName, lotto, quantity, unit, notes, jobOrderPF } = validated.data;
   
   try {
-    await runTransaction(db, async (transaction) => {
-        const materialRef = doc(db, "rawMaterials", materialId);
+    await adminDb.runTransaction(async (transaction) => {
+        const materialRef = adminDb.collection("rawMaterials").doc(materialId);
         const materialDoc = await transaction.get(materialRef);
+        if (!materialDoc.exists) throw new Error("Materiale non trovato.");
         const material = materialDoc.data() as RawMaterial;
         
         let unitsConsumed = 0;
@@ -47,7 +48,7 @@ export async function logManualWithdrawal(
             currentWeightKg: (material.currentWeightKg || 0) - consumedWeight 
         });
         
-        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {
             jobIds: [],
             jobOrderPFs: jobOrderPF ? [jobOrderPF] : ['SCARICO_MANUALE'],
@@ -57,7 +58,7 @@ export async function logManualWithdrawal(
             consumedUnits: unitsConsumed,
             operatorId,
             operatorName,
-            withdrawalDate: Timestamp.now(),
+            withdrawalDate: admin.firestore.Timestamp.now(),
             notes: notes || null,
             lotto: lotto || null,
         });

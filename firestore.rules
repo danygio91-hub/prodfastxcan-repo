@@ -23,14 +23,14 @@ service cloud.firestore {
         let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
                          request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$') ||
                          request.auth.token.email.lower().matches('.*supervisor@prodfastxcan\\.app$');
-        return emailMatch;
+        return emailMatch || getUserData(userId).role == 'supervisor' || getUserData(userId).role == 'admin';
     }
 
     function isAdmin(userId) {
         // Fallback totale per sbloccare Daniel lunedì: se l'email contiene daniel o admin, ha i permessi.
         let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
                          request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$');
-        return emailMatch;
+        return emailMatch || getUserData(userId).role == 'admin';
     }
 
     function isAdminOrSupervisor(userId) {
