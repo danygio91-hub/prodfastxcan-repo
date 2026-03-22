@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 
 import { type ManualCommitment, type Article, type RawMaterial, type RawMaterialBatch } from '@/lib/mock-data';
 import { saveManualCommitment, deleteManualCommitment, importManualCommitments, revertManualCommitmentFulfillment, declareCommitmentFulfillment, type LotSelectionPayload, getMaterialsByCodes, getLotInfoForMaterial, type LotInfo } from './actions';
+import { getArticles } from '../article-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Calendar } from '@/components/ui/calendar';
 import { Badge } from '@/components/ui/badge';
 import { CalendarIcon, Check, ChevronsUpDown, FileCheck2, Loader2, PlusCircle, Trash2, CheckCircle2, Circle, Upload, Download, Undo2, TestTube, Send, Search } from 'lucide-react';
@@ -47,13 +48,13 @@ function DeclarationDialog({
   isOpen,
   onOpenChange,
   commitment,
-  article,
+  articleCode,
   onDeclare,
 }: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   commitment: ManualCommitment;
-  article: Article | undefined;
+  articleCode: string;
   onDeclare: (values: DeclarationFormValues, lotSelections: LotSelectionPayload[]) => void;
 }) {
   const { toast } = useToast();
@@ -61,6 +62,7 @@ function DeclarationDialog({
     resolver: zodResolver(declarationSchema),
   });
 
+  const [article, setArticle] = useState<Article | undefined>();
   const [componentMaterials, setComponentMaterials] = useState<RawMaterial[]>([]);
   const [lotInfo, setLotInfo] = useState<LotInfo[]>([]);
   const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
@@ -73,31 +75,39 @@ function DeclarationDialog({
       form.reset({ goodPieces: commitment.quantity, scrapPieces: 0 });
       setSelectedLottos(new Set()); // Reset selections
 
-      if (article?.billOfMaterials) {
         const fetchComponentMaterialsAndLots = async () => {
           setIsLoadingMaterials(true);
-          const componentCode = article.billOfMaterials[0]?.component;
-          if (componentCode) {
-            const materials = await getMaterialsByCodes([componentCode]);
-            const material = materials[0];
-            if (material) {
-              setComponentMaterials([material]);
-              const lotData = await getLotInfoForMaterial(material.id);
-              setLotInfo(lotData);
-            } else {
-              setComponentMaterials([]);
-              setLotInfo([]);
-            }
-          } else {
-            setComponentMaterials([]);
-            setLotInfo([]);
+          try {
+             // Fetch Article first
+             const fetchedArticles = await getArticles(articleCode);
+             const currentArticle = fetchedArticles.find(a => a.code === articleCode);
+             setArticle(currentArticle);
+
+             const componentCode = currentArticle?.billOfMaterials?.[0]?.component;
+             if (componentCode) {
+               const materials = await getMaterialsByCodes([componentCode]);
+               const material = materials[0];
+               if (material) {
+                 setComponentMaterials([material]);
+                 const lotData = await getLotInfoForMaterial(material.id);
+                 setLotInfo(lotData);
+               } else {
+                 setComponentMaterials([]);
+                 setLotInfo([]);
+               }
+             } else {
+               setComponentMaterials([]);
+               setLotInfo([]);
+             }
+          } catch(e) {
+             console.error(e);
+          } finally {
+             setIsLoadingMaterials(false);
           }
-          setIsLoadingMaterials(false);
         };
         fetchComponentMaterialsAndLots();
-      }
     }
-  }, [isOpen, article, commitment.quantity, form]);
+  }, [isOpen, articleCode, commitment.quantity, form]);
 
   const bomItem = useMemo(() => article?.billOfMaterials?.[0], [article]);
   const displayUnit = useMemo(() => bomItem?.lunghezzaTaglioMm && bomItem.lunghezzaTaglioMm > 0 ? 'mt' : bomItem?.unit || 'n', [bomItem]);
@@ -284,6 +294,27 @@ export default function CommitmentManagementClientPage({
 
   // New state for article popover
   const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
+  const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
+  const [isSearchingArticles, setIsSearchingArticles] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSearchArticle = (term: string) => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (term.length < 2) {
+          setArticleSuggestions([]);
+          setIsSearchingArticles(false);
+          return;
+      }
+      setIsSearchingArticles(true);
+      searchTimeoutRef.current = setTimeout(async () => {
+          try {
+             const res = await getArticles(term);
+             setArticleSuggestions(res);
+          } catch(e) {} finally {
+             setIsSearchingArticles(false);
+          }
+      }, 400);
+  };
 
   const commitmentFormSchema = z.object({
     id: z.string().optional(),
@@ -505,21 +536,23 @@ export default function CommitmentManagementClientPage({
                           <FormLabel>Codice Articolo</FormLabel>
                           <Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl>
                             <Button variant="outline" role="combobox" className={cn("w-full justify-between", !field.value && "text-muted-foreground")}>
-                              {field.value ? initialArticles.find(a => a.code === field.value)?.code : "Seleziona articolo..."}
+                              {field.value || "Seleziona articolo..."}
                               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                             </Button>
                           </FormControl></PopoverTrigger>
                             <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command>
-                              <CommandInput placeholder="Cerca articolo..." />
-                              <CommandEmpty>Nessun articolo trovato.</CommandEmpty>
-                              <CommandGroup>
-                                {initialArticles.map((article) => (
-                                  <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); setIsArticlePopoverOpen(false); }}>
-                                    <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
-                                    {article.code}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
+                              <CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchArticle} />
+                              <CommandList>
+                                <CommandEmpty>{isSearchingArticles ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun articolo."}</CommandEmpty>
+                                <CommandGroup>
+                                  {articleSuggestions.map((article) => (
+                                    <CommandItem value={article.code} key={article.id} onSelect={() => { form.setValue("articleCode", article.code); setIsArticlePopoverOpen(false); }}>
+                                      <Check className={cn("mr-2 h-4 w-4", article.code === field.value ? "opacity-100" : "opacity-0")} />
+                                      {article.code}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
                             </Command></PopoverContent></Popover>
                           <FormMessage />
                         </FormItem>
@@ -661,7 +694,7 @@ export default function CommitmentManagementClientPage({
           isOpen={!!declarationTarget}
           onOpenChange={(open) => !open && setDeclarationTarget(null)}
           commitment={declarationTarget}
-          article={initialArticles.find(a => a.code === declarationTarget.articleCode)}
+          articleCode={declarationTarget.articleCode}
           onDeclare={handleDeclare}
         />
       )}

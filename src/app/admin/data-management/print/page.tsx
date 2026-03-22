@@ -6,8 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import QRCode from 'react-qr-code';
 import { Loader2, AlertCircle, Printer } from 'lucide-react';
 import { getJobDetailReport } from '@/app/admin/reports/actions';
-import { getArticles } from '@/app/admin/article-management/actions';
-import { getRawMaterials } from '@/app/admin/raw-material-management/actions';
+import { getRequiredDataForJobs } from '@/app/admin/data-management/actions';
 import { format, parseISO, isValid } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
@@ -32,17 +31,17 @@ function PrintPageContent() {
       }
 
       try {
-        const [jobData, allArticles, allMaterials] = await Promise.all([
-          getJobDetailReport(jobId),
-          getArticles(),
-          getRawMaterials()
-        ]);
+        const jobData = await getJobDetailReport(jobId);
 
         if (jobData) {
-          setJob(jobData as unknown as JobOrder);
-          const matchedArticle = allArticles.find(a => a.code.toUpperCase() === jobData.details.toUpperCase());
+          const typedJob = jobData as unknown as JobOrder;
+          setJob(typedJob);
+          
+          const req = await getRequiredDataForJobs([typedJob]);
+          
+          const matchedArticle = req.articles.find(a => a.code.toUpperCase() === typedJob.details.toUpperCase());
           setArticle(matchedArticle || null);
-          setMaterials(allMaterials);
+          setMaterials(req.materials);
         } else {
           setError('Commessa non trovata.');
         }

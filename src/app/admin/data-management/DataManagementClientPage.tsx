@@ -31,6 +31,7 @@ import {
   createMultipleODLs, cancelODL, updateJobOrderCycle, saveManualJobOrder, markJobAsPrinted,
   updateJobOrderDeliveryDate
 } from './actions';
+import { getArticles } from '../article-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -223,6 +224,27 @@ export default function DataManagementClientPage({
 
   const [isManualCreateOpen, setIsManualCreateOpen] = useState(false);
   const [isArticlePopoverOpen, setIsArticlePopoverOpen] = useState(false);
+  const [articleSuggestions, setArticleSuggestions] = useState<Article[]>([]);
+  const [isSearchingArticles, setIsSearchingArticles] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSearchArticle = (term: string) => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (term.length < 2) {
+          setArticleSuggestions([]);
+          setIsSearchingArticles(false);
+          return;
+      }
+      setIsSearchingArticles(true);
+      searchTimeoutRef.current = setTimeout(async () => {
+          try {
+             const res = await getArticles(term);
+             setArticleSuggestions(res);
+          } catch(e) {} finally {
+             setIsSearchingArticles(false);
+          }
+      }, 400);
+  };
 
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   const [productionSearchTerm, setProductionSearchTerm] = useState('');
@@ -577,7 +599,7 @@ export default function DataManagementClientPage({
               <FormField control={manualForm.control} name="ordinePF" render={({ field }) => (<FormItem><FormLabel>Ordine PF</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
             </div>
             <FormField control={manualForm.control} name="articleCode" render={({ field }) => (
-              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca..." /><CommandList><CommandEmpty>No Articolo.</CommandEmpty><CommandGroup>{articles.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
+              <FormItem className="flex flex-col"><FormLabel>Articolo</FormLabel><Popover open={isArticlePopoverOpen} onOpenChange={setIsArticlePopoverOpen}><PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ArrowUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></FormControl></PopoverTrigger><PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchArticle} /><CommandList><CommandEmpty>{isSearchingArticles ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun articolo."}</CommandEmpty><CommandGroup>{articleSuggestions.map(a => (<CommandItem key={a.id} value={a.code} onSelect={() => { manualForm.setValue("articleCode", a.code); setIsArticlePopoverOpen(false); }}>{a.code}</CommandItem>))}</CommandGroup></CommandList></Command></PopoverContent></Popover></FormItem>
             )} />
             <div className="grid grid-cols-2 gap-4">
               <FormField control={manualForm.control} name="qta" render={({ field }) => (<FormItem><FormLabel>Quantità</FormLabel><FormControl><Input type="number" {...field} /></FormControl></FormItem>)} />

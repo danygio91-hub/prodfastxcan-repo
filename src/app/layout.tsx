@@ -9,6 +9,7 @@ import { ActiveMaterialSessionProvider } from '@/contexts/ActiveMaterialSessionP
 import { PT_Sans } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import PwaInstaller from '@/components/PwaInstaller';
+import NextTopLoader from 'nextjs-toploader';
 
 const ptSans = PT_Sans({
   subsets: ['latin'],
@@ -51,6 +52,7 @@ export default function RootLayout({
                 enableSystem={false}
                 disableTransitionOnChange
               >
+                <NextTopLoader color="#0ea5e9" showSpinner={false} />
                 {children}
                 <Toaster />
                 <PwaInstaller />

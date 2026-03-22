@@ -11,16 +11,44 @@ import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } 
 export type ProductionTimeData = {
     averageMinutesPerPiece: number;
     isTimeCalculationReliable: boolean;
-    phases: Record<string, { averageMinutesPerPiece: number }>;
+    phases: Record<string, { averageMinutesPerPiece: number; confidenceWarning?: string }>;
 };
 
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
     const report = await fetchProductionTimeAnalysisReport();
+    const articlesSnapshot = await getDocs(collection(db, "articles"));
+    const articles = articlesSnapshot.docs.map(doc => doc.data() as import('@/lib/mock-data').Article);
+    const articlesMap = new Map(articles.map(a => [a.code, a]));
+
     const analysisMap = new Map<string, ProductionTimeData>();
     for (const articleReport of report) {
-        const phaseTimes: Record<string, { averageMinutesPerPiece: number }> = {};
-        articleReport.averagePhaseTimes.forEach(phase => { if (phase.averageMinutesPerPiece > 0) phaseTimes[phase.name] = { averageMinutesPerPiece: phase.averageMinutesPerPiece }; });
-        analysisMap.set(articleReport.articleCode, { averageMinutesPerPiece: articleReport.averageMinutesPerPiece, isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)), phases: phaseTimes });
+        const article = articlesMap.get(articleReport.articleCode);
+        const phaseTimes: Record<string, { averageMinutesPerPiece: number; confidenceWarning?: string }> = {};
+        
+        articleReport.averagePhaseTimes.forEach(phase => { 
+            if (phase.averageMinutesPerPiece > 0) {
+                let warning: string | undefined = undefined;
+                if (article && article.phaseTimes && article.phaseTimes[phase.name]) {
+                    const expected = article.phaseTimes[phase.name].expectedMinutesPerPiece;
+                    if (expected > 0) {
+                        if (phase.averageMinutesPerPiece > expected * 1.5) {
+                            warning = "⚠️ Tempo raddoppiato rispetto al Teorico!";
+                        } else if (phase.averageMinutesPerPiece < expected * 0.5) {
+                            warning = "⚠️ Tempo dimezzato rispetto al Teorico!";
+                        }
+                    }
+                }
+                phaseTimes[phase.name] = { 
+                    averageMinutesPerPiece: phase.averageMinutesPerPiece,
+                    confidenceWarning: warning
+                }; 
+            }
+        });
+        analysisMap.set(articleReport.articleCode, { 
+            averageMinutesPerPiece: articleReport.averageMinutesPerPiece, 
+            isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)), 
+            phases: phaseTimes 
+        });
     }
     return analysisMap;
 }

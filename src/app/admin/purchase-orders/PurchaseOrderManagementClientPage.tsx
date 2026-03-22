@@ -31,6 +31,7 @@ import {
   Package2
 } from 'lucide-react';
 import { getPurchaseOrders, deleteOrderGroup, importPurchaseOrders, savePurchaseOrder, closePurchaseOrder } from './actions';
+import { getRawMaterials } from '../raw-material-management/actions';
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -97,6 +98,28 @@ export default function PurchaseOrderManagementClientPage({
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   
   const [openComboboxIndex, setOpenComboboxIndex] = useState<number | null>(null);
+  
+  const [materialSuggestions, setMaterialSuggestions] = useState<RawMaterial[]>([]);
+  const [isSearchingMaterials, setIsSearchingMaterials] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSearchMaterial = (term: string) => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (term.length < 2) {
+          setMaterialSuggestions([]);
+          setIsSearchingMaterials(false);
+          return;
+      }
+      setIsSearchingMaterials(true);
+      searchTimeoutRef.current = setTimeout(async () => {
+          try {
+             const res = await getRawMaterials(term);
+             setMaterialSuggestions(res);
+          } catch(e) {} finally {
+             setIsSearchingMaterials(false);
+          }
+      }, 400);
+  };
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -461,8 +484,8 @@ export default function PurchaseOrderManagementClientPage({
                           <FormItem className="flex flex-col"><FormLabel>Materiale</FormLabel>
                             <Popover open={openComboboxIndex === index} onOpenChange={(open) => setOpenComboboxIndex(open ? index : null)}>
                               <PopoverTrigger asChild><FormControl><Button variant="outline" className="w-full justify-between">{field.value || "Seleziona..."}<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /></Button></FormControl></PopoverTrigger>
-                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca..." /><CommandList><CommandEmpty>Nessun materiale.</CommandEmpty><CommandGroup>
-                                {rawMaterials.map((m) => (<CommandItem key={m.id} value={m.code} onSelect={() => { form.setValue(`items.${index}.materialCode`, m.code); form.setValue(`items.${index}.unitOfMeasure`, m.unitOfMeasure); setOpenComboboxIndex(null); }}>{m.code}</CommandItem>))}
+                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0"><Command><CommandInput placeholder="Cerca minimo 2 char..." onValueChange={handleSearchMaterial} /><CommandList><CommandEmpty>{isSearchingMaterials ? <Loader2 className="h-4 w-4 animate-spin mx-auto my-2" /> : "Nessun materiale."}</CommandEmpty><CommandGroup>
+                                {materialSuggestions.map((m) => (<CommandItem key={m.id} value={m.code} onSelect={() => { form.setValue(`items.${index}.materialCode`, m.code); form.setValue(`items.${index}.unitOfMeasure`, m.unitOfMeasure); setOpenComboboxIndex(null); }}>{m.code}</CommandItem>))}
                               </CommandGroup></CommandList></Command></PopoverContent>
                             </Popover>
                           </FormItem>

@@ -1,31 +1,28 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, doc, getDoc, runTransaction, getDocs, query as firestoreQuery, orderBy, arrayUnion, Timestamp, where } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import * as admin from 'firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import type { RawMaterial, RawMaterialBatch, Packaging, Operator } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
 
 export async function getPackagingItems(): Promise<Packaging[]> {
-  const packagingCol = collection(db, 'packaging');
-  const q = firestoreQuery(packagingCol, orderBy("name"));
-  const snapshot = await getDocs(q);
+  const snapshot = await adminDb.collection('packaging').orderBy("name").get();
   return snapshot.docs.map(doc => doc.data() as Packaging);
 }
 
 async function getOperatorByUid(uid: string): Promise<Operator | null> {
-    const q = firestoreQuery(collection(db, "operators"), where("uid", "==", uid));
-    const querySnapshot = await getDocs(q);
-    if (!querySnapshot.empty) {
-        const operatorDoc = querySnapshot.docs[0];
-        return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
-    }
-    const docRef = doc(db, "operators", uid);
-    const docSnap = await getDoc(docRef);
-    if(docSnap.exists()){
-        return { ...docSnap.data(), id: docSnap.id } as Operator;
-    }
-    return null;
+  const querySnapshot = await adminDb.collection("operators").where("uid", "==", uid).limit(1).get();
+  if (!querySnapshot.empty) {
+    const operatorDoc = querySnapshot.docs[0];
+    return { ...operatorDoc.data(), id: operatorDoc.id } as Operator;
+  }
+  const docRef = adminDb.collection("operators").doc(uid);
+  const docSnap = await docRef.get();
+  if (docSnap.exists) {
+    return { ...docSnap.data(), id: docSnap.id } as Operator;
+  }
+  return null;
 }
 
 export async function importCaricoFromFile(
@@ -38,11 +35,20 @@ export async function importCaricoFromFile(
     return { success: false, message: 'Nessun dato da importare.' };
   }
 
-  const materialsSnapshot = await getDocs(collection(db, 'rawMaterials'));
-  const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial]));
+  const uniqueMaterialCodes = Array.from(new Set(data.map(r => r['Codice Materiale']?.toString().trim().toLowerCase()).filter(Boolean)));
+  const materialsMap = new Map<string, RawMaterial>();
 
-  const packagingSnapshot = await getDocs(collection(db, 'packaging'));
-  const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), {id: doc.id, weight: doc.data().weightKg as number}]));
+  const CHUNK_SIZE = 30;
+  for (let i = 0; i < uniqueMaterialCodes.length; i += CHUNK_SIZE) {
+    const chunk = uniqueMaterialCodes.slice(i, i + CHUNK_SIZE);
+    const snapshot = await adminDb.collection('rawMaterials').where('code_normalized', 'in', chunk).get();
+    snapshot.docs.forEach(doc => {
+      materialsMap.set(doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial);
+    });
+  }
+
+  const packagingSnapshot = await adminDb.collection('packaging').get();
+  const packagingMap = new Map(packagingSnapshot.docs.map(doc => [doc.data().name.toLowerCase(), { id: doc.id, weight: doc.data().weightKg as number }]));
 
   const failedRows: any[] = [];
   let successCount = 0;
@@ -52,9 +58,9 @@ export async function importCaricoFromFile(
     const lotto = row['Lotto'];
     const ddt = row['DDT'];
     const netQuantity = parseFloat(row['Quantita Netta']);
-    const date = row['Data']; 
+    const date = row['Data'];
     const packagingName = row['Tara (Imballo)']?.toLowerCase();
-    
+
     if (!materialCode || !lotto || isNaN(netQuantity) || netQuantity <= 0) {
       failedRows.push({ ...row, reason: "Dati obbligatori mancanti o quantità non valida." });
       continue;
@@ -79,41 +85,41 @@ export async function importCaricoFromFile(
     let tareWeight = 0;
     let packagingId: string | undefined = undefined;
     if (packagingName && packagingMap.has(packagingName)) {
-        const pack = packagingMap.get(packagingName)!;
-        tareWeight = pack.weight;
-        packagingId = pack.id;
+      const pack = packagingMap.get(packagingName)!;
+      tareWeight = pack.weight;
+      packagingId = pack.id;
     }
 
-    const materialRef = doc(db, 'rawMaterials', material.id);
+    const materialRef = adminDb.collection('rawMaterials').doc(material.id);
 
     try {
-        await runTransaction(db, async (transaction) => {
-            const freshMaterialDoc = await transaction.get(materialRef);
-            if (!freshMaterialDoc.exists()) throw new Error("Documento materiale sparito dal DB.");
-            const currentMaterial = freshMaterialDoc.data() as RawMaterial;
-            
-            let netWeightForCalc = currentMaterial.unitOfMeasure === 'kg' ? netQuantity : (currentMaterial.conversionFactor ? netQuantity * currentMaterial.conversionFactor : 0);
+      await adminDb.runTransaction(async (transaction) => {
+        const freshMaterialDoc = await transaction.get(materialRef);
+        if (!freshMaterialDoc.exists) throw new Error("Documento materiale sparito dal DB.");
+        const currentMaterial = freshMaterialDoc.data() as RawMaterial;
 
-            const newBatch: RawMaterialBatch = {
-                id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                date: parsedDate.toISOString(),
-                ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
-                lotto,
-                netQuantity,
-                tareWeight,
-                grossWeight: netWeightForCalc + tareWeight,
-                packagingId: packagingId,
-            };
-            
-            transaction.update(materialRef, {
-                batches: arrayUnion(newBatch),
-                currentStockUnits: (currentMaterial.currentStockUnits || 0) + netQuantity,
-                currentWeightKg: (currentMaterial.currentWeightKg || 0) + netWeightForCalc
-            });
+        let netWeightForCalc = currentMaterial.unitOfMeasure === 'kg' ? netQuantity : (currentMaterial.conversionFactor ? netQuantity * currentMaterial.conversionFactor : 0);
+
+        const newBatch: RawMaterialBatch = {
+          id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          date: parsedDate.toISOString(),
+          ddt: ddt || `IMPORT-${parsedDate.toISOString().split('T')[0]}`,
+          lotto,
+          netQuantity,
+          tareWeight,
+          grossWeight: netWeightForCalc + tareWeight,
+          packagingId: packagingId,
+        };
+
+        transaction.update(materialRef, {
+          batches: admin.firestore.FieldValue.arrayUnion(newBatch),
+          currentStockUnits: (currentMaterial.currentStockUnits || 0) + netQuantity,
+          currentWeightKg: (currentMaterial.currentWeightKg || 0) + netWeightForCalc
         });
-        successCount++;
+      });
+      successCount++;
     } catch (e: any) {
-        failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore transazione." });
+      failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore transazione." });
     }
   }
 
@@ -123,12 +129,21 @@ export async function importCaricoFromFile(
 
 export async function importScaricoFromFile(data: any[], uid: string): Promise<{ success: boolean; message: string; failedRows?: any[] }> {
   await ensureAdmin(uid);
-  const admin = await getOperatorByUid(uid);
+  const adminProfile = await getOperatorByUid(uid);
 
   if (!data || data.length === 0) return { success: false, message: 'Nessun dato.' };
 
-  const materialsSnapshot = await getDocs(collection(db, 'rawMaterials'));
-  const materialsMap = new Map(materialsSnapshot.docs.map(doc => [doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial]));
+  const uniqueMaterialCodes = Array.from(new Set(data.map(r => r['Codice Materiale']?.toString().trim().toLowerCase()).filter(Boolean)));
+  const materialsMap = new Map<string, RawMaterial>();
+
+  const CHUNK_SIZE = 30;
+  for (let i = 0; i < uniqueMaterialCodes.length; i += CHUNK_SIZE) {
+    const chunk = uniqueMaterialCodes.slice(i, i + CHUNK_SIZE);
+    const snapshot = await adminDb.collection('rawMaterials').where('code_normalized', 'in', chunk).get();
+    snapshot.docs.forEach(doc => {
+      materialsMap.set(doc.data().code_normalized, { id: doc.id, ...doc.data() } as RawMaterial);
+    });
+  }
 
   let successCount = 0;
   const failedRows: any[] = [];
@@ -138,7 +153,7 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     const lotto = row['Lotto']?.toString().trim();
     const quantity = parseFloat(row['Quantita da Scaricare']);
     const unit = row['Unita']?.toLowerCase();
-    
+
     if (!materialCode || isNaN(quantity) || quantity <= 0) {
       failedRows.push({ ...row, reason: "Dati obbligatori (Codice/Quantità) mancanti o non validi." });
       continue;
@@ -151,64 +166,62 @@ export async function importScaricoFromFile(data: any[], uid: string): Promise<{
     }
 
     try {
-      await runTransaction(db, async (transaction) => {
-        // READS FIRST
-        const materialRef = doc(db, "rawMaterials", materialLookup.id);
+      await adminDb.runTransaction(async (transaction) => {
+        const materialRef = adminDb.collection("rawMaterials").doc(materialLookup.id);
         const materialDoc = await transaction.get(materialRef);
-        
-        if (!materialDoc.exists()) throw new Error(`Documento ID ${materialLookup.id} non trovato.`);
+
+        if (!materialDoc.exists) throw new Error(`Documento ID ${materialLookup.id} non trovato.`);
         const currentMaterial = materialDoc.data() as RawMaterial;
-        
+
         let consumedUnits = 0;
         let consumedWeight = 0;
 
         if (unit === 'kg') {
           consumedWeight = quantity;
           if (currentMaterial.unitOfMeasure === 'kg') {
-              consumedUnits = quantity;
+            consumedUnits = quantity;
           } else {
-              if (!currentMaterial.conversionFactor || currentMaterial.conversionFactor <= 0) {
-                  throw new Error(`Conversione KG in ${currentMaterial.unitOfMeasure} non configurata.`);
-              }
-              consumedUnits = quantity / currentMaterial.conversionFactor;
+            if (!currentMaterial.conversionFactor || currentMaterial.conversionFactor <= 0) {
+              throw new Error(`Conversione KG in ${currentMaterial.unitOfMeasure} non configurata.`);
+            }
+            consumedUnits = quantity / currentMaterial.conversionFactor;
           }
         } else {
           consumedUnits = quantity;
           if (currentMaterial.unitOfMeasure === 'kg') {
-              consumedWeight = quantity;
+            consumedWeight = quantity;
           } else if (currentMaterial.conversionFactor && currentMaterial.conversionFactor > 0) {
-              consumedWeight = quantity * currentMaterial.conversionFactor;
+            consumedWeight = quantity * currentMaterial.conversionFactor;
           } else if (currentMaterial.unitOfMeasure === 'mt' && currentMaterial.rapportoKgMt) {
-              consumedWeight = quantity * currentMaterial.rapportoKgMt;
+            consumedWeight = quantity * currentMaterial.rapportoKgMt;
           } else {
-              throw new Error(`Impossibile calcolare il peso in KG per l'unità ${unit}.`);
+            throw new Error(`Impossibile calcolare il peso in KG per l'unità ${unit}.`);
           }
         }
 
-        // WRITES AFTER
-        transaction.update(materialRef, { 
-            currentStockUnits: (currentMaterial.currentStockUnits || 0) - consumedUnits, 
-            currentWeightKg: (currentMaterial.currentWeightKg || 0) - consumedWeight 
+        transaction.update(materialRef, {
+          currentStockUnits: (currentMaterial.currentStockUnits || 0) - consumedUnits,
+          currentWeightKg: (currentMaterial.currentWeightKg || 0) - consumedWeight
         });
-        
-        const withdrawalRef = doc(collection(db, "materialWithdrawals"));
+
+        const withdrawalRef = adminDb.collection("materialWithdrawals").doc();
         transaction.set(withdrawalRef, {
-            jobIds: [],
-            jobOrderPFs: row['Commessa Associata'] ? [row['Commessa Associata'].toString()] : ['SCARICO_DA_FILE'],
-            materialId: materialLookup.id,
-            materialCode: currentMaterial.code,
-            consumedWeight,
-            consumedUnits: consumedUnits,
-            operatorId: uid,
-            operatorName: admin?.nome || 'Admin Import',
-            withdrawalDate: Timestamp.now(),
-            notes: row['Note'] || 'Scarico da file',
-            lotto: lotto || null,
+          jobIds: [],
+          jobOrderPFs: row['Commessa Associata'] ? [row['Commessa Associata'].toString()] : ['SCARICO_DA_FILE'],
+          materialId: materialLookup.id,
+          materialCode: currentMaterial.code,
+          consumedWeight,
+          consumedUnits: consumedUnits,
+          operatorId: uid,
+          operatorName: adminProfile?.nome || 'Admin Import',
+          withdrawalDate: admin.firestore.Timestamp.now(),
+          notes: row['Note'] || 'Scarico da file',
+          lotto: lotto || null,
         });
       });
       successCount++;
     } catch (e: any) {
-        failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore critico durante lo scarico." });
+      failedRows.push({ ...row, reason: e instanceof Error ? e.message : "Errore critico durante lo scarico." });
     }
   }
 

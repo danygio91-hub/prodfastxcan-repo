@@ -25,6 +25,7 @@ import { PlusCircle, Trash2, Save, Loader2, Check } from 'lucide-react';
 
 import type { Article, RawMaterial } from '@/lib/mock-data';
 import { saveArticle } from './actions';
+import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
 
 const bomItemSchema = z.object({
   component: z.string().min(1, "Selezionare un componente valido."),
@@ -47,14 +48,55 @@ interface ArticleFormDialogProps {
   isOpen: boolean;
   onClose: (refresh?: boolean) => void;
   article: Article | null;
-  rawMaterials: RawMaterial[];
 }
 
-export default function ArticleFormDialog({ isOpen, onClose, article, rawMaterials }: ArticleFormDialogProps) {
+export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleFormDialogProps) {
   const { toast } = useToast();
   const [isPending, setIsPending] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const suggestionRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const [materialCache, setMaterialCache] = useState<Record<string, RawMaterial>>({});
+  const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // Load initial materials
+  useEffect(() => {
+    if (isOpen && article?.billOfMaterials) {
+       const codes = article.billOfMaterials.map(i => i.component).filter(Boolean);
+       if (codes.length > 0) {
+          getMaterialsByCodes(codes).then(mats => {
+             setMaterialCache(prev => {
+                const newC = { ...prev };
+                mats.forEach(m => newC[m.code.toUpperCase()] = m);
+                return newC;
+             });
+          });
+       }
+    }
+  }, [isOpen, article]);
+
+  const handleSearch = (term: string) => {
+      if (searchTimeout) clearTimeout(searchTimeout);
+      if (term.length < 2) {
+          setSuggestions([]);
+          setIsSearching(false);
+          return;
+      }
+      setIsSearching(true);
+      const timeout = setTimeout(async () => {
+          const mats = await getRawMaterials(term);
+          setSuggestions(mats);
+          setMaterialCache(prev => {
+              const newC = { ...prev };
+              mats.forEach(m => newC[m.code.toUpperCase()] = m);
+              return newC;
+          });
+          setIsSearching(false);
+      }, 300);
+      setSearchTimeout(timeout);
+  };
 
   const form = useForm<ArticleFormValues>({
     resolver: zodResolver(articleSchema),
@@ -71,36 +113,24 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
 
   useEffect(() => {
     if (isOpen) {
-        if (article) {
+      if (article) {
         form.reset({
-            id: article.id,
-            code: article.code,
-            billOfMaterials: article.billOfMaterials || [],
+          id: article.id,
+          code: article.code,
+          billOfMaterials: article.billOfMaterials || [],
         });
-        } else {
+      } else {
         const defaultBOM = Array(5).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
         form.reset({
-            id: undefined,
-            code: '',
-            billOfMaterials: defaultBOM,
+          id: undefined,
+          code: '',
+          billOfMaterials: defaultBOM,
         });
-        }
+      }
     }
   }, [article, form, isOpen]);
 
   const onSubmit = async (data: ArticleFormValues) => {
-    const materialCodes = new Set(rawMaterials.map(m => m.code.toUpperCase()));
-    const invalidItem = data.billOfMaterials.find(item => item.component && !materialCodes.has(item.component.toUpperCase()));
-
-    if (invalidItem) {
-        toast({
-            variant: "destructive",
-            title: "Componente non valido",
-            description: `Il componente "${invalidItem.component}" non esiste nell'anagrafica materie prime.`
-        });
-        return;
-    }
-
     setIsPending(true);
     const result = await saveArticle(data);
     toast({
@@ -116,9 +146,9 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-        if (focusedIndex !== null && !suggestionRefs.current[focusedIndex]?.contains(event.target as Node)) {
-            setFocusedIndex(null);
-        }
+      if (focusedIndex !== null && !suggestionRefs.current[focusedIndex]?.contains(event.target as Node)) {
+        setFocusedIndex(null);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -126,7 +156,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl h-[90vh] flex flex-col">
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>{article ? `Modifica Distinta Base: ${article.code}` : 'Crea Nuovo Articolo'}</DialogTitle>
           <DialogDescription>
@@ -156,106 +186,116 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                 <h4 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Componenti Distinta Base</h4>
                 {fields.map((field, index) => {
                   const currentValue = form.watch(`billOfMaterials.${index}.component`) || '';
-                  const suggestions = rawMaterials.filter(m => 
-                    currentValue.length >= 2 && m.code.toLowerCase().includes(currentValue.toLowerCase())
-                  ).slice(0, 10);
-
-                  const componentMaterial = rawMaterials.find(m => m.code.toUpperCase() === currentValue.toUpperCase());
+                  const componentMaterial = materialCache[currentValue.toUpperCase()];
 
                   return (
-                  <div key={field.id} className="grid grid-cols-12 gap-3 p-4 border rounded-lg relative bg-muted/10">
-                    <div className="col-span-12 sm:col-span-4">
-                       <FormField
-                        control={form.control}
-                        name={`billOfMaterials.${index}.component`}
-                        render={({ field }) => (
-                          <FormItem className="relative">
-                            <FormLabel>Componente</FormLabel>
-                            <FormControl>
-                                <Input 
-                                    {...field} 
-                                    placeholder="Digita o incolla..." 
-                                    className="font-mono uppercase"
-                                    autoComplete="off"
-                                    onFocus={() => setFocusedIndex(index)}
-                                />
-                            </FormControl>
-                            {focusedIndex === index && suggestions.length > 0 && (
-                                <div 
-                                    ref={el => { suggestionRefs.current[index] = el; }}
-                                    className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto"
-                                >
-                                    {suggestions.map(m => (
-                                        <button
-                                            key={m.id}
-                                            type="button"
-                                            className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between group"
-                                            onClick={() => {
-                                                form.setValue(`billOfMaterials.${index}.component`, m.code);
-                                                form.setValue(`billOfMaterials.${index}.unit`, m.unitOfMeasure);
-                                                setFocusedIndex(null);
-                                            }}
-                                        >
-                                            <span className="font-mono">{m.code}</span>
-                                            <span className="text-[10px] text-muted-foreground group-hover:text-accent-foreground">{m.description.slice(0, 20)}...</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div className="col-span-6 sm:col-span-2">
-                       <FormField
-                        control={form.control}
-                        name={`billOfMaterials.${index}.quantity`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Q.tà per Pz</FormLabel>
-                            <FormControl><Input type="number" step="any" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <div className="col-span-6 sm:col-span-2">
+                    <div key={field.id} className="grid grid-cols-12 gap-3 p-4 border rounded-lg relative bg-muted/10">
+                      <div className="col-span-12 sm:col-span-4">
                         <FormField
-                            control={form.control}
-                            name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
-                            render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>L. Taglio (mm)</FormLabel>
-                                <FormControl><Input type="number" step="any" placeholder="-" {...field} value={field.value ?? ''} disabled={componentMaterial?.unitOfMeasure === 'n'} /></FormControl>
-                                <FormMessage />
+                          control={form.control}
+                          name={`billOfMaterials.${index}.component`}
+                          render={({ field }) => (
+                            <FormItem className="relative">
+                              <FormLabel className="flex items-center justify-between">
+                                <span>Componente</span>
+                                {componentMaterial && (
+                                  <span className="text-[10px] text-green-600 dark:text-green-400 flex items-center font-normal truncate max-w-[150px]" title={componentMaterial.description}>
+                                    <Check className="h-3 w-3 mr-1 flex-shrink-0" />
+                                    <span className="truncate">{componentMaterial.description}</span>
+                                  </span>
+                                )}
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  placeholder="Digita o incolla..."
+                                  className="font-mono uppercase"
+                                  autoComplete="off"
+                                  onFocus={() => { setFocusedIndex(index); handleSearch(currentValue); }}
+                                  onChange={(e) => {
+                                      field.onChange(e);
+                                      handleSearch(e.target.value);
+                                  }}
+                                />
+                              </FormControl>
+                              {focusedIndex === index && (suggestions.length > 0 || isSearching) && (
+                                <div
+                                  ref={el => { suggestionRefs.current[index] = el; }}
+                                  className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto"
+                                >
+                                  {isSearching && <div className="p-3 text-xs text-center text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mx-auto"/></div>}
+                                  {!isSearching && suggestions.map(m => (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between group"
+                                      onClick={() => {
+                                        form.setValue(`billOfMaterials.${index}.component`, m.code);
+                                        form.setValue(`billOfMaterials.${index}.unit`, m.unitOfMeasure);
+                                        setFocusedIndex(null);
+                                      }}
+                                    >
+                                      <span className="font-mono">{m.code}</span>
+                                      <span className="text-[10px] text-muted-foreground group-hover:text-accent-foreground">{m.description.slice(0, 20)}...</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              <FormMessage />
                             </FormItem>
-                            )}
+                          )}
                         />
-                    </div>
-                    
-                    <div className="col-span-10 sm:col-span-3">
-                      <FormField
-                        control={form.control}
-                        name={`billOfMaterials.${index}.note`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Note</FormLabel>
-                            <FormControl><Input placeholder="..." {...field} value={field.value ?? ''} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                      </div>
+                      <div className="col-span-6 sm:col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`billOfMaterials.${index}.quantity`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Q.tà per Pz</FormLabel>
+                              <FormControl><Input type="number" step="any" {...field} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
 
-                    <div className="col-span-2 sm:col-span-1 flex items-end pb-2">
-                      <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="col-span-6 sm:col-span-2">
+                        <FormField
+                          control={form.control}
+                          name={`billOfMaterials.${index}.lunghezzaTaglioMm`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>L. Taglio (mm)</FormLabel>
+                              <FormControl><Input type="number" step="any" placeholder="-" {...field} value={field.value ?? ''} disabled={componentMaterial?.unitOfMeasure === 'n'} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="col-span-10 sm:col-span-3">
+                        <FormField
+                          control={form.control}
+                          name={`billOfMaterials.${index}.note`}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Note</FormLabel>
+                              <FormControl><Input placeholder="..." {...field} value={field.value ?? ''} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-1 flex items-end pb-2">
+                        <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} className="text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )})}
+                  )
+                })}
                 <Button
                   type="button"
                   variant="outline"
@@ -267,11 +307,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article, rawMateria
                 </Button>
               </div>
             </ScrollArea>
-            
+
             <DialogFooter className="p-4 border-t sticky bottom-0 bg-background">
               <Button type="button" variant="outline" onClick={() => onClose()}>Annulla</Button>
               <Button type="submit" disabled={isPending}>
-                 {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
+                {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 Salva Distinta Base
               </Button>
             </DialogFooter>

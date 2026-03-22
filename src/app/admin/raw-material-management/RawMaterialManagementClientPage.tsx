@@ -111,6 +111,8 @@ const rawMaterialFormSchema = z.object({
   unitOfMeasure: z.enum(['n', 'mt', 'kg']),
   conversionFactor: z.coerce.number().optional().nullable(),
   rapportoKgMt: z.coerce.number().optional().nullable(),
+  minStockLevel: z.coerce.number().optional().nullable(),
+  reorderLot: z.coerce.number().optional().nullable(),
 });
 
 function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null }) {
@@ -201,6 +203,8 @@ export default function RawMaterialManagementClientPage({
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [materialStatus, setMaterialStatus] = useState<MaterialStatus[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
@@ -212,28 +216,44 @@ export default function RawMaterialManagementClientPage({
 
   const form = useForm<z.infer<typeof rawMaterialFormSchema>>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { type: 'BOB', unitOfMeasure: 'n' }
+    defaultValues: { type: 'BOB', unitOfMeasure: 'n', minStockLevel: null, reorderLot: null }
   });
 
   const watchedUOM = form.watch('unitOfMeasure');
 
   const refreshData = useCallback(async () => {
-    if (searchTerm.length >= 2) {
-      setIsSearching(true);
-      try {
-        const result = await searchMaterialsAndGetStatus(searchTerm);
-        setRawMaterials(result.materials);
-        setMaterialStatus(result.status);
-      } catch (error) {
-        toast({ variant: 'destructive', title: 'Errore', description: 'Magazzino non caricato.' });
-      } finally {
-        setIsSearching(false);
-      }
-    } else {
-      setRawMaterials([]);
-      setMaterialStatus([]);
+    setIsSearching(true);
+    try {
+      const result = await searchMaterialsAndGetStatus(searchTerm);
+      setRawMaterials(result.materials);
+      setMaterialStatus(result.status);
+      setHasMore(result.materials.length >= 50 && (!searchTerm || searchTerm.length < 2));
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Errore', description: 'Magazzino non caricato.' });
+    } finally {
+      setIsSearching(false);
     }
   }, [searchTerm, toast]);
+
+  const handleLoadMore = async () => {
+      if (rawMaterials.length === 0) return;
+      setIsLoadingMore(true);
+      try {
+        const lastCode = rawMaterials[rawMaterials.length - 1].code;
+        const result = await searchMaterialsAndGetStatus(searchTerm, lastCode);
+        setRawMaterials(prev => {
+            const newIds = new Set(result.materials.map(m => m.id));
+            const filteredPrev = prev.filter(m => !newIds.has(m.id));
+            return [...filteredPrev, ...result.materials];
+        });
+        setMaterialStatus(prev => {
+            const newIds = new Set(result.status.map(s => s.id));
+            return [...prev.filter(s => !newIds.has(s.id)), ...result.status];
+        });
+        setHasMore(result.materials.length >= 50);
+      } catch(e){}
+      setIsLoadingMore(false);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => refreshData(), 500);
@@ -325,6 +345,14 @@ export default function RawMaterialManagementClientPage({
                       )}
                     </TableBody>
                   </Table>
+                  {hasMore && !isSearching && (
+                      <div className="p-4 flex justify-center border-t">
+                          <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
+                              {isLoadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              Carica Altri
+                          </Button>
+                      </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -345,6 +373,10 @@ export default function RawMaterialManagementClientPage({
             </div>
             <div className="grid grid-cols-2 gap-4">
               {watchedUOM === 'kg' ? (<FormField control={form.control} name="rapportoKgMt" render={({ field }) => (<FormItem><FormLabel>Rapporto Kg/mt</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem>)} />) : (<FormField control={form.control} name="conversionFactor" render={({ field }) => (<FormItem><FormLabel>Fattore Conversione</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem>)} />)}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+               <FormField control={form.control} name="minStockLevel" render={({ field }) => (<FormItem><FormLabel>Sottoscorta</FormLabel><FormControl><Input type="number" step="any" placeholder="Soglia allarme" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+               <FormField control={form.control} name="reorderLot" render={({ field }) => (<FormItem><FormLabel>Lotto Riordino</FormLabel><FormControl><Input type="number" step="any" placeholder="Pz/Kg per ordine" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Salva</Button></DialogFooter>
           </form></Form>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,20 +38,19 @@ import { Badge } from '@/components/ui/badge';
 import type { Article, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';
 import ArticleFormDialog from './ArticleFormDialog';
 import ArticleTimesDialog from './ArticleTimesDialog';
-import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings } from './actions';
+import { deleteArticle, validateArticlesImport, bulkSaveArticles, validateArticleSettingsImport, bulkUpdateArticleSettings, getArticles } from './actions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 
 interface ArticleManagementClientPageProps {
   initialArticles: Article[];
-  rawMaterials: RawMaterial[];
 }
 
-export default function ArticleManagementClientPage({ initialArticles, rawMaterials }: ArticleManagementClientPageProps) {
+export default function ArticleManagementClientPage({ initialArticles }: ArticleManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const articleCodeFromUrl = searchParams.get('code');
-  
+
   const [searchTerm, setSearchTerm] = useState(articleCodeFromUrl || '');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isTimesOpen, setIsTimesOpen] = useState(false);
@@ -60,7 +59,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
   const [isImporting, setIsImporting] = useState(false);
   const [isImportingSettings, setIsImportingSettings] = useState(false);
   const [isSavingBulk, setIsSavingBulk] = useState(false);
-  
+
   const [importReport, setImportReport] = useState<{
     newArticles: Omit<Article, 'id'>[];
     updatedArticles: Omit<Article, 'id'>[];
@@ -83,16 +82,48 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     getWorkPhaseTemplates().then(setPhaseTemplates);
   }, [articleCodeFromUrl]);
 
-  const filteredArticles = useMemo(() => {
-    if (!searchTerm) {
-      return initialArticles;
+  const isInitialMount = useRef(true);
+  const [articles, setArticles] = useState<Article[]>(initialArticles);
+  const [hasMore, setHasMore] = useState(initialArticles.length >= 50);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const refreshData = useCallback(async () => {
+    setIsSearching(true);
+    try {
+      const result = await getArticles(searchTerm);
+      setArticles(result);
+      setHasMore(result.length >= 50 && (!searchTerm || searchTerm.length < 2));
+    } catch(e) {}
+    setIsSearching(false);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return initialArticles.filter(article =>
-      article.code.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [initialArticles, searchTerm]);
-  
+    const timer = setTimeout(() => refreshData(), 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm, refreshData]);
+
+  const handleLoadMore = async () => {
+      if (articles.length === 0) return;
+      setIsLoadingMore(true);
+      try {
+        const lastCode = articles[articles.length - 1].code;
+        const nextBatch = await getArticles(searchTerm, lastCode);
+        setArticles(prev => {
+            // Prevent duplicates if multiple clicks happen
+            const newIds = new Set(nextBatch.map(a => a.id));
+            const filteredPrev = prev.filter(a => !newIds.has(a.id));
+            return [...filteredPrev, ...nextBatch];
+        });
+        setHasMore(nextBatch.length >= 50);
+      } catch(e){}
+      setIsLoadingMore(false);
+  };
+
   const handleOpenForm = (article: Article | null) => {
     setEditingArticle(article);
     setIsFormOpen(true);
@@ -102,17 +133,17 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     setEditingArticle(article);
     setIsTimesOpen(true);
   };
-  
+
   const handleFormClose = (refresh: boolean = false) => {
     setIsFormOpen(false);
     setEditingArticle(null);
-    if(refresh) router.refresh();
+    if (refresh) router.refresh();
   }
 
   const handleTimesClose = (refresh: boolean = false) => {
     setIsTimesOpen(false);
     setEditingArticle(null);
-    if(refresh) router.refresh();
+    if (refresh) router.refresh();
   };
 
   const handleDelete = async (articleId: string) => {
@@ -126,7 +157,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
       router.refresh();
     }
   };
-  
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -146,18 +177,18 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         const articleCode = String(row['Codice Articolo'] || row['codice articolo'] || '').trim();
         const component = String(row['Componente'] || row['componente'] || '').trim();
         const quantity = Number(row['Quantità per Pz'] || row['Quantità'] || row['quantità'] || 0);
-        
+
         if (!articleCode || !component) continue;
 
         if (!articlesMap[articleCode]) {
           articlesMap[articleCode] = { code: articleCode, billOfMaterials: [] };
         }
-        
+
         const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase() as 'n' | 'mt' | 'kg';
         const lunghezzaTaglio = row['Lunghezza Taglio (mm)'] || row['lunghezza taglio (mm)'] || row['Numero/Misura'];
 
         const bomItem: any = { component: component.split(' ')[0], unit, quantity: quantity };
-        
+
         if (lunghezzaTaglio) {
           const parsedLength = parseFloat(String(lunghezzaTaglio));
           if (!isNaN(parsedLength) && parsedLength > 0) bomItem.lunghezzaTaglioMm = parsedLength;
@@ -186,18 +217,18 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     toast({ title: 'Analisi Impostazioni...', description: 'Verifica cicli e tempi.' });
 
     try {
-        const data = await file.arrayBuffer();
-        const workbook = XLSX.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: true });
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const json: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: true });
 
-        const report = await validateArticleSettingsImport(json);
-        setSettingsReport(report);
+      const report = await validateArticleSettingsImport(json);
+      setSettingsReport(report);
     } catch (error) {
-        toast({ variant: "destructive", title: "Errore File", description: "Impossibile processare il file." });
+      toast({ variant: "destructive", title: "Errore File", description: "Impossibile processare il file." });
     } finally {
-        setIsImportingSettings(false);
-        if (settingsInputRef.current) settingsInputRef.current.value = "";
+      setIsImportingSettings(false);
+      if (settingsInputRef.current) settingsInputRef.current.value = "";
     }
   };
 
@@ -207,6 +238,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
         "CODICE ARTICOLO": "ESEMPIO-01",
         "CICLO PREDEFINITO": "Ciclo Standard",
         "TEMPO PREVISTO CICLO PREDEFINITO": 10.5,
+        "TEMPO FASE: TAGLIO": 2.5,
+        "TEMPO FASE: MONTAGGIO": 8.0,
         "CICLO SECONDARIO": "Ciclo Alternativo",
         "TEMPO PREVISTO CICLO SECONDARIO": 12.0
       }
@@ -218,7 +251,7 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     XLSX.writeFile(wb, "template_cicli_tempi.xlsx");
     toast({ title: "Template Scaricato" });
   };
-  
+
   const handleConfirmImport = async () => {
     if (!importReport) return;
     const allValid = [...importReport.newArticles, ...importReport.updatedArticles];
@@ -228,8 +261,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     const result = await bulkSaveArticles(allValid);
     toast({ title: result.success ? "Importazione Completata" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     if (result.success) {
-        setImportReport(null);
-        router.refresh();
+      setImportReport(null);
+      router.refresh();
     }
     setIsSavingBulk(false);
   };
@@ -240,8 +273,8 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
     const result = await bulkUpdateArticleSettings(settingsReport.validUpdates);
     toast({ title: result.success ? "Impostazioni Aggiornate" : "Errore", description: result.message, variant: result.success ? "default" : "destructive" });
     if (result.success) {
-        setSettingsReport(null);
-        router.refresh();
+      setSettingsReport(null);
+      router.refresh();
     }
     setIsSavingBulk(false);
   };
@@ -260,18 +293,18 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
           <div className="flex items-center gap-2 pt-2 w-full sm:w-auto flex-wrap justify-end">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls" className="hidden" />
             <input type="file" ref={settingsInputRef} onChange={handleSettingsFileChange} accept=".xlsx, .xls" className="hidden" />
-            
+
             <Button onClick={handleDownloadSettingsTemplate} variant="outline" size="sm" className="bg-amber-500/10 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
               <FileSpreadsheet className="mr-2 h-4 w-4" /> Template Impostazioni
             </Button>
 
             <Button onClick={() => settingsInputRef.current?.click()} variant="outline" size="sm" disabled={isImportingSettings} className="bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/50 text-amber-700 dark:text-amber-400 h-9 px-3">
-               {isImportingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <FileEdit className="mr-2 h-4 w-4" />}
+              {isImportingSettings ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileEdit className="mr-2 h-4 w-4" />}
               Importa Cicli/tempi
             </Button>
 
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" size="sm" disabled={isImporting} className="h-9 px-3">
-               {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Upload className="mr-2 h-4 w-4" />}
+              {isImporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
               Importa BOM
             </Button>
             <div className="relative w-full sm:w-48 lg:w-64">
@@ -296,35 +329,37 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredArticles.length > 0 ? (
-                    filteredArticles.map((article) => (
+                  {isSearching ? (
+                     <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+                  ) : articles.length > 0 ? (
+                    articles.map((article) => (
                       <TableRow key={article.code}>
                         <TableCell>
-                            <ContextMenu>
-                              <ContextMenuTrigger className="font-medium hover:text-primary hover:underline cursor-pointer">{article.code}</ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem onSelect={() => router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(article.code)}`)}><BarChart3 className="mr-2 h-4 w-4" />Analisi Tempi</ContextMenuItem>
-                                <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!"}))}><Copy className="mr-2 h-4 w-4" />Copia Codice</ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
+                          <ContextMenu>
+                            <ContextMenuTrigger className="font-medium hover:text-primary hover:underline cursor-pointer">{article.code}</ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onSelect={() => router.push(`/admin/production-time-analysis?articleCode=${encodeURIComponent(article.code)}`)}><BarChart3 className="mr-2 h-4 w-4" />Analisi Tempi</ContextMenuItem>
+                              <ContextMenuItem onSelect={() => navigator.clipboard.writeText(article.code).then(() => toast({ title: "Copiato!" }))}><Copy className="mr-2 h-4 w-4" />Copia Codice</ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         </TableCell>
-                         <TableCell>{article.billOfMaterials?.length || 0}</TableCell>
-                         <TableCell>
-                            <Badge variant="outline" className="font-mono text-[10px] uppercase">
-                                {article.workCycleId ? "Assegnato" : "Non impostato"}
-                            </Badge>
-                         </TableCell>
+                        <TableCell>{article.billOfMaterials?.length || 0}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                            {article.workCycleId ? "Assegnato" : "Non impostato"}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right space-x-2">
-                           <Button variant="outline" size="sm" onClick={() => handleOpenTimes(article)}>
+                          <Button variant="outline" size="sm" onClick={() => handleOpenTimes(article)}>
                             <Timer className="mr-2 h-4 w-4 text-amber-500" /> Cicli/Tempi
                           </Button>
-                           <Button variant="outline" size="sm" onClick={() => handleOpenForm(article)}>
+                          <Button variant="outline" size="sm" onClick={() => handleOpenForm(article)}>
                             <Edit className="mr-2 h-4 w-4" /> BOM
                           </Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild><Button variant="destructive" size="sm"><Trash2 className="mr-2 h-4 w-4" /> Elimina</Button></AlertDialogTrigger>
                             <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Eliminare l'articolo?</AlertDialogTitle><AlertDialogDescription>L'azione è irreversibile.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(article.id)}>Sì, elimina</AlertDialogAction></AlertDialogFooter>
+                              <AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(article.id)}>Sì, elimina</AlertDialogAction></AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
                         </TableCell>
@@ -335,142 +370,150 @@ export default function ArticleManagementClientPage({ initialArticles, rawMateri
                   )}
                 </TableBody>
               </Table>
+              {hasMore && !isSearching && (
+                  <div className="p-4 flex justify-center border-t">
+                      <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
+                          {isLoadingMore && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Carica Altri
+                      </Button>
+                  </div>
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <ArticleFormDialog isOpen={isFormOpen} onClose={handleFormClose} article={editingArticle} rawMaterials={rawMaterials} />
-      
+      <ArticleFormDialog isOpen={isFormOpen} onClose={handleFormClose} article={editingArticle} />
+
       {editingArticle && (
-        <ArticleTimesDialog 
-            isOpen={isTimesOpen} 
-            onClose={handleTimesClose} 
-            article={editingArticle} 
-            phaseTemplates={phaseTemplates}
+        <ArticleTimesDialog
+          isOpen={isTimesOpen}
+          onClose={handleTimesClose}
+          article={editingArticle}
+          phaseTemplates={phaseTemplates}
         />
       )}
 
       <Dialog open={!!importReport} onOpenChange={(o) => !o && setImportReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-6 w-6 text-primary" /> Analisi Importazione Distinte</DialogTitle></DialogHeader>
-            <Tabs defaultValue="new" className="flex-1 overflow-hidden flex flex-col mt-4">
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="new"><PlusCircle className="h-4 w-4 text-green-500 mr-2" /> Nuovi ({importReport?.newArticles.length || 0})</TabsTrigger>
-                    <TabsTrigger value="update"><RefreshCcw className="h-4 w-4 text-blue-500 mr-2" /> Aggiorna ({importReport?.updatedArticles.length || 0})</TabsTrigger>
-                    <TabsTrigger value="errors"><XCircle className="h-4 w-4 text-destructive mr-2" /> Errori ({importReport?.invalidArticles.length || 0})</TabsTrigger>
-                </TabsList>
-                <TabsContent value="new" className="flex-1 overflow-hidden pt-4">
-                  <ScrollArea className="h-[400px] border rounded-md p-2">
-                    <Table>
-                      <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Componenti</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {importReport?.newArticles.map((art, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell className="font-mono">{art.code}</TableCell>
-                            <TableCell>{art.billOfMaterials.length}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                </TabsContent>
-                <TabsContent value="update" className="flex-1 overflow-hidden pt-4">
-                  <ScrollArea className="h-[400px] border rounded-md p-2">
-                    <Table>
-                      <TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableRow></TableHeader>
-                      <TableBody>
-                        {importReport?.updatedArticles.map((art, idx) => (
-                          <TableRow key={idx} className="bg-blue-500/5">
-                            <TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell>
-                            <TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                </TabsContent>
-                <TabsContent value="errors" className="flex-1 overflow-hidden pt-4">
-                  <ScrollArea className="h-[400px] border rounded-md p-2">
-                    <div className="space-y-4">
-                      {importReport?.invalidArticles.map((item, idx) => (
-                        <div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5">
-                          <p className="font-bold text-destructive">{item.code}</p>
-                          <ul className="text-xs mt-1">
-                            {item.errors.map((err, eIdx) => <li key={eIdx}>• {err}</li>)}
-                          </ul>
-                        </div>
-                      ))}
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><ClipboardList className="h-6 w-6 text-primary" /> Analisi Importazione Distinte</DialogTitle></DialogHeader>
+          <Tabs defaultValue="new" className="flex-1 overflow-hidden flex flex-col mt-4">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="new"><PlusCircle className="h-4 w-4 text-green-500 mr-2" /> Nuovi ({importReport?.newArticles.length || 0})</TabsTrigger>
+              <TabsTrigger value="update"><RefreshCcw className="h-4 w-4 text-blue-500 mr-2" /> Aggiorna ({importReport?.updatedArticles.length || 0})</TabsTrigger>
+              <TabsTrigger value="errors"><XCircle className="h-4 w-4 text-destructive mr-2" /> Errori ({importReport?.invalidArticles.length || 0})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="new" className="flex-1 overflow-hidden pt-4">
+              <ScrollArea className="h-[400px] border rounded-md p-2">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Componenti</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {importReport?.newArticles.map((art, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell className="font-mono">{art.code}</TableCell>
+                        <TableCell>{art.billOfMaterials.length}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </TabsContent>
+            <TabsContent value="update" className="flex-1 overflow-hidden pt-4">
+              <ScrollArea className="h-[400px] border rounded-md p-2">
+                <Table>
+                  <TableHeader><TableRow><TableHead>Codice Esistente</TableHead><TableHead>Nuova Distinta</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {importReport?.updatedArticles.map((art, idx) => (
+                      <TableRow key={idx} className="bg-blue-500/5">
+                        <TableCell className="font-mono font-bold text-blue-700">{art.code}</TableCell>
+                        <TableCell>{art.billOfMaterials.length} comp. (verrà aggiornata)</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </TabsContent>
+            <TabsContent value="errors" className="flex-1 overflow-hidden pt-4">
+              <ScrollArea className="h-[400px] border rounded-md p-2">
+                <div className="space-y-4">
+                  {importReport?.invalidArticles.map((item, idx) => (
+                    <div key={idx} className="p-3 border-l-4 border-destructive bg-destructive/5">
+                      <p className="font-bold text-destructive">{item.code}</p>
+                      <ul className="text-xs mt-1">
+                        {item.errors.map((err, eIdx) => <li key={eIdx}>• {err}</li>)}
+                      </ul>
                     </div>
-                  </ScrollArea>
-                </TabsContent>
-            </Tabs>
-            <DialogFooter className="mt-6 border-t pt-4">
-              <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
-              <Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700 text-white">
-                {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
-                Conferma Caricamento
-              </Button>
-            </DialogFooter>
+                  ))}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+          <DialogFooter className="mt-6 border-t pt-4">
+            <Button variant="outline" onClick={() => setImportReport(null)}>Annulla tutto</Button>
+            <Button onClick={handleConfirmImport} disabled={isSavingBulk || (!importReport?.newArticles.length && !importReport?.updatedArticles.length)} className="bg-green-600 hover:bg-green-700 text-white">
+              {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Conferma Caricamento
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!settingsReport} onOpenChange={(o) => !o && setSettingsReport(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
-            <DialogHeader><DialogTitle className="flex items-center gap-2"><FileEdit className="h-6 w-6 text-amber-500" /> Analisi Aggiornamento Cicli/Tempi</DialogTitle></DialogHeader>
-            <div className="flex-1 overflow-hidden flex flex-col mt-4 space-y-4">
-                <div className="flex gap-4">
-                    <Card className="flex-1 border-green-500/20 bg-green-500/5">
-                        <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-green-700">Validi per Update</CardTitle></CardHeader>
-                        <CardContent className="text-2xl font-black text-green-600">{settingsReport?.validUpdates.length || 0}</CardContent>
-                    </Card>
-                    <Card className="flex-1 border-destructive/20 bg-destructive/5">
-                        <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-destructive">Errori (Bloccati)</CardTitle></CardHeader>
-                        <CardContent className="text-2xl font-black text-destructive">{settingsReport?.invalidRows.length || 0}</CardContent>
-                    </div>
-                </div>
-
-                <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col">
-                    <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="valid">Dati da Applicare</TabsTrigger>
-                        <TabsTrigger value="invalid">Errori</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="valid" className="flex-1 overflow-hidden pt-4">
-                        <ScrollArea className="h-[350px] border rounded-md p-2">
-                            <Table>
-                                <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Ciclo Def.</TableHead><TableHead>Tempo</TableHead></TableRow></TableHeader>
-                                <TableBody>
-                                    {settingsReport?.validUpdates.map((upd, i) => (
-                                        <TableRow key={i}>
-                                            <TableCell className="font-mono font-bold">{upd.code}</TableCell>
-                                            <TableCell className="text-xs">{upd.workCycleId ? "SI" : "-"}</TableCell>
-                                            <TableCell className="font-mono">{upd.expectedMinutesDefault} min</TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </ScrollArea>
-                    </TabsContent>
-                    <TabsContent value="invalid" className="flex-1 overflow-hidden pt-4">
-                        <ScrollArea className="h-[350px] border rounded-md p-2">
-                            <div className="space-y-2">
-                                {settingsReport?.invalidRows.map((err, i) => (
-                                    <div key={i} className="p-2 border-l-4 border-destructive bg-destructive/5 text-xs">
-                                        <span className="font-bold">{err.code}</span>: {err.reason}
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
-                    </TabsContent>
-                </Tabs>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FileEdit className="h-6 w-6 text-amber-500" /> Analisi Aggiornamento Cicli/Tempi</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-hidden flex flex-col mt-4 space-y-4">
+            <div className="flex gap-4">
+              <Card className="flex-1 border-green-500/20 bg-green-500/5">
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-green-700">Validi per Update</CardTitle></CardHeader>
+                <CardContent className="text-2xl font-black text-green-600">{settingsReport?.validUpdates.length || 0}</CardContent>
+              </Card>
+              <Card className="flex-1 border-destructive/20 bg-destructive/5">
+                <CardHeader className="p-3 pb-0"><CardTitle className="text-sm font-bold text-destructive">Errori (Bloccati)</CardTitle></CardHeader>
+                <CardContent className="text-2xl font-black text-destructive">{settingsReport?.invalidRows.length || 0}</CardContent>
+              </Card>
             </div>
-            <DialogFooter className="mt-6 border-t pt-4">
-                <Button variant="outline" onClick={() => setSettingsReport(null)}>Annulla tutto</Button>
-                <Button onClick={handleConfirmSettingsUpdate} disabled={isSavingBulk || !settingsReport?.validUpdates.length} className="bg-amber-600 hover:bg-amber-700 text-white">
-                    {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
-                    Conferma e Aggiorna Anagrafiche
-                </Button>
-            </DialogFooter>
+
+            <Tabs defaultValue="valid" className="flex-1 overflow-hidden flex flex-col">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="valid">Dati da Applicare</TabsTrigger>
+                <TabsTrigger value="invalid">Errori</TabsTrigger>
+              </TabsList>
+              <TabsContent value="valid" className="flex-1 overflow-hidden pt-4">
+                <ScrollArea className="h-[350px] border rounded-md p-2">
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Codice</TableHead><TableHead>Ciclo Def.</TableHead><TableHead>Tempo</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {settingsReport?.validUpdates.map((upd, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="font-mono font-bold">{upd.code}</TableCell>
+                          <TableCell className="text-xs">{upd.workCycleId ? "SI" : "-"}</TableCell>
+                          <TableCell className="font-mono">{upd.expectedMinutesDefault} min</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </TabsContent>
+              <TabsContent value="invalid" className="flex-1 overflow-hidden pt-4">
+                <ScrollArea className="h-[350px] border rounded-md p-2">
+                  <div className="space-y-2">
+                    {settingsReport?.invalidRows.map((err, i) => (
+                      <div key={i} className="p-2 border-l-4 border-destructive bg-destructive/5 text-xs">
+                        <span className="font-bold">{err.code}</span>: {err.reason}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
+          </div>
+          <DialogFooter className="mt-6 border-t pt-4">
+            <Button variant="outline" onClick={() => setSettingsReport(null)}>Annulla tutto</Button>
+            <Button onClick={handleConfirmSettingsUpdate} disabled={isSavingBulk || !settingsReport?.validUpdates.length} className="bg-amber-600 hover:bg-amber-700 text-white">
+              {isSavingBulk ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Conferma e Aggiorna Anagrafiche
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

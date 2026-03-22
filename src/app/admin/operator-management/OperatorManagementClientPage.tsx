@@ -3,12 +3,12 @@
 
 import React, { useState, useEffect } from 'react';
 import * as z from 'zod';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import * as XLSX from 'xlsx';
 
-import { type Operator, type Department } from '@/lib/mock-data';
+import { type Operator, type Department, type WorkPhaseTemplate } from '@/lib/mock-data';
 import { saveOperator, deleteOperator } from './actions';
 import { cn } from '@/lib/utils';
 import type { StatoOperatore, OperatorRole } from '@/lib/mock-data';
@@ -40,6 +40,11 @@ const operatorFormSchema = z.object({
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
   isReal: z.boolean().optional(),
+  skills: z.array(z.object({
+    phaseId: z.string().min(1, "Seleziona fase di lavorazione"),
+    isHardSkill: z.boolean(),
+    efficiencyPercent: z.number().min(1).max(100)
+  })).optional(),
 }).refine(data => {
   if (data.role === 'operator') {
     return data.reparto && data.reparto.length > 0;
@@ -69,11 +74,13 @@ const StatusBadge = ({ status }: { status: StatoOperatore }) => (
 interface OperatorManagementClientPageProps {
   initialOperators: Operator[];
   initialDepartments: Department[];
+  initialPhases: WorkPhaseTemplate[];
 }
 
-export default function OperatorManagementClientPage({ initialOperators, initialDepartments }: OperatorManagementClientPageProps) {
+export default function OperatorManagementClientPage({ initialOperators, initialDepartments, initialPhases }: OperatorManagementClientPageProps) {
   const [operators, setOperators] = useState<Operator[]>(initialOperators);
   const [departments, setDepartments] = useState<Department[]>(initialDepartments);
+  const [phases, setPhases] = useState<WorkPhaseTemplate[]>(initialPhases);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const { toast } = useToast();
@@ -90,7 +97,13 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       canAccessInventory: false,
       canAccessMaterialWithdrawal: false,
       isReal: true,
+      skills: [],
     },
+  });
+
+  const { fields: skillFields, append: appendSkill, remove: removeSkill } = useFieldArray({
+    control: form.control,
+    name: "skills",
   });
 
   const watchedRole = form.watch('role');
@@ -98,7 +111,8 @@ export default function OperatorManagementClientPage({ initialOperators, initial
 
   useEffect(() => {
     setDepartments(initialDepartments);
-  }, [initialDepartments]);
+    setPhases(initialPhases);
+  }, [initialDepartments, initialPhases]);
 
   useEffect(() => {
     if (watchedRole === 'admin' || watchedRole === 'supervisor') {
@@ -122,9 +136,10 @@ export default function OperatorManagementClientPage({ initialOperators, initial
         canAccessInventory: operator.canAccessInventory || false,
         canAccessMaterialWithdrawal: operator.canAccessMaterialWithdrawal || false,
         isReal: operator.isReal !== undefined ? operator.isReal : true,
+        skills: operator.skills || [],
       });
     } else {
-      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false, isReal: true });
+      form.reset({ id: undefined, nome: "", email: "", reparto: [], role: 'operator', canAccessInventory: false, canAccessMaterialWithdrawal: false, isReal: true, skills: [] });
     }
     setIsDialogOpen(true);
   };
@@ -358,13 +373,14 @@ export default function OperatorManagementClientPage({ initialOperators, initial
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md" onInteractOutside={(e) => { e.preventDefault(); handleCloseDialog(); }} onEscapeKeyDown={(e) => { e.preventDefault(); handleCloseDialog(); }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col" onInteractOutside={(e) => { e.preventDefault(); handleCloseDialog(); }} onEscapeKeyDown={(e) => { e.preventDefault(); handleCloseDialog(); }}>
           <DialogHeader>
             <DialogTitle>{editingOperator ? "Modifica Operatore" : "Aggiungi Nuovo Operatore"}</DialogTitle>
             <DialogDescription>
               {editingOperator ? "Modifica i dettagli dell'operatore." : "Compila i campi per aggiungere un nuovo operatore. L'email deve corrispondere a quella dell'utente creato in Firebase Authentication."}
             </DialogDescription>
           </DialogHeader>
+          <div className="flex-1 overflow-y-auto pr-2 -mr-2">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
               <FormField control={form.control} name="nome" render={({ field }) => (
@@ -430,7 +446,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                               />
                             </FormControl>
                             <FormLabel className="font-normal">
-                              {item.name}
+                              {item.code} ({item.name})
                             </FormLabel>
                           </FormItem>
                         ))}
@@ -511,12 +527,101 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                   </FormItem>
                 )}
               />
+
+              {watchedRole === 'operator' && (
+                <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base font-semibold flex items-center gap-2">
+                        <CheckCircle2 className="h-5 w-5 text-primary" />
+                        Matrice Competenze (Skills)
+                      </FormLabel>
+                      <FormDescription className="text-xs">Assegna Microaree e % di Rendimento per i logaritmi del Gantt.</FormDescription>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={() => appendSkill({ phaseId: '', isHardSkill: true, efficiencyPercent: 100 })}>
+                      <PlusCircle className="mr-2 h-4 w-4" /> Aggiungi Skill
+                    </Button>
+                  </div>
+                  {skillFields.map((field, index) => (
+                    <div key={field.id} className="grid grid-cols-12 gap-3 items-end border-b pb-4 last:border-0 last:pb-0">
+                      <div className="col-span-12 sm:col-span-5">
+                        <FormField
+                          control={form.control}
+                          name={`skills.${index}.phaseId`}
+                          render={({ field: selectField }) => {
+                            const watchedReparto = form.watch('reparto') || [];
+                            const filteredPhases = phases.filter(p => !watchedReparto || watchedReparto.length === 0 || (p.departmentCodes && p.departmentCodes.some(d => watchedReparto.includes(d))));
+                            return (
+                              <FormItem>
+                                <FormLabel className="text-xs">Fase Lavorazione</FormLabel>
+                                <Select onValueChange={selectField.onChange} value={selectField.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Seleziona..." />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {filteredPhases.map(ws => <SelectItem key={ws.id} value={ws.id}>{ws.name} ({departments.filter(d => ws.departmentCodes?.includes(d.code)).map(d => d.code).join(', ')})</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            );
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-5 sm:col-span-3">
+                        <FormField
+                          control={form.control}
+                          name={`skills.${index}.efficiencyPercent`}
+                          render={({ field: effField }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">Rendimento %</FormLabel>
+                              <FormControl>
+                                <Input type="number" min="1" max="100" {...effField} onChange={e => effField.onChange(parseInt(e.target.value) || 0)} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="col-span-5 sm:col-span-3">
+                        <FormField
+                            control={form.control}
+                            name={`skills.${index}.isHardSkill`}
+                            render={({ field: hardField }) => (
+                              <FormItem className="flex items-center space-x-2 space-y-0 h-10 border rounded px-2 bg-background mt-3 sm:mt-0">
+                                <FormControl>
+                                  <Checkbox
+                                    checked={hardField.value}
+                                    onCheckedChange={hardField.onChange}
+                                  />
+                                </FormControl>
+                                <FormLabel className="text-xs font-normal mb-0 pb-0">
+                                  Hard Skill
+                                </FormLabel>
+                              </FormItem>
+                            )}
+                          />
+                      </div>
+                      <div className="col-span-2 sm:col-span-1 text-right flex justify-end">
+                        <Button type="button" variant="ghost" size="icon" className="text-destructive h-10 w-10" onClick={() => removeSkill(index)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {skillFields.length === 0 && <p className="text-center text-sm text-muted-foreground pt-4">Nessuna competenza inserita.</p>}
+                </div>
+              )}
+
               <DialogFooter className="pt-4">
                 <Button type="button" variant="outline" onClick={handleCloseDialog}>Annulla</Button>
                 <Button type="submit">{editingOperator ? "Salva Modifiche" : "Aggiungi Operatore"}</Button>
               </DialogFooter>
             </form>
           </Form>
+          </div>
         </DialogContent>
       </Dialog>
 

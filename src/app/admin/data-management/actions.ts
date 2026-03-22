@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { collection, query as firestoreQuery, where, getDocs, doc, setDoc, getDoc, writeBatch, Timestamp, runTransaction, updateDoc, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, WorkCycle, WorkPhaseTemplate, Article, JobBillOfMaterialsItem, Department, RawMaterial, ManualCommitment } from '@/lib/mock-data';
 import * as z from 'zod';
 
 function sanitizeDocumentId(id: string): string {
@@ -54,9 +54,47 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
-export async function getArticles(): Promise<Article[]> {
-    const snap = await getDocs(firestoreQuery(collection(db, "articles"), orderBy("code")));
-    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Article));
+export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: ManualCommitment[] = []): Promise<{ articles: Article[], materials: RawMaterial[] }> {
+    const arrArticleCodes = new Set<string>();
+    const directMaterialCodes = new Set<string>();
+    
+    jobs.forEach(j => {
+        if (j.details) arrArticleCodes.add(j.details.toUpperCase());
+        j.billOfMaterials?.forEach(b => {
+            if (b.component) directMaterialCodes.add(b.component.toUpperCase());
+        });
+    });
+
+    commitments.forEach(c => {
+        if (c.articleCode) arrArticleCodes.add(c.articleCode.toUpperCase());
+    });
+
+    const uniqueArticles = [...arrArticleCodes];
+    const articlesRes: Article[] = [];
+
+    for (let i = 0; i < uniqueArticles.length; i += 30) {
+        const chunk = uniqueArticles.slice(i, i + 30);
+        const snap = await getDocs(firestoreQuery(collection(db, "articles"), where("code", "in", chunk)));
+        snap.forEach(d => {
+            const a = { id: d.id, ...d.data() } as Article;
+            articlesRes.push(a);
+            // Add components from fetched articles
+            a.billOfMaterials?.forEach(b => {
+                if (b.component) directMaterialCodes.add(b.component.toUpperCase());
+            });
+        });
+    }
+
+    const uniqueMaterials = [...directMaterialCodes];
+    const materialsRes: RawMaterial[] = [];
+
+    for (let i = 0; i < uniqueMaterials.length; i += 30) {
+        const chunk = uniqueMaterials.slice(i, i + 30);
+        const snap = await getDocs(firestoreQuery(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        snap.forEach(d => materialsRes.push({ id: d.id, ...d.data() } as RawMaterial));
+    }
+
+    return { articles: articlesRes, materials: materialsRes };
 }
 
 export async function getDepartments(): Promise<Department[]> {

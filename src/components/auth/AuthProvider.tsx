@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const currentOperator = operatorRef.current;
     
     await firebaseLogout();
+    await fetch('/api/auth/session', { method: 'DELETE' });
     
     // On logout, we don't clear material sessions anymore, as they are now persistent.
     localStorage.removeItem(LAST_LOGIN_TIMESTAMP_KEY);
@@ -149,6 +150,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (firebaseUser) {
+        // Sync the token with the server using Session Cookies
+        const idToken = await firebaseUser.getIdToken();
+        await fetch('/api/auth/session', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ idToken })
+        });
+
         const operatorProfile = await fetchOperatorProfile(firebaseUser);
         if (operatorProfile) {
           // Set user and operator state immediately to prevent race conditions

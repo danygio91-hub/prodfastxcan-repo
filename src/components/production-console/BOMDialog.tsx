@@ -22,13 +22,11 @@ interface BOMDialogProps {
 }
 
 export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }: BOMDialogProps) {
-  if (!job) return null;
-
   const materialsMap = useMemo(() => new Map(allRawMaterials.map(m => [m.code, m])), [allRawMaterials]);
-  
+
   const withdrawnByComponent = useMemo(() => {
     const map = new Map<string, { units: number, hasActiveSession: boolean }>();
-    (job.phases || []).forEach(phase => {
+    (job?.phases || []).forEach(phase => {
       (phase.materialConsumptions || []).forEach(consumption => {
         const materialCode = consumption.materialCode;
         const material = materialsMap.get(materialCode);
@@ -53,41 +51,43 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
         } else if (isOpenSession) {
           isSessionActive = true;
         }
-        
+
         const current = map.get(materialCode) || { units: 0, hasActiveSession: false };
-        map.set(materialCode, { 
-            units: current.units + unitsConsumed, 
-            hasActiveSession: current.hasActiveSession || isSessionActive 
+        map.set(materialCode, {
+          units: current.units + unitsConsumed,
+          hasActiveSession: current.hasActiveSession || isSessionActive
         });
       });
     });
     return map;
-  }, [job.phases, materialsMap]);
+  }, [job?.phases, materialsMap]);
 
   const combinedBOM = useMemo(() => {
-    const bom = job.billOfMaterials || [];
+    const bom = job?.billOfMaterials || [];
     const bomMap = new Map<string, JobBillOfMaterialsItem>();
-    
+
     bom.forEach(item => {
       bomMap.set(item.component, { ...item, isFromTemplate: true });
     });
 
     withdrawnByComponent.forEach((data, materialCode) => {
-        const material = materialsMap.get(materialCode);
-        if (!bomMap.has(materialCode) && (data.units > 0 || data.hasActiveSession)) {
-          bomMap.set(materialCode, {
-            component: materialCode,
-            quantity: data.units,
-            unit: material?.unitOfMeasure || 'n',
-            status: 'withdrawn',
-            isFromTemplate: false,
-          });
-        }
+      const material = materialsMap.get(materialCode);
+      if (!bomMap.has(materialCode) && (data.units > 0 || data.hasActiveSession)) {
+        bomMap.set(materialCode, {
+          component: materialCode,
+          quantity: data.units,
+          unit: material?.unitOfMeasure || 'n',
+          status: 'withdrawn',
+          isFromTemplate: false,
+        });
+      }
     });
 
     return Array.from(bomMap.values());
-  }, [job.billOfMaterials, materialsMap, withdrawnByComponent]);
-  
+  }, [job?.billOfMaterials, materialsMap, withdrawnByComponent]);
+
+  if (!job) return null;
+
   const isAggregatedView = job.id.startsWith('group-');
 
   return (
@@ -99,7 +99,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
             {isAggregatedView ? `Distinta Base Aggregata per Gruppo ${job.id}` : `Distinta Base per ${job.ordinePF}`}
           </DialogTitle>
           <DialogDescription>
-             {isAggregatedView 
+            {isAggregatedView
               ? `Componenti totali necessari per la produzione di ${job.qta} pz di ${job.details} (tutte le commesse).`
               : `Componenti necessari per la produzione di ${job.qta} pz di ${job.details}.`
             }
@@ -124,34 +124,34 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                   const material = materialsMap.get(item.component);
                   const withdrawData = withdrawnByComponent.get(item.component) || { units: 0, hasActiveSession: false };
                   const withdrawnQty = withdrawData.units;
-                  
+
                   let totalRequirement = 0;
                   let displayUnit = item.unit;
 
                   // CALCOLO FABBISOGNO REALE (Inclusa Lunghezza Taglio)
                   if (item.isFromTemplate) {
-                      if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
-                          totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
-                          displayUnit = 'mt';
-                      } else {
-                          totalRequirement = item.quantity * job.qta;
-                          displayUnit = item.unit;
-                      }
+                    if (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0) {
+                      totalRequirement = (item.quantity * job.qta * item.lunghezzaTaglioMm) / 1000;
+                      displayUnit = 'mt';
+                    } else {
+                      totalRequirement = item.quantity * job.qta;
+                      displayUnit = item.unit;
+                    }
                   } else {
-                      totalRequirement = withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0);
-                      displayUnit = material?.unitOfMeasure || 'n';
+                    totalRequirement = withdrawnQty || (withdrawData.hasActiveSession ? 0.001 : 0);
+                    displayUnit = material?.unitOfMeasure || 'n';
                   }
 
                   // CALCOLO PESO STIMATO CORRETTO (Basato su rapportoKgMt o conversionFactor)
                   let estimatedWeight = 0;
-                   if (material) {
-                      if (displayUnit === 'mt' || (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0)) {
-                          estimatedWeight = totalRequirement * (material.rapportoKgMt || 0);
-                      } else if (material.unitOfMeasure === 'kg') {
-                          estimatedWeight = totalRequirement;
-                      } else if (material.conversionFactor && material.conversionFactor > 0) {
-                          estimatedWeight = totalRequirement * material.conversionFactor;
-                      }
+                  if (material) {
+                    if (displayUnit === 'mt' || (item.lunghezzaTaglioMm && item.lunghezzaTaglioMm > 0)) {
+                      estimatedWeight = totalRequirement * (material.rapportoKgMt || 0);
+                    } else if (material.unitOfMeasure === 'kg') {
+                      estimatedWeight = totalRequirement;
+                    } else if (material.conversionFactor && material.conversionFactor > 0) {
+                      estimatedWeight = totalRequirement * material.conversionFactor;
+                    }
                   }
 
                   const isFullyWithdrawn = totalRequirement > 0 && withdrawnQty >= totalRequirement - 0.001;
@@ -161,56 +161,56 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
 
                   return (
                     <TableRow key={index} className={withdrawData.hasActiveSession ? "bg-blue-500/5" : ""}>
-                        <TableCell className="font-medium">
-                            {item.component}
-                            {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Manuale</Badge>}
-                            {withdrawData.hasActiveSession && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700">In prelievo...</Badge>}
-                        </TableCell>
-                        {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
-                        <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
-                        <TableCell>{displayUnit}</TableCell>
-                        <TableCell className="font-bold text-primary">{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
-                        <TableCell className="text-center">
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger>
-                                        <div className="flex items-center justify-center">
-                                            {isFullyWithdrawn ? (
-                                                <Check className="h-5 w-5 text-muted-foreground opacity-50" />
-                                            ) : (
-                                                <Check className={cn("h-5 w-5", isAvailable ? "text-green-500" : "text-destructive")} />
-                                            )}
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        {isFullyWithdrawn ? "Materiale già prelevato." :
-                                        isAvailable ? `Disponibile a magazzino.` :
-                                        `Stock insufficiente! Disponibile: ${formatDisplayStock(stockAvailable, displayUnit as 'n'|'mt'|'kg')}, Richiesto: ${formatDisplayStock(remainingRequirement, displayUnit as 'n'|'mt'|'kg')}`
-                                        }
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        </TableCell>
-                        <TableCell className="text-center">
-                             <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger>
-                                        {withdrawData.hasActiveSession ? (
-                                            <Hourglass className="h-5 w-5 text-blue-500 animate-pulse mx-auto" />
-                                        ) : (
-                                            <Checkbox checked={isFullyWithdrawn || withdrawnQty > 0} disabled />
-                                        )}
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        {withdrawData.hasActiveSession ? "Sessione di prelievo attiva." :
-                                         isFullyWithdrawn ? `Prelevato: ${formatDisplayStock(withdrawnQty, displayUnit as 'n'|'mt'|'kg')}` :
-                                         withdrawnQty > 0 ? `Parzialmente prelevato (${formatDisplayStock(withdrawnQty, displayUnit as 'n'|'mt'|'kg')})` :
-                                         "Non ancora prelevato."
-                                        }
-                                    </TooltipContent>
-                                </Tooltip>
-                            </TooltipProvider>
-                        </TableCell>
+                      <TableCell className="font-medium">
+                        {item.component}
+                        {!item.isFromTemplate && <Badge variant="outline" className="ml-2">Manuale</Badge>}
+                        {withdrawData.hasActiveSession && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700">In prelievo...</Badge>}
+                      </TableCell>
+                      {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
+                      <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
+                      <TableCell>{displayUnit}</TableCell>
+                      <TableCell className="font-bold text-primary">{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
+                      <TableCell className="text-center">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <div className="flex items-center justify-center">
+                                {isFullyWithdrawn ? (
+                                  <Check className="h-5 w-5 text-muted-foreground opacity-50" />
+                                ) : (
+                                  <Check className={cn("h-5 w-5", isAvailable ? "text-green-500" : "text-destructive")} />
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {isFullyWithdrawn ? "Materiale già prelevato." :
+                                isAvailable ? `Disponibile a magazzino.` :
+                                  `Stock insufficiente! Disponibile: ${formatDisplayStock(stockAvailable, displayUnit as 'n' | 'mt' | 'kg')}, Richiesto: ${formatDisplayStock(remainingRequirement, displayUnit as 'n' | 'mt' | 'kg')}`
+                              }
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              {withdrawData.hasActiveSession ? (
+                                <Hourglass className="h-5 w-5 text-blue-500 animate-pulse mx-auto" />
+                              ) : (
+                                <Checkbox checked={isFullyWithdrawn || withdrawnQty > 0} disabled />
+                              )}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {withdrawData.hasActiveSession ? "Sessione di prelievo attiva." :
+                                isFullyWithdrawn ? `Prelevato: ${formatDisplayStock(withdrawnQty, displayUnit as 'n' | 'mt' | 'kg')}` :
+                                  withdrawnQty > 0 ? `Parzialmente prelevato (${formatDisplayStock(withdrawnQty, displayUnit as 'n' | 'mt' | 'kg')})` :
+                                    "Non ancora prelevato."
+                              }
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
                     </TableRow>
                   );
                 })

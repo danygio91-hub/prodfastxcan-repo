@@ -10,6 +10,13 @@ import { type Operator, type Department } from '@/lib/mock-data';
 const AUTH_EMAIL_DOMAIN = 'prodfastxcan.app';
 
 // --- Schemas ---
+
+const operatorSkillSchema = z.object({
+  phaseId: z.string().min(1, 'Selezionare una fase di lavorazione'),
+  isHardSkill: z.boolean(),
+  efficiencyPercent: z.coerce.number().min(1).max(100),
+});
+
 const operatorFormSchema = z.object({
   id: z.string().optional(),
   nome: z.string().min(1, 'Il nome è obbligatorio.'),
@@ -23,6 +30,7 @@ const operatorFormSchema = z.object({
   canAccessInventory: z.boolean().optional(),
   canAccessMaterialWithdrawal: z.boolean().optional(),
   isReal: z.boolean().optional(),
+  skills: z.array(operatorSkillSchema).optional(),
 }).refine(data => {
     // If the role is 'operator', 'reparto' must be an array with at least one item.
     if (data.role === 'operator') {
@@ -81,6 +89,7 @@ export async function saveOperator(rawData: z.infer<typeof operatorFormSchema>):
       canAccessInventory: validatedFields.data.canAccessInventory || false,
       canAccessMaterialWithdrawal: validatedFields.data.canAccessMaterialWithdrawal || false,
       isReal: validatedFields.data.isReal || false,
+      skills: validatedFields.data.skills || [],
   };
 
   if (id) {

@@ -292,7 +292,7 @@ export default function AdminAppSettingsPage() {
                     Gestione App
                 </h1>
                 <p className="text-muted-foreground">
-                    Personalizzazione dell'aspetto, del tema e dei dati iniziali dell'applicazione.
+                    {"Personalizzazione dell'aspetto, del tema e dei dati iniziali dell'applicazione."}
                 </p>
             </header>
             
@@ -304,14 +304,14 @@ export default function AdminAppSettingsPage() {
                           Personalizzazione Tema
                       </CardTitle>
                       <CardDescription>
-                          Scegli il tema dell'applicazione. Puoi cambiarlo in qualsiasi momento usando il pulsante in basso a destra.
+                          {"Scegli il tema dell'applicazione. Puoi cambiarlo in qualsiasi momento usando il pulsante in basso a destra."}
                       </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
                       <div>
                               <Label>Tema Attuale</Label>
                               <p className="text-sm text-muted-foreground">
-                              L'applicazione supporta un tema chiaro e uno scuro. Usa il selettore per cambiare l'aspetto.
+                              {"L'applicazione supporta un tema chiaro e uno scuro. Usa il selettore per cambiare l'aspetto."}
                               </p>
                               <div className="mt-4">
                               <ThemeToggler />
@@ -384,7 +384,7 @@ export default function AdminAppSettingsPage() {
 
                       <div className="space-y-2 p-4 rounded-lg border">
                           <h4 className="font-semibold flex items-center gap-2"><Download className="h-5 w-5"/> Backup Completo</h4>
-                          <p className="text-sm text-muted-foreground">Scarica un file JSON con tutti i dati principali dell'app.</p>
+                          <p className="text-sm text-muted-foreground">{"Scarica un file JSON con tutti i dati principali dell'app."}</p>
                           <Button onClick={handleBackup} disabled={isBackingUp} className="w-full">
                            {isBackingUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : null}
                             Esegui Backup
@@ -458,22 +458,22 @@ export default function AdminAppSettingsPage() {
                               <div className="flex justify-between items-center p-4 border rounded-md">
                                   <div>
                                       <h4 className="font-semibold">Reset Lavorazioni in Corso</h4>
-                                      <p className="text-sm text-muted-foreground">Riporta tutte le commesse in produzione allo stato di "pianificata".</p>
+                                      <p className="text-sm text-muted-foreground">{"Riporta tutte le commesse in produzione allo stato di \"pianificata\"."}</p>
                                   </div>
                                   <AlertDialog>
                                       <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingWork}>{isResettingWork ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Factory className="mr-2 h-4 w-4" />}Resetta Lavorazioni</Button></AlertDialogTrigger>
-                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>L'avanzamento delle commesse in produzione verrà azzerato.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetWork} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>{"L'avanzamento delle commesse in produzione verrà azzerato."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetWork} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               </div>
                               {/* Reset Firme Privacy */}
                               <div className="flex justify-between items-center p-4 border rounded-md">
                                   <div>
                                       <h4 className="font-semibold">Reset Firme Privacy</h4>
-                                      <p className="text-sm text-muted-foreground">Annulla l'accettazione della privacy per tutti gli operatori.</p>
+                                      <p className="text-sm text-muted-foreground">{"Annulla l'accettazione della privacy per tutti gli operatori."}</p>
                                   </div>
                                   <AlertDialog>
                                       <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingPrivacy}>{isResettingPrivacy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <ShieldOff className="mr-2 h-4 w-4" />}Resetta Firme</Button></AlertDialogTrigger>
-                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>Tutti gli operatori dovranno ri-accettare l'informativa al prossimo accesso.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetPrivacy} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                                      <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Sei sicuro?</AlertDialogTitle><AlertDialogDescription>{"Tutti gli operatori dovranno ri-accettare l'informativa al prossimo accesso."}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Annulla</AlertDialogCancel><AlertDialogAction onClick={handleResetPrivacy} className="bg-destructive hover:bg-destructive/90">Sì, resetta</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                                   </AlertDialog>
                               </div>
                           </TabsContent>
@@ -517,7 +517,7 @@ export default function AdminAppSettingsPage() {
                               <div className="flex justify-between items-center p-4 border rounded-md">
                                   <div>
                                       <h4 className="font-semibold">Reset Anagrafica Materie Prime</h4>
-                                      <p className="text-sm text-muted-foreground">Elimina TUTTA l'anagrafica delle materie prime, i lotti e i prelievi.</p>
+                                      <p className="text-sm text-muted-foreground">{"Elimina TUTTA l'anagrafica delle materie prime, i lotti e i prelievi."}</p>
                                   </div>
                                   <AlertDialog>
                                       <AlertDialogTrigger asChild><Button variant="destructive" disabled={isResettingMaterials}>{isResettingMaterials ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Trash2 className="mr-2 h-4 w-4" />}Resetta Anagrafica</Button></AlertDialogTrigger>

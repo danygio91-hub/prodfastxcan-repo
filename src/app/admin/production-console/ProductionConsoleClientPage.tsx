@@ -45,6 +45,7 @@ import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHours
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
+import GanttBoard from '@/components/production-console/GanttBoard';
 import { useToast } from '@/hooks/use-toast';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -111,6 +112,7 @@ interface WeeklyGroup {
 }
 
 export default function ProductionConsoleClientPage() {
+  const [viewMode, setViewMode] = useState<'list'|'gantt'>('list');
   const [jobOrders, setJobOrders] = useState<JobOrder[]>([]);
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
@@ -460,11 +462,31 @@ export default function ProductionConsoleClientPage() {
     <>
       <div className="space-y-6">
         <header className="flex flex-col sm:flex-row justify-between items-start gap-4">
-            <div><h1 className="text-3xl font-bold font-headline flex items-center gap-3"><Briefcase className="h-8 w-8 text-primary" /> Console Controllo Produzione</h1></div>
-            <div className="relative w-full sm:max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+            <div>
+              <h1 className="text-3xl font-bold font-headline flex items-center gap-3">
+                <Briefcase className="h-8 w-8 text-primary" /> Console Controllo Produzione
+              </h1>
+            </div>
+            <div className="flex bg-muted p-1 rounded-lg items-center">
+              <button onClick={() => setViewMode('list')} className={`px-4 py-1.5 flex items-center text-sm font-medium rounded-md transition-all ${viewMode === 'list' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                <ListOrdered className="w-4 h-4 mr-2" />
+                Elenco
+              </button>
+              <button onClick={() => setViewMode('gantt')} className={`px-4 py-1.5 flex items-center text-sm font-medium rounded-md transition-all ${viewMode === 'gantt' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                <CalendarDays className="w-4 h-4 mr-2" />
+                Gantt
+              </button>
+            </div>
+            {viewMode === 'list' && (
+              <div className="relative w-full sm:max-w-xs"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+            )}
         </header>
-        
-        <Card className="p-2 space-y-2">
+
+        {viewMode === 'gantt' ? (
+          <GanttBoard jobOrders={filteredItems as JobOrder[]} operators={allOperators} />
+        ) : (
+          <>
+            <Card className="p-2 space-y-2">
           <div className="flex flex-wrap items-center justify-center gap-1">
               {[
                 { label: 'Tutte', value: 'all', icon: Briefcase },
@@ -557,6 +579,8 @@ export default function ProductionConsoleClientPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed rounded-lg mt-8"><Package2 className="h-16 w-16 text-muted-foreground mb-4" /><h2 className="text-xl font-semibold text-muted-foreground">Nessuna Commessa Trovata</h2></div>
         )}
+        </>
+      )}
       </div>
       
       <Dialog open={!!phaseManagedItem} onOpenChange={o => !o && setPhaseManagedItem(null)}>

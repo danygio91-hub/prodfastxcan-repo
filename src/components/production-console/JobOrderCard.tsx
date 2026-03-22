@@ -632,14 +632,28 @@ export default function JobOrderCard({
                                      <Label className="text-xs text-muted-foreground">Tempo eff.</Label>
                                      <PhaseLiveTimer phase={phase} />
                                  </div>
-                                 <div className="p-1 rounded-md bg-muted/50">
+                                 <div className="p-1 rounded-md bg-muted/50 flex flex-col justify-center items-center relative">
                                      <Label className="text-xs text-muted-foreground">Tempo Stimato</Label>
-                                     <p className="font-mono text-lg">
-                                         {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
-                                             ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
-                                             : 'N/D'
-                                         }
-                                     </p>
+                                     <div className="flex items-center gap-2">
+                                         <p className="font-mono text-lg">
+                                             {(analysisData?.phases[phase.name] && analysisData?.phases[phase.name].averageMinutesPerPiece > 0)
+                                                 ? formatTime(analysisData.phases[phase.name].averageMinutesPerPiece * jobOrder.qta * 60)
+                                                 : 'N/D'
+                                             }
+                                         </p>
+                                         {analysisData?.phases[phase.name]?.confidenceWarning && (
+                                             <TooltipProvider>
+                                                 <Tooltip>
+                                                     <TooltipTrigger asChild>
+                                                         <ShieldAlert className="h-4 w-4 text-amber-500 animate-pulse" />
+                                                     </TooltipTrigger>
+                                                     <TooltipContent>
+                                                         <p>{analysisData.phases[phase.name].confidenceWarning}</p>
+                                                     </TooltipContent>
+                                                 </Tooltip>
+                                             </TooltipProvider>
+                                         )}
+                                     </div>
                                  </div>
                             </div>
                         </div>

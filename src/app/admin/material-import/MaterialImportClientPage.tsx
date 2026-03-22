@@ -33,7 +33,7 @@ type Operation = 'carico' | 'scarico';
 interface ParsedRow {
   [key: string]: string | number | undefined;
   __originalIndex?: number;
-  'Unita'?: 'n' | 'mt' | 'kg';
+  'Unita'?: 'n' | 'mt' | 'kg' | '??';
   reason?: string;
 }
 
@@ -117,11 +117,12 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
         
         const validData = json
             .map((row, index) => {
-              const materialCode = row['Codice Materiale']?.toString().trim().toLowerCase();
-              const material = materialCode ? materialsMap.get(materialCode) : undefined;
-
-              if (operation === 'carico' && material) {
-                row['Unita'] = material.unitOfMeasure;
+              // Client-side non passiamo rawMaterials se non per l'interfaccia, 
+              // la validazione reale inclusa 'Unita' avverrà nel server
+              if (operation === 'carico') {
+                 // Per permettere l'anteprima forziamo temporaneamente l'unita a vuoto se non indicata,
+                 // il server action imposterà quella corretta.
+                 if (!row['Unita']) row['Unita'] = '??';
               }
 
               return { ...row, __originalIndex: index };
@@ -196,7 +197,7 @@ export default function MaterialImportClientPage({ packagingItems, rawMaterials 
                             <TableCell>{row["Codice Materiale"]}</TableCell><TableCell>{row["Lotto"]}</TableCell>
                             <TableCell>{row["DDT"]}</TableCell><TableCell>{row["Quantita Netta"]}</TableCell>
                              <TableCell>
-                                <Badge variant={row['Unita'] ? 'secondary' : 'destructive'}>
+                                <Badge variant={row['Unita'] && row['Unita'] !== '??' ? 'secondary' : 'outline'}>
                                   {String(row['Unita'] || '???').toUpperCase()}
                                 </Badge>
                              </TableCell>

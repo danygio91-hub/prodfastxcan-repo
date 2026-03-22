@@ -11,7 +11,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function ArticleManagementPage() {
   const initialArticles = await getArticles();
-  const rawMaterials = await getRawMaterials();
 
   return (
     <AdminAuthGuard>
@@ -22,7 +21,7 @@ export default async function ArticleManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento articoli...</p>
           </div>
         }>
-          <ArticleManagementClientPage initialArticles={initialArticles} rawMaterials={rawMaterials} />
+          <ArticleManagementClientPage initialArticles={initialArticles} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

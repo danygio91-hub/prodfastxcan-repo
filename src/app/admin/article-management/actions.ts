@@ -2,7 +2,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, getDoc, query, where, limit, orderBy, startAfter } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Article, ArticlePhaseTime, WorkCycle } from '@/lib/mock-data';
 import * as z from 'zod';
@@ -25,11 +25,23 @@ const articleSchema = z.object({
     expectedMinutesSecondary: z.coerce.number().optional(),
 });
 
-export async function getArticles(): Promise<Article[]> {
-    const articlesCol = collection(db, 'articles');
-    const articlesSnapshot = await getDocs(articlesCol);
+export async function getArticles(searchTerm?: string, lastCode?: string, limitCount: number = 50): Promise<Article[]> {
+    let q;
+    const searchPart = (searchTerm || '').toUpperCase().trim();
+    if (searchPart.length >= 2) {
+        q = query(collection(db, 'articles'), where('code', '>=', searchPart), where('code', '<=', searchPart + '\uf8ff'), limit(100));
+    } else if (searchTerm !== undefined && searchTerm.trim() !== '') {
+        return [];
+    } else {
+        const queryConstraints: any[] = [orderBy("code"), limit(limitCount)];
+        if (lastCode) {
+            queryConstraints.push(startAfter(lastCode.toUpperCase().trim()));
+        }
+        q = query(collection(db, 'articles'), ...queryConstraints);
+    }
+    const articlesSnapshot = await getDocs(q);
     const articles = articlesSnapshot.docs.map(d => ({ ...d.data(), id: d.id } as Article));
-    return articles.sort((a, b) => a.code.localeCompare(b.code));
+    return articles;
 }
 
 export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<{ success: boolean; message: string; }> {
@@ -38,8 +50,14 @@ export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<
 
     const { code, billOfMaterials, workCycleId, secondaryWorkCycleId, expectedMinutesDefault, expectedMinutesSecondary } = validatedFields.data;
 
-    const materialsSnap = await getDocs(collection(db, "rawMaterials"));
-    const materialCodes = new Set(materialsSnap.docs.map(doc => doc.data().code.toUpperCase()));
+    const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
+    const materialCodes = new Set<string>();
+    
+    for (let i = 0; i < uniqueCodes.length; i += 30) {
+        const chunk = uniqueCodes.slice(i, i + 30);
+        const snap = await getDocs(query(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        snap.forEach(d => materialCodes.add(d.data().code.toUpperCase()));
+    }
 
     const invalid = billOfMaterials.filter(item => item.component && !materialCodes.has(item.component.toUpperCase()));
     if (invalid.length > 0) {
@@ -74,8 +92,16 @@ export async function deleteArticle(id: string): Promise<{ success: boolean; mes
 }
 
 export async function validateArticlesImport(articles: Omit<Article, 'id'>[]) {
-    const materialsSnap = await getDocs(collection(db, "rawMaterials"));
-    const validCodes = new Set(materialsSnap.docs.map(doc => doc.data().code.toUpperCase()));
+    const allImportedComponents = new Set<string>();
+    articles.forEach(art => art.billOfMaterials?.forEach(item => { if (item.component) allImportedComponents.add(item.component.toUpperCase()) }));
+    const uniqueComponents = [...allImportedComponents];
+    
+    const validCodes = new Set<string>();
+    for (let i = 0; i < uniqueComponents.length; i += 30) {
+        const chunk = uniqueComponents.slice(i, i + 30);
+        const snap = await getDocs(query(collection(db, "rawMaterials"), where("code", "in", chunk)));
+        snap.forEach(d => validCodes.add(d.data().code.toUpperCase()));
+    }
 
     const existingArticlesSnap = await getDocs(collection(db, "articles"));
     const existingCodes = new Set(existingArticlesSnap.docs.map(doc => doc.data().code.toUpperCase()));
@@ -119,13 +145,15 @@ export async function bulkSaveArticles(articles: Omit<Article, 'id'>[]) {
 }
 
 export async function validateArticleSettingsImport(rows: any[]) {
-    const [articlesSnap, cyclesSnap] = await Promise.all([
+    const [articlesSnap, cyclesSnap, phasesSnap] = await Promise.all([
         getDocs(collection(db, "articles")),
-        getDocs(collection(db, "workCycles"))
+        getDocs(collection(db, "workCycles")),
+        getDocs(collection(db, "workPhaseTemplates"))
     ]);
 
-    const articlesMap = new Map(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
-    const cyclesMap = new Map(cyclesSnap.docs.map(d => [d.data().name.toUpperCase(), d.id]));
+    const articlesMap = new Map<string, Article>(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
+    const cyclesMap = new Map<string, string>(cyclesSnap.docs.map(d => [String(d.data().name).toUpperCase(), d.id]));
+    const phasesMap = new Map<string, string>(phasesSnap.docs.map(d => [String(d.data().name).toUpperCase(), d.id]));
 
     const validUpdates: Partial<Article>[] = [];
     const invalidRows: { code: string; reason: string }[] = [];
@@ -151,14 +179,51 @@ export async function validateArticleSettingsImport(rows: any[]) {
             continue;
         }
 
-        validUpdates.push({
+        const phaseTimes: Record<string, ArticlePhaseTime> = { ...(article.phaseTimes || {}) };
+        let hasPhaseUpdates = false;
+
+        // Cerca colonne dinamiche "TEMPO FASE: NOME_FASE"
+        const rowKeys = Object.keys(row);
+        for (const key of rowKeys) {
+            const upKey = key.toUpperCase().trim();
+            if (upKey.startsWith('TEMPO FASE:')) {
+                const phaseName = upKey.replace('TEMPO FASE:', '').trim();
+                const mappedPhaseId = phasesMap.get(phaseName);
+                if (mappedPhaseId) {
+                    const minutesStr = row[key];
+                    if (minutesStr !== undefined && minutesStr !== null && minutesStr !== '') {
+                        const mins = Number(minutesStr);
+                        if (!isNaN(mins)) {
+                            phaseTimes[mappedPhaseId] = {
+                                expectedMinutesPerPiece: mins,
+                                detectedMinutesPerPiece: phaseTimes[mappedPhaseId]?.detectedMinutesPerPiece || 0,
+                                enabled: true
+                            };
+                            hasPhaseUpdates = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        const updateObj: Partial<Article> = {
             id: code,
             code: code,
-            workCycleId: cycleDefId,
-            secondaryWorkCycleId: cycleSecId,
-            expectedMinutesDefault: Number(row['TEMPO PREVISTO CICLO PREDEFINITO'] || row['tempo previsto ciclo predefinito'] || 0),
-            expectedMinutesSecondary: Number(row['TEMPO PREVISTO CICLO SECONDARIO'] || row['tempo previsto ciclo secondario'] || 0)
-        });
+            workCycleId: cycleDefId || article.workCycleId,
+            secondaryWorkCycleId: cycleSecId || article.secondaryWorkCycleId,
+        };
+
+        const expectedDef = Number(row['TEMPO PREVISTO CICLO PREDEFINITO'] || row['tempo previsto ciclo predefinito']);
+        if (!isNaN(expectedDef) && expectedDef > 0) updateObj.expectedMinutesDefault = expectedDef;
+        
+        const expectedSec = Number(row['TEMPO PREVISTO CICLO SECONDARIO'] || row['tempo previsto ciclo secondario']);
+        if (!isNaN(expectedSec) && expectedSec > 0) updateObj.expectedMinutesSecondary = expectedSec;
+
+        if (hasPhaseUpdates) {
+            updateObj.phaseTimes = phaseTimes;
+        }
+
+        validUpdates.push(updateObj);
     }
 
     return { validUpdates, invalidRows };

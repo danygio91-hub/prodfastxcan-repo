@@ -2,8 +2,8 @@
 import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getArticles, getDepartments } from './actions';
-import { getRawMaterials, getManualCommitments } from '../raw-material-management/actions';
+import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
+import { getManualCommitments } from '../raw-material-management/actions';
 import { getPurchaseOrders } from '../purchase-orders/actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -11,16 +11,19 @@ import { Loader2 } from 'lucide-react';
 export const dynamic = 'force-dynamic';
 
 export default async function AdminDataManagementCommessePage() {
-  const [planned, production, cycles, articles, departments, rawMaterials, purchaseOrders, manualCommitments] = await Promise.all([
-    getPlannedJobOrders(),
-    getProductionJobOrders(),
+  const planned = await getPlannedJobOrders();
+  const production = await getProductionJobOrders();
+  const manualCommitments = await getManualCommitments();
+  const purchaseOrders = await getPurchaseOrders();
+
+  const [cycles, departments, requiredData] = await Promise.all([
     getWorkCycles(),
-    getArticles(),
     getDepartments(),
-    getRawMaterials(),
-    getPurchaseOrders(),
-    getManualCommitments(),
+    getRequiredDataForJobs([...planned, ...production], manualCommitments)
   ]);
+  
+  const articles = requiredData.articles;
+  const rawMaterials = requiredData.materials;
 
   return (
     <AdminAuthGuard>

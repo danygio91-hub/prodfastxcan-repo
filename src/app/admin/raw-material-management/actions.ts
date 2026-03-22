@@ -14,6 +14,7 @@ import {
     runTransaction,
     limit,
     orderBy,
+    startAfter,
     Timestamp,
     deleteField
 } from 'firebase/firestore';
@@ -80,11 +81,15 @@ export async function getManualCommitments(): Promise<ManualCommitment[]> {
     return snapshot.docs.map(d => convertTimestampsToDates({ id: d.id, ...d.data() }) as ManualCommitment);
 }
 
-export async function getRawMaterials(searchTerm?: string): Promise<RawMaterial[]> {
+export async function getRawMaterials(searchTerm?: string, lastCode?: string): Promise<RawMaterial[]> {
     const materialsCol = collection(db, 'rawMaterials');
     let snapshot;
-    if (searchTerm === undefined) {
-        snapshot = await getDocs(firestoreQuery(materialsCol, orderBy("code_normalized")));
+    if (searchTerm === undefined || searchTerm.trim() === '') {
+        const queryConstraints: any[] = [orderBy("code_normalized"), limit(50)];
+        if (lastCode) {
+            queryConstraints.push(startAfter(lastCode.toLowerCase().trim()));
+        }
+        snapshot = await getDocs(firestoreQuery(materialsCol, ...queryConstraints));
     } else if (searchTerm && searchTerm.length >= 2) {
         const lower = searchTerm.toLowerCase().trim();
         snapshot = await getDocs(firestoreQuery(materialsCol, where('code_normalized', '>=', lower), where('code_normalized', '<=', lower + '\uf8ff'), limit(100)));
@@ -115,6 +120,8 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
         unitOfMeasure: rawData.unitOfMeasure as any,
         conversionFactor: rawData.conversionFactor ? Number(rawData.conversionFactor) : null,
         rapportoKgMt: rawData.rapportoKgMt ? Number(rawData.rapportoKgMt) : null,
+        minStockLevel: rawData.minStockLevel ? Number(rawData.minStockLevel) : null,
+        reorderLot: rawData.reorderLot ? Number(rawData.reorderLot) : null,
     };
 
     if (id) {
@@ -202,14 +209,20 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
 
 export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
 
-export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialStatus[]> {
+export async function getMaterialsStatus(searchTerm?: string, lastCode?: string): Promise<MaterialStatus[]> {
     const materialsCol = collection(db, "rawMaterials");
     let mq;
     const lowerSearch = (searchTerm || '').toLowerCase().trim();
     if (lowerSearch.length >= 2) {
         mq = firestoreQuery(materialsCol, where("code_normalized", ">=", lowerSearch), where("code_normalized", "<=", lowerSearch + '\uf8ff'), limit(100));
-    } else if (searchTerm !== undefined) { return []; }
-    else { mq = firestoreQuery(materialsCol, orderBy("code_normalized"), limit(50)); }
+    } else if (searchTerm !== undefined && searchTerm !== '') { return []; }
+    else { 
+        const queryConstraints: any[] = [orderBy("code_normalized"), limit(50)];
+        if (lastCode) {
+            queryConstraints.push(startAfter(lastCode.toLowerCase().trim()));
+        }
+        mq = firestoreQuery(materialsCol, ...queryConstraints); 
+    }
     const [jobsSnap, materialsSnap, commitmentsSnap, articlesSnap, posSnap] = await Promise.all([
         getDocs(firestoreQuery(collection(db, "jobOrders"), where("status", "in", ["planned", "production", "suspended", "paused"]))),
         getDocs(mq),
@@ -217,9 +230,8 @@ export async function getMaterialsStatus(searchTerm?: string): Promise<MaterialS
         getDocs(collection(db, 'articles')),
         getDocs(firestoreQuery(collection(db, 'purchaseOrders'), where('status', 'in', ['pending', 'partially_received'])))
     ]);
-    const allMaterialsSnap = await getDocs(collection(db, "rawMaterials"));
     const codeToMat = new Map<string, RawMaterial>();
-    allMaterialsSnap.forEach(docSnap => {
+    materialsSnap.forEach(docSnap => {
         const data = docSnap.data() as RawMaterial;
         codeToMat.set(data.code.toLowerCase().trim(), { ...data, id: docSnap.id });
     });
@@ -324,9 +336,9 @@ export async function getMaterialOrderedDetails(materialCode: string): Promise<O
     }).sort((a, b) => a.expectedDeliveryDate.localeCompare(b.expectedDeliveryDate));
 }
 
-export async function searchMaterialsAndGetStatus(searchTerm: string) {
-    const s = await getMaterialsStatus(searchTerm);
-    const m = await getRawMaterials(searchTerm);
+export async function searchMaterialsAndGetStatus(searchTerm?: string, lastCode?: string) {
+    const s = await getMaterialsStatus(searchTerm, lastCode);
+    const m = await getRawMaterials(searchTerm, lastCode);
     const ids = new Set(s.map(item => item.id));
     return { materials: m.filter(item => ids.has(item.id)), status: s };
 }

@@ -4,7 +4,7 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -50,10 +50,12 @@ export default function Header() {
   const { operator, logout } = useAuth();
   const { activeJob } = useActiveJob();
   const pathname = usePathname();
+  const router = useRouter();
   const { toast } = useToast();
   
   const handleRefresh = () => {
-    window.location.reload();
+    router.refresh();
+    toast({ title: "Aggiornamento in corso...", description: "Sto sincronizzando i dati in tempo reale." });
   };
 
   const handleExitJobScreen = () => {

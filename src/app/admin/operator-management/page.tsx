@@ -3,15 +3,17 @@ import OperatorManagementClientPage from './OperatorManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 import { getOperators, getDepartments } from './actions';
+import { getWorkPhaseTemplates } from '../work-phase-management/actions';
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminOperatorManagementPage() {
-  const [operators, departments] = await Promise.all([
+  const [operators, departments, phases] = await Promise.all([
     getOperators(),
     getDepartments(),
+    getWorkPhaseTemplates(),
   ]);
 
   return (
@@ -23,7 +25,7 @@ export default async function AdminOperatorManagementPage() {
             <p className="ml-4 text-muted-foreground">Caricamento operatori...</p>
           </div>
         }>
-          <OperatorManagementClientPage initialOperators={operators} initialDepartments={departments} />
+          <OperatorManagementClientPage initialOperators={operators} initialDepartments={departments} initialPhases={phases} />
         </Suspense>
       </AppShell>
     </AdminAuthGuard>

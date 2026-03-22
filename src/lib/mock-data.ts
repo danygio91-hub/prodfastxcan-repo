@@ -97,6 +97,12 @@ export type OperatorRole = 'admin' | 'supervisor' | 'operator';
 
 export const roles: OperatorRole[] = ['admin', 'supervisor', 'operator'];
 
+export interface OperatorSkill {
+  phaseId: string;
+  isHardSkill: boolean; // True se è la sua mansione naturale (100% eff), False se è un "tappabuchi" Soft
+  efficiencyPercent: number; // % di rendimento (es. 100, 80, 50) utilizzata dal Gantt
+}
+
 export interface Operator {
   id: string;
   uid?: string;
@@ -116,6 +122,7 @@ export interface Operator {
   activeJobId?: string | null;
   activePhaseName?: string | null;
   activeMaterialSessions?: ActiveMaterialSessionData[];
+  skills?: OperatorSkill[]; // Matrice Competenze associata
 }
 
 export interface WorkPhaseTemplate {
@@ -185,6 +192,8 @@ export interface RawMaterial {
   currentWeightKg: number; // Stock always in KG, calculated or direct
   batches: RawMaterialBatch[]; // Array of received batches
   stock?: number; // Derived field for display, calculated from batches
+  minStockLevel?: number; // Sottoscorta
+  reorderLot?: number; // Quantità fissa / Lotto economico di riordino
 }
 
 export interface BillOfMaterialsItem {
