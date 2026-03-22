@@ -3,8 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+
 import type { JobOrder, JobPhase, RawMaterial, MaterialConsumption, WorkGroup, Operator, MaterialWithdrawal, ActiveMaterialSessionData, InventoryRecord } from '@/lib/mock-data';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { ensureAdmin } from '@/lib/server-auth';
@@ -272,7 +271,7 @@ export async function findLastWeightForLotto(materialId: string | undefined, lot
         }
     }
 
-    const materialsSnap = await getDocs(collection(db, "rawMaterials"));
+    const materialsSnap = await adminDb.collection("rawMaterials").get();
     for (const mDoc of materialsSnap.docs) {
         const mData = mDoc.data() as RawMaterial;
         const matchingBatch = (mData.batches || []).find(b => b.lotto === lotto);

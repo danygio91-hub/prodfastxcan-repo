@@ -40,7 +40,7 @@ export async function forceFinishProduction(jobId: string, uid: string | undefin
     await ensureAdmin(uid);
     const jobRef = adminDb.collection('jobOrders').doc(jobId);
     
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
         const jobSnap = await transaction.get(jobRef);
         if (!jobSnap.exists) throw new Error('Commessa non trovata.');
         const job = jobSnap.data() as JobOrder;
@@ -68,7 +68,7 @@ export async function revertForceFinish(jobId: string, uid: string | undefined |
     await ensureAdmin(uid);
     const jobRef = adminDb.collection('jobOrders').doc(jobId);
     
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       const job = jobSnap.data() as JobOrder;
@@ -98,7 +98,7 @@ export async function toggleGuainaPhasePosition(itemId: string, phaseId: string,
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
     const templateRef = adminDb.collection('workPhaseTemplates').doc(phaseId);
     
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
         const [itemSnap, tSnap] = await Promise.all([transaction.get(itemRef), transaction.get(templateRef)]);
         if (!itemSnap.exists) throw new Error('Non trovato.');
 
@@ -137,7 +137,7 @@ export async function revertPhaseCompletion(jobId: string, phaseId: string, uid:
     await ensureAdmin(uid);
     const jobRef = adminDb.collection('jobOrders').doc(jobId);
     
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
       const jobSnap = await transaction.get(jobRef);
       if (!jobSnap.exists) throw new Error('Commessa non trovata.');
       
@@ -166,7 +166,7 @@ export async function forcePauseOperators(jobId: string, operatorIdsToPause: str
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
 
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists) throw new Error('Non trovato.');
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
@@ -220,7 +220,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
     const isGroup = jobId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(jobId);
     
-    await adminDb.runTransaction(async (transaction) => {
+    await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
       const itemSnap = await transaction.get(itemRef);
       if (!itemSnap.exists) throw new Error("Non trovata.");
       const itemData = itemSnap.data() as JobOrder | WorkGroup;
@@ -228,7 +228,7 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 
       const wSnap = await adminDb.collection("materialWithdrawals").where("jobIds", "array-contains-any", jobIds).get();
       
-      const matIds = [...new Set(wSnap.docs.map(d => d.data().materialId))].filter(Boolean) as string[];
+      const matIds = [...new Set(wSnap.docs.map(d => (d.data() as MaterialWithdrawal).materialId))].filter(Boolean) as string[];
       const matSnaps = await Promise.all(matIds.map(id => transaction.get(adminDb.collection('rawMaterials').doc(id))));
       const matMap = new Map(matSnaps.map(s => [s.id, s.data() as RawMaterial]));
 
@@ -274,7 +274,7 @@ export async function revertCompletion(itemId: string, uid: string): Promise<{ s
   const isGroup = itemId.startsWith('group-');
   const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-      await adminDb.runTransaction(async (transaction) => {
+      await adminDb.runTransaction(async (transaction: admin.firestore.Transaction) => {
           const itemSnap = await transaction.get(itemRef);
           if (!itemSnap.exists) throw new Error("Non trovato.");
           const itemData = itemSnap.data() as JobOrder | WorkGroup;
@@ -351,7 +351,7 @@ export async function reportMaterialMissing(itemId: string, phaseId: string, uid
   const isGroup = itemId.startsWith('group-');
   const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-    await adminDb.runTransaction(async (t) => {
+    await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
       const [snap, opSnap] = await Promise.all([t.get(itemRef), t.get(adminDb.collection('operators').doc(uid))]);
       if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
@@ -374,7 +374,7 @@ export async function resolveMaterialMissing(itemId: string, phaseId: string, ui
   const isGroup = itemId.startsWith('group-');
   const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
   try {
-    await adminDb.runTransaction(async (t) => {
+    await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
       const snap = await t.get(itemRef);
       if (!snap.exists) throw new Error("Non trovato.");
       const itemData = snap.data() as JobOrder;
@@ -401,7 +401,7 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
     const isGroup = itemId.startsWith('group-');
     const itemRef = adminDb.collection(isGroup ? 'workGroups' : 'jobOrders').doc(itemId);
 
-    await adminDb.runTransaction(async (t) => {
+    await adminDb.runTransaction(async (t: admin.firestore.Transaction) => {
         const snap = await t.get(itemRef);
         if (!snap.exists) throw new Error("Non trovato.");
         
