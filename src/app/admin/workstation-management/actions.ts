@@ -5,7 +5,7 @@
 import { revalidatePath } from 'next/cache';
 import * as z from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import {
   type Workstation,
   type Department,
@@ -22,7 +22,7 @@ const workstationSchema = z.object({
 
 export async function getWorkstations(): Promise<Workstation[]> {
   const snapshot = await adminDb.collection('workstations').get();
-  const list = snapshot.docs.map(doc => doc.data() as Workstation);
+  const list = snapshot.docs.map((doc: any) => doc.data() as Workstation);
   return list;
 }
 
@@ -31,7 +31,7 @@ export async function getDepartments(): Promise<Department[]> {
   if (snapshot.empty) {
     return [];
   }
-  return snapshot.docs.map(d => d.data() as Department);
+  return snapshot.docs.map((d: any) => d.data() as Department);
 }
 
 export async function saveWorkstation(formData: FormData) {

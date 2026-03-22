@@ -3,7 +3,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
-import * as admin from 'firebase-admin';
+import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial } from '@/lib/mock-data';
 import { getProductionTimeAnalysisReport as fetchProductionTimeAnalysisReport } from '@/app/admin/reports/actions';
@@ -228,17 +228,17 @@ export async function resetSingleCompletedJobOrder(jobId: string, uid: string): 
 
       const wSnap = await adminDb.collection("materialWithdrawals").where("jobIds", "array-contains-any", jobIds).get();
       
-      const matIds = [...new Set(wSnap.docs.map(d => (d.data() as MaterialWithdrawal).materialId))].filter(Boolean) as string[];
+      const matIds = [...new Set(wSnap.docs.map((d: any) => (d.data() as MaterialWithdrawal).materialId))].filter(Boolean) as string[];
       const matSnaps = await Promise.all(matIds.map(id => transaction.get(adminDb.collection('rawMaterials').doc(id))));
-      const matMap = new Map(matSnaps.map(s => [s.id, s.data() as RawMaterial]));
+      const matMap = new Map<string, RawMaterial>(matSnaps.map((s: any) => [s.id, s.data() as RawMaterial]));
 
       for (const wd of wSnap.docs) {
         const w = wd.data() as MaterialWithdrawal;
         const m = matMap.get(w.materialId);
         if (m) {
             transaction.update(adminDb.collection('rawMaterials').doc(w.materialId), { 
-                currentWeightKg: (m.currentWeightKg || 0) + w.consumedWeight, 
-                currentStockUnits: (m.currentStockUnits || 0) + (w.consumedUnits || 0) 
+                currentWeightKg: ((m as RawMaterial).currentWeightKg || 0) + w.consumedWeight, 
+                currentStockUnits: ((m as RawMaterial).currentStockUnits || 0) + (w.consumedUnits || 0) 
             });
         }
         transaction.delete(wd.ref);

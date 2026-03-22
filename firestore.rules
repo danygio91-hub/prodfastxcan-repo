@@ -1,154 +1,20 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // --- Helper Functions ---
-    function isAuthenticated() {
-      return request.auth != null;
+    match /articles/{document} {
+      allow create: if true;
+      allow read: if true;
+      allow write: if false;
+      allow delete: if false;
     }
 
-    function getUserData(userId) {
-      return get(/databases/$(database)/documents/operators/$(userId)).data;
-    }
-    
-    function isOperator(userId) {
-        // Ritorna true se il ruolo è operator. Se il documento non esiste la regola fallisce correttamente.
-        return getUserData(userId).role == 'operator';
-    }
-
-    function isSupervisor(userId) {
-        // Check per email Daniel o admin del dominio
-        let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
-                         request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$') ||
-                         request.auth.token.email.lower().matches('.*supervisor@prodfastxcan\\.app$');
-        return emailMatch || getUserData(userId).role == 'supervisor' || getUserData(userId).role == 'admin';
-    }
-
-    function isAdmin(userId) {
-        // Fallback totale per sbloccare Daniel lunedì: se l'email contiene daniel o admin, ha i permessi.
-        let emailMatch = request.auth.token.email.lower().matches('.*daniel.*') || 
-                         request.auth.token.email.lower().matches('.*admin@prodfastxcan\\.app$');
-        return emailMatch || getUserData(userId).role == 'admin';
-    }
-
-    function isAdminOrSupervisor(userId) {
-        return isAdmin(userId) || isSupervisor(userId);
-    }
-    
-    // --- Default Deny Rule ---
     match /{document=**} {
-      allow read, write: if false;
-    }
-    
-    // --- Collections Rules ---
-
-    match /operators/{userId} {
-      allow read, list: if true;
-      allow create, update, delete: if isAuthenticated() && isAdmin(request.auth.uid);
-      
-      allow update: if isAuthenticated() && request.auth.uid == userId 
-                    && request.resource.data.diff(resource.data).affectedKeys()
-                       .hasOnly(['stato', 'privacySigned', 'activeJobId', 'activePhaseName', 'activeMaterialSessions']);
-    }
-    
-    match /jobOrders/{jobId} {
-      allow read, list: if true;
-      allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-      allow update: if isAuthenticated();
+      allow read, write: if request.auth.token.email.matches("firebase@flutterflow.io");
     }
 
-    match /workGroups/{groupId} {
-      allow read, list: if true;
-      allow create, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-      allow update: if isAuthenticated();
-    }
-    
-    match /articles/{articleId} {
-      allow read, list: if true;
-      allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-    
-    match /manualCommitments/{commitmentId} {
-       allow read, list: if true;
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /scrapRecords/{scrapId} {
-       allow read, list: if true;
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /rawMaterials/{materialId} {
-      allow read, list: if true;
-      allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-    
-    match /packaging/{packageId} {
-       allow read, list: if isAuthenticated();
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /workstations/{workstationId} {
-       allow read, list: if isAuthenticated();
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-    
-    match /workCycles/{cycleId} {
-      allow read, list: if isAuthenticated();
-      allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-    
-    match /workPhaseTemplates/{templateId} {
-       allow read, list: if isAuthenticated();
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /departments/{departmentId} {
-       allow read, list: if isAuthenticated();
-       allow create, update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /materialWithdrawals/{withdrawalId} {
-        allow create: if isAuthenticated();
-        allow read, list: if true;
-        allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-    
-    match /inventoryRecords/{recordId} {
-        allow create: if isAuthenticated();
-        allow read, list: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-        allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /nonConformityReports/{reportId} {
-        allow create, read, list: if isAuthenticated();
-        allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-     match /productionProblemReports/{reportId} {
-        allow create, read, list: if isAuthenticated();
-        allow update, delete: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /purchaseOrders/{orderId} {
-        allow read, list: if isAuthenticated();
-        allow write: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /system/{docId} {
-        allow read: if isAuthenticated();
-        allow write: if isAuthenticated() && isAdmin(request.auth.uid);
-    }
-    
-    match /counters/{counterId} {
-        allow read, write: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
-    }
-
-    match /configuration/{configId} {
-        allow read: if isAuthenticated();
-        allow write: if isAuthenticated() && isAdminOrSupervisor(request.auth.uid);
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }
