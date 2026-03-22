@@ -1,8 +1,10 @@
 
 'use server';
 
+// @ts-ignore
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
+// @ts-ignore
 import admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
 import type { JobOrder, JobPhase, Operator, WorkGroup, MaterialWithdrawal, RawMaterial, WorkPhaseTemplate } from '@/lib/mock-data';

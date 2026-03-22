@@ -2,9 +2,12 @@
 
 'use server';
 
+// @ts-ignore
 import { revalidatePath } from 'next/cache';
+// @ts-ignore
 import * as z from 'zod';
 import { adminDb } from '@/lib/firebase-admin';
+// @ts-ignore
 import admin from 'firebase-admin';
 import {
   type Workstation,
