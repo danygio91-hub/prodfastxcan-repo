@@ -27,7 +27,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { getCalendarExceptions, saveCalendarException, deleteCalendarException, getWeeklyCapacityReport, type OperatorCapacity } from './actions';
 import { getOperators } from '../operator-management/actions';
 import { getWorkstations } from '../workstation-management/actions';
-import { format, parseISO, addWeeks, subWeeks, startOfWeek } from 'date-fns';
+import { format, parseISO, addWeeks, subWeeks, startOfWeek, endOfWeek } from 'date-fns';
 import { it } from 'date-fns/locale';
 import {
   Dialog,
@@ -40,6 +40,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -48,7 +49,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
 const exceptionSchema = z.object({
-  resourceType: z.enum(['operator', 'machine']),
+  resourceType: z.enum(['operator', 'machine', 'company']),
   targetId: z.string().min(1, "Seleziona una risorsa."),
   exceptionType: z.enum(['sick', 'vacation', 'permit', 'maintenance', 'other']),
   startDate: z.string().min(1, "Data inizio obbligatoria."),
@@ -71,6 +72,15 @@ export default function AttendanceCalendarPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [referenceDate, setReferenceDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
+
+  const typeLabels: Record<string, string> = {
+    sick: 'Malattia',
+    vacation: 'Ferie',
+    permit: 'Permesso',
+    maintenance: 'Manutenzione',
+    other: 'Altro'
+  };
 
   const form = useForm<FormValues>({
     resolver: zodResolver(exceptionSchema),
@@ -104,7 +114,8 @@ export default function AttendanceCalendarPage() {
   const fetchCapacity = async () => {
     setIsCapacityLoading(true);
     try {
-        const report = await getWeeklyCapacityReport(referenceDate.toISOString());
+        const weeks = viewMode === 'weekly' ? 1 : viewMode === 'biweekly' ? 2 : 6;
+        const report = await getWeeklyCapacityReport(referenceDate.toISOString(), weeks);
         setCapacityReport(report);
     } catch (e) {
         console.error(e);
@@ -114,7 +125,7 @@ export default function AttendanceCalendarPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
-  useEffect(() => { fetchCapacity(); }, [referenceDate]);
+  useEffect(() => { fetchCapacity(); }, [referenceDate, viewMode]);
 
   const onSubmit = async (values: FormValues) => {
     if (!user) return;
@@ -123,8 +134,11 @@ export default function AttendanceCalendarPage() {
     let targetName = '';
     if (values.resourceType === 'operator') {
       targetName = operators.find(o => o.id === values.targetId)?.nome || 'Sconosciuto';
-    } else {
+    } else if (values.resourceType === 'machine') {
       targetName = workstations.find(w => w.id === values.targetId)?.name || 'Macchina';
+    } else {
+      targetName = 'Azienda (Tutti)';
+      values.targetId = 'all';
     }
 
     const result = await saveCalendarException({
@@ -153,7 +167,7 @@ export default function AttendanceCalendarPage() {
 
   const getTypeBadge = (type: CalendarException['exceptionType']) => {
     switch (type) {
-      case 'sick': return <Badge variant="destructive" className="gap-1"><Stethoscope className="h-3 w-3"/> Mutua</Badge>;
+      case 'sick': return <Badge variant="destructive" className="gap-1"><Stethoscope className="h-3 w-3"/> Malattia</Badge>;
       case 'vacation': return <Badge variant="default" className="gap-1"><Plane className="h-3 w-3"/> Ferie</Badge>;
       case 'permit': return <Badge variant="outline" className="border-primary text-primary gap-1"><Clock className="h-3 w-3"/> Permesso</Badge>;
       case 'maintenance': return <Badge variant="secondary" className="gap-1"><Settings2 className="h-3 w-3"/> Manutenzione</Badge>;
@@ -197,11 +211,23 @@ export default function AttendanceCalendarPage() {
                             <CardDescription>Ore disponibili effettive per operatore.</CardDescription>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => subWeeks(prev, 1))}><ChevronLeft className="h-4 w-4" /></Button>
-                            <span className="text-sm font-bold min-w-[150px] text-center">
-                                {format(weekStart, 'dd MMM')} - {format(addWeeks(weekStart, 6), 'dd MMM yyyy')}
-                            </span>
-                            <Button variant="outline" size="icon" onClick={() => setReferenceDate(prev => addWeeks(prev, 1))}><ChevronRight className="h-4 w-4" /></Button>
+                             <Select value={viewMode} onValueChange={(v: any) => setViewMode(v)}>
+                                <SelectTrigger className="w-[140px] h-9">
+                                    <SelectValue placeholder="Vista" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="weekly">Settimanale</SelectItem>
+                                    <SelectItem value="biweekly">Bisettimanale</SelectItem>
+                                    <SelectItem value="monthly">Mensile (6 sett.)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-1 ml-2">
+                                <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setReferenceDate(prev => subWeeks(prev, viewMode === 'weekly' ? 1 : viewMode === 'biweekly' ? 2 : 6))}><ChevronLeft className="h-4 w-4" /></Button>
+                                <span className="text-sm font-bold min-w-[150px] text-center">
+                                    {format(weekStart, 'dd MMM')} - {format(endOfWeek(addWeeks(weekStart, (viewMode === 'weekly' ? 1 : viewMode === 'biweekly' ? 2 : 6) - 1), { weekStartsOn: 1 }), 'dd MMM yyyy')}
+                                </span>
+                                <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setReferenceDate(prev => addWeeks(prev, viewMode === 'weekly' ? 1 : viewMode === 'biweekly' ? 2 : 6))}><ChevronRight className="h-4 w-4" /></Button>
+                            </div>
                         </div>
                     </CardHeader>
                     <CardContent>
@@ -219,7 +245,7 @@ export default function AttendanceCalendarPage() {
                                                     <div className="text-[10px] text-muted-foreground">{format(parseISO(day.date), 'dd/MM')}</div>
                                                 </TableHead>
                                             ))}
-                                            <TableHead className="text-right font-bold border-l bg-primary/5">Totale Sett.</TableHead>
+                                            <TableHead className="text-right font-bold border-l bg-primary/5">{viewMode === 'weekly' ? 'Totale Sett.' : 'Totale Periodo'}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -233,7 +259,24 @@ export default function AttendanceCalendarPage() {
                                                         day.effectiveHours === 0 && day.isWorkingDay && "bg-destructive/5 text-destructive",
                                                         day.effectiveHours > 0 && day.effectiveHours < day.standardHours && "bg-amber-500/5 text-amber-600"
                                                     )}>
-                                                        <div className="text-sm font-bold">{day.effectiveHours.toFixed(2)}h</div>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <div className={cn("text-sm font-bold", day.exceptions.length > 0 && "cursor-help underline underline-offset-4 decoration-dotted")}>
+                                                                    {day.effectiveHours.toFixed(2)}h
+                                                                </div>
+                                                            </TooltipTrigger>
+                                                            {day.exceptions.length > 0 && (
+                                                                <TooltipContent side="top">
+                                                                    <div className="space-y-1">
+                                                                        {day.exceptions.map((ex, i) => (
+                                                                    <div key={i} className="text-xs">
+                                                                                <span className="font-semibold">{ex.targetName === 'Azienda' ? 'Festa/Chiusura' : (typeLabels[ex.exceptionType] || ex.exceptionType)}:</span> {ex.notes || '-'}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </TooltipContent>
+                                                            )}
+                                                        </Tooltip>
                                                     </TableCell>
                                                 ))}
                                                 <TableCell className="text-right font-bold border-l bg-primary/5 text-primary">
@@ -316,20 +359,30 @@ export default function AttendanceCalendarPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="resourceType" render={({ field }) => (
                     <FormItem><FormLabel>Tipo Risorsa</FormLabel>
-                      <Select onValueChange={v => { field.onChange(v); form.setValue('targetId', ''); }} value={field.value}>
+                      <Select onValueChange={v => { 
+                        field.onChange(v); 
+                        if (v === 'company') form.setValue('targetId', 'all');
+                        else form.setValue('targetId', ''); 
+                      }} value={field.value}>
                         <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent><SelectItem value="operator">Operatore</SelectItem><SelectItem value="machine">Macchina/Postazione</SelectItem></SelectContent>
+                        <SelectContent>
+                          <SelectItem value="operator">Operatore</SelectItem>
+                          <SelectItem value="machine">Macchina/Postazione</SelectItem>
+                          <SelectItem value="company">Azienda (Tutti)</SelectItem>
+                        </SelectContent>
                       </Select>
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="targetId" render={({ field }) => (
                     <FormItem><FormLabel>Soggetto</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={form.watch('resourceType') === 'company'}>
                         <FormControl><SelectTrigger><SelectValue placeholder="Seleziona..." /></SelectTrigger></FormControl>
                         <SelectContent>
                           {form.watch('resourceType') === 'operator' 
                             ? operators.map(o => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)
-                            : workstations.map(w => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)
+                            : form.watch('resourceType') === 'machine'
+                            ? workstations.map(w => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)
+                            : <SelectItem value="all">Tutti gli Operatori</SelectItem>
                           }
                         </SelectContent>
                       </Select>

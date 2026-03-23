@@ -51,7 +51,7 @@ export interface JobPhase {
 
 export interface JobBillOfMaterialsItem {
   component: string;
-  unit: 'n' | 'mt' | 'kg';
+  unit: string; // 'n' | 'mt' | 'kg' (configurable)
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
@@ -73,7 +73,7 @@ export interface JobOrder {
   overallStartTime?: Date | null;
   overallEndTime?: Date | null;
   isProblemReported?: boolean;
-  problemType?: 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
+  problemType?: string; // 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | etc.
   problemNotes?: string;
   problemReportedBy?: string;
   status: 'planned' | 'production' | 'completed' | 'suspended' | 'paused';
@@ -131,7 +131,7 @@ export interface WorkPhaseTemplate {
   description: string;
   departmentCodes: string[];
   sequence: number;
-  type: 'preparation' | 'production' | 'quality' | 'packaging';
+  type: string; // 'preparation' | 'production' | etc.
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean;
@@ -146,9 +146,9 @@ export interface Workstation {
   departmentCode: string;
 }
 
-export type RawMaterialType = 'BOB' | 'TUBI' | 'PF3V0' | 'GUAINA' | 'BARRA';
+export type RawMaterialType = string;
 export const RawMaterialTypeValues: RawMaterialType[] = ['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA'];
-export type PackagingAssociation = RawMaterialType | 'PRODOTTO';
+export type PackagingAssociation = string | 'PRODOTTO';
 
 export interface Packaging {
   id: string;
@@ -185,7 +185,7 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
-  unitOfMeasure: 'n' | 'mt' | 'kg';
+  unitOfMeasure: string; // 'n' | 'mt' | 'kg'
   conversionFactor?: number | null; // e.g. kg per unit (n or mt)
   rapportoKgMt?: number | null; // e.g. kg per meter, used for cutting calculations
   currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
@@ -198,7 +198,7 @@ export interface RawMaterial {
 
 export interface BillOfMaterialsItem {
   component: string;
-  unit: 'n' | 'mt' | 'kg';
+  unit: string; // 'n' | 'mt' | 'kg'
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
@@ -247,7 +247,7 @@ export interface WorkCycle {
     phaseTemplateIds: string[];
 }
 
-export type MaterialSessionCategory = 'TRECCIA' | 'TUBI' | 'GUAINA';
+export type MaterialSessionCategory = string; // 'TRECCIA' | 'TUBI' | 'GUAINA'
 export interface ActiveMaterialSessionData {
     materialId: string;
     materialCode: string;
@@ -275,7 +275,7 @@ export interface NonConformityReport {
     status: 'pending' | 'approved' | 'returned';
 }
 
-export type ProductionProblemType = 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | 'PROBLEMA_QUALITA' | 'ALTRO';
+export type ProductionProblemType = string; // 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | etc.
 
 export interface ProductionProblemReport {
     id: string;
@@ -336,10 +336,10 @@ export interface InventoryRecord {
     status: 'pending' | 'approved' | 'rejected';
     approvedBy?: string;
     approvedAt?: Date | any;
-    inputUnit: 'n' | 'mt' | 'kg';
+    inputUnit: string;
     inputQuantity: number;
     conversionFactor?: number;
-    materialUnitOfMeasure?: 'n' | 'mt' | 'kg';
+    materialUnitOfMeasure?: string;
 }
 
 export interface ManualCommitment {
@@ -375,7 +375,7 @@ export interface PurchaseOrder {
   materialCode: string;
   quantity: number;
   receivedQuantity?: number; // Tracks how much has been loaded
-  unitOfMeasure: 'n' | 'mt' | 'kg';
+  unitOfMeasure: string; // 'n' | 'mt' | 'kg'
   expectedDeliveryDate: string; // ISO string
   status: 'pending' | 'received' | 'partially_received' | 'cancelled';
   createdAt: any; // Timestamp
@@ -398,7 +398,7 @@ export interface WorkingHoursConfig {
 
 export interface CalendarException {
   id: string;
-  resourceType: 'operator' | 'machine';
+  resourceType: 'operator' | 'machine' | 'company';
   targetId: string; // operatorId or workstationId
   targetName: string;
   exceptionType: 'sick' | 'vacation' | 'permit' | 'maintenance' | 'other';

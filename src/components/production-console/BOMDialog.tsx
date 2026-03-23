@@ -167,7 +167,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                         {withdrawData.hasActiveSession && <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700">In prelievo...</Badge>}
                       </TableCell>
                       {!isAggregatedView && <TableCell>{item.isFromTemplate ? item.quantity : '-'}</TableCell>}
-                      <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit as 'n' | 'mt' | 'kg')}</TableCell>
+                      <TableCell className="font-semibold">{formatDisplayStock(totalRequirement, displayUnit)}</TableCell>
                       <TableCell>{displayUnit}</TableCell>
                       <TableCell className="font-bold text-primary">{formatDisplayStock(estimatedWeight, 'kg')}</TableCell>
                       <TableCell className="text-center">
@@ -185,7 +185,7 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                             <TooltipContent>
                               {isFullyWithdrawn ? "Materiale già prelevato." :
                                 isAvailable ? `Disponibile a magazzino.` :
-                                  `Stock insufficiente! Disponibile: ${formatDisplayStock(stockAvailable, displayUnit as 'n' | 'mt' | 'kg')}, Richiesto: ${formatDisplayStock(remainingRequirement, displayUnit as 'n' | 'mt' | 'kg')}`
+                                  `Stock insufficiente! Disponibile: ${formatDisplayStock(stockAvailable, displayUnit)}, Richiesto: ${formatDisplayStock(remainingRequirement, displayUnit)}`
                               }
                             </TooltipContent>
                           </Tooltip>
@@ -203,8 +203,8 @@ export default function BOMDialog({ isOpen, onOpenChange, job, allRawMaterials }
                             </TooltipTrigger>
                             <TooltipContent>
                               {withdrawData.hasActiveSession ? "Sessione di prelievo attiva." :
-                                isFullyWithdrawn ? `Prelevato: ${formatDisplayStock(withdrawnQty, displayUnit as 'n' | 'mt' | 'kg')}` :
-                                  withdrawnQty > 0 ? `Parzialmente prelevato (${formatDisplayStock(withdrawnQty, displayUnit as 'n' | 'mt' | 'kg')})` :
+                                isFullyWithdrawn ? `Prelevato: ${formatDisplayStock(withdrawnQty, displayUnit)}` :
+                                  withdrawnQty > 0 ? `Parzialmente prelevato (${formatDisplayStock(withdrawnQty, displayUnit)})` :
                                     "Non ancora prelevato."
                               }
                             </TooltipContent>

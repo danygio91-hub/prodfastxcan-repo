@@ -4,7 +4,7 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive, LockKeyhole, Combine, Timer, Clock, CalendarDays, Factory } from 'lucide-react';
+import { Building2, ListTodo, Users, Workflow, Computer, Boxes, GitMerge, Archive, LockKeyhole, Combine, Timer, Clock, CalendarDays, Factory, Settings2 } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 
 export default function AdminCompanySettingsPage() {
@@ -21,6 +21,7 @@ export default function AdminCompanySettingsPage() {
     { href: '/admin/time-tracking-settings', label: 'Gestione Rilevazione Tempi', description: 'Imposta le regole per la validazione dei tempi di produzione.', icon: Timer, disabled: false },
     { href: '/admin/privacy-management', label: 'Gestione Privacy', description: 'Modifica l\'informativa sulla privacy mostrata agli operatori.', icon: LockKeyhole, disabled: false },
     { href: '/admin/production-settings', label: 'Impostazioni Produzione Globale', description: 'Regole Gantt, MRP, Buffer di capacità e Tempi.', icon: Factory, disabled: false },
+    { href: '/admin/settings/parameters', label: 'Parametri Globali', description: 'Configura tipi di materia prima, unità di misura e altri parametri di sistema.', icon: Settings2, disabled: false },
     { href: '/admin/workstation-management', label: 'Gestione Postazioni di Lavoro', description: 'Configura e assegna le postazioni di lavoro e i macchinari.', icon: Computer, disabled: false },
   ];
 

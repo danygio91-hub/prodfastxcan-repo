@@ -189,7 +189,7 @@ export async function getMaterialWithdrawalsForMaterial(materialId: string): Pro
     return snap.docs.map(doc => ({ id: doc.id, ...convertTimestampsToDates(doc.data()) }) as MaterialWithdrawal);
 }
 
-export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: 'n' | 'mt' | 'kg'; };
+export type MaterialStatus = { id: string; code: string; description: string; stock: number; impegnato: number; disponibile: number; ordinato: number; unitOfMeasure: string; };
 
 export async function getMaterialsStatus(searchTerm?: string, lastCode?: string): Promise<MaterialStatus[]> {
     const materialsCol = adminDb.collection("rawMaterials");

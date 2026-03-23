@@ -5,14 +5,17 @@ import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { getDepartments, getManualCommitments } from './actions';
 import { getArticles } from '../article-management/actions';
+import { getGlobalSettings } from '@/lib/settings-actions';
+import { GlobalSettings } from '@/lib/settings-types';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminRawMaterialManagementPage() {
-  const [departments, articles, manualCommitments] = await Promise.all([
+  const [departments, articles, manualCommitments, globalSettings] = await Promise.all([
     getDepartments(),
     getArticles(),
     getManualCommitments(),
+    getGlobalSettings(),
   ]);
 
   return (
@@ -28,6 +31,7 @@ export default async function AdminRawMaterialManagementPage() {
             initialDepartments={departments}
             initialArticles={articles}
             initialCommitments={manualCommitments}
+            globalSettings={globalSettings}
           />
         </Suspense>
       </AppShell>

@@ -4,8 +4,16 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2 } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
+import { checkAttendanceDeclared } from '../attendance-calendar/actions';
+import { DailyAttendanceModal } from '@/components/dashboard/DailyAttendanceModal';
+import { useAuth } from '@/components/auth/AuthProvider';
+import { useToast } from '@/hooks/use-toast';
+import { format } from 'date-fns';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
 
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
@@ -26,6 +34,21 @@ const navItems = [
 ];
 
 export default function AdminDashboardPage() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [isDeclared, setIsDeclared] = React.useState<boolean | null>(null);
+  const [isModalOpen, setIsModalOpen] = React.useState(false);
+  const today = format(new Date(), 'yyyy-MM-dd');
+
+  React.useEffect(() => {
+    checkAttendanceDeclared(today).then(setIsDeclared);
+  }, [today]);
+
+  const onDeclared = () => {
+    setIsDeclared(true);
+    toast({ title: "Presenze dichiarate", description: "Il calendario è ora aggiornato per oggi." });
+  };
+
   return (
     <AdminAuthGuard>
       <AppShell>
@@ -36,6 +59,26 @@ export default function AdminDashboardPage() {
               Seleziona un'opzione qui sotto o usa il menu rapido in alto per iniziare.
             </p>
           </header>
+
+          {isDeclared === false && (
+            <Alert className="bg-amber-50 border-amber-200 text-amber-800 shadow-sm animate-pulse">
+              <ShieldAlert className="h-5 w-5 text-amber-600" />
+              <div className="flex-1 ml-3">
+                <AlertTitle className="font-bold text-amber-900">Dichiarazione Presenze Mancante</AlertTitle>
+                <AlertDescription className="text-amber-800">
+                  Le presenze per oggi non sono ancora state confermate. Dichiarale ora per aggiornare la capacità del Gantt.
+                </AlertDescription>
+              </div>
+              <div className="flex gap-2 ml-4">
+                <Button variant="outline" size="sm" asChild className="border-amber-300 hover:bg-amber-100">
+                  <Link href="/admin/attendance-calendar">Apri Calendario</Link>
+                </Button>
+                <Button size="sm" onClick={() => setIsModalOpen(true)} className="bg-amber-600 hover:bg-amber-700 text-white border-0">
+                   Compila Foglio Presenze
+                </Button>
+              </div>
+            </Alert>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {navItems.map((item) => (
@@ -49,6 +92,14 @@ export default function AdminDashboardPage() {
             ))}
           </div>
         </div>
+        {user && (
+          <DailyAttendanceModal 
+            isOpen={isModalOpen} 
+            onOpenChange={setIsModalOpen} 
+            uid={user.uid} 
+            onDeclared={onDeclared} 
+          />
+        )}
       </AppShell>
     </AdminAuthGuard>
   );

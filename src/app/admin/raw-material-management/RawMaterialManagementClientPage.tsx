@@ -94,6 +94,8 @@ import CommitmentManagementClientPage from './CommitmentManagementClientPage';
 import BatchFormDialog from '../batch-management/BatchFormDialog';
 import { type GroupedBatches } from '../batch-management/actions';
 
+import { type GlobalSettings } from '@/lib/settings-types';
+
 type Movement = {
   type: 'Carico' | 'Scarico';
   date: string;
@@ -106,9 +108,9 @@ type Movement = {
 const rawMaterialFormSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, 'Il codice deve avere almeno 3 caratteri.'),
-  type: z.enum(['BOB', 'TUBI', 'PF3V0', 'GUAINA', 'BARRA']),
+  type: z.string().min(1, 'Seleziona una tipologia.'),
   description: z.string().min(5, 'La descrizione è obbligatoria.'),
-  unitOfMeasure: z.enum(['n', 'mt', 'kg']),
+  unitOfMeasure: z.string().min(1, 'Seleziona un\'unità di misura.'),
   conversionFactor: z.coerce.number().optional().nullable(),
   rapportoKgMt: z.coerce.number().optional().nullable(),
   minStockLevel: z.coerce.number().optional().nullable(),
@@ -177,11 +179,13 @@ interface RawMaterialManagementClientPageProps {
   initialArticles: Article[];
   initialCommitments: ManualCommitment[];
   initialDepartments: Department[];
+  globalSettings: GlobalSettings;
 }
 
 export default function RawMaterialManagementClientPage({
   initialArticles,
   initialCommitments,
+  globalSettings,
 }: RawMaterialManagementClientPageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -216,10 +220,20 @@ export default function RawMaterialManagementClientPage({
 
   const form = useForm<z.infer<typeof rawMaterialFormSchema>>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { type: 'BOB', unitOfMeasure: 'n', minStockLevel: null, reorderLot: null }
+    defaultValues: { type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null }
   });
 
+  const watchedType = form.watch('type');
   const watchedUOM = form.watch('unitOfMeasure');
+
+  const typeConfig = useMemo(() => globalSettings.rawMaterialTypes.find(t => t.id === watchedType), [watchedType, globalSettings.rawMaterialTypes]);
+
+  // Change default unit when type changes (only for new items)
+  useEffect(() => {
+    if (!form.getValues('id') && typeConfig) {
+        form.setValue('unitOfMeasure', typeConfig.defaultUnit);
+    }
+  }, [typeConfig, form]);
 
   const refreshData = useCallback(async () => {
     setIsSearching(true);
@@ -317,7 +331,7 @@ export default function RawMaterialManagementClientPage({
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                     <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini</Link></Button>
-                    <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: 'BOB', unitOfMeasure: 'n' }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
+                    <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
                   </div>
                 </div>
               </CardHeader>
@@ -368,15 +382,30 @@ export default function RawMaterialManagementClientPage({
             <FormField control={form.control} name="code" render={({ field }) => (<FormItem><FormLabel>Codice</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)} />
             <FormField control={form.control} name="description" render={({ field }) => (<FormItem><FormLabel>Descrizione</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem>)} />
             <div className="grid grid-cols-2 gap-4">
-              <FormField control={form.control} name="type" render={({ field }) => (<FormItem><FormLabel>Tipo</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="BOB">BOB</SelectItem><SelectItem value="TUBI">TUBI</SelectItem><SelectItem value="PF3V0">PF3V0</SelectItem><SelectItem value="GUAINA">GUAINA</SelectItem><SelectItem value="BARRA">BARRA</SelectItem></SelectContent></Select></FormItem>)} />
-              <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (<FormItem><FormLabel>UOM</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="n">N</SelectItem><SelectItem value="mt">MT</SelectItem><SelectItem value="kg">KG</SelectItem></SelectContent></Select></FormItem>)} />
+              <FormField control={form.control} name="type" render={({ field }) => (<FormItem><FormLabel>Tipo</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{globalSettings.rawMaterialTypes.map(t => <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>)}</SelectContent></Select></FormItem>)} />
+              <FormField control={form.control} name="unitOfMeasure" render={({ field }) => (<FormItem><FormLabel>UOM</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent>{globalSettings.unitsOfMeasure.map(u => <SelectItem key={u} value={u}>{u.toUpperCase()}</SelectItem>)}</SelectContent></Select></FormItem>)} />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {watchedUOM === 'kg' ? (<FormField control={form.control} name="rapportoKgMt" render={({ field }) => (<FormItem><FormLabel>Rapporto Kg/mt</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem>)} />) : (<FormField control={form.control} name="conversionFactor" render={({ field }) => (<FormItem><FormLabel>Fattore Conversione</FormLabel><FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl></FormItem>)} />)}
+              {typeConfig?.hasConversion && (
+                <FormField
+                  control={form.control}
+                  name={watchedUOM === 'mt' ? "rapportoKgMt" : "conversionFactor"}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {typeConfig.conversionType === 'kg/mt' ? 'Rapporto KG/MT' :
+                         typeConfig.conversionType === 'kg/unit' ? 'Peso Unitario (KG/Pz)' :
+                         'Fattore Conversione'}
+                      </FormLabel>
+                      <FormControl><Input type="number" step="any" {...field} value={field.value ?? ''} /></FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
                <FormField control={form.control} name="minStockLevel" render={({ field }) => (<FormItem><FormLabel>Sottoscorta</FormLabel><FormControl><Input type="number" step="any" placeholder="Soglia allarme" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
-               <FormField control={form.control} name="reorderLot" render={({ field }) => (<FormItem><FormLabel>Lotto Riordino</FormLabel><FormControl><Input type="number" step="any" placeholder="Pz/Kg per ordine" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+               <FormField control={form.control} name="reorderLot" render={({ field }) => (<FormItem><FormLabel>Lotto Riordino</FormLabel><FormControl><Input type="number" step="any" placeholder={`${watchedUOM.toUpperCase()} per ordine`} {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Salva</Button></DialogFooter>
           </form></Form>

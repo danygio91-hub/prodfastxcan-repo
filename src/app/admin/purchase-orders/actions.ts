@@ -53,7 +53,7 @@ export async function savePurchaseOrder(data: {
     id?: string;
     materialCode: string;
     quantity: number;
-    unitOfMeasure: 'n' | 'mt' | 'kg';
+    unitOfMeasure: string;
     expectedDeliveryDate: string;
   }>;
 }, uid: string): Promise<{ success: boolean; message: string }> {
@@ -137,7 +137,7 @@ export async function importPurchaseOrders(data: any[], uid: string): Promise<{ 
         const supplierName = String(row["Fornitore"] || row.supplierName || "").trim();
         const materialCode = String(row["Codice Materiale"] || row.materialCode || "").trim();
         const quantity = Number(row["Quantità"] || row.quantity);
-        const unit = (row["Unità"] || row.unitOfMeasure || "n").toLowerCase() as 'n'|'mt'|'kg';
+        const unit = (row["Unità"] || row.unitOfMeasure || "n").toLowerCase();
         const rawDate = row["Data Consegna"] || row.expectedDeliveryDate;
 
         if (!orderNumber || !materialCode || isNaN(quantity)) continue;

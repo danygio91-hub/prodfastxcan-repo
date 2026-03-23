@@ -184,7 +184,7 @@ export default function ArticleManagementClientPage({ initialArticles }: Article
           articlesMap[articleCode] = { code: articleCode, billOfMaterials: [] };
         }
 
-        const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase() as 'n' | 'mt' | 'kg';
+        const unit = String(row['Unità di Misura'] || row['unità di misura'] || 'n').toLowerCase();
         const lunghezzaTaglio = row['Lunghezza Taglio (mm)'] || row['lunghezza taglio (mm)'] || row['Numero/Misura'];
 
         const bomItem: any = { component: component.split(' ')[0], unit, quantity: quantity };

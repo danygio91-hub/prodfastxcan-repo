@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDisplayStock(value: number | null | undefined, unit: 'n' | 'mt' | 'kg'): string {
+export function formatDisplayStock(value: number | null | undefined, unit: string): string {
   if (value === null || value === undefined) return '0.00';
 
   if (unit === 'n') {

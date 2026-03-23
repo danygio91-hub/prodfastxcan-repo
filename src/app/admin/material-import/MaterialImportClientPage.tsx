@@ -33,7 +33,7 @@ type Operation = 'carico' | 'scarico';
 interface ParsedRow {
   [key: string]: string | number | undefined;
   __originalIndex?: number;
-  'Unita'?: 'n' | 'mt' | 'kg' | '??';
+  'Unita'?: string;
   reason?: string;
 }
 

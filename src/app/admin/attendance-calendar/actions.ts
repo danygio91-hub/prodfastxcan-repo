@@ -5,10 +5,11 @@ import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import type { CalendarException } from '@/lib/mock-data';
 import { ensureAdmin } from '@/lib/server-auth';
-import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
+import { startOfWeek, endOfWeek, eachDayOfInterval, format, isWithinInterval, parseISO, startOfDay, endOfDay, addWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { getWorkingHoursConfig } from '../working-hours/actions';
 import { getOperators } from '../operator-management/actions';
+import { isItalianHoliday } from '@/lib/holiday-utils';
 
 export async function getCalendarExceptions(): Promise<CalendarException[]> {
   const snapshot = await adminDb.collection("calendarExceptions").orderBy("startDate", "desc").get();
@@ -71,10 +72,10 @@ export type OperatorCapacity = {
     totalWeeklyHours: number;
 };
 
-export async function getWeeklyCapacityReport(targetDateIso: string): Promise<OperatorCapacity[]> {
+export async function getWeeklyCapacityReport(targetDateIso: string, weeks: number = 1): Promise<OperatorCapacity[]> {
     const referenceDate = targetDateIso ? parseISO(targetDateIso) : new Date();
     const start = startOfWeek(referenceDate, { weekStartsOn: 1 });
-    const end = endOfWeek(referenceDate, { weekStartsOn: 1 });
+    const end = endOfWeek(addWeeks(start, weeks - 1), { weekStartsOn: 1 });
     const daysInWeek = eachDayOfInterval({ start, end });
 
     const [config, operators, exceptions] = await Promise.all([
@@ -102,16 +103,33 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
                 const dateStr = format(day, 'yyyy-MM-dd');
                 const dayOfWeek = day.getDay() === 0 ? 7 : day.getDay();
                 const isWorkingDay = config.workingDays.includes(dayOfWeek);
+                const holidayCheck = isItalianHoliday(day);
                 
                 const dayExceptions = exceptions.filter(ex => 
-                    ex.targetId === op.id && 
+                    (ex.targetId === op.id || ex.resourceType === 'company') && 
                     isWithinInterval(day, { 
                         start: startOfDay(parseISO(ex.startDate)), 
                         end: endOfDay(parseISO(ex.endDate)) 
                     })
                 );
 
-                let effectiveHours = isWorkingDay ? dailyEffectiveHours : 0;
+                let effectiveHours = (isWorkingDay && !holidayCheck.isHoliday) ? dailyEffectiveHours : 0;
+                
+                // Add holiday as a virtual exception for display if needed
+                if (holidayCheck.isHoliday) {
+                    dayExceptions.push({
+                        id: `holiday-${dateStr}`,
+                        resourceType: 'company',
+                        targetId: 'all',
+                        targetName: 'Azienda',
+                        exceptionType: 'other',
+                        startDate: dateStr,
+                        endDate: dateStr,
+                        notes: holidayCheck.name,
+                        createdAt: new Date().toISOString(),
+                        createdBy: 'system'
+                    });
+                }
                 
                 dayExceptions.forEach(ex => {
                     if (ex.hoursLost !== undefined && ex.hoursLost !== null) {
@@ -142,4 +160,44 @@ export async function getWeeklyCapacityReport(targetDateIso: string): Promise<Op
         });
 
     return JSON.parse(JSON.stringify(report));
+}
+
+export async function checkAttendanceDeclared(dateStr: string): Promise<boolean> {
+    const doc = await adminDb.collection("attendanceDeclarations").doc(dateStr).get();
+    return doc.exists;
+}
+
+export async function bulkDeclareAttendance(dateStr: string, uid: string, operatorStatuses: { operatorId: string, operatorName: string, isPresent: boolean, reason?: string }[]) {
+    try {
+        await ensureAdmin(uid);
+        
+        // 1. Create exceptions for absent operators
+        const absentOperators = operatorStatuses.filter(os => !os.isPresent);
+        for (const os of absentOperators) {
+            await saveCalendarException({
+                resourceType: 'operator',
+                targetId: os.operatorId,
+                targetName: os.operatorName,
+                exceptionType: (os.reason as any) || 'vacation',
+                startDate: dateStr,
+                endDate: dateStr,
+                notes: `Dichiarato da foglio presenze giornaliero`
+            }, uid);
+        }
+
+        // 2. Mark day as declared
+        await adminDb.collection("attendanceDeclarations").doc(dateStr).set({
+            declaredAt: admin.firestore.Timestamp.now(),
+            declaredBy: uid,
+            totalOperators: operatorStatuses.length,
+            absentCount: absentOperators.length
+        });
+
+        revalidatePath('/admin/dashboard');
+        revalidatePath('/admin/attendance-calendar');
+        return { success: true };
+    } catch (error) {
+        console.error("Bulk declare error:", error);
+        return { success: false, message: 'Errore durante la dichiarazione massiva.' };
+    }
 }

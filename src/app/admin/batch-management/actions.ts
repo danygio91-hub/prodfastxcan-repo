@@ -22,7 +22,7 @@ export type GroupedBatches = {
     materialId: string;
     materialCode: string;
     materialDescription: string;
-    unitOfMeasure: 'n' | 'mt' | 'kg';
+    unitOfMeasure: string; // 'n' | 'mt' | 'kg' (configurable)
     currentStockUnits: number;
     currentWeightKg: number;
     lots: LotInfo[];

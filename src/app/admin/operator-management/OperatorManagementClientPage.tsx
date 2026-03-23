@@ -528,7 +528,7 @@ export default function OperatorManagementClientPage({ initialOperators, initial
                 )}
               />
 
-              {watchedRole === 'operator' && (
+              {(watchedRole === 'operator' || watchedRole === 'supervisor') && (
                 <div className="space-y-4 rounded-lg border p-4 bg-muted/20">
                   <div className="flex justify-between items-center mb-2">
                     <div className="space-y-0.5">

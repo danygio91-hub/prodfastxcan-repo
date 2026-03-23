@@ -202,7 +202,7 @@ export async function updateWorkPeriodsForPhase(jobId: string, phaseId: string, 
     return { success: true, message: "Aggiornato." };
 }
 
-export type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType; materialUnitOfMeasure?: 'n' | 'mt' | 'kg'; };
+export type EnrichedMaterialWithdrawal = MaterialWithdrawal & { materialType?: RawMaterialType; materialUnitOfMeasure?: string; };
 
 export async function getMaterialWithdrawals(range?: { from?: Date; to?: Date }) {
     let q: admin.firestore.Query = adminDb.collection("materialWithdrawals");
