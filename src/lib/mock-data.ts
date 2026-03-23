@@ -1,5 +1,6 @@
-
 // --- Type Definitions ---
+export type UnitOfMeasure = 'n' | 'mt' | 'kg';
+export type PhaseType = 'preparation' | 'production' | 'quality' | 'packaging';
 
 export interface Department {
   id: string;
@@ -35,7 +36,7 @@ export interface JobPhase {
   workPeriods: WorkPeriod[];
   sequence: number;
   workstationScannedAndVerified?: boolean;
-  type?: 'preparation' | 'production' | 'quality' | 'packaging';
+  type?: PhaseType;
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean;
@@ -51,7 +52,7 @@ export interface JobPhase {
 
 export interface JobBillOfMaterialsItem {
   component: string;
-  unit: string; // 'n' | 'mt' | 'kg' (configurable)
+  unit: UnitOfMeasure; // 'n' | 'mt' | 'kg' (configurable)
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
@@ -60,7 +61,7 @@ export interface JobBillOfMaterialsItem {
 }
 
 export interface JobOrder {
-  id:string;
+  id: string;
   cliente: string;
   qta: number;
   department: string;
@@ -131,7 +132,7 @@ export interface WorkPhaseTemplate {
   description: string;
   departmentCodes: string[];
   sequence: number;
-  type: string; // 'preparation' | 'production' | etc.
+  type: PhaseType; // 'preparation' | 'production' | etc.
   tracksTime?: boolean;
   requiresMaterialScan?: boolean;
   requiresMaterialSearch?: boolean;
@@ -185,7 +186,7 @@ export interface RawMaterial {
     larghezza?: string;
     tipologia?: string;
   };
-  unitOfMeasure: string; // 'n' | 'mt' | 'kg'
+  unitOfMeasure: UnitOfMeasure; // 'n' | 'mt' | 'kg'
   conversionFactor?: number | null; // e.g. kg per unit (n or mt)
   rapportoKgMt?: number | null; // e.g. kg per meter, used for cutting calculations
   currentStockUnits: number; // Stock in the primary unitOfMeasure (n, mt, or kg)
@@ -198,7 +199,7 @@ export interface RawMaterial {
 
 export interface BillOfMaterialsItem {
   component: string;
-  unit: string; // 'n' | 'mt' | 'kg'
+  unit: UnitOfMeasure; // 'n' | 'mt' | 'kg'
   quantity: number;
   lunghezzaTaglioMm?: number;
   note?: string;
@@ -241,105 +242,105 @@ export interface MaterialWithdrawal {
 
 
 export interface WorkCycle {
-    id: string;
-    name: string;
-    description: string;
-    phaseTemplateIds: string[];
+  id: string;
+  name: string;
+  description: string;
+  phaseTemplateIds: string[];
 }
 
 export type MaterialSessionCategory = string; // 'TRECCIA' | 'TUBI' | 'GUAINA'
 export interface ActiveMaterialSessionData {
-    materialId: string;
-    materialCode: string;
-    grossOpeningWeight: number;
-    netOpeningWeight: number;
-    originatorJobId: string;
-    associatedJobs: { jobId: string; jobOrderPF: string }[];
-    category: MaterialSessionCategory;
-    packagingId?: string;
-    tareWeight?: number;
-    lotto?: string | null;
+  materialId: string;
+  materialCode: string;
+  grossOpeningWeight: number;
+  netOpeningWeight: number;
+  originatorJobId: string;
+  associatedJobs: { jobId: string; jobOrderPF: string }[];
+  category: MaterialSessionCategory;
+  packagingId?: string;
+  tareWeight?: number;
+  lotto?: string | null;
 }
 
 export interface NonConformityReport {
-    id: string;
-    materialId: string;
-    materialCode: string;
-    lotto: string;
-    quantity: number; // The quantity of the NC material
-    reason: string;
-    notes?: string;
-    operatorId: string;
-    operatorName: string;
-    reportDate: Date | string; // Allow string for serialized dates
-    status: 'pending' | 'approved' | 'returned';
+  id: string;
+  materialId: string;
+  materialCode: string;
+  lotto: string;
+  quantity: number; // The quantity of the NC material
+  reason: string;
+  notes?: string;
+  operatorId: string;
+  operatorName: string;
+  reportDate: Date | string; // Allow string for serialized dates
+  status: 'pending' | 'approved' | 'returned';
 }
 
 export type ProductionProblemType = string; // 'FERMO_MACCHINA' | 'MANCA_MATERIALE' | etc.
 
 export interface ProductionProblemReport {
-    id: string;
-    jobId: string;
-    jobOrderPF: string;
-    phaseId: string;
-    phaseName: string;
-    problemType: ProductionProblemType,
-    notes?: string;
-    operatorId: string;
-    operatorName: string;
-    reportDate: Date | string;
-    status: 'open' | 'resolved';
-    resolvedAt?: Date | string;
-    resolvedBy?: string;
+  id: string;
+  jobId: string;
+  jobOrderPF: string;
+  phaseId: string;
+  phaseName: string;
+  problemType: ProductionProblemType,
+  notes?: string;
+  operatorId: string;
+  operatorName: string;
+  reportDate: Date | string;
+  status: 'open' | 'resolved';
+  resolvedAt?: Date | string;
+  resolvedBy?: string;
 }
 
 export interface WorkGroup {
-    id: string;
-    jobOrderIds: string[];
-    jobOrderPFs: string[];
-    status: 'production' | 'paused' | 'completed' | 'suspended';
-    createdAt: Date;
-    createdBy: string;
-    totalQuantity: number;
-    workCycleId: string;
-    department: string;
-    cliente: string;
-    phases: JobPhase[];
-    details: string; // e.g., "Lavorazione Multi-Commessa"
-    // Aggregated fields for display
-    numeroODLInterno?: string;
-    numeroODL?: string;
-    dataConsegnaFinale?: string;
-    isProblemReported?: boolean;
-    problemType?: ProductionProblemType;
-    problemNotes?: string;
-    problemReportedBy?: string;
-    overallStartTime?: Date | null;
-    overallEndTime?: Date | null;
-    qta?: number; // Alias for totalQuantity
-    ordinePF?: string; // Alias for jobOrderPFs joined
-    forcedCompletion?: boolean; // New flag for forced closures
+  id: string;
+  jobOrderIds: string[];
+  jobOrderPFs: string[];
+  status: 'production' | 'paused' | 'completed' | 'suspended';
+  createdAt: Date;
+  createdBy: string;
+  totalQuantity: number;
+  workCycleId: string;
+  department: string;
+  cliente: string;
+  phases: JobPhase[];
+  details: string; // e.g., "Lavorazione Multi-Commessa"
+  // Aggregated fields for display
+  numeroODLInterno?: string;
+  numeroODL?: string;
+  dataConsegnaFinale?: string;
+  isProblemReported?: boolean;
+  problemType?: ProductionProblemType;
+  problemNotes?: string;
+  problemReportedBy?: string;
+  overallStartTime?: Date | null;
+  overallEndTime?: Date | null;
+  qta?: number; // Alias for totalQuantity
+  ordinePF?: string; // Alias for jobOrderPFs joined
+  forcedCompletion?: boolean; // New flag for forced closures
 }
 
 export interface InventoryRecord {
-    id: string;
-    materialId: string;
-    materialCode: string;
-    lotto: string;
-    grossWeight: number;
-    tareWeight: number;
-    netWeight: number;
-    packagingId?: string;
-    operatorId: string;
-    operatorName: string;
-    recordedAt: Date | any; // Can be a Timestamp
-    status: 'pending' | 'approved' | 'rejected';
-    approvedBy?: string;
-    approvedAt?: Date | any;
-    inputUnit: string;
-    inputQuantity: number;
-    conversionFactor?: number;
-    materialUnitOfMeasure?: string;
+  id: string;
+  materialId: string;
+  materialCode: string;
+  lotto: string;
+  grossWeight: number;
+  tareWeight: number;
+  netWeight: number;
+  packagingId?: string;
+  operatorId: string;
+  operatorName: string;
+  recordedAt: Date | any; // Can be a Timestamp
+  status: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  approvedAt?: Date | any;
+  inputUnit: UnitOfMeasure;
+  inputQuantity: number;
+  conversionFactor?: number;
+  materialUnitOfMeasure?: UnitOfMeasure;
 }
 
 export interface ManualCommitment {
@@ -375,7 +376,7 @@ export interface PurchaseOrder {
   materialCode: string;
   quantity: number;
   receivedQuantity?: number; // Tracks how much has been loaded
-  unitOfMeasure: string; // 'n' | 'mt' | 'kg'
+  unitOfMeasure: UnitOfMeasure; // 'n' | 'mt' | 'kg'
   expectedDeliveryDate: string; // ISO string
   status: 'pending' | 'received' | 'partially_received' | 'cancelled';
   createdAt: any; // Timestamp
@@ -414,40 +415,40 @@ export interface CalendarException {
 // --- Initial Data (for seeding the database on first run) ---
 export const initialJobOrders: JobOrder[] = [];
 export const initialOperators: Operator[] = [
-    { id: 'op-1', nome: 'Daniel', reparto: [], stato: 'inattivo', role: 'admin', privacySigned: false, nome_normalized: 'daniel', isReal: false },
-    { id: 'op-2', nome: 'Ruben', reparto: [], stato: 'inattivo', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben', isReal: true },
-    { id: 'op-3', nome: 'Giovanna', reparto: ['BF'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'giovanna', isReal: true },
-    { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola', isReal: true },
+  { id: 'op-1', nome: 'Daniel', reparto: [], stato: 'inattivo', role: 'admin', privacySigned: false, nome_normalized: 'daniel', isReal: false },
+  { id: 'op-2', nome: 'Ruben', reparto: [], stato: 'inattivo', role: 'supervisor', privacySigned: false, nome_normalized: 'ruben', isReal: true },
+  { id: 'op-3', nome: 'Giovanna', reparto: ['BF'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'giovanna', isReal: true },
+  { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola', isReal: true },
 ];
 export const initialDepartments: Department[] = [
-    { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici' },
-    { id: 'CG', code: 'CG', name: 'Controllo Qualità' },
-    { id: 'BF', code: 'BF', name: 'Burattatura e Finitura' },
-    { id: 'MAG', code: 'MAG', name: 'Magazzino' },
-    { id: 'Collaudo', code: 'Collaudo', name: 'Collaudo e Test Funzionali' },
-    { id: 'Officina', code: 'Officina', name: 'Officina' },
+  { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici' },
+  { id: 'CG', code: 'CG', name: 'Controllo Qualità' },
+  { id: 'BF', code: 'BF', name: 'Burattatura e Finitura' },
+  { id: 'MAG', code: 'MAG', name: 'Magazzino' },
+  { id: 'Collaudo', code: 'Collaudo', name: 'Collaudo e Test Funzionali' },
+  { id: 'Officina', code: 'Officina', name: 'Officina' },
 ];
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
-    { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },
-    { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['TUBI'] },
-    { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: true, allowedMaterialTypes: ['GUAINA'] },
-    { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', tracksTime: true, requiresMaterialScan: false },
-    { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', tracksTime: true, requiresMaterialScan: false },
-    { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'quality', tracksTime: false, requiresMaterialScan: false },
-    { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 4, type: 'quality', tracksTime: false, requiresMaterialScan: false },
+  { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },
+  { id: 'phase-template-7', name: 'Preparazione Tubi', description: 'Preparazione dei tubi per la commessa.', departmentCodes: ['MAG'], sequence: -2, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['TUBI'] },
+  { id: 'phase-template-6', name: 'Taglio Guaina', description: 'Taglio a misura della guaina termorestringente.', departmentCodes: ['MAG'], sequence: -1, type: 'preparation', tracksTime: true, requiresMaterialScan: false, requiresMaterialSearch: true, allowedMaterialTypes: ['GUAINA'] },
+  { id: 'phase-template-2', name: 'Assemblaggio Scheda', description: 'Montaggio dei componenti sulla scheda elettronica.', departmentCodes: ['CP'], sequence: 1, type: 'production', tracksTime: true, requiresMaterialScan: false },
+  { id: 'phase-template-3', name: 'Saldatura', description: 'Processo di saldatura manuale o automatica.', departmentCodes: ['CP'], sequence: 2, type: 'production', tracksTime: true, requiresMaterialScan: false },
+  { id: 'phase-template-4', name: 'Test Funzionale', description: 'Verifica del corretto funzionamento della scheda assemblata.', departmentCodes: ['CG'], sequence: 3, type: 'quality', tracksTime: false, requiresMaterialScan: false },
+  { id: 'phase-template-5', name: 'Ispezione Visiva', description: 'Controllo visivo della qualità delle saldature e del montaggio.', departmentCodes: ['CG'], sequence: 4, type: 'quality', tracksTime: false, requiresMaterialScan: false },
 ];
 export const initialWorkstations: Workstation[] = [
-    { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },
-    { id: 'ws-2', name: 'Stazione Saldatura A', departmentCode: 'CP' },
-    { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
-    { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
+  { id: 'ws-1', name: 'Banco Assemblaggio 01', departmentCode: 'CP' },
+  { id: 'ws-2', name: 'Stazione Saldatura A', departmentCode: 'CP' },
+  { id: 'ws-3', name: 'Banco Test Qualità 01', departmentCode: 'CG' },
+  { id: 'ws-4', name: 'Postazione Finitura Manuale', departmentCode: 'BF' },
 ];
 export const initialDepartmentMap: Record<string, string> = {
-    CP: 'Assemblaggio Componenti Elettronici',
-    CG: 'Controllo Qualità',
-    BF: 'Burattatura e Finitura',
-    MAG: 'Magazzino',
-    Collaudo: 'Collaudo e Test Funzionali',
-    Officina: 'Officina',
-    'N/D': 'Non Definito',
+  CP: 'Assemblaggio Componenti Elettronici',
+  CG: 'Controllo Qualità',
+  BF: 'Burattatura e Finitura',
+  MAG: 'Magazzino',
+  Collaudo: 'Collaudo e Test Funzionali',
+  Officina: 'Officina',
+  'N/D': 'Non Definito',
 };
