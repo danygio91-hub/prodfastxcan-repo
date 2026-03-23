@@ -127,6 +127,27 @@ export default function LoginForm() {
         performLogin(values.username, values.password);
     };
 
+    const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+    useEffect(() => {
+        const handleBeforeInstallPrompt = (e: Event) => {
+            e.preventDefault();
+            setInstallPrompt(e as BeforeInstallPromptEvent);
+        };
+
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    }, []);
+
+    const handleInstallClick = async () => {
+        if (!installPrompt) return;
+        await installPrompt.prompt();
+        const { outcome } = await installPrompt.userChoice;
+        if (outcome === 'accepted') {
+            setInstallPrompt(null);
+        }
+    };
+
     const renderStep = () => {
         switch (step) {
             case 'initial':
@@ -168,6 +189,17 @@ export default function LoginForm() {
                                 <KeyRound className="mr-2 h-4 w-4" />
                                 Accedi con Password
                             </Button>
+
+                            {installPrompt && (
+                                <Button 
+                                    onClick={handleInstallClick} 
+                                    variant="default" 
+                                    className="mt-2 bg-blue-600 hover:bg-blue-700 text-white animate-pulse"
+                                >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Installa l'App sul dispositivo
+                                </Button>
+                            )}
                         </CardContent>
                     </>
                 );

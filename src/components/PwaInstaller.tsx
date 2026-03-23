@@ -28,40 +28,39 @@ const PwaInstaller = () => {
             setInstallPrompt(e as BeforeInstallPromptEvent);
         };
 
-        const setupServiceWorker = () => {
-            if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production' && (window as any).Workbox) {
-                const wb = new (window as any).Workbox('/sw.js');
+        const setupServiceWorker = async () => {
+            if ('serviceWorker' in navigator) {
+                try {
+                    // Always try to register in development for easier testing if needed, 
+                    // or keep it production-only if that's the intention.
+                    // The user's original code had a check for Workbox on window.
+                    // If we use workbox-sw.js in sw.js, we should still be able to register it manually.
+                    
+                    const registration = await navigator.serviceWorker.register('/sw.js');
+                    console.log('Service Worker registered with scope:', registration.scope);
 
-                // This listener will fire when a new service worker has finished installing
-                // and is waiting to take control.
-                wb.addEventListener('waiting', (event: any) => {
-                    const promptUserToUpdate = () => {
-                         toast({
-                            title: "Aggiornamento Disponibile",
-                            description: "È disponibile una nuova versione dell'app. Clicca per aggiornare.",
-                            duration: Infinity,
-                            action: (
-                                <ToastAction altText="Aggiorna" onClick={() => {
-                                    // This will send a message to the waiting service worker to activate itself
-                                    wb.messageSkipWaiting();
-                                }}>
-                                    <RefreshCw className="mr-2 h-4 w-4" />
-                                    Aggiorna
-                                </ToastAction>
-                            ),
-                        });
-                    };
-                    promptUserToUpdate();
-                });
-                
-                // This listener will fire when the new service worker has taken control
-                wb.addEventListener('controlling', () => {
-                    // At this point, the old service worker has been replaced. We can now
-                    // safely reload the page to ensure all content is from the new version.
-                    window.location.reload();
-                });
-
-                wb.register();
+                    registration.addEventListener('updatefound', () => {
+                        const newWorker = registration.installing;
+                        if (newWorker) {
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    toast({
+                                        title: "Aggiornamento Disponibile",
+                                        description: "È disponibile una nuova versione dell'app. Ricarica per aggiornare.",
+                                        action: (
+                                            <ToastAction altText="Aggiorna" onClick={() => window.location.reload()}>
+                                                <RefreshCw className="mr-2 h-4 w-4" />
+                                                Aggiorna
+                                            </ToastAction>
+                                        ),
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch (error) {
+                    console.error('Service Worker registration failed:', error);
+                }
             }
         };
 
@@ -92,8 +91,8 @@ const PwaInstaller = () => {
         setInstallPrompt(null);
     };
 
-    if (!installPrompt) {
-        return null; // Do not render the install button if not applicable
+    if (!installPrompt || window.location.pathname === '/') {
+        return null; // Do not render if not applicable or if on the login page (handled there)
     }
 
     return (
