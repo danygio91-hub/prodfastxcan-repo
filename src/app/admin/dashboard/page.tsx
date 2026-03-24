@@ -4,7 +4,7 @@
 import React from 'react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2 } from 'lucide-react';
+import { ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Loader2, Bell, Activity } from 'lucide-react';
 import DashboardItem from '@/components/dashboard/DashboardItem';
 import { checkAttendanceDeclared } from '../attendance-calendar/actions';
 import { DailyAttendanceModal } from '@/components/dashboard/DailyAttendanceModal';
@@ -18,12 +18,14 @@ import Link from 'next/link';
 const navItems = [
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', description: 'Importa, visualizza e gestisci le commesse.', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Gestione Materie Prime', description: 'Gestisci l\'anagrafica e gli impegni delle materie prime.', icon: Boxes },
+  { href: '/admin/reorder-alerts', label: 'Alert Riordino Scorte', description: 'Visualizza i suggerimenti di ordine basati sulla produzione.', icon: Bell },
   { href: '/admin/purchase-orders', label: 'Ordini Fornitore', description: 'Monitora gli ordini di materiale in arrivo dai fornitori.', icon: Truck },
   { href: '/admin/material-import', label: 'Carico/Scarico da File', description: 'Importa massivamente carichi o scarichi di materiale da un file Excel.', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', description: 'Visualizza e gestisci i lotti delle materie prime.', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', description: 'Crea e gestisci la distinta base degli articoli.', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', description: 'Monitora le commesse in produzione.', icon: Briefcase },
   { href: '/admin/attendance-calendar', label: 'Calendario Presenze', description: 'Gestisci ferie, permessi, mutua e fermi macchina.', icon: CalendarDays },
+  { href: '/admin/resource-planning', label: 'Foglio Pianificazione Risorse', description: 'Bilancia la capacità dei reparti e gestisci i prestiti operatori.', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', description: 'Visualizza e gestisci i gruppi di commesse concatenate.', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', description: 'Visualizza e approva le registrazioni di inventario.', icon: Warehouse },
   { href: '/admin/reports', label: 'Report Produzione', description: 'Genera e visualizza i report di lavorazione.', icon: BarChart3 },

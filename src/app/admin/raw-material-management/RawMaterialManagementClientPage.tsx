@@ -117,6 +117,7 @@ const rawMaterialFormSchema = z.object({
   rapportoKgMt: z.coerce.number().optional().nullable(),
   minStockLevel: z.coerce.number().optional().nullable(),
   reorderLot: z.coerce.number().optional().nullable(),
+  leadTimeDays: z.coerce.number().optional().nullable(),
 });
 
 function ScrapsDialog({ isOpen, onOpenChange, material }: { isOpen: boolean, onOpenChange: (open: boolean) => void, material: RawMaterial | null }) {
@@ -223,7 +224,7 @@ export default function RawMaterialManagementClientPage({
 
   const form = useForm<z.infer<typeof rawMaterialFormSchema>>({
     resolver: zodResolver(rawMaterialFormSchema),
-    defaultValues: { type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null }
+    defaultValues: { type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null, leadTimeDays: null }
   });
 
   const watchedType = form.watch('type');
@@ -346,7 +347,7 @@ export default function RawMaterialManagementClientPage({
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="relative w-full sm:w-auto"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca..." className="pl-9 w-full sm:w-64" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
                     <Button asChild variant="outline" size="sm"><Link href="/admin/purchase-orders"><Truck className="mr-2 h-4 w-4" /> Ordini</Link></Button>
-                    <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
+                    <Button onClick={() => { setSelectedMaterial(null); form.reset({ type: globalSettings.rawMaterialTypes[0]?.id || '', unitOfMeasure: globalSettings.unitsOfMeasure[0] || 'n', minStockLevel: null, reorderLot: null, leadTimeDays: null }); setIsEditDialogOpen(true); }} size="sm"><PlusCircle className="mr-2 h-4 w-4" /> Aggiungi</Button>
                   </div>
                 </div>
               </CardHeader>
@@ -421,6 +422,9 @@ export default function RawMaterialManagementClientPage({
             <div className="grid grid-cols-2 gap-4">
                <FormField control={form.control} name="minStockLevel" render={({ field }) => (<FormItem><FormLabel>Sottoscorta</FormLabel><FormControl><Input type="number" step="any" placeholder="Soglia allarme" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
                <FormField control={form.control} name="reorderLot" render={({ field }) => (<FormItem><FormLabel>Lotto Riordino</FormLabel><FormControl><Input type="number" step="any" placeholder={`${watchedUOM.toUpperCase()} per ordine`} {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <FormField control={form.control} name="leadTimeDays" render={({ field }) => (<FormItem><FormLabel>Tempo Approvvigionamento (gg)</FormLabel><FormControl><Input type="number" step="any" placeholder="Giorni necessari" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
             </div>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>Annulla</Button><Button type="submit" disabled={isPending}>{isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />} Salva</Button></DialogFooter>
           </form></Form>

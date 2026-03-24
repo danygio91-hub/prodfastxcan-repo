@@ -6,10 +6,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays } from 'lucide-react';
+import { LogOut, RefreshCw, LayoutDashboard, ListChecks, Briefcase, BarChart3, Settings, Building2, Boxes, ShieldAlert, Timer, Combine, ClipboardList, Warehouse, Package, Upload, Truck, CalendarDays, Bell, Activity } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useActiveJob } from '@/contexts/ActiveJobProvider';
 import { useToast } from '@/hooks/use-toast';
+import { getReorderAlerts } from '@/app/admin/raw-material-management/actions';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,12 +32,14 @@ const adminNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/data-management', label: 'Gestione Dati Commesse', icon: ListChecks },
   { href: '/admin/raw-material-management', label: 'Materie Prime', icon: Boxes },
+  { href: '/admin/reorder-alerts', label: 'Alert Riordino', icon: Bell },
   { href: '/admin/purchase-orders', label: 'Ordini Fornitore', icon: Truck },
   { href: '/admin/material-import', label: 'Carico/Scarico da File', icon: Upload },
   { href: '/admin/batch-management', label: 'Gestione Lotti', icon: Package },
   { href: '/admin/article-management', label: 'Anagrafica Articoli', icon: ClipboardList },
   { href: '/admin/production-console', label: 'Console Produzione', icon: Briefcase },
   { href: '/admin/attendance-calendar', label: 'Calendario Presenze', icon: CalendarDays },
+  { href: '/admin/resource-planning', label: 'Pianificazione Risorse', icon: Activity },
   { href: '/admin/work-group-management', label: 'Gruppi Commesse', icon: Combine },
   { href: '/admin/inventory-management', label: 'Inventari', icon: Warehouse },
   { href: '/admin/reports', label: 'Report', icon: BarChart3 },
@@ -73,7 +76,17 @@ export default function Header() {
   
   const operatorName = operator ? operator.nome : null;
   const isAdmin = operator?.role === 'admin';
+  const [hasAlerts, setHasAlerts] = React.useState(false);
+  
   const isAdminPage = pathname.startsWith('/admin');
+
+  React.useEffect(() => {
+    if (isAdminPage) {
+      getReorderAlerts().then((alerts: any[]) => {
+        setHasAlerts(alerts.length > 0);
+      }).catch((err: any) => console.error("Error fetching alerts for header:", err));
+    }
+  }, [isAdminPage, pathname]);
 
   const avatarName = operator ? operator.nome : 'Operatore';
   const displayInitials = getInitials(avatarName);
@@ -97,6 +110,7 @@ export default function Header() {
                 <div className="flex items-center justify-center p-2 gap-2 flex-wrap">
                 {adminNavItems.map((item) => {
                     const isActive = pathname.startsWith(item.href);
+                    const showDot = item.icon === Bell && hasAlerts;
                     return (
                     <Tooltip key={item.href}>
                         <TooltipTrigger asChild>
@@ -105,12 +119,18 @@ export default function Header() {
                             variant={isActive ? 'default' : 'ghost'}
                             size="icon"
                             className={cn(
-                                "h-10 w-10",
+                                "h-10 w-10 relative",
                                 !isActive && "text-muted-foreground hover:bg-muted/50"
                             )}
                             aria-label={item.label}
                             >
                             <item.icon className="h-5 w-5" />
+                            {showDot && (
+                              <span className="absolute top-2 right-2 flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-destructive"></span>
+                              </span>
+                            )}
                             </Button>
                         </Link>
                         </TooltipTrigger>

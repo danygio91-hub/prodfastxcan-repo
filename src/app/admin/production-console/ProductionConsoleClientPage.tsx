@@ -41,11 +41,12 @@ import {
   CalendarDays,
   Clock
 } from 'lucide-react';
-import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig } from '@/lib/mock-data';
+import type { JobOrder, JobPhase, Operator, WorkGroup, RawMaterial, WorkingHoursConfig, OperatorAssignment, Article } from '@/lib/mock-data';
 import type { OverallStatus } from '@/lib/types';
 import JobOrderCard from '@/components/production-console/JobOrderCard';
 import WorkGroupCard from '@/components/production-console/WorkGroupCard';
 import GanttBoard from '@/components/production-console/GanttBoard';
+import { getOperatorAssignments } from '@/app/admin/resource-planning/actions';
 import { useToast } from '@/hooks/use-toast';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -83,17 +84,18 @@ import {
   revertCompletion, 
   reportMaterialMissing, 
   resolveMaterialMissing, 
-  getProductionTimeAnalysisMap, 
-  type ProductionTimeData, 
-  updateJobDeliveryDate 
+  updateJobDeliveryDate,
+  getProductionTimeAnalysisMap,
+  type ProductionTimeData
 } from '@/app/admin/production-console/actions';
+import { getProductionSettings, type ProductionSettings } from '@/app/admin/production-settings/actions';
 import { getOverallStatus } from '@/lib/types';
 import { dissolveWorkGroup } from '@/app/admin/work-group-management/actions';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { format, isSameDay, isPast, parseISO, startOfWeek, endOfWeek, getWeek, isValid } from 'date-fns';
+import { format, isSameDay, isPast, parseISO, startOfWeek, endOfWeek, getWeek, isValid, addWeeks } from 'date-fns';
 import { it } from 'date-fns/locale';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -117,7 +119,10 @@ export default function ProductionConsoleClientPage() {
   const [workGroups, setWorkGroups] = useState<WorkGroup[]>([]);
   const [allOperators, setAllOperators] = useState<Operator[]>([]);
   const [allRawMaterials, setAllRawMaterials] = useState<RawMaterial[]>([]);
+  const [allArticles, setAllArticles] = useState<Article[]>([]);
+  const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
   const [workingHours, setWorkingHours] = useState<WorkingHoursConfig | null>(null);
+  const [settings, setSettings] = useState<ProductionSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [problemJob, setProblemJob] = useState<JobOrder | WorkGroup | null>(null);
@@ -176,6 +181,14 @@ export default function ProductionConsoleClientPage() {
     });
     onSnapshot(collection(db, "operators"), (snap) => setAllOperators(snap.docs.map(d => d.data() as Operator)));
     onSnapshot(collection(db, "rawMaterials"), (snap) => setAllRawMaterials(snap.docs.map(d => ({id: d.id, ...d.data()} as RawMaterial))));
+    onSnapshot(collection(db, "articles"), (snap) => setAllArticles(snap.docs.map(d => d.data() as Article)));
+    getProductionSettings().then(setSettings);
+    
+    // Fetch assignments for the current week or a reasonable range
+    const start = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
+    const end = format(addWeeks(parseISO(start), 4), 'yyyy-MM-dd'); // Fetch 4 weeks
+    getOperatorAssignments(start, end).then(setAssignments);
+
     return () => { unsubscribeJobs(); unsubscribeGroups(); };
   }, [toast]);
   
@@ -482,8 +495,14 @@ export default function ProductionConsoleClientPage() {
             )}
         </header>
 
-        {viewMode === 'gantt' ? (
-          <GanttBoard jobOrders={filteredItems as JobOrder[]} operators={allOperators} />
+        {viewMode === 'gantt' && settings ? (
+          <GanttBoard 
+            jobOrders={filteredItems as JobOrder[]} 
+            operators={allOperators} 
+            assignments={assignments} 
+            settings={settings}
+            articles={allArticles}
+          />
         ) : (
           <>
             <Card className="p-2 space-y-2">

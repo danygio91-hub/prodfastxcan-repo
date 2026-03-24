@@ -105,6 +105,7 @@ export async function saveRawMaterial(formData: FormData): Promise<{ success: bo
         rapportoKgMt: rawData.rapportoKgMt ? Number(rawData.rapportoKgMt) : null,
         minStockLevel: rawData.minStockLevel ? Number(rawData.minStockLevel) : null,
         reorderLot: rawData.reorderLot ? Number(rawData.reorderLot) : null,
+        leadTimeDays: rawData.leadTimeDays ? Number(rawData.leadTimeDays) : null,
     };
 
     if (id) {
@@ -471,4 +472,136 @@ export async function adjustRawMaterialStock(materialId: string, newStockUnits: 
     await materialRef.update(updateData);
     revalidatePath('/admin/raw-material-management');
     return { success: true, message: 'Stock aggiornato con successo.' };
+}
+
+export type ReorderAlert = {
+    materialId: string;
+    code: string;
+    description: string;
+    currentStock: number;
+    projectedStock: number;
+    minStockLevel: number;
+    reorderLot: number;
+    dateOfNeed: string;
+    deadlineDate: string;
+    suggestedQuantity: number;
+};
+
+export async function getReorderAlerts(): Promise<ReorderAlert[]> {
+    const [materialsSnap, jobsSnap, commitmentsSnap, articlesSnap] = await Promise.all([
+        adminDb.collection("rawMaterials").get(),
+        adminDb.collection("jobOrders").where("status", "in", ["planned", "production", "suspended", "paused"]).get(),
+        adminDb.collection('manualCommitments').where('status', '==', 'pending').get(),
+        adminDb.collection('articles').get(),
+    ]);
+
+    const materials = materialsSnap.docs.map(d => ({ ...d.data(), id: d.id } as RawMaterial));
+    const articlesMap = new Map();
+    articlesSnap.forEach(d => articlesMap.set(d.data().code.toLowerCase().trim(), d.data()));
+
+    const alerts: ReorderAlert[] = [];
+
+    const { subtractWorkingMinutes } = await import('@/lib/calendar-utils');
+
+    for (const mat of materials) {
+        if (!mat.minStockLevel || mat.minStockLevel <= 0) continue;
+
+        let currentBalance = mat.currentStockUnits || 0;
+        const normCode = mat.code.toLowerCase().trim();
+
+        // Collect all future consumption events
+        type ConsumptionEvent = { date: Date; qty: number; source: string };
+        const events: ConsumptionEvent[] = [];
+
+        jobsSnap.forEach(d => {
+            const job = d.data() as JobOrder;
+            (job.billOfMaterials || []).forEach(item => {
+                if (item.component.toLowerCase().trim() === normCode && item.status !== 'withdrawn') {
+                    const qty = calculateCommitmentQty(job.qta, item, mat);
+                    if (qty > 0) {
+                        events.push({ 
+                            date: job.dataConsegnaFinale ? new Date(job.dataConsegnaFinale) : new Date(), 
+                            qty, 
+                            source: `ODL ${job.ordinePF}` 
+                        });
+                    }
+                }
+            });
+        });
+
+        commitmentsSnap.forEach(d => {
+            const comm = d.data() as ManualCommitment;
+            const artCode = comm.articleCode.toLowerCase().trim();
+            const art = articlesMap.get(artCode);
+            
+            if (art && art.billOfMaterials) {
+                art.billOfMaterials.forEach((bomItem: any) => {
+                    if (bomItem.component.toLowerCase().trim() === normCode) {
+                        const qty = calculateCommitmentQty(comm.quantity, bomItem, mat);
+                        if (qty > 0) {
+                            events.push({ 
+                                date: new Date(comm.deliveryDate), 
+                                qty, 
+                                source: `Impegno manuale ${comm.jobOrderCode}` 
+                            });
+                        }
+                    }
+                });
+            } else if (artCode === normCode) {
+                events.push({ 
+                    date: new Date(comm.deliveryDate), 
+                    qty: comm.quantity, 
+                    source: `Impegno diretto ${comm.jobOrderCode}` 
+                });
+            }
+        });
+
+        // Sort events by date
+        events.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        // Check if current stock is already below threshold
+        if (currentBalance <= mat.minStockLevel) {
+            const leadTimeMins = (mat.leadTimeDays || 0) * 8 * 60; // 8h working day
+            const deadline = subtractWorkingMinutes(new Date(), leadTimeMins);
+            
+            alerts.push({
+                materialId: mat.id,
+                code: mat.code,
+                description: mat.description,
+                currentStock: currentBalance,
+                projectedStock: currentBalance,
+                minStockLevel: mat.minStockLevel,
+                reorderLot: mat.reorderLot || 0,
+                dateOfNeed: new Date().toISOString(),
+                deadlineDate: deadline.toISOString(),
+                suggestedQuantity: mat.reorderLot || (mat.minStockLevel - currentBalance + 1),
+            });
+            continue;
+        }
+
+        // Simulate stock depletion
+        for (const event of events) {
+            currentBalance -= event.qty;
+            if (currentBalance <= mat.minStockLevel) {
+                const leadTimeMins = (mat.leadTimeDays || 0) * 8 * 60;
+                const deadline = subtractWorkingMinutes(event.date, leadTimeMins);
+
+                alerts.push({
+                    materialId: mat.id,
+                    code: mat.code,
+                    description: mat.description,
+                    currentStock: mat.currentStockUnits || 0,
+                    projectedStock: currentBalance,
+                    minStockLevel: mat.minStockLevel,
+                    reorderLot: mat.reorderLot || 0,
+                    dateOfNeed: event.date.toISOString(),
+                    deadlineDate: deadline.toISOString(),
+                    suggestedQuantity: Math.max(mat.reorderLot || 0, mat.minStockLevel - currentBalance),
+                });
+                break; // Only the first alert for each material
+            }
+        }
+    }
+
+    return alerts.sort((a, b) => new Date(a.deadlineDate).getTime() - new Date(b.deadlineDate).getTime());
 }

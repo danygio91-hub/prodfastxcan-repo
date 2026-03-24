@@ -640,8 +640,14 @@ export default function WorkPhaseManagementClientPage() {
                           </div>
                           <div className="grid grid-cols-2 gap-2 rounded-lg border p-4">
                             {departments
-                              .filter(d => d.code !== 'N/D' && d.code !== 'Officina')
-                              .map((dept) => (
+                              .filter((d: Department) => {
+                                const phaseType = form.watch('type');
+                                if (phaseType === 'preparation') return d.macroAreas?.includes('PREPARAZIONE');
+                                if (phaseType === 'production') return d.macroAreas?.includes('PRODUZIONE');
+                                if (phaseType === 'quality' || phaseType === 'packaging') return d.macroAreas?.includes('QLTY_PACK');
+                                return false;
+                              })
+                              .map((dept: Department) => (
                                 <FormField
                                   key={dept.id}
                                   control={form.control}

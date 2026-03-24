@@ -48,7 +48,7 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
         });
         analysisMap.set(articleReport.articleCode, { 
             averageMinutesPerPiece: articleReport.averageMinutesPerPiece, 
-            isTimeCalculationReliable: report.some(r => r.jobs.some(j => j.isTimeCalculationReliable)), 
+            isTimeCalculationReliable: articleReport.jobs.some(j => j.isTimeCalculationReliable), 
             phases: phaseTimes 
         });
     }
@@ -379,4 +379,19 @@ export async function updateJobDeliveryDate(itemId: string, newDate: string, uid
     revalidatePath('/admin/production-console');
     return { success: true, message: "Data aggiornata." };
   } catch (error) { return { success: false, message: "Errore." }; }
+}
+export async function bulkUpdateJobOrders(jobs: JobOrder[], uid: string | undefined | null): Promise<{ success: boolean; message: string }> {
+  try {
+    await ensureAdmin(uid);
+    const batch = adminDb.batch();
+    jobs.forEach(job => {
+      const ref = adminDb.collection('jobOrders').doc(job.id);
+      batch.update(ref, { phases: job.phases });
+    });
+    await batch.commit();
+    revalidatePath('/admin/production-console');
+    return { success: true, message: `${jobs.length} commesse aggiornate correttamente.` };
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : "Errore nell'aggiornamento massivo." };
+  }
 }

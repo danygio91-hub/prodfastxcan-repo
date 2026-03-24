@@ -1,8 +1,8 @@
-import { JobOrder, Operator, JobPhase, Article } from './mock-data';
+import { JobOrder, Operator, JobPhase, Article, OperatorAssignment } from './mock-data';
 import { ProductionSettings } from '@/app/admin/production-settings/actions';
 import { subtractWorkingMinutes, snapToPreviousWorkingTime } from './calendar-utils';
 import { estimatePhaseTime } from './gantt-utils';
-import { isBefore, isAfter, max, min } from 'date-fns';
+import { isBefore, isAfter, max, min, format } from 'date-fns';
 
 export interface TimeSlot {
   start: Date;
@@ -52,29 +52,11 @@ export class OperatorCalendar {
       const previousSlot = sortedSlots.find(s => s.end.getTime() <= currentEnd.getTime());
       
       // Calcoliamo la data di inizio teorica se non ci fossero ostacoli 
-      // (ma limitata al blocco lavorativo corrente gestito da subtractWorkingMinutes)
-      // Attenzione: subtractWorkingMinutes restituisce la start date sottratti i minuti.
-      // Se c'è un prevSlot molto vicino, non possiamo usare tutti i remainingMinutes.
-      
-      // Approccio passo-passo (minuto per minuto o per blocchi per semplicità)
-      // Per ottimizzare, troviamo la start date come se non ci fossero job
       const idealStart = subtractWorkingMinutes(currentEnd, remainingMinutes);
       
       if (previousSlot && previousSlot.end.getTime() > idealStart.getTime()) {
-        // L'ostacolo interferisce con il nostro blocco ideale.
-        // Calcoliamo quanti minuti lavorativi effettivi ci sono tra currentEnd e previousSlot.end
-        // Poiché è complicato calcolare i minuti esatti inversi saltando i weekend senza una funzione apposita, 
-        // usiamo un trucco: scendiamo esattamente alla fine dell'ostacolo.
-        // Ma non sappiamo quanti minuti lavorativi sono. 
-        // Facciamo il calcolo inverso:
-        // C'è un gap lavorativo tra previousSlot.end e currentEnd.
-        // Lo riempiamo!
-        
         let testStart = currentEnd;
         let iterMinutes = 0;
-        // Misuriamo quanti minuti lavorativi effettivi ha questo gap 
-        // spostando indietro di 1 minuto alla volta (non efficientissimo, ma sicuro per i test).
-        // (Ottimizzazione futura: usare math puro).
         let gapDuration = 0;
         let safeStart = currentEnd;
         while (testStart.getTime() > previousSlot.end.getTime() && iterMinutes < remainingMinutes) {
@@ -116,11 +98,13 @@ export class OperatorCalendar {
 
 export class GanttScheduler {
   operators: Operator[];
+  assignments: OperatorAssignment[];
   calendars: Map<string, OperatorCalendar> = new Map();
   settings: ProductionSettings;
 
-  constructor(operators: Operator[], settings: ProductionSettings) {
+  constructor(operators: Operator[], assignments: OperatorAssignment[], settings: ProductionSettings) {
     this.operators = operators;
+    this.assignments = assignments;
     this.settings = settings;
     operators.forEach(op => {
       this.calendars.set(op.id, new OperatorCalendar(op.id));
@@ -144,21 +128,30 @@ export class GanttScheduler {
     for (let phase of phases) {
       if (phase.status === 'completed' || phase.status === 'skipped') continue;
 
-      // 1. Trova il tempo stimato per questa fase
-      // Dato che executeTask non supporta chiamate asincrone complesse in map, mockiamo il teorico temporaneamente
       const theo = article?.phaseTimes?.[phase.name]?.expectedMinutesPerPiece || 10;
-      // Il calcolo preciso `estimatePhaseTime` richiede DB, lo assumeremo già passato o calcolato
-      const estimatedMinutesPerPiece = theo; // Assunzione per ora
-      let totalRequiredMinutes = estimatedMinutesPerPiece * job.qta;
+      let totalRequiredMinutes = theo * job.qta;
       
-      // Applica Capacity Buffer globale
       const buffer = this.settings.capacityBufferPercent || 100;
       totalRequiredMinutes = totalRequiredMinutes / (buffer / 100);
 
-      // 2. Trova gli operatori compatibili con questa fase (Hard Skill / Soft Skill)
-      const capableOperators = this.operators.filter(op => 
-        op.skills?.some(s => s.phaseId === phase.name) // Use phase name or ID, assumiamo ID
-      );
+      // 2. Trova gli operatori compatibili basandosi su Skills E Assegnazione al Reparto ODL
+      const capableOperators = this.operators.filter(op => {
+        // Skill check: Sa fare questa fase?
+        const hasSkill = op.skills?.some(s => s.phaseId === phase.name);
+        if (!hasSkill) return false;
+
+        // Assignment check: E' assegnato al reparto di questo ODL?
+        const dateStr = format(currentDeadline, 'yyyy-MM-dd');
+        const activeAssign = this.assignments.find(a => 
+            a.operatorId === op.id && 
+            dateStr >= a.startDate && 
+            dateStr <= a.endDate
+        );
+
+        const currentDept = activeAssign ? activeAssign.departmentCode : (op.reparto && op.reparto.length > 0 ? op.reparto[0] : null);
+        
+        return currentDept === job.department;
+      });
 
       if (capableOperators.length === 0) {
         // Nessun operatore capace! Segna un alert sulla fase.

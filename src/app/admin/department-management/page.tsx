@@ -22,10 +22,16 @@ import { ListTodo, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+
 const departmentSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(1, "Il codice è obbligatorio.").max(10, "Il codice non può superare i 10 caratteri."),
   name: z.string().min(3, "Il nome deve avere almeno 3 caratteri."),
+  macroAreas: z.array(z.enum(['PREPARAZIONE', 'PRODUZIONE', 'QLTY_PACK'])).min(1, "Seleziona almeno una macro area."),
+  dependsOnPreparation: z.boolean().default(false),
 });
 
 type DepartmentFormValues = z.infer<typeof departmentSchema>;
@@ -41,7 +47,13 @@ export default function DepartmentManagementPage() {
 
   const form = useForm<DepartmentFormValues>({
     resolver: zodResolver(departmentSchema),
-    defaultValues: { id: undefined, code: "", name: "" },
+    defaultValues: { 
+      id: undefined, 
+      code: "", 
+      name: "", 
+      macroAreas: ['PRODUZIONE'], 
+      dependsOnPreparation: false 
+    },
   });
 
   const fetchData = async () => {
@@ -58,9 +70,21 @@ export default function DepartmentManagementPage() {
   const handleOpenDialog = (department: Department | null = null) => {
     setEditingDepartment(department);
     if (department) {
-      form.reset(department);
+      form.reset({
+        id: department.id,
+        code: department.code,
+        name: department.name,
+        macroAreas: department.macroAreas || [],
+        dependsOnPreparation: !!department.dependsOnPreparation
+      });
     } else {
-      form.reset({ id: undefined, code: "", name: "" });
+      form.reset({ 
+        id: undefined, 
+        code: "", 
+        name: "", 
+        macroAreas: ['PRODUZIONE'], 
+        dependsOnPreparation: false 
+      });
     }
     setIsDialogOpen(true);
   };
@@ -73,9 +97,11 @@ export default function DepartmentManagementPage() {
 
   const onSubmit = async (values: DepartmentFormValues) => {
     const formData = new FormData();
-    Object.entries(values).forEach(([key, value]) => {
-      if (value) formData.append(key, value);
-    });
+    formData.append('id', values.id || "");
+    formData.append('code', values.code);
+    formData.append('name', values.name);
+    values.macroAreas.forEach(area => formData.append('macroAreas', area));
+    if (values.dependsOnPreparation) formData.append('dependsOnPreparation', 'on');
 
     setIsPending(true);
     const result = await saveDepartment(formData);
@@ -117,7 +143,7 @@ export default function DepartmentManagementPage() {
 
   const renderLoading = () => (
       <TableRow>
-          <TableCell colSpan={4} className="h-24 text-center">
+          <TableCell colSpan={5} className="h-24 text-center">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin" />
                   <span>Caricamento reparti...</span>
@@ -190,6 +216,8 @@ export default function DepartmentManagementPage() {
                       </TableHead>
                       <TableHead>Codice</TableHead>
                       <TableHead>Nome Reparto</TableHead>
+                      <TableHead>Macro Area</TableHead>
+                      <TableHead>Dip. Prep.</TableHead>
                       <TableHead className="text-right">Azioni</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -206,6 +234,22 @@ export default function DepartmentManagementPage() {
                           </TableCell>
                           <TableCell className="font-mono">{dept.code}</TableCell>
                           <TableCell className="font-medium">{dept.name}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {dept.macroAreas?.map((area: string) => (
+                                <Badge key={area} variant={area === 'PRODUZIONE' ? 'default' : area === 'PREPARAZIONE' ? 'secondary' : 'outline'}>
+                                  {area}
+                                </Badge>
+                              ))}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {dept.dependsOnPreparation ? (
+                              <Badge variant="warning">SI</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right">
                             <Button variant="outline" size="icon" onClick={() => handleOpenDialog(dept)}>
                               <Edit className="h-4 w-4" />
@@ -215,7 +259,7 @@ export default function DepartmentManagementPage() {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center h-24">Nessun reparto trovato.</TableCell>
+                        <TableCell colSpan={6} className="text-center h-24">Nessun reparto trovato.</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -248,6 +292,66 @@ export default function DepartmentManagementPage() {
                     <FormMessage />
                   </FormItem>
                 )} />
+
+                <FormItem>
+                  <FormLabel>Macro Aree Pianificazione</FormLabel>
+                  <div className="grid grid-cols-2 gap-2 rounded-lg border p-4 bg-muted/20">
+                    {['PREPARAZIONE', 'PRODUZIONE', 'QLTY_PACK'].map((area) => (
+                      <FormField
+                        key={area}
+                        control={form.control}
+                        name="macroAreas"
+                        render={({ field }) => {
+                          const isChecked = field.value?.includes(area as any);
+                          return (
+                            <FormItem key={area} className="flex flex-row items-center space-x-3 space-y-0">
+                              <FormControl>
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    const currentValues = field.value || [];
+                                    const nextValues = checked
+                                      ? [...currentValues, area as any]
+                                      : currentValues.filter((v) => v !== area);
+                                    field.onChange(nextValues);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormLabel className="text-xs font-medium cursor-pointer uppercase">
+                                {area === 'QLTY_PACK' ? 'QUALITÀ & PACK' : area}
+                              </FormLabel>
+                            </FormItem>
+                          );
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+
+                {!(form.watch('macroAreas') || []).includes('PREPARAZIONE') && (
+                  <FormField
+                    control={form.control}
+                    name="dependsOnPreparation"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm text-sm">
+                        <div className="space-y-0.5">
+                          <FormLabel>Dipende da Preparazione</FormLabel>
+                          <div className="text-[0.7rem] text-muted-foreground">
+                            Se attivo, la produzione non può iniziare finché la preparazione non è conclusa.
+                          </div>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                )}
+
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={handleCloseDialog} disabled={isPending}>Annulla</Button>
                   <Button type="submit" disabled={isPending}>

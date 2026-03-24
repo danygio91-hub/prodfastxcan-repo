@@ -4,7 +4,7 @@
 import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
-import type { Department } from '@/lib/mock-data';
+import type { Department, MacroArea } from '@/lib/mock-data';
 
 export async function getDepartments(): Promise<Department[]> {
   const snapshot = await adminDb.collection("departments").get();
@@ -19,9 +19,15 @@ export async function saveDepartment(formData: FormData): Promise<{ success: boo
     const id = formData.get('id') as string | null;
     const code = formData.get('code') as string;
     const name = formData.get('name') as string;
+    const macroAreas = formData.getAll('macroAreas') as MacroArea[];
+    const dependsOnPreparation = formData.get('dependsOnPreparation') === 'on';
     
     if (!code || !name) {
         return { success: false, message: 'Codice e Nome sono obbligatori.' };
+    }
+
+    if (macroAreas.length === 0) {
+        macroAreas.push('PRODUZIONE');
     }
 
     const docId = id || code; // Use code as ID if new
@@ -34,11 +40,18 @@ export async function saveDepartment(formData: FormData): Promise<{ success: boo
         }
     }
 
-    const data: Department = { id: docId, code, name };
+    const data: Department = { 
+      id: docId, 
+      code, 
+      name, 
+      macroAreas, 
+      dependsOnPreparation 
+    };
     await docRef.set(data, { merge: true });
 
     revalidatePath('/admin/department-management');
     revalidatePath('/admin/operator-management');
+    revalidatePath('/admin/resource-planning');
 
     return { success: true, message: 'Reparto salvato con successo.' };
   } catch (error) {

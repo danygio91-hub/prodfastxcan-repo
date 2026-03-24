@@ -255,13 +255,29 @@ export type ProductionTimeAnalysisReport = {
 };
 
 export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeAnalysisReport[]> {
-    const jobsSnap = await adminDb.collection("jobOrders").where("status", "in", ["completed", "production", "suspended", "paused"]).get();
+    // Optimization: only consider the last 100 completed/in-production jobs for average calculation
+    // to keep performance stable even with large histories.
+    const jobsSnap = await adminDb.collection("jobOrders")
+        .where("status", "in", ["completed", "production", "suspended", "paused"])
+        .orderBy("deliveryDate", "desc")
+        .limit(100)
+        .get();
     const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
     const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
     const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
-    const tSnap = await adminDb.collection("workPhaseTemplates").get();
+    
+    // Fetch necessary templates and groups upfront to avoid N+1 queries
+    const [tSnap, gSnap] = await Promise.all([
+        adminDb.collection("workPhaseTemplates").get(),
+        adminDb.collection("workGroups").get()
+    ]);
+    
     const typeMap = new Map<string, WorkPhaseTemplate['type']>();
     tSnap.forEach(d => typeMap.set(d.data().name, d.data().type));
+    
+    const groupsMap = new Map<string, WorkGroup>();
+    gSnap.forEach(d => groupsMap.set(d.id, convertTimestampsToDates(d.data()) as WorkGroup));
+    
     const analysis: { [code: string]: any } = {};
     const phaseData: { [code: string]: any } = {};
 
@@ -269,8 +285,37 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
         const job = convertTimestampsToDates(d.data()) as JobOrder;
         if (!job.details || job.qta <= 0) continue;
         const code = job.details;
-        if (!analysis[code]) { analysis[code] = { articleCode: code, totalJobs: 0, totalQuantity: 0, averageMinutesPerPiece: 0, averagePhaseTimes: [], jobs: [] }; phaseData[code] = {}; }
-        const { totalMs, isReliable, phasesWithDetails } = await getJobTimeData(job);
+        
+        if (!analysis[code]) { 
+            analysis[code] = { articleCode: code, totalJobs: 0, totalQuantity: 0, averageMinutesPerPiece: 0, averagePhaseTimes: [], jobs: [] }; 
+            phaseData[code] = {}; 
+        }
+
+        // Optimized job time calculation (avoiding separate await calls)
+        let totalMs = 0;
+        let isReliable = true;
+        let phasesWithDetails: any[] = [];
+        const calculateMs = (p: JobPhase) => (p.workPeriods || []).reduce((acc, wp) => wp.start && wp.end ? acc + (new Date(wp.end).getTime() - new Date(wp.start).getTime()) : acc, 0);
+
+        if (job.workGroupId && groupsMap.has(job.workGroupId)) {
+            const group = groupsMap.get(job.workGroupId)!;
+            isReliable = false;
+            phasesWithDetails = (group.phases || []).map(gp => {
+                const groupMs = calculateMs(gp);
+                const proportionalMs = group.totalQuantity > 0 ? (groupMs / group.totalQuantity) * job.qta : 0;
+                if (gp.tracksTime !== false) totalMs += proportionalMs;
+                return { phase: gp, timeMs: proportionalMs };
+            });
+        } else {
+            const tracking = (job.phases || []).filter(p => p.tracksTime !== false);
+            isReliable = tracking.length > 0 && tracking.every(p => p.status === 'completed') && !tracking.some(p => p.forced || (calculateMs(p) > 0 && calculateMs(p) < MIN_MS));
+            phasesWithDetails = (job.phases || []).map(p => {
+                const t = calculateMs(p);
+                if (p.tracksTime !== false) totalMs += t;
+                return { phase: p, timeMs: t };
+            });
+        }
+
         const pDetails = phasesWithDetails.filter(p => p.phase.tracksTime !== false).map(p => {
             const min = p.timeMs / 60000;
             if (p.phase.status === 'completed' && !p.phase.forced && p.timeMs >= MIN_MS) {
@@ -280,13 +325,29 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
             }
             return { name: p.phase.name, totalTimeMinutes: min, minutesPerPiece: min / job.qta };
         });
-        analysis[code].totalJobs++; analysis[code].totalQuantity += job.qta;
-        analysis[code].jobs.push({ id: job.ordinePF, cliente: job.cliente, qta: job.qta, totalTimeMinutes: totalMs / 60000, minutesPerPiece: (totalMs / 60000) / job.qta, isTimeCalculationReliable: isReliable, phases: pDetails });
+
+        analysis[code].totalJobs++; 
+        analysis[code].totalQuantity += job.qta;
+        analysis[code].jobs.push({ 
+            id: job.ordinePF, 
+            cliente: job.cliente, 
+            qta: job.qta, 
+            totalTimeMinutes: totalMs / 60000, 
+            minutesPerPiece: job.qta > 0 ? (totalMs / 60000) / job.qta : 0, 
+            isTimeCalculationReliable: isReliable, 
+            phases: pDetails 
+        });
     }
+
     Object.values(analysis).forEach((r:any) => {
-        const reliable = r.jobs.filter((j:any) => j.isTimeCalculationReliable);
-        if (reliable.length > 0) r.averageMinutesPerPiece = reliable.reduce((s:any, j:any) => s + j.totalTimeMinutes, 0) / reliable.reduce((s:any, j:any) => s + j.qta, 0);
-        r.averagePhaseTimes = Object.entries(phaseData[r.articleCode]).map(([name, d]:any) => ({ name, averageMinutesPerPiece: d.totalMinutes / d.totalQuantity, type: d.type })).sort((a:any, b:any) => a.name.localeCompare(b.name));
+        const reliableJobs = r.jobs.filter((j:any) => j.isTimeCalculationReliable);
+        if (reliableJobs.length > 0) {
+            const totalReliableMs = reliableJobs.reduce((s:number, j:any) => s + (j.totalTimeMinutes * 60000), 0);
+            const totalReliableQty = reliableJobs.reduce((s:number, j:any) => s + j.qta, 0);
+            r.averageMinutesPerPiece = totalReliableQty > 0 ? (totalReliableMs / 60000) / totalReliableQty : 0;
+        }
+        r.averagePhaseTimes = Object.entries(phaseData[r.articleCode]).map(([name, d]:any) => ({ name, averageMinutesPerPiece: d.totalQuantity > 0 ? d.totalMinutes / d.totalQuantity : 0, type: d.type })).sort((a:any, b:any) => a.name.localeCompare(b.name));
     });
+
     return Object.values(analysis).sort((a:any, b:any) => a.articleCode.localeCompare(b.articleCode));
 }

@@ -1,11 +1,13 @@
-// --- Type Definitions ---
 export type UnitOfMeasure = 'n' | 'mt' | 'kg';
 export type PhaseType = 'preparation' | 'production' | 'quality' | 'packaging';
+export type MacroArea = 'PREPARAZIONE' | 'PRODUZIONE' | 'QLTY_PACK';
 
 export interface Department {
   id: string;
   code: string;
   name: string;
+  macroAreas: MacroArea[];
+  dependsOnPreparation?: boolean;
 }
 
 export interface WorkPeriod {
@@ -126,6 +128,17 @@ export interface Operator {
   skills?: OperatorSkill[]; // Matrice Competenze associata
 }
 
+export interface OperatorAssignment {
+  id: string;
+  operatorId: string;
+  departmentCode: string; // Il reparto a cui l'operatore è assegnato/prestato
+  startDate: string;      // ISO Date
+  endDate: string;
+  type: 'base' | 'loan';   // 'base' = normale, 'loan' = prestito
+  notes?: string;
+  createdAt?: string;
+}
+
 export interface WorkPhaseTemplate {
   id: string;
   name: string;
@@ -195,6 +208,7 @@ export interface RawMaterial {
   stock?: number; // Derived field for display, calculated from batches
   minStockLevel?: number; // Sottoscorta
   reorderLot?: number; // Quantità fissa / Lotto economico di riordino
+  leadTimeDays?: number; // Tempo di approvvigionamento (giorni)
 }
 
 export interface BillOfMaterialsItem {
@@ -421,12 +435,12 @@ export const initialOperators: Operator[] = [
   { id: 'op-4', nome: 'Paola', reparto: ['MAG'], stato: 'inattivo', role: 'operator', privacySigned: false, nome_normalized: 'paola', isReal: true },
 ];
 export const initialDepartments: Department[] = [
-  { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici' },
-  { id: 'CG', code: 'CG', name: 'Controllo Qualità' },
-  { id: 'BF', code: 'BF', name: 'Burattatura e Finitura' },
-  { id: 'MAG', code: 'MAG', name: 'Magazzino' },
-  { id: 'Collaudo', code: 'Collaudo', name: 'Collaudo e Test Funzionali' },
-  { id: 'Officina', code: 'Officina', name: 'Officina' },
+  { id: 'CP', code: 'CP', name: 'Assemblaggio Componenti Elettronici', macroAreas: ['PRODUZIONE'], dependsOnPreparation: true },
+  { id: 'CG', code: 'CG', name: 'Controllo Qualità', macroAreas: ['QLTY_PACK'] },
+  { id: 'BF', code: 'BF', name: 'Burattatura e Finitura', macroAreas: ['PRODUZIONE'], dependsOnPreparation: true },
+  { id: 'MAG', code: 'MAG', name: 'Magazzino', macroAreas: ['PREPARAZIONE', 'QLTY_PACK'] },
+  { id: 'Collaudo', code: 'Collaudo', name: 'Collaudo e Test Funzionali', macroAreas: ['QLTY_PACK'] },
+  { id: 'Officina', code: 'Officina', name: 'Officina', macroAreas: ['PRODUZIONE'] },
 ];
 export const initialWorkPhaseTemplates: WorkPhaseTemplate[] = [
   { id: 'phase-template-1', name: 'Taglio Treccia/Corda', description: 'Raccolta e preparazione di treccia e corda.', departmentCodes: ['MAG'], sequence: -3, type: 'preparation', tracksTime: true, requiresMaterialScan: true, requiresMaterialSearch: false, allowedMaterialTypes: ['BOB', 'PF3V0'] },

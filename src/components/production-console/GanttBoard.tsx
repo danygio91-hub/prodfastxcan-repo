@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import type { JobOrder, Operator } from '@/lib/mock-data';
+import type { JobOrder, Operator, OperatorAssignment, Article } from '@/lib/mock-data';
+import { type ProductionSettings } from '@/app/admin/production-settings/actions';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { startOfWeek, addDays, addWeeks, addMonths, differenceInMinutes, differenceInDays, format, startOfDay } from 'date-fns';
@@ -11,14 +12,60 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Loader2, RefreshCcw, Save } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthProvider';
+import { useToast } from '@/hooks/use-toast';
+import { bulkUpdateJobOrders } from '@/app/admin/production-console/actions';
 
 interface GanttBoardProps {
   jobOrders: JobOrder[];
   operators: Operator[];
+  assignments: OperatorAssignment[];
+  settings: ProductionSettings;
+  articles: Article[];
 }
 
-export default function GanttBoard({ jobOrders, operators }: GanttBoardProps) {
+export default function GanttBoard({ jobOrders, operators, assignments, settings, articles }: GanttBoardProps) {
   const [viewMode, setViewMode] = useState<'daily'|'weekly'|'monthly'>('weekly');
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [localJobs, setLocalJobs] = useState<JobOrder[]>(jobOrders);
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    setLocalJobs(jobOrders);
+  }, [jobOrders]);
+
+  const handleRecalculate = async () => {
+    setIsCalculating(true);
+    try {
+        const scheduler = new GanttScheduler(operators, assignments, settings);
+        const updatedJobs = await Promise.all(localJobs.map(async (job) => {
+            // Only reschedule if not completed
+            const isCompleted = (job.phases || []).every(p => p.status === 'completed');
+            if (isCompleted) return job;
+            
+            const result = await scheduler.scheduleJobBackward(job, articles);
+            return result.job;
+        }));
+        setLocalJobs(updatedJobs);
+        toast({ title: "Schedulazione Ricalcolata", description: "Le date sono state aggiornate in base alla capacità attuale. Clicca 'Salva' per confermare." });
+    } catch (e) {
+        toast({ variant: "destructive", title: "Errore Schedulazione", description: e instanceof Error ? e.message : "Errore sconosciuto" });
+    } finally {
+        setIsCalculating(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    const res = await bulkUpdateJobOrders(localJobs, user.uid);
+    setIsSaving(false);
+    toast({ title: res.success ? "Salvataggio completato" : "Errore", description: res.message, variant: res.success ? "default" : "destructive" });
+  };
   
   // Calculate timeline boundaries
   const timelineStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
@@ -40,7 +87,7 @@ export default function GanttBoard({ jobOrders, operators }: GanttBoardProps) {
       
       operators.forEach(op => map.set(op.id, []));
       
-      jobOrders.forEach(job => {
+      localJobs.forEach(job => {
           (job.phases || []).forEach(phase => {
               (phase.workPeriods || []).forEach(wp => {
                   if (wp.operatorId && map.has(wp.operatorId) && wp.start && wp.end) {
@@ -77,7 +124,16 @@ export default function GanttBoard({ jobOrders, operators }: GanttBoardProps) {
         <div>
           <CardTitle className="text-xl">Pianificazione Gantt a Capacità Finita</CardTitle>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+            <Button variant="outline" size="sm" onClick={handleRecalculate} disabled={isCalculating} className="bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-900">
+                {isCalculating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
+                Ricalcola
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={isSaving || isCalculating} className="bg-green-600 hover:bg-green-700">
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Salva
+            </Button>
+            <div className="w-px h-6 bg-border mx-2" />
             <button onClick={() => setViewMode('daily')} className={`px-3 py-1 rounded text-sm transition-colors ${viewMode === 'daily'? 'bg-primary text-primary-foreground shadow' : 'bg-muted hover:bg-muted/80'}`}>Giornaliera</button>
             <button onClick={() => setViewMode('weekly')} className={`px-3 py-1 rounded text-sm transition-colors ${viewMode === 'weekly'? 'bg-primary text-primary-foreground shadow' : 'bg-muted hover:bg-muted/80'}`}>Settimanale</button>
             <button onClick={() => setViewMode('monthly')} className={`px-3 py-1 rounded text-sm transition-colors ${viewMode === 'monthly'? 'bg-primary text-primary-foreground shadow' : 'bg-muted hover:bg-muted/80'}`}>Mensile</button>
