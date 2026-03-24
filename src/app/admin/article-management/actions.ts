@@ -263,3 +263,8 @@ export async function saveArticleStandardTimes(articleId: string, data: Partial<
         return { success: false, message: 'Errore durante il salvataggio.' };
     }
 }
+
+export async function getWorkCycles(): Promise<WorkCycle[]> {
+    const snap = await adminDb.collection("workCycles").orderBy("name").get();
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as WorkCycle));
+}

@@ -23,14 +23,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PlusCircle, Trash2, Save, Loader2, Check } from 'lucide-react';
 
-import type { Article, RawMaterial } from '@/lib/mock-data';
-import { saveArticle } from './actions';
+import type { Article, RawMaterial, WorkCycle } from '@/lib/mock-data';
+import { saveArticle, getWorkCycles } from './actions';
 import { getRawMaterials, getMaterialsByCodes } from '../raw-material-management/actions';
 
 const bomItemSchema = z.object({
-  component: z.string().min(1, "Selezionare un componente valido."),
+  component: z.string().optional(),
   unit: z.enum(['n', 'mt', 'kg']),
-  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo."),
+  quantity: z.coerce.number().positive("La quantità deve essere un numero positivo.").default(1),
   lunghezzaTaglioMm: z.coerce.number().optional(),
   note: z.string().optional(),
 });
@@ -40,6 +40,8 @@ const articleSchema = z.object({
   id: z.string().optional(),
   code: z.string().min(3, "Il codice articolo è obbligatorio."),
   billOfMaterials: z.array(bomItemSchema).optional().default([]),
+  workCycleId: z.string().optional(),
+  secondaryWorkCycleId: z.string().optional(),
 });
 
 type ArticleFormValues = z.infer<typeof articleSchema>;
@@ -60,9 +62,11 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
   const [suggestions, setSuggestions] = useState<RawMaterial[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [availableWorkCycles, setAvailableWorkCycles] = useState<WorkCycle[]>([]);
 
-  // Load initial materials
+  // Load initial materials and work cycles
   useEffect(() => {
+    getWorkCycles().then(setAvailableWorkCycles);
     if (isOpen && article?.billOfMaterials) {
        const codes = article.billOfMaterials.map(i => i.component).filter(Boolean);
        if (codes.length > 0) {
@@ -103,6 +107,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
     defaultValues: {
       code: '',
       billOfMaterials: [],
+      workCycleId: '',
+      secondaryWorkCycleId: '',
     },
   });
 
@@ -118,6 +124,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
           id: article.id,
           code: article.code,
           billOfMaterials: article.billOfMaterials || [],
+          workCycleId: article.workCycleId || '',
+          secondaryWorkCycleId: article.secondaryWorkCycleId || '',
         });
       } else {
         const defaultBOM = Array(5).fill({ component: '', unit: 'n', quantity: 1, lunghezzaTaglioMm: undefined, note: '' });
@@ -125,6 +133,8 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
           id: undefined,
           code: '',
           billOfMaterials: defaultBOM,
+          workCycleId: '',
+          secondaryWorkCycleId: '',
         });
       }
     }
@@ -132,7 +142,12 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
 
   const onSubmit = async (data: ArticleFormValues) => {
     setIsPending(true);
-    const result = await saveArticle(data);
+    // Filter out empty rows before sending to server
+    const filteredData = {
+      ...data,
+      billOfMaterials: (data.billOfMaterials || []).filter(item => item.component && item.component.trim() !== '')
+    };
+    const result = await saveArticle(filteredData);
     toast({
       title: result.success ? "Successo" : "Errore",
       description: result.message,
@@ -165,7 +180,7 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex-1 flex flex-col overflow-hidden">
-            <div className="p-4 border-b">
+            <div className="p-4 border-b space-y-4">
               <FormField
                 control={form.control}
                 name="code"
@@ -179,6 +194,54 @@ export default function ArticleFormDialog({ isOpen, onClose, article }: ArticleF
                   </FormItem>
                 )}
               />
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="workCycleId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Ciclo Predefinito (Opzionale)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona ciclo..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="manual">Nessun ciclo (Manuale)</SelectItem>
+                          {availableWorkCycles.map(c => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="secondaryWorkCycleId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Ciclo Secondario (Opzionale)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Seleziona ciclo..." />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="manual">Nessun ciclo (Manuale)</SelectItem>
+                          {availableWorkCycles.map(c => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             <ScrollArea className="flex-1">
