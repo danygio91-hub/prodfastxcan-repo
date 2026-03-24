@@ -17,15 +17,17 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from '@/components/auth/AuthProvider';
 import { getRawMaterialByCode, findLastWeightForLotto } from '@/app/scan-job/actions';
-import { getLotInfoForMaterial, type LotInfo } from '@/app/admin/raw-material-management/actions';
+import { getLotInfoForMaterial, type LotInfo, getMaterialWithdrawalsForMaterial } from '@/app/admin/raw-material-management/actions';
 import { logManualWithdrawal } from './actions';
 import type { RawMaterial } from '@/lib/mock-data';
-import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes } from 'lucide-react';
+import { MinusSquare, QrCode, Loader2, Camera, AlertTriangle, ArrowLeft, Send, Barcode, Package, Search, Boxes, Info } from 'lucide-react';
 import { useCameraStream } from '@/hooks/use-camera-stream';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from '@/components/ui/switch';
 import { formatDisplayStock } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
 const withdrawalFormSchema = z.object({
@@ -46,10 +48,12 @@ export default function ManualWithdrawalPage() {
 
   const [scannedMaterial, setScannedMaterial] = useState<RawMaterial | null>(null);
   const [lotAvailability, setLotAvailability] = useState<LotInfo | null>(null);
+  const [allLots, setAllLots] = useState<LotInfo[]>([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [scanType, setScanType] = useState<ScanType>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputUnit, setInputUnit] = useState<'primary' | 'kg'>('primary');
+  const [isLoadingLots, setIsLoadingLots] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const { hasPermission } = useCameraStream(!!scanType, videoRef);
@@ -68,6 +72,12 @@ export default function ManualWithdrawalPage() {
   useEffect(() => {
     if (scannedMaterial) {
       setInputUnit('primary');
+      setIsLoadingLots(true);
+      getLotInfoForMaterial(scannedMaterial.id)
+        .then(setAllLots)
+        .finally(() => setIsLoadingLots(false));
+    } else {
+      setAllLots([]);
     }
   }, [scannedMaterial]);
 
@@ -183,6 +193,7 @@ export default function ManualWithdrawalPage() {
   const resetFlow = () => {
     setScannedMaterial(null);
     setLotAvailability(null);
+    setAllLots([]);
     form.reset({
       lotto: '',
       notes: '',
@@ -244,39 +255,81 @@ export default function ManualWithdrawalPage() {
                 <CardContent className="pt-6 space-y-4">
 
                   {scannedMaterial ? (
-                    <div className="p-4 border rounded-lg bg-muted/50 border-primary/20 space-y-4">
-                      <div className="text-center">
-                        <p className="font-black text-xl tracking-tight uppercase">{scannedMaterial.code}</p>
-                        <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{scannedMaterial.description}</p>
+                    <div className="space-y-4">
+                      <div className="p-4 border rounded-lg bg-muted/50 border-primary/20 space-y-4">
+                        <div className="text-center">
+                          <p className="font-black text-xl tracking-tight uppercase">{scannedMaterial.code}</p>
+                          <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">{scannedMaterial.description}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="p-2 rounded-md bg-background border flex flex-col items-center justify-center text-center">
+                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Totale Magazzino</Label>
+                            <p className="text-sm font-black text-primary leading-tight">
+                              {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
+                            </p>
+                            <p className="text-[9px] font-bold text-muted-foreground">
+                              ({formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG)
+                            </p>
+                          </div>
+
+                          <div className={cn(
+                            "p-2 rounded-md border flex flex-col items-center justify-center text-center transition-all",
+                            lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
+                          )}>
+                            <Label className="text-[8px] uppercase font-black text-muted-foreground">Stock Lotto Attivo</Label>
+                            {lotAvailability ? (
+                              <>
+                                <p className="text-sm font-black text-primary leading-tight">
+                                  {formatDisplayStock(lotAvailability.available, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
+                                </p>
+                                <p className="text-[9px] font-bold text-primary/70">Lotto: {lotAvailability.lotto}</p>
+                              </>
+                            ) : (
+                              <p className="text-[10px] font-bold text-muted-foreground italic">Nessun Lotto</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="p-2 rounded-md bg-background border flex flex-col items-center justify-center text-center">
-                          <Label className="text-[8px] uppercase font-black text-muted-foreground">Totale Magazzino</Label>
-                          <p className="text-sm font-black text-primary leading-tight">
-                            {formatDisplayStock(scannedMaterial.currentStockUnits, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
-                          </p>
-                          <p className="text-[9px] font-bold text-muted-foreground">
-                            ({formatDisplayStock(scannedMaterial.currentWeightKg, 'kg')} KG)
-                          </p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-bold text-sm flex items-center gap-2"><Boxes className="h-4 w-4 text-muted-foreground" /> Breakdown Lotti Disponibili</h4>
+                          {isLoadingLots && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
                         </div>
-
-                        <div className={cn(
-                          "p-2 rounded-md border flex flex-col items-center justify-center text-center transition-all",
-                          lotAvailability ? "bg-primary/10 border-primary/40" : "bg-muted border-dashed opacity-50"
-                        )}>
-                          <Label className="text-[8px] uppercase font-black text-muted-foreground">Stock Lotto Attivo</Label>
-                          {lotAvailability ? (
-                            <>
-                              <p className="text-sm font-black text-primary leading-tight">
-                                {formatDisplayStock(lotAvailability.available, scannedMaterial.unitOfMeasure)} {scannedMaterial.unitOfMeasure.toUpperCase()}
-                              </p>
-                              <p className="text-[9px] font-bold text-primary/70">Lotto: {lotAvailability.lotto}</p>
-                            </>
-                          ) : (
-                            <p className="text-[10px] font-bold text-muted-foreground italic">Nessun Lotto</p>
-                          )}
-                        </div>
+                        <ScrollArea className="h-36 border rounded-md bg-background">
+                            <Table>
+                                <TableHeader className="bg-muted/50 sticky top-0 z-10">
+                                    <TableRow>
+                                        <TableHead className="py-2 text-[10px] uppercase font-bold">Lotto</TableHead>
+                                        <TableHead className="py-2 text-right text-[10px] uppercase font-bold">Residuo ({scannedMaterial.unitOfMeasure.toUpperCase()})</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {allLots.length > 0 ? allLots.map(lot => (
+                                        <TableRow 
+                                          key={lot.lotto} 
+                                          className={cn(
+                                            "cursor-pointer hover:bg-primary/5 transition-colors",
+                                            lot.lotto === lottoValue && "bg-primary/10 border-l-2 border-l-primary"
+                                          )}
+                                          onClick={() => {
+                                            form.setValue('lotto', lot.lotto);
+                                            updateLotInfo(scannedMaterial.id, lot.lotto);
+                                          }}
+                                        >
+                                            <TableCell className="py-2 font-mono font-bold text-xs">{lot.lotto}</TableCell>
+                                            <TableCell className="py-2 text-right font-semibold text-xs">{formatDisplayStock(lot.available, scannedMaterial.unitOfMeasure)}</TableCell>
+                                        </TableRow>
+                                    )) : !isLoadingLots ? (
+                                        <TableRow><TableCell colSpan={2} className="text-center py-4 text-[10px] text-muted-foreground italic">Nessun lotto con stock positivo.</TableCell></TableRow>
+                                    ) : (
+                                        <TableRow><TableCell colSpan={2} className="text-center py-4 text-[10px] text-muted-foreground italic">Caricamento lotti...</TableCell></TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
+                        <p className="text-[10px] text-muted-foreground italic">Clicca su un lotto per selezionarlo velocemente.</p>
                       </div>
                     </div>
                   ) : (
