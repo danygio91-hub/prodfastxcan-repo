@@ -177,11 +177,11 @@ export default function BatchManagementClientPage({ initialGroupedBatches }: Bat
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center flex-wrap gap-4">
-            <div><CardTitle>Anagrafica Lotti</CardTitle><CardDescription>Ricerca per codice materiale.</CardDescription></div>
+            <div><CardTitle>Anagrafica Lotti</CardTitle><CardDescription>Ricerca per codice materiale o lotto.</CardDescription></div>
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input 
-                placeholder="Cerca materiale (min 2 caratteri)..." 
+                placeholder="Cerca materiale o lotto (min 2)..." 
                 className="pl-9 w-full sm:w-64" 
                 value={searchTerm} 
                 onChange={(e) => setSearchTerm(e.target.value)} 

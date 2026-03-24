@@ -29,10 +29,12 @@ import {
   getMaterialCommitmentDetails,
   type CommitmentDetail,
   getMaterialOrderedDetails,
-  type OrderedDetail
+  type OrderedDetail,
+  adjustRawMaterialStock
 } from './actions';
 
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -213,6 +215,7 @@ export default function RawMaterialManagementClientPage({
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
   const [isScrapsDialogOpen, setIsScrapsDialogOpen] = useState(false);
   const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false);
+  const [isAdjustStockDialogOpen, setIsAdjustStockDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [materialMovements, setMaterialMovements] = useState<Movement[]>([]);
 
@@ -317,6 +320,18 @@ export default function RawMaterialManagementClientPage({
     return { materialId: selectedMaterial.id, materialCode: selectedMaterial.code, materialDescription: selectedMaterial.description, unitOfMeasure: selectedMaterial.unitOfMeasure, currentStockUnits: selectedMaterial.currentStockUnits, currentWeightKg: selectedMaterial.currentWeightKg, lots: [] };
   }, [selectedMaterial]);
 
+  const onAdjustStock = async (newStock: number) => {
+    if (!selectedMaterial) return;
+    setIsPending(true);
+    const res = await adjustRawMaterialStock(selectedMaterial.id, newStock);
+    toast({ title: res.message, variant: res.success ? "default" : "destructive" });
+    if (res.success) {
+      refreshData();
+      setIsAdjustStockDialogOpen(false);
+    }
+    setIsPending(false);
+  };
+
   return (
     <>
       <div className="space-y-6">
@@ -352,7 +367,7 @@ export default function RawMaterialManagementClientPage({
                             <TableCell><button onClick={() => handleOpenCommitmentDetails(m.code)} className="text-amber-600 hover:underline">{s ? formatDisplayStock(s.impegnato, s.unitOfMeasure) : '-'}</button></TableCell>
                             <TableCell className={cn("font-bold", s && s.disponibile < 0 ? 'text-destructive' : 'text-green-600')}>{s ? formatDisplayStock(s.disponibile, s.unitOfMeasure) : '-'}</TableCell>
                             <TableCell><button onClick={() => handleOpenOrderedDetails(m.code)} className="text-blue-600 hover:underline">{s && s.ordinato > 0 ? formatDisplayStock(s.ordinato, s.unitOfMeasure) : '-'}</button></TableCell>
-                            <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica</DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
+                            <TableCell className="text-right"><DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); form.reset({ ...m }); setIsEditDialogOpen(true); }}><Edit className="mr-2 h-4 w-4" /> Modifica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsBatchDialogOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" /> Carica</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsAdjustStockDialogOpen(true); }}><History className="mr-2 h-4 w-4 text-amber-600" /> <span className="text-amber-600">Aggiusta Stock</span></DropdownMenuItem><DropdownMenuItem onSelect={() => handleOpenHistoryDialog(m)}><History className="mr-2 h-4 w-4" /> Storico</DropdownMenuItem><DropdownMenuItem onSelect={() => { setSelectedMaterial(m); setIsScrapsDialogOpen(true); }}><TestTube className="mr-2 h-4 w-4" /> Scarti</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setMaterialToDelete(m)} className="text-destructive"><Trash2 className="mr-2 h-4 w-4" /> Elimina</DropdownMenuItem></DropdownMenuContent></DropdownMenu></TableCell>
                           </TableRow>
                         )
                       })
@@ -454,6 +469,49 @@ export default function RawMaterialManagementClientPage({
       </Dialog>
 
       <ScrapsDialog isOpen={isScrapsDialogOpen} onOpenChange={setIsScrapsDialogOpen} material={selectedMaterial} />
+
+      <Dialog open={isAdjustStockDialogOpen} onOpenChange={setIsAdjustStockDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Aggiusta Stock: {selectedMaterial?.code}</DialogTitle>
+            <DialogDescription>
+              Inserisci la nuova giacenza fisica rilevata. Questa operazione sovrascriverà il totale attuale e azzererà i lotti se impostata a 0.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nuova Giacenza ({selectedMaterial?.unitOfMeasure.toUpperCase()})</Label>
+                <Input 
+                  type="number" 
+                  step="any" 
+                  autoFocus
+                  defaultValue={selectedMaterial?.currentStockUnits || 0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      onAdjustStock(Number((e.target as HTMLInputElement).value));
+                    }
+                  }}
+                  id="new-stock-input"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAdjustStockDialogOpen(false)}>Annulla</Button>
+            <Button 
+              onClick={() => {
+                const val = (document.getElementById('new-stock-input') as HTMLInputElement).value;
+                onAdjustStock(Number(val));
+              }}
+              disabled={isPending}
+            >
+              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+              Salva Rettifica
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

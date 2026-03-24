@@ -32,30 +32,54 @@ export type GroupedBatches = {
 export async function getAllGroupedBatches(searchTerm?: string): Promise<GroupedBatches[]> {
     let materialsSnapshot;
 
-    if (searchTerm && searchTerm.length >= 2) {
-        const lowercasedTerm = searchTerm.toLowerCase();
-        materialsSnapshot = await adminDb.collection('rawMaterials')
-            .where("code_normalized", ">=", lowercasedTerm)
-            .where("code_normalized", "<=", lowercasedTerm + '\uf8ff')
-            .limit(25)
-            .get();
-    } else {
-        return [];
-    }
+    // Fetch all materials to allow searching by lot ID (which is nested in an array of objects)
+    // and by description/code simultaneously.
+    materialsSnapshot = await adminDb.collection('rawMaterials').get();
 
     if (materialsSnapshot.empty) {
         return [];
     }
 
-    const materialIds = materialsSnapshot.docs.map(doc => doc.id);
+    const searchTermLower = (searchTerm || '').toLowerCase().trim();
+    
+    // Filter materials based on search term (if present)
+    const filteredDocs = materialsSnapshot.docs.filter(doc => {
+        if (!searchTermLower || searchTermLower.length < 2) return false;
+        
+        const data = doc.data() as RawMaterial;
+        const codeMatch = (data.code || '').toLowerCase().includes(searchTermLower) || 
+                         (data.code_normalized || '').includes(searchTermLower);
+        const descMatch = (data.description || '').toLowerCase().includes(searchTermLower);
+        const lotMatch = (data.batches || []).some(b => 
+            (b.lotto || '').toLowerCase().includes(searchTermLower)
+        );
+        
+        return codeMatch || descMatch || lotMatch;
+    });
+
+    if (filteredDocs.length === 0) {
+        return [];
+    }
+
+    const materialIds = filteredDocs.map(doc => doc.id);
     const allWithdrawals: MaterialWithdrawal[] = [];
+    
     if (materialIds.length > 0) {
-        const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals")
-            .where("materialId", "in", materialIds)
-            .get();
-        withdrawalsSnapshot.forEach(doc => {
-            allWithdrawals.push({ id: doc.id, ...convertTimestampsToDates(doc.data()) } as MaterialWithdrawal);
-        });
+        // Firestore 'in' query limit is 30 items
+        const chunkSize = 30;
+        for (let i = 0; i < materialIds.length; i += chunkSize) {
+            const chunk = materialIds.slice(i, i + chunkSize);
+            const withdrawalsSnapshot = await adminDb.collection("materialWithdrawals")
+                .where("materialId", "in", chunk)
+                .get();
+            
+            withdrawalsSnapshot.forEach(doc => {
+                allWithdrawals.push({ 
+                    id: doc.id, 
+                    ...convertTimestampsToDates(doc.data()) 
+                } as MaterialWithdrawal);
+            });
+        }
     }
 
     const withdrawalsByMaterial = allWithdrawals.reduce((acc, w) => {
@@ -69,7 +93,7 @@ export async function getAllGroupedBatches(searchTerm?: string): Promise<Grouped
 
     const allGroupedBatches: GroupedBatches[] = [];
 
-    materialsSnapshot.docs.forEach(doc => {
+    filteredDocs.forEach(doc => {
         const material = { id: doc.id, ...doc.data() } as RawMaterial;
         
         const materialWithdrawals = withdrawalsByMaterial[material.id] || [];

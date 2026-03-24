@@ -44,43 +44,56 @@ export async function getArticles(searchTerm?: string, lastCode?: string, limitC
     return articles;
 }
 
-export async function saveArticle(data: z.infer<typeof articleSchema>): Promise<{ success: boolean; message: string; }> {
-    const validatedFields = articleSchema.safeParse(data);
-    if (!validatedFields.success) return { success: false, message: 'Dati non validi.' };
-
-    const { code, billOfMaterials, workCycleId, secondaryWorkCycleId, expectedMinutesDefault, expectedMinutesSecondary } = validatedFields.data;
-
-    const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
-    const materialCodes = new Set<string>();
-    
-    for (let i = 0; i < uniqueCodes.length; i += 30) {
-        const chunk = uniqueCodes.slice(i, i + 30);
-        const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
-        snap.forEach(d => materialCodes.add(d.data().code.toUpperCase()));
-    }
-
-    const invalid = billOfMaterials.filter(item => item.component && !materialCodes.has(item.component.toUpperCase()));
-    if (invalid.length > 0) {
-        return { success: false, message: `Componenti non trovati in anagrafica: ${invalid.map(i => i.component).join(', ')}` };
-    }
-
-    const docId = code.toUpperCase();
-    const articleData: Partial<Article> = {
-        id: docId,
-        code: docId,
-        billOfMaterials,
-        workCycleId,
-        secondaryWorkCycleId,
-        expectedMinutesDefault,
-        expectedMinutesSecondary
-    };
-
+export async function saveArticle(data: any): Promise<{ success: boolean; message: string; }> {
     try {
+        // Filter out empty components before validation to allow partial forms
+        if (data.billOfMaterials && Array.isArray(data.billOfMaterials)) {
+            data.billOfMaterials = data.billOfMaterials.filter((item: any) => item.component && item.component.trim() !== '');
+        }
+
+        const validatedFields = articleSchema.safeParse(data);
+        if (!validatedFields.success) {
+            console.error('Validation error:', validatedFields.error.format());
+            return { success: false, message: 'Dati non validi: ' + validatedFields.error.errors.map(e => e.message).join(', ') };
+        }
+
+        const { code, billOfMaterials, workCycleId, secondaryWorkCycleId, expectedMinutesDefault, expectedMinutesSecondary } = validatedFields.data;
+
+        // Check if components exist in rawMaterials
+        const uniqueCodes = [...new Set(billOfMaterials.map(i => i.component).filter(Boolean))];
+        const materialCodes = new Set<string>();
+        
+        for (let i = 0; i < uniqueCodes.length; i += 30) {
+            const chunk = uniqueCodes.slice(i, i + 30);
+            const snap = await adminDb.collection("rawMaterials").where("code", "in", chunk).get();
+            snap.forEach(d => materialCodes.add(d.data().code.toUpperCase()));
+        }
+
+        const invalid = billOfMaterials.filter(item => item.component && !materialCodes.has(item.component.toUpperCase()));
+        if (invalid.length > 0) {
+            return { success: false, message: `Componenti non trovati in anagrafica: ${invalid.map(i => i.component).join(', ')}` };
+        }
+
+        const docId = code.toUpperCase();
+        
+        // Build articleData carefully to avoid undefined values
+        const articleData: any = {
+            id: docId,
+            code: docId,
+            billOfMaterials: billOfMaterials,
+        };
+        
+        if (workCycleId !== undefined) articleData.workCycleId = workCycleId;
+        if (secondaryWorkCycleId !== undefined) articleData.secondaryWorkCycleId = secondaryWorkCycleId;
+        if (expectedMinutesDefault !== undefined) articleData.expectedMinutesDefault = expectedMinutesDefault;
+        if (expectedMinutesSecondary !== undefined) articleData.expectedMinutesSecondary = expectedMinutesSecondary;
+
         await adminDb.collection('articles').doc(docId).set(articleData, { merge: true });
         revalidatePath('/admin/article-management');
         return { success: true, message: `Articolo ${docId} salvato.` };
-    } catch (error) {
-        return { success: false, message: "Errore durante il salvataggio." };
+    } catch (error: any) {
+        console.error('Error in saveArticle:', error);
+        return { success: false, message: "Errore durante il salvataggio: " + (error.message || "Errore sconosciuto") };
     }
 }
 

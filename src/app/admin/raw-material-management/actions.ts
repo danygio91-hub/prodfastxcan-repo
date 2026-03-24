@@ -442,3 +442,33 @@ export async function getLotInfoForMaterial(materialId: string): Promise<LotInfo
     const bByLotto = (mat.batches || []).reduce((acc, b) => { const l = b.lotto || 'SENZA_LOTTO'; if (!acc[l]) acc[l] = []; acc[l].push(b); return acc; }, {} as Record<string, RawMaterialBatch[]>);
     return Object.entries(bByLotto).map(([lotto, batches]) => { const tL = batches.reduce((s, b) => s + b.netQuantity, 0); const tW = wByLotto[lotto] || 0; return { lotto, available: tL - tW, batches }; }).filter(l => l.available > 0.001);
 }
+
+export async function adjustRawMaterialStock(materialId: string, newStockUnits: number) {
+    const materialRef = adminDb.collection("rawMaterials").doc(materialId);
+    const mSnap = await materialRef.get();
+    if (!mSnap.exists) return { success: false, message: "Materiale non trovato." };
+    const material = mSnap.data() as RawMaterial;
+
+    let newWeightKg = 0;
+    if (material.unitOfMeasure === 'kg') {
+        newWeightKg = newStockUnits;
+    } else if (material.unitOfMeasure === 'mt') {
+        newWeightKg = newStockUnits * (material.rapportoKgMt || 0);
+    } else {
+        newWeightKg = newStockUnits * (material.conversionFactor || 0);
+    }
+
+    const updateData: any = {
+        currentStockUnits: newStockUnits,
+        currentWeightKg: newWeightKg
+    };
+
+    // If resetting to 0, clear the batches to ensure consistency
+    if (newStockUnits === 0) {
+        updateData.batches = [];
+    }
+
+    await materialRef.update(updateData);
+    revalidatePath('/admin/raw-material-management');
+    return { success: true, message: 'Stock aggiornato con successo.' };
+}
