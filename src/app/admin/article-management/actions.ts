@@ -164,7 +164,7 @@ export async function validateArticleSettingsImport(rows: any[]) {
     ]);
 
     const articlesMap = new Map<string, Article>(articlesSnap.docs.map(d => [d.id.toUpperCase(), d.data() as Article]));
-    const cyclesMap = new Map<string, string>(cyclesSnap.docs.map(d => [String(d.data().name).toUpperCase(), d.id]));
+    const cyclesMap = new Map<string, WorkCycle>(cyclesSnap.docs.map(d => [String(d.data().name).toUpperCase(), { ...d.data(), id: d.id } as WorkCycle]));
     const phasesMap = new Map<string, string>(phasesSnap.docs.map(d => [String(d.data().name).toUpperCase(), d.id]));
 
     const validUpdates: Partial<Article>[] = [];
@@ -183,15 +183,42 @@ export async function validateArticleSettingsImport(rows: any[]) {
         const cycleDefName = String(row['CICLO PREDEFINITO'] || row['ciclo predefinito'] || '').trim().toUpperCase();
         const cycleSecName = String(row['CICLO SECONDARIO'] || row['ciclo secondario'] || '').trim().toUpperCase();
 
-        const cycleDefId = cycleDefName ? cyclesMap.get(cycleDefName) : undefined;
-        const cycleSecId = cycleSecName ? cyclesMap.get(cycleSecName) : undefined;
+        const cycleDef = cycleDefName ? cyclesMap.get(cycleDefName) : undefined;
+        const cycleSec = cycleSecName ? cyclesMap.get(cycleSecName) : undefined;
 
-        if (cycleDefName && !cycleDefId) {
+        if (cycleDefName && !cycleDef) {
             invalidRows.push({ code, reason: `Ciclo Predefinito "${cycleDefName}" non trovato.` });
             continue;
         }
 
-        const phaseTimes: Record<string, ArticlePhaseTime> = { ...(article.phaseTimes || {}) };
+        const primaryCycleId = cycleDef?.id || article.workCycleId;
+        const activeCycle = primaryCycleId && primaryCycleId !== 'manual' ? cyclesMap.get([...cyclesMap.keys()].find(k => cyclesMap.get(k)?.id === primaryCycleId) || '') : null;
+        const allowedPhaseIds = activeCycle ? new Set(activeCycle.phaseTemplateIds) : null;
+
+        const secCycleId = cycleSec?.id || article.secondaryWorkCycleId;
+        const activeSecCycle = secCycleId && secCycleId !== 'manual' ? cyclesMap.get([...cyclesMap.keys()].find(k => cyclesMap.get(k)?.id === secCycleId) || '') : null;
+        const allowedSecPhaseIds = activeSecCycle ? new Set(activeSecCycle.phaseTemplateIds) : null;
+
+        // Filtriamo phaseTimes (Default)
+        const phaseTimes: Record<string, ArticlePhaseTime> = {};
+        if (article.phaseTimes) {
+            Object.entries(article.phaseTimes).forEach(([pid, pdata]) => {
+                if (!allowedPhaseIds || allowedPhaseIds.has(pid)) {
+                    phaseTimes[pid] = { ...pdata };
+                }
+            });
+        }
+
+        // Filtriamo phaseTimesSecondary (Secondario)
+        const phaseTimesSecondary: Record<string, ArticlePhaseTime> = {};
+        if (article.phaseTimesSecondary) {
+            Object.entries(article.phaseTimesSecondary).forEach(([pid, pdata]) => {
+                if (!allowedSecPhaseIds || allowedSecPhaseIds.has(pid)) {
+                    phaseTimesSecondary[pid] = { ...pdata };
+                }
+            });
+        }
+
         let hasPhaseUpdates = false;
 
         // Cerca colonne dinamiche "TEMPO FASE: NOME_FASE"
@@ -202,16 +229,19 @@ export async function validateArticleSettingsImport(rows: any[]) {
                 const phaseName = upKey.replace('TEMPO FASE:', '').trim();
                 const mappedPhaseId = phasesMap.get(phaseName);
                 if (mappedPhaseId) {
-                    const minutesStr = row[key];
-                    if (minutesStr !== undefined && minutesStr !== null && minutesStr !== '') {
-                        const mins = Number(minutesStr);
-                        if (!isNaN(mins)) {
-                            phaseTimes[mappedPhaseId] = {
-                                expectedMinutesPerPiece: mins,
-                                detectedMinutesPerPiece: phaseTimes[mappedPhaseId]?.detectedMinutesPerPiece || 0,
-                                enabled: true
-                            };
-                            hasPhaseUpdates = true;
+                    // Aggiorniamo i tempi solo se la fase è nel ciclo attivo (o se siamo in manuale)
+                    if (!allowedPhaseIds || allowedPhaseIds.has(mappedPhaseId)) {
+                        const minutesStr = row[key];
+                        if (minutesStr !== undefined && minutesStr !== null && minutesStr !== '') {
+                            const mins = Number(minutesStr);
+                            if (!isNaN(mins)) {
+                                phaseTimes[mappedPhaseId] = {
+                                    expectedMinutesPerPiece: mins,
+                                    detectedMinutesPerPiece: phaseTimes[mappedPhaseId]?.detectedMinutesPerPiece || 0,
+                                    enabled: true
+                                };
+                                hasPhaseUpdates = true;
+                            }
                         }
                     }
                 }
@@ -221,8 +251,10 @@ export async function validateArticleSettingsImport(rows: any[]) {
         const updateObj: Partial<Article> = {
             id: code,
             code: code,
-            workCycleId: cycleDefId || article.workCycleId,
-            secondaryWorkCycleId: cycleSecId || article.secondaryWorkCycleId,
+            workCycleId: cycleDef?.id || article.workCycleId,
+            secondaryWorkCycleId: cycleSec?.id || article.secondaryWorkCycleId,
+            phaseTimes: phaseTimes,
+            phaseTimesSecondary: phaseTimesSecondary
         };
 
         const expectedDef = Number(row['TEMPO PREVISTO CICLO PREDEFINITO'] || row['tempo previsto ciclo predefinito']);
@@ -230,10 +262,6 @@ export async function validateArticleSettingsImport(rows: any[]) {
         
         const expectedSec = Number(row['TEMPO PREVISTO CICLO SECONDARIO'] || row['tempo previsto ciclo secondario']);
         if (!isNaN(expectedSec) && expectedSec > 0) updateObj.expectedMinutesSecondary = expectedSec;
-
-        if (hasPhaseUpdates) {
-            updateObj.phaseTimes = phaseTimes;
-        }
 
         validUpdates.push(updateObj);
     }
@@ -245,7 +273,10 @@ export async function bulkUpdateArticleSettings(updates: Partial<Article>[]) {
     const batch = adminDb.batch();
     updates.forEach(upd => {
         if (upd.id) {
-            batch.set(adminDb.collection('articles').doc(upd.id), upd, { merge: true });
+            const { id, ...data } = upd;
+            // Usiamo update invece di set(..., {merge:true}) per SOSTITUIRE le mappe phaseTimes/phaseTimesSecondary
+            // Questo garantisce che le fasi rimosse dal ciclo spariscano effettivamente da Firestore.
+            batch.update(adminDb.collection('articles').doc(id), data as any);
         }
     });
     await batch.commit();
