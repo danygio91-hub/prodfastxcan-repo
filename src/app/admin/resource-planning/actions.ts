@@ -145,14 +145,27 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
     const demand: Record<string, Record<string, Record<string, number>>> = {}; 
     const totalDeptDemand: Record<string, Record<string, number>> = {}; 
     
+    let hasAnyIpothesis = false;
+
     jobOrders.forEach((job: JobOrder) => {
         const dateStr = job.dataConsegnaFinale?.split('T')[0];
         if (!dateStr) return;
+        
+        // Defensive check: if articleAnalysis or its phases are missing
         const articleAnalysis = timeAnalysis.get(job.details);
+        if (!articleAnalysis) hasAnyIpothesis = true;
+        const articlePhases = articleAnalysis?.phases || {};
 
-        job.phases.forEach((phase: any) => {
-            const phaseTime = articleAnalysis?.phases[phase.name]?.averageMinutesPerPiece || 10;
-            const phaseLoad = phaseTime * job.qta;
+        // Defensive check: if job.phases is missing or empty
+        const phases = job.phases || [];
+
+        phases.forEach((phase: any) => {
+            // Safer access to phase time with fallback
+            const phaseTimeInfo = articlePhases[phase.name];
+            if (!phaseTimeInfo) hasAnyIpothesis = true;
+
+            const phaseTime = phaseTimeInfo?.averageMinutesPerPiece || 10;
+            const phaseLoad = phaseTime * (job.qta || 0);
             
             let phaseArea: MacroArea = 'PRODUZIONE';
             if (phase.type === 'preparation') phaseArea = 'PREPARAZIONE';
@@ -166,7 +179,7 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
             targetDeptCodes.forEach((deptCode: string) => {
                 if (!demand[deptCode]) demand[deptCode] = { 'PREPARAZIONE': {}, 'PRODUZIONE': {}, 'QLTY_PACK': {} };
                 if (!totalDeptDemand[deptCode]) totalDeptDemand[deptCode] = {};
-                const splitLoad = phaseLoad / targetDeptCodes.length;
+                const splitLoad = phaseLoad / (targetDeptCodes.length || 1);
                 demand[deptCode][phaseArea][dateStr] = (demand[deptCode][phaseArea][dateStr] || 0) + splitLoad;
                 totalDeptDemand[deptCode][dateStr] = (totalDeptDemand[deptCode][dateStr] || 0) + splitLoad;
             });
@@ -245,6 +258,7 @@ export async function getDepartmentPlanningSnapshot(dateIso: string, forceRefres
     const snapshotResult = {
         days: days.map(d => format(d, 'yyyy-MM-dd')),
         macroAreas: resultByMacroArea,
+        isIpothesis: hasAnyIpothesis,
         updatedAt: admin.firestore.Timestamp.now().toDate().toISOString(),
         updatedBy: uid || 'Sistema',
     };

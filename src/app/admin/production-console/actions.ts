@@ -20,9 +20,21 @@ export type ProductionTimeData = {
 
 export async function getProductionTimeAnalysisMap(): Promise<Map<string, ProductionTimeData>> {
     const report = await fetchProductionTimeAnalysisReport();
-    const articlesSnapshot = await adminDb.collection("articles").get();
-    const articles = articlesSnapshot.docs.map((doc: any) => doc.data() as import('@/lib/mock-data').Article);
-    const articlesMap = new Map<string, import('@/lib/mock-data').Article>(articles.map((a: any) => [a.code, a as import('@/lib/mock-data').Article]));
+    
+    // Optimization: Only fetch articles present in the report instead of the whole collection
+    const articleCodes = Array.from(new Set(report.map(r => r.articleCode)));
+    const articlesMap = new Map<string, import('@/lib/mock-data').Article>();
+    
+    if (articleCodes.length > 0) {
+        for (let i = 0; i < articleCodes.length; i += 30) {
+            const chunk = articleCodes.slice(i, i + 30);
+            const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
+            aSnap.forEach(d => {
+                const data = d.data() as import('@/lib/mock-data').Article;
+                articlesMap.set(data.code, data);
+            });
+        }
+    }
 
     const analysisMap = new Map<string, ProductionTimeData>();
     for (const articleReport of report) {
@@ -32,8 +44,10 @@ export async function getProductionTimeAnalysisMap(): Promise<Map<string, Produc
         articleReport.averagePhaseTimes.forEach(phase => { 
             if (phase.averageMinutesPerPiece > 0) {
                 let warning: string | undefined = undefined;
-                if (article && (article as any).phaseTimes && (article as any).phaseTimes[phase.name]) {
-                    const expected = (article as any).phaseTimes[phase.name].expectedMinutesPerPiece;
+                // Add defensive checks for phaseTimes existence
+                const phaseTimesConfig = article?.phaseTimes;
+                if (phaseTimesConfig && phaseTimesConfig[phase.name]) {
+                    const expected = phaseTimesConfig[phase.name].expectedMinutesPerPiece;
                     if (expected > 0) {
                         if (phase.averageMinutesPerPiece > expected * 1.5) {
                             warning = "⚠️ Tempo raddoppiato rispetto al Teorico!";

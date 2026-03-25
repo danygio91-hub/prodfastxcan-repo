@@ -334,10 +334,17 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     // to keep performance stable even with large histories.
     const jobsSnap = await adminDb.collection("jobOrders")
         .where("status", "in", ["completed", "production", "suspended", "paused"])
-        .orderBy("dataConsegnaFinale", "desc")
         .limit(100)
-
         .get();
+
+    const jobs = jobsSnap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+    // Sort in-memory to avoid requiring a composite index
+    jobs.sort((a, b) => {
+        const dateA = a.dataConsegnaFinale || '';
+        const dateB = b.dataConsegnaFinale || '';
+        return dateB.localeCompare(dateA);
+    });
+
     const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
     const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;
     const MIN_MS = (timeSettings.minimumPhaseDurationSeconds || 10) * 1000;
@@ -357,8 +364,7 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     const analysis: { [code: string]: any } = {};
     const phaseData: { [code: string]: any } = {};
 
-    for (const d of jobsSnap.docs) {
-        const job = convertTimestampsToDates(d.data()) as JobOrder;
+    for (const job of jobs) {
         if (!job.details || job.qta <= 0) continue;
         const code = job.details;
         

@@ -168,7 +168,12 @@ export default function ResourcePlanningClientPage() {
                     <h1 className="text-3xl font-black tracking-tighter uppercase italic text-primary/80">Power-Planning Hub</h1>
                     <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 font-bold uppercase text-[10px]">Active Production Control</Badge>
-                        {snapshot?.updatedAt && (
+                        {snapshot?.isIpothesis && (
+                             <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/20 font-bold uppercase text-[10px] animate-pulse">
+                                <AlertTriangle className="h-3 w-3 mr-1" /> Dati Ipotetici (Tempi mancanti)
+                             </Badge>
+                        )}
+                        {snapshot?.updatedAt && !isNaN(parseISO(snapshot.updatedAt).getTime()) && (
                             <span className="text-[10px] text-muted-foreground ml-2">Sincronizzato: {format(parseISO(snapshot.updatedAt), 'HH:mm')}</span>
                         )}
                     </div>
@@ -332,9 +337,12 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
     const progress = (completedPhases / totalPhases) * 100;
 
     // Calculate hours for the relevant phases in this macroarea/dept
-    const expectedHours = useMemo(() => {
+    const { hours, isIpothesis } = useMemo(() => {
+        if (!job.details) return { hours: 0, isIpothesis: false };
         const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase());
-        if (!article) return 0;
+        
+        let hasUsedFallback = false;
+        if (!article || !article.phaseTimes) hasUsedFallback = true;
 
         const relevantPhases = (job.phases || []).filter(phase => {
             if (activeTab === 'PREPARAZIONE') return phase.type === 'preparation';
@@ -347,13 +355,13 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
         });
 
         const totalMinutes = relevantPhases.reduce((acc, phase) => {
-            const phaseTimeObj = article.phaseTimes?.[phase.name];
+            const phaseTimeObj = article?.phaseTimes?.[phase.name];
+            if (!phaseTimeObj) hasUsedFallback = true;
             const time = phaseTimeObj?.expectedMinutesPerPiece || 10;
             return acc + (time * job.qta);
         }, 0);
 
-
-        return totalMinutes / 60;
+        return { hours: totalMinutes / 60, isIpothesis: hasUsedFallback };
     }, [job, articles, activeTab, activeSubTab]);
 
     return (
@@ -376,7 +384,25 @@ function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { 
 
                 <div className="flex items-center gap-4 text-[10px] font-bold text-muted-foreground">
                     <div className="flex items-center gap-1"><Boxes className="h-3 w-3" /> QTA: {job.qta}</div>
-                    <div className="flex items-center gap-1 text-primary"><Timer className="h-3 w-3" /> {expectedHours.toFixed(1)}h</div>
+                    <div className="flex items-center gap-2 text-primary">
+                        <div className="flex items-center gap-1">
+                            <Timer className="h-3 w-3" /> {hours.toFixed(1)}h
+                        </div>
+                        {isIpothesis && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Badge variant="outline" className="h-4 px-1 bg-amber-50 text-amber-600 border-amber-200 text-[8px] animate-pulse">
+                                            TEMPO IPOTETICO
+                                        </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                        <p className="text-[10px]">Tempi mancanti in anagrafica articolo. Usato valore di default (10m/pezzo).</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                     {job.dataConsegnaFinale && (
                         <div className={cn("flex items-center gap-1", isReady ? "text-emerald-600" : "text-amber-600")}>
                             <CalendarIcon className="h-3 w-3" /> {format(parseISO(job.dataConsegnaFinale), 'dd/MM')}
