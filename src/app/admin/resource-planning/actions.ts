@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { adminDb } from '@/lib/firebase-admin';
 import * as admin from 'firebase-admin';
 import { ensureAdmin } from '@/lib/server-auth';
-import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea } from '@/lib/mock-data';
+import type { OperatorAssignment, JobOrder, Operator, Department, MacroArea, Article } from '@/lib/mock-data';
+
 import { startOfWeek, endOfWeek, format, parseISO, eachDayOfInterval } from 'date-fns';
 import { getProductionTimeAnalysisMap } from '../production-console/actions';
 
@@ -46,9 +47,6 @@ export async function saveOperatorAssignment(data: Omit<OperatorAssignment, 'id'
   }
 }
 
-/**
- * Elimina un'assegnazione
- */
 export async function deleteOperatorAssignment(id: string, uid: string) {
   try {
     await ensureAdmin(uid);
@@ -59,6 +57,52 @@ export async function deleteOperatorAssignment(id: string, uid: string) {
     return { success: false };
   }
 }
+
+/**
+ * Recupera tutti i dati necessari per la pagina Power-Planning in un colpo solo.
+ */
+export async function getPlanningData(dateIso: string) {
+    const targetDate = parseISO(dateIso);
+    const start = startOfWeek(targetDate, { weekStartsOn: 1 });
+    const end = endOfWeek(targetDate, { weekStartsOn: 1 });
+    
+    const [jobOrdersSnap, operatorsSnap, departmentsSnap, assignments, settingsSnap] = await Promise.all([
+        adminDb.collection("jobOrders").where("status", "in", ["production", "suspended", "paused"]).get(),
+        adminDb.collection("operators").get(),
+        adminDb.collection("departments").orderBy("name").get(),
+        getOperatorAssignments(format(start, 'yyyy-MM-dd'), format(end, 'yyyy-MM-dd')),
+        adminDb.collection("system").doc("productionSettings").get()
+    ]);
+
+
+    const jobOrders = jobOrdersSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as JobOrder));
+    const operators = operatorsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Operator)).filter(op => op.isReal);
+    const departments = departmentsSnap.docs.map(doc => ({ ...doc.data(), id: doc.id } as Department));
+    const settings = settingsSnap.exists ? settingsSnap.data() as any : {};
+
+    // Fetch only needed articles for the jobs
+    const articleCodes = Array.from(new Set(jobOrders.map(j => j.details).filter(Boolean)));
+    const articles: Article[] = [];
+    if (articleCodes.length > 0) {
+        for (let i = 0; i < articleCodes.length; i += 30) {
+            const chunk = articleCodes.slice(i, i + 30);
+            const aSnap = await adminDb.collection("articles").where("code", "in", chunk).get();
+            aSnap.forEach(d => articles.push({ id: d.id, ...d.data() } as Article));
+        }
+    }
+
+    return {
+        jobOrders,
+        operators,
+        departments,
+        assignments,
+        articles,
+        settings,
+        dateRange: { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') }
+    };
+}
+
+
 
 /**
  * Logica di analisi: Calcola il bilancio Ore caricate vs Ore Disponibili per reparto

@@ -35,7 +35,8 @@ import { getArticles } from '../article-management/actions';
 import { useRouter } from 'next/navigation';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { cn, calculateCommitmentQty, formatDisplayStock } from '@/lib/utils';
+import { cn, calculateCommitmentQty, formatDisplayStock, isJobReadyForProduction } from '@/lib/utils';
+
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import ODLPrintTemplate from '@/components/production-console/ODLPrintTemplate';
@@ -89,6 +90,8 @@ const JobTableRows = ({
         const deptCode = departments.find(d => d.name === j.department || d.code === j.department)?.code || j.department || 'N/D';
         const isPlanned = j.status === 'planned';
         const displayDateText = j.dataConsegnaFinale ? format(parseISO(j.dataConsegnaFinale), "dd/MM/yyyy") : "Scegli...";
+        const isReadyBody = j.status === 'production' && isJobReadyForProduction(j);
+
 
         const article = articles.find(a => a.code.toUpperCase() === j.details.toUpperCase());
         const hasSecondaryCycle = article && (article.secondaryWorkCycleId && article.secondaryWorkCycleId !== 'manual');
@@ -137,7 +140,34 @@ const JobTableRows = ({
             <TableCell className="font-bold">{j.ordinePF}</TableCell>
             <TableCell>{j.details}</TableCell>
             <TableCell>{j.qta}</TableCell>
-            <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge></TableCell>
+            <TableCell>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px] uppercase font-bold">{deptCode}</Badge>
+                {j.status === 'production' && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        {isReadyBody ? (
+                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <CheckCircle2 className="h-3 w-3" />
+                            <span className="text-[9px] font-bold">PRONTO</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span className="text-[9px] font-bold">PREP</span>
+                          </div>
+                        )}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {isReadyBody ? 'Fase di preparazione completata o non necessaria.' : 'Fase di preparazione in corso o mancante.'}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
+            </TableCell>
+
             <TableCell>
               {isPlanned ? (
                 <div className="flex items-center gap-2">
@@ -192,10 +222,11 @@ const JobTableRows = ({
 };
 
 export default function DataManagementClientPage({
-  initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
+  initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments
 }: {
   initialPlanned: JobOrder[];
   initialProduction: JobOrder[];
+  initialCompleted: JobOrder[];
   initialCycles: WorkCycle[];
   initialArticles: Article[];
   initialDepartments: Department[];
@@ -206,6 +237,8 @@ export default function DataManagementClientPage({
   const router = useRouter();
   const [plannedJobOrders, setPlannedJobOrders] = useState<JobOrder[]>(initialPlanned);
   const [productionJobOrders, setProductionJobOrders] = useState<JobOrder[]>(initialProduction);
+  const [completedJobOrders, setCompletedJobOrders] = useState<JobOrder[]>(initialCompleted);
+
   const [workCycles, setWorkCycles] = useState<WorkCycle[]>(initialCycles);
   const [articles, setArticles] = useState<Article[]>(initialArticles);
   const [departments, setDepartments] = useState<Department[]>(initialDepartments);
@@ -248,7 +281,9 @@ export default function DataManagementClientPage({
 
   const [plannedSearchTerm, setPlannedSearchTerm] = useState('');
   const [productionSearchTerm, setProductionSearchTerm] = useState('');
+  const [completedSearchTerm, setCompletedSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<string | null>(null);
   const [pdfData, setPdfData] = useState<{ job: JobOrder, article: Article | null, materials: RawMaterial[], printDate: Date } | null>(null);
@@ -264,13 +299,15 @@ export default function DataManagementClientPage({
   useEffect(() => {
     setPlannedJobOrders(initialPlanned);
     setProductionJobOrders(initialProduction);
+    setCompletedJobOrders(initialCompleted);
     setWorkCycles(initialCycles);
     setArticles(initialArticles);
     setDepartments(initialDepartments);
     setRawMaterials(initialMaterials);
     setPurchaseOrders(initialPurchaseOrders);
     setManualCommitments(initialManualCommitments);
-  }, [initialPlanned, initialProduction, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments]);
+  }, [initialPlanned, initialProduction, initialCompleted, initialCycles, initialArticles, initialDepartments, initialMaterials, initialPurchaseOrders, initialManualCommitments]);
+
 
   const mrpTimelines = useMemo(() => {
     const timelines = new Map<string, { date: string, qty: number, jobId: string }[]>();
@@ -404,6 +441,8 @@ export default function DataManagementClientPage({
 
   const filteredPlanned = useMemo(() => processData(plannedJobOrders, plannedSearchTerm), [plannedJobOrders, plannedSearchTerm, processData]);
   const filteredProduction = useMemo(() => processData(productionJobOrders, productionSearchTerm), [productionJobOrders, productionSearchTerm, processData]);
+  const filteredCompleted = useMemo(() => processData(completedJobOrders, completedSearchTerm), [completedJobOrders, completedSearchTerm, processData]);
+
 
   const handleRefreshMRP = () => {
     setIsRefreshingMRP(true);
@@ -490,10 +529,12 @@ export default function DataManagementClientPage({
       {pdfData && <div style={{ position: 'fixed', top: '200%', left: 0, zIndex: -1 }}><ODLPrintTemplate job={pdfData.job} article={pdfData.article} materials={pdfData.materials} printDate={pdfData.printDate} /></div>}
 
       <Tabs defaultValue="planned">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="planned"><ListChecks className="mr-2 h-4 w-4" />Pianificate ({plannedJobOrders.length})</TabsTrigger>
           <TabsTrigger value="production"><Briefcase className="mr-2 h-4 w-4" />In Produzione ({productionJobOrders.length})</TabsTrigger>
+          <TabsTrigger value="completed"><CheckCircle2 className="mr-2 h-4 w-4" />Conclusi ({completedJobOrders.length})</TabsTrigger>
         </TabsList>
+
         <TabsContent value="planned">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -588,7 +629,52 @@ export default function DataManagementClientPage({
             </CardContent>
           </Card>
         </TabsContent>
+        <TabsContent value="completed">
+          <Card>
+            <CardHeader>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Cerca conclusi..." className="pl-9" value={completedSearchTerm} onChange={e => setCompletedSearchTerm(e.target.value)} />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead padding="checkbox"><Checkbox checked={selectedRows.length === filteredCompleted.length && filteredCompleted.length > 0} onCheckedChange={c => setSelectedRows(c ? filteredCompleted.map(j => j.id) : [])} /></TableHead>
+                    <SortHeader label="Ordine PF" sortKey="ordinePF" sortConfig={sortConfig} onSort={handleSort} />
+                    <TableHead>Articolo</TableHead>
+                    <TableHead>Qta</TableHead>
+                    <SortHeader label="Reparto" sortKey="reparto_codice" sortConfig={sortConfig} onSort={handleSort} />
+                    <TableHead>Ciclo</TableHead>
+                    <TableHead>N° ODL</TableHead>
+                    <SortHeader label="Consegna" sortKey="dataConsegnaFinale" sortConfig={sortConfig} onSort={handleSort} />
+                    <TableHead className="text-center">Stock</TableHead>
+                    <TableHead className="text-right">Azioni</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <JobTableRows
+                    data={filteredCompleted}
+                    departments={departments}
+                    workCycles={workCycles}
+                    articles={articles}
+                    rawMaterials={rawMaterials}
+                    mrpTimelines={mrpTimelines}
+                    selectedRows={selectedRows}
+                    onToggleRow={handleToggleRow}
+                    onUpdateCycle={handleUpdateCycleLocal}
+                    onUpdateDate={handleUpdateDateLocal}
+                    onDownloadPdf={handleDownloadPdf}
+                    onAction={handleActionLocal}
+                    isDownloadingPdf={isDownloadingPdf}
+                  />
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
 
       <Dialog open={isManualCreateOpen} onOpenChange={setIsManualCreateOpen}>
         <DialogContent className="max-w-2xl">

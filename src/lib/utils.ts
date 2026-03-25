@@ -60,3 +60,18 @@ export function calculateCommitmentQty(jobQta: number, bomItem: any, material: R
     
     return qta * bomQty;
 }
+
+/**
+ * Controlla se una commessa è pronta per la produzione.
+ * Se deptDependsOnPrep è false, la commessa è considerata sempre pronta per quel reparto.
+ * Altrimenti, è pronta solo se tutte le fasi di tipo 'preparation' sono completate.
+ */
+export function isJobReadyForProduction(job: any, deptDependsOnPrep: boolean = true): boolean {
+    if (!deptDependsOnPrep) return true;
+    if (!job.phases || job.phases.length === 0) return true;
+    const prepPhases = job.phases.filter((p: any) => p.type === 'preparation');
+    if (prepPhases.length === 0) return true;
+    return prepPhases.every((p: any) => p.status === 'completed');
+}
+
+

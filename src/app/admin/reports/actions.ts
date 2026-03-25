@@ -334,8 +334,9 @@ export async function getProductionTimeAnalysisReport(): Promise<ProductionTimeA
     // to keep performance stable even with large histories.
     const jobsSnap = await adminDb.collection("jobOrders")
         .where("status", "in", ["completed", "production", "suspended", "paused"])
-        .orderBy("deliveryDate", "desc")
+        .orderBy("dataConsegnaFinale", "desc")
         .limit(100)
+
         .get();
     const settingsDoc = await adminDb.collection('configuration').doc('timeTrackingSettings').get();
     const timeSettings = settingsDoc.exists ? settingsDoc.data() : { minimumPhaseDurationSeconds: 10 } as any;

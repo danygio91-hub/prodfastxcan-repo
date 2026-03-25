@@ -51,6 +51,12 @@ export async function getProductionJobOrders(): Promise<JobOrder[]> {
     return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
 }
 
+export async function getCompletedJobOrders(): Promise<JobOrder[]> {
+    const snap = await adminDb.collection("jobOrders").where("status", "==", "completed").limit(100).get(); // Limit to last 100 for performance
+    return snap.docs.map(doc => convertTimestampsToDates(doc.data()) as JobOrder);
+}
+
+
 export async function getRequiredDataForJobs(jobs: JobOrder[], commitments: ManualCommitment[] = []): Promise<{ articles: Article[], materials: RawMaterial[] }> {
     const arrArticleCodes = new Set<string>();
     const directMaterialCodes = new Set<string>();

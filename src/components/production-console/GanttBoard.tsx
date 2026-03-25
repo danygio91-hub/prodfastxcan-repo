@@ -24,9 +24,11 @@ interface GanttBoardProps {
   assignments: OperatorAssignment[];
   settings: ProductionSettings;
   articles: Article[];
+  timelineStartProp?: Date;
 }
 
-export default function GanttBoard({ jobOrders, operators, assignments, settings, articles }: GanttBoardProps) {
+export default function GanttBoard({ jobOrders, operators, assignments, settings, articles, timelineStartProp }: GanttBoardProps) {
+
   const [viewMode, setViewMode] = useState<'daily'|'weekly'|'monthly'>('weekly');
   const [isCalculating, setIsCalculating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -68,7 +70,11 @@ export default function GanttBoard({ jobOrders, operators, assignments, settings
   };
   
   // Calculate timeline boundaries
-  const timelineStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
+  const timelineStart = useMemo(() => {
+    if (timelineStartProp) return startOfWeek(timelineStartProp, { weekStartsOn: 1 });
+    return startOfWeek(new Date(), { weekStartsOn: 1 });
+  }, [timelineStartProp]);
+
   
   const { totalDays, pixelsPerMinute, gridTickMinutes } = useMemo(() => {
     switch (viewMode) {

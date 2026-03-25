@@ -3,33 +3,42 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, UserPlus, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Info, AlertTriangle, CheckCircle2, Loader2, Boxes, Factory, Archive, Briefcase, LayoutGrid, Clock, Users, Timer, RefreshCcw } from 'lucide-react';
 import { format, addWeeks, subWeeks, startOfWeek, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
-import { getDepartmentPlanningSnapshot, saveOperatorAssignment, getOperatorAssignments } from './actions';
-import { getOperators } from '../operator-management/actions';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { getPlanningData, getDepartmentPlanningSnapshot } from './actions';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Operator, OperatorAssignment } from '@/lib/mock-data';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import GanttBoard from '@/components/production-console/GanttBoard';
+import { isJobReadyForProduction } from '@/lib/utils';
+import type { JobOrder, Operator, OperatorAssignment, Department, Article } from '@/lib/mock-data';
+import { cn } from '@/lib/utils';
 
 export default function ResourcePlanningClientPage() {
     const { toast } = useToast();
     const [currentDate, setCurrentDate] = useState(new Date());
     const [loading, setLoading] = useState(true);
-    const [snapshot, setSnapshot] = useState<any>(null);
-    const [operators, setOperators] = useState<Operator[]>([]);
-    const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
     const [isRefreshing, setIsRefreshing] = useState(false);
     
-    const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [selectedDept, setSelectedDept] = useState<string | null>(null);
-    const [selectedDate, setSelectedDate] = useState<string | null>(null);
-    const [selectedOperator, setSelectedOperator] = useState<string>('');
-
-    const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 });
+    // Core Data
+    const [data, setData] = useState<{
+        jobOrders: JobOrder[],
+        operators: Operator[],
+        departments: Department[],
+        assignments: OperatorAssignment[],
+        articles: Article[],
+        settings: any
+    } | null>(null);
+    
+    // Analysis Snapshot
+    const [snapshot, setSnapshot] = useState<any>(null);
+    const [activeTab, setActiveTab] = useState<string>('PRODUZIONE');
+    const [activeSubTab, setActiveSubTab] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'split' | 'gantt' | 'list'>('split');
 
     useEffect(() => {
         loadData();
@@ -41,266 +50,349 @@ export default function ResourcePlanningClientPage() {
         
         try {
             const dateStr = format(currentDate, 'yyyy-MM-dd');
-            const [snap, ops, assigns] = await Promise.all([
-                getDepartmentPlanningSnapshot(dateStr, force),
-                getOperators(),
-                getOperatorAssignments(
-                    format(startOfWeek(currentDate, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-                    format(addWeeks(startOfCurrentWeek, 1), 'yyyy-MM-dd')
-                )
+            const [planningData, snap] = await Promise.all([
+                getPlanningData(dateStr),
+                getDepartmentPlanningSnapshot(dateStr, force)
             ]);
+            
+            setData(planningData);
             setSnapshot(snap);
-            setOperators(ops.filter(o => o.isReal));
-            setAssignments(assigns);
-            if (force) toast({ title: 'Aggiornamento completato', description: 'La nuova analisi è stata calcolata e salvata.' });
+            
+            // Set initial subtab for Produzione if not set
+            if (activeTab === 'PRODUZIONE' && !activeSubTab) {
+                const firstProdDept = planningData.departments.find(d => d.macroAreas?.includes('PRODUZIONE'));
+                if (firstProdDept) setActiveSubTab(firstProdDept.code);
+            }
         } catch (error) {
-            toast({ title: 'Errore', description: 'Impossibile caricare i dati.', variant: 'destructive' });
+            toast({ title: 'Errore', description: 'Impossibile caricare i dati di pianificazione.', variant: 'destructive' });
         } finally {
             setLoading(false);
             setIsRefreshing(false);
         }
     }
 
+    const startOfCurrentWeek = startOfWeek(currentDate, { weekStartsOn: 1 });
     const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
     const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
 
-    const openLoanDialog = (deptCode: string, date: string) => {
-        setSelectedDept(deptCode);
-        setSelectedDate(date);
-        setIsDialogOpen(true);
-    };
-
-    const handleCreateLoan = async () => {
-        if (!selectedOperator || !selectedDept || !selectedDate) return;
-        
-        const res = await saveOperatorAssignment({
-            operatorId: selectedOperator,
-            departmentCode: selectedDept,
-            startDate: selectedDate,
-            endDate: selectedDate,
-            type: 'loan'
-        }, 'admin-uid'); 
-
-        if (res.success) {
-            toast({ title: 'Successo', description: 'Prestito operatore registrato.' });
-            setIsDialogOpen(false);
-            setSelectedOperator('');
-            loadData();
-        } else {
-            toast({ title: 'Errore', description: res.message, variant: 'destructive' });
-        }
-    };
-
-    const suggestedOperators = useMemo(() => {
-        if (!selectedDept || !selectedDate || !snapshot) return [];
-        
-        return operators.filter(op => {
-            const canWorkInTarget = op.reparto.includes(selectedDept);
-            if (!canWorkInTarget && selectedDept !== 'QLTY_PACK' && selectedDept !== 'MAG') return false;
-
-            const currentAssign = assignments.find(a => a.operatorId === op.id && a.startDate === selectedDate);
-            if (currentAssign?.departmentCode === selectedDept) return false;
-
-            return true;
+    // Filter jobs by current tab and sub-tab
+    const filteredJobs = useMemo(() => {
+        if (!data) return [];
+        return data.jobOrders.filter(job => {
+            // First level: MacroArea
+            if (activeTab === 'PREPARAZIONE') {
+                return job.phases?.some(p => p.type === 'preparation');
+            }
+            if (activeTab === 'QLTY_PACK') {
+                return job.phases?.some(p => p.type === 'quality' || p.type === 'packaging');
+            }
+            if (activeTab === 'PRODUZIONE') {
+                // Must have production phases AND match sub-tab department
+                const hasProductionPhases = job.phases?.some(p => p.type === 'production');
+                if (!hasProductionPhases) return false;
+                if (!activeSubTab) return true;
+                return job.department === activeSubTab || (job.phases || []).some(p => p.departmentCodes?.includes(activeSubTab));
+            }
+            return false;
         });
-    }, [selectedDept, selectedDate, operators, assignments, snapshot]);
+    }, [data, activeTab, activeSubTab]);
 
-    const findDeptName = (code: string | null) => {
-      if (!snapshot || !code) return "";
-      for (const area in snapshot.macroAreas) {
-        const dept = snapshot.macroAreas[area].find((d: any) => d.code === code);
-        if (dept) return dept.name;
-      }
-      return code;
-    };
+    // Filter departments for SUB-TABS (Produzione only)
+    const productionDepartments = useMemo(() => {
+        if (!data) return [];
+        return data.departments.filter(d => d.macroAreas?.includes('PRODUZIONE'));
+    }, [data]);
 
-    const renderPlanningTable = (departments: any[]) => (
-      <div className="rounded-md border overflow-hidden bg-card">
-          <Table>
-              <TableHeader>
-                  <TableRow className="bg-muted/50">
-                      <TableHead className="w-[200px] font-bold text-left px-4">Reparto</TableHead>
-                      {snapshot?.days.map((day: string) => (
-                          <TableHead key={day} className="text-center">
-                              <div className="uppercase text-[10px] text-muted-foreground">{format(parseISO(day), 'EEE', { locale: it })}</div>
-                              <div className="font-bold">{format(parseISO(day), 'dd/MM')}</div>
-                          </TableHead>
-                      ))}
-                  </TableRow>
-              </TableHeader>
-              <TableBody>
-                  {departments && departments.length > 0 ? departments.map((dept: any) => (
-                      <TableRow key={dept.id} className="hover:bg-muted/30 transition-colors">
-                          <TableCell className="font-semibold p-4 text-left">
-                            <div className="flex flex-col">
-                              <span>{dept.name}</span>
-                              <span className="text-[10px] text-muted-foreground font-mono">{dept.code}</span>
-                            </div>
-                          </TableCell>
-                          {dept.data.map((dayData: any) => {
-                              const isCritical = dayData.balance < -0.1;
-                              const hasSurplus = dayData.balance > 4;
-                              
-                              return (
-                                  <TableCell key={dayData.date} className="p-2">
-                                      <div 
-                                          onClick={() => openLoanDialog(dept.code, dayData.date)}
-                                          className={`h-24 rounded-lg border p-2 flex flex-col justify-between cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] ${
-                                              isCritical ? 'border-destructive/50 bg-destructive/5 shadow-[inset_0_0_10px_rgba(239,68,68,0.05)]' : 
-                                              hasSurplus ? 'border-emerald-500/50 bg-emerald-50/50' : 'bg-card'
-                                          }`}
-                                      >
-                                          <div className="flex justify-between items-start">
-                                              <div className="text-[10px] font-medium text-muted-foreground uppercase opacity-70">Bilancio</div>
-                                              {isCritical && <div className="px-1.5 py-0.5 rounded bg-destructive text-[8px] font-bold text-white uppercase tracking-tighter">Sotto-Soglia</div>}
-                                          </div>
-                                          <div className={`text-2xl font-black text-center ${isCritical ? 'text-destructive' : dayData.balance >= 0.1 ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                              {dayData.balance > 0.05 ? '+' : ''}{dayData.balance.toFixed(0)}h
-                                          </div>
-                                          <div className="text-[10px] font-medium flex justify-center gap-3 text-muted-foreground/60 pt-1 border-t border-dashed">
-                                              <span>{dayData.demandHours.toFixed(0)}D</span>
-                                              <span>{dayData.supplyHours.toFixed(0)}O</span>
-                                          </div>
-                                      </div>
-                                  </TableCell>
-                              );
-                          })}
-                      </TableRow>
-                  )) : (
-                    <TableRow>
-                      <TableCell colSpan={(snapshot?.days.length || 0) + 1} className="h-32 text-center text-muted-foreground">
-                        Nessun reparto configurato per questa area.
-                      </TableCell>
-                    </TableRow>
-                  )}
-              </TableBody>
-          </Table>
-      </div>
-    );
+    // Filter operators for the FOCUSED GANTT
+    const focusedOperators = useMemo(() => {
+        if (!data) return [];
+        // Show all if not in a specific department, or filter by current sub-tab
+        if (activeTab === 'PRODUZIONE' && activeSubTab) {
+            return data.operators.filter(op => 
+                op.reparto.includes(activeSubTab) || 
+                data.assignments.some(a => a.operatorId === op.id && a.departmentCode === activeSubTab)
+            );
+        }
+        // For Prep or QltyPack, we might show relevant depts
+        if (activeTab === 'PREPARAZIONE') return data.operators.filter(op => op.reparto.includes('MAG'));
+        if (activeTab === 'QLTY_PACK') return data.operators.filter(op => op.reparto.includes('CG') || op.reparto.includes('MAG') || op.reparto.includes('Collaudo'));
+        
+        return data.operators;
+    }, [data, activeTab, activeSubTab]);
 
-    if (loading && !snapshot) return (
-      <div className="flex flex-col items-center justify-center p-24 space-y-4">
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        <p className="text-muted-foreground">Caricamento pianificazione risorse...</p>
-      </div>
+    // Stats for the current selection
+    const weekStats = useMemo(() => {
+        if (!snapshot || !activeTab) return null;
+        
+        // If it's PRODUZIONE and we have a subtab, look for that specific dept
+        if (activeTab === 'PRODUZIONE' && activeSubTab) {
+            const dept = snapshot.macroAreas['PRODUZIONE']?.find((d: any) => d.code === activeSubTab);
+            if (!dept) return null;
+            const demand = dept.data.reduce((acc: number, d: any) => acc + d.areaSpecificDemand, 0);
+            const supply = dept.data.reduce((acc: number, d: any) => acc + d.supplyHours, 0);
+            return { demand, supply, balance: supply - demand };
+        }
+
+        // Otherwise aggregate for the MacroArea
+        const areaDepts = snapshot.macroAreas[activeTab] || [];
+        let totalDemand = 0;
+        let totalSupply = 0;
+        areaDepts.forEach((dept: any) => {
+            totalDemand += dept.data.reduce((acc: number, d: any) => acc + (d.areaSpecificDemand || d.demandHours), 0);
+            totalSupply += dept.data.reduce((acc: number, d: any) => acc + d.supplyHours, 0);
+        });
+        return { demand: totalDemand, supply: totalSupply, balance: totalSupply - totalDemand };
+    }, [snapshot, activeTab, activeSubTab]);
+
+    // Get current department dependency
+
+    const dependsOnPrep = useMemo(() => {
+        if (activeTab !== 'PRODUZIONE' || !activeSubTab) return true;
+        const dept = data?.departments.find(d => d.code === activeSubTab);
+        return dept?.dependsOnPreparation ?? true;
+    }, [data, activeTab, activeSubTab]);
+
+    if (loading && !data) return (
+
+        <div className="flex flex-col items-center justify-center p-24 space-y-4 h-[60vh]">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-muted-foreground animate-pulse">Inizializzazione Power-Planning Hub...</p>
+        </div>
     );
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-6 flex flex-col h-full min-h-[calc(100vh-12rem)]">
+            {/* --- HEADER SECTION --- */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-card p-4 rounded-xl shadow-sm border">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight font-headline">Pianificazione Risorse</h1>
+                    <h1 className="text-3xl font-black tracking-tighter uppercase italic text-primary/80">Power-Planning Hub</h1>
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-muted-foreground text-sm">Analisi "congelata" del carico di lavoro settimanale.</p>
-                      {snapshot?.updatedAt && (
-                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-[10px] text-blue-700 font-medium">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Ultimo aggiornamento: {format(parseISO(snapshot.updatedAt), 'dd/MM HH:mm')}
-                        </div>
-                      )}
+                        <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 font-bold uppercase text-[10px]">Active Production Control</Badge>
+                        {snapshot?.updatedAt && (
+                            <span className="text-[10px] text-muted-foreground ml-2">Sincronizzato: {format(parseISO(snapshot.updatedAt), 'HH:mm')}</span>
+                        )}
                     </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 bg-card p-1 rounded-lg border shadow-sm">
-                      <Button variant="ghost" size="icon" onClick={handlePrevWeek}><ChevronLeft className="h-4 w-4" /></Button>
-                      <div className="px-4 font-medium flex items-center gap-2 min-w-[220px] justify-center text-sm">
-                          <CalendarIcon className="h-4 w-4 text-primary" />
-                          Settimana {format(startOfCurrentWeek, 'dd/MM')} - {format(addWeeks(startOfCurrentWeek, 6/7), 'dd/MM/yyyy')}
-                      </div>
-                      <Button variant="ghost" size="icon" onClick={handleNextWeek}><ChevronRight className="h-4 w-4" /></Button>
-                  </div>
-                  <Button 
-                    variant="default" 
-                    className="shadow-md bg-blue-600 hover:bg-blue-700" 
-                    onClick={() => loadData(true)} 
-                    disabled={isRefreshing}
-                  >
-                    {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Boxes className="mr-2 h-4 w-4" />}
-                    Esegui Nuova Analisi
-                  </Button>
+
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1 bg-muted/50 p-1 rounded-lg border">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handlePrevWeek}><ChevronLeft className="h-4 w-4" /></Button>
+                        <div className="px-3 font-bold text-xs flex items-center gap-2 min-w-[150px] justify-center">
+                            {format(startOfCurrentWeek, 'dd MMM', { locale: it })} - {format(addWeeks(startOfCurrentWeek, 1), 'dd MMM', { locale: it })}
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleNextWeek}><ChevronRight className="h-4 w-4" /></Button>
+                    </div>
+                    
+                    <Button 
+                        variant="default" 
+                        size="sm"
+                        className="font-bold shadow-md bg-blue-600 hover:bg-blue-700 h-9" 
+                        onClick={() => loadData(true)} 
+                        disabled={isRefreshing}
+                    >
+                        {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                        RICALCOLA
+                    </Button>
+
+                    <div className="w-px h-8 bg-border mx-2" />
+
+                    <div className="flex items-center gap-1 bg-muted/30 p-1 rounded-lg">
+                        <Button variant={viewMode === 'list' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('list')}><LayoutGrid className="mr-1 h-3 w-3" /> LISTA</Button>
+                        <Button variant={viewMode === 'split' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('split')}><Briefcase className="mr-1 h-3 w-3" /> SPLIT</Button>
+                        <Button variant={viewMode === 'gantt' ? 'secondary' : 'ghost'} size="sm" className="h-7 text-[10px] font-bold" onClick={() => setViewMode('gantt')}><Timer className="mr-1 h-3 w-3" /> GANTT</Button>
+                    </div>
                 </div>
             </div>
 
-            <Tabs defaultValue="PRODUZIONE" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-3 lg:w-[600px] border">
-                    <TabsTrigger value="PREPARAZIONE" className="flex gap-2 items-center">
-                      <Boxes className="h-4 w-4" />
-                      PREPARAZIONE
+            {/* --- MACRO TABS --- */}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col gap-4">
+                <TabsList className="grid grid-cols-3 w-full max-w-2xl bg-muted/50 p-1 rounded-xl h-12">
+                    <TabsTrigger value="PREPARAZIONE" className="data-[state=active]:bg-orange-500 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
+                        <Boxes className="h-4 w-4" /> PREPARAZIONE
                     </TabsTrigger>
-                    <TabsTrigger value="PRODUZIONE" className="flex gap-2 items-center">
-                      <Factory className="h-4 w-4" />
-                      PRODUZIONE
+                    <TabsTrigger value="PRODUZIONE" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
+                        <Factory className="h-4 w-4" /> PRODUZIONE
                     </TabsTrigger>
-                    <TabsTrigger value="QLTY_PACK" className="flex gap-2 items-center">
-                      <Archive className="h-4 w-4" />
-                      QLTY & PACK
+                    <TabsTrigger value="QLTY_PACK" className="data-[state=active]:bg-purple-600 data-[state=active]:text-white font-black text-xs transition-all uppercase tracking-widest gap-2">
+                        <Archive className="h-4 w-4" /> QLTY & PACK
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="PREPARAZIONE" className="space-y-4 outline-none">
-                  <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground mb-4">
-                    Questa sezione mostra il carico dei reparti logistici che preparano le materie prime per la produzione successiva.
-                  </div>
-                  {renderPlanningTable(snapshot?.macroAreas?.PREPARAZIONE)}
-                </TabsContent>
+                {/* --- SUB-TABS (Produzione Only) --- */}
+                {activeTab === 'PRODUZIONE' && (
+                    <div className="flex flex-wrap items-center gap-2 p-1 bg-muted/20 rounded-lg border border-dashed">
+                        {productionDepartments.map(dept => (
+                            <Button 
+                                key={dept.code} 
+                                variant={activeSubTab === dept.code ? 'default' : 'outline'} 
+                                size="sm" 
+                                className={cn("h-7 text-[10px] font-black uppercase tracking-tight transition-all", activeSubTab === dept.code ? "bg-blue-700 ring-2 ring-blue-200" : "bg-white")}
+                                onClick={() => setActiveSubTab(dept.code)}
+                            >
+                                {dept.name}
+                            </Button>
+                        ))}
 
-                <TabsContent value="PRODUZIONE" className="space-y-4 outline-none">
-                  <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground mb-4">
-                    Visualizzazione suddivisa per i singoli reparti produttivi (Connessioni, Barre, etc.).
-                  </div>
-                  {renderPlanningTable(snapshot?.macroAreas?.PRODUZIONE)}
-                </TabsContent>
-
-                <TabsContent value="QLTY_PACK" className="space-y-4 outline-none">
-                  <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground mb-4">
-                    Area dedicata al controllo qualità finale e all'imballaggio/spedizione.
-                  </div>
-                  {renderPlanningTable(snapshot?.macroAreas?.QLTY_PACK)}
-                </TabsContent>
-            </Tabs>
-
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                          <UserPlus className="h-5 w-5 text-primary" />
-                          Gestione Prestito Operatore
-                        </DialogTitle>
-                        <DialogDescription>
-                            Assegna una risorsa al reparto <strong>{findDeptName(selectedDept)}</strong> per il giorno {selectedDate && format(parseISO(selectedDate), 'dd MMMM', { locale: it })}.
-                        </DialogDescription>
-                    </DialogHeader>
-                    
-                    <div className="py-4 space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Seleziona Operatore Compatibile</label>
-                            <Select value={selectedOperator} onValueChange={setSelectedOperator}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Scegli un operatore..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {suggestedOperators.map(op => (
-                                        <SelectItem key={op.id} value={op.id}>
-                                            {op.nome} ({op.reparto.join(', ')})
-                                        </SelectItem>
-                                    ))}
-                                    {suggestedOperators.length === 0 && (
-                                        <div className="p-2 text-xs text-muted-foreground text-center">Nessun operatore compatibile trovato.</div>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                            <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-2">
-                                <Info className="h-3 w-3" /> Mostra solo operatori che hanno questo reparto nelle proprie competenze.
-                            </p>
-                        </div>
+                        {weekStats && (
+                            <div className="ml-auto flex items-center gap-4 px-3 py-1 bg-background rounded border shadow-sm">
+                                <div className="flex flex-col">
+                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Carico Ore</span>
+                                    <span className="text-xs font-black text-red-600">{weekStats.demand.toFixed(1)}h</span>
+                                </div>
+                                <div className="w-px h-6 bg-border" />
+                                <div className="flex flex-col">
+                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Capacità</span>
+                                    <span className="text-xs font-black text-emerald-600">{weekStats.supply.toFixed(1)}h</span>
+                                </div>
+                                <div className="w-px h-6 bg-border" />
+                                <div className="flex flex-col">
+                                    <span className="text-[8px] text-muted-foreground uppercase font-bold">Bilancio</span>
+                                    <span className={cn("text-xs font-black", weekStats.balance < 0 ? "text-red-600" : "text-emerald-600")}>
+                                        {weekStats.balance > 0 ? '+' : ''}{weekStats.balance.toFixed(1)}h
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
+                )}
 
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Annulla</Button>
-                        <Button onClick={handleCreateLoan} disabled={!selectedOperator}>Conferma Prestito</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+
+                {/* --- MAIN CONTENT AREA --- */}
+                <div className={cn(
+                    "grid gap-4 flex-1 transition-all duration-500",
+                    viewMode === 'split' ? "grid-cols-1 xl:grid-cols-12" : "grid-cols-1"
+                )}>
+                    
+                    {/* --- ODL LIST (LEFT PANE) --- */}
+                    {(viewMode === 'list' || viewMode === 'split') && (
+                        <Card className={cn("overflow-hidden flex flex-col shadow-xl", viewMode === 'split' ? "xl:col-span-4 h-[70vh]" : "h-full")}>
+                            <CardHeader className="py-3 px-4 bg-muted/10 border-b flex flex-row items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-sm font-black flex items-center gap-2">
+                                        <ListCheckIcon /> LISTA ODL {activeTab}
+                                        <Badge variant="secondary" className="h-5 text-[10px] font-bold">{filteredJobs.length}</Badge>
+                                    </CardTitle>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="p-0 flex-1 overflow-hidden">
+                                <ScrollArea className="h-full p-4">
+                                    <div className="space-y-3">
+                                        {filteredJobs.length === 0 ? (
+                                            <div className="flex flex-col items-center justify-center h-full pt-20 text-muted-foreground opacity-50">
+                                                <Boxes className="h-10 w-10 mb-2" />
+                                                <p className="text-xs italic">Nessuna commessa attiva in quest'area.</p>
+                                            </div>
+                                        ) : (
+                                            filteredJobs.map(job => (
+                                                <ODLPlanningCard 
+                                                    key={job.id} 
+                                                    job={job} 
+                                                    isReady={isJobReadyForProduction(job, dependsOnPrep)} 
+                                                    articles={data?.articles || []}
+                                                    activeTab={activeTab}
+                                                    activeSubTab={activeSubTab}
+                                                />
+                                            ))
+
+
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    {/* --- GANTT (RIGHT PANE) --- */}
+                    {(viewMode === 'gantt' || viewMode === 'split') && (
+                        <div className={cn("flex flex-col gap-4", viewMode === 'split' ? "xl:col-span-8" : "h-full")}>
+                           <GanttBoard 
+                             jobOrders={filteredJobs} 
+                             operators={focusedOperators} 
+                             assignments={data?.assignments || []} 
+                             settings={data?.settings || {}} 
+                             articles={data?.articles || []}
+                             timelineStartProp={currentDate}
+                           />
+
+                        </div>
+                    )}
+                </div>
+            </Tabs>
         </div>
     );
 }
+
+function ListCheckIcon() {
+    return <LayoutGrid className="h-4 w-4 text-primary" />;
+}
+
+function ODLPlanningCard({ job, isReady, articles, activeTab, activeSubTab }: { job: JobOrder, isReady: boolean, articles: Article[], activeTab: string, activeSubTab: string | null }) {
+    const totalPhases = job.phases?.length || 1;
+    const completedPhases = job.phases?.filter(p => p.status === 'completed').length || 0;
+    const progress = (completedPhases / totalPhases) * 100;
+
+    // Calculate hours for the relevant phases in this macroarea/dept
+    const expectedHours = useMemo(() => {
+        const article = articles.find(a => a.code.toUpperCase() === job.details.toUpperCase());
+        if (!article) return 0;
+
+        const relevantPhases = (job.phases || []).filter(phase => {
+            if (activeTab === 'PREPARAZIONE') return phase.type === 'preparation';
+            if (activeTab === 'QLTY_PACK') return phase.type === 'quality' || phase.type === 'packaging';
+            if (activeTab === 'PRODUZIONE') {
+                if (!activeSubTab) return phase.type === 'production';
+                return phase.type === 'production' && phase.departmentCodes?.includes(activeSubTab);
+            }
+            return false;
+        });
+
+        const totalMinutes = relevantPhases.reduce((acc, phase) => {
+            const phaseTimeObj = article.phaseTimes?.[phase.name];
+            const time = phaseTimeObj?.expectedMinutesPerPiece || 10;
+            return acc + (time * job.qta);
+        }, 0);
+
+
+        return totalMinutes / 60;
+    }, [job, articles, activeTab, activeSubTab]);
+
+    return (
+        <Card className="hover:shadow-lg transition-all cursor-pointer border-l-4 border-l-primary group bg-white">
+            <CardContent className="p-3 space-y-3">
+                <div className="flex justify-between items-start">
+                    <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-slate-800">{job.ordinePF}</span>
+                            <Badge variant="outline" className="text-[9px] h-4 leading-none bg-slate-50 font-mono">{job.numeroODLInterno || '-'}</Badge>
+                        </div>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{job.details} — {job.cliente}</p>
+                    </div>
+                    {isReady ? (
+                        <div className="bg-emerald-500 text-white rounded-full p-1 shadow-sm"><CheckCircle2 className="h-4 w-4" /></div>
+                    ) : (
+                        <div className="bg-amber-500/20 text-amber-600 rounded-full p-1"><Clock className="h-4 w-4" /></div>
+                    )}
+                </div>
+
+                <div className="flex items-center gap-4 text-[10px] font-bold text-muted-foreground">
+                    <div className="flex items-center gap-1"><Boxes className="h-3 w-3" /> QTA: {job.qta}</div>
+                    <div className="flex items-center gap-1 text-primary"><Timer className="h-3 w-3" /> {expectedHours.toFixed(1)}h</div>
+                    {job.dataConsegnaFinale && (
+                        <div className={cn("flex items-center gap-1", isReady ? "text-emerald-600" : "text-amber-600")}>
+                            <CalendarIcon className="h-3 w-3" /> {format(parseISO(job.dataConsegnaFinale), 'dd/MM')}
+                        </div>
+                    )}
+                </div>
+
+                <div className="space-y-1.5">
+                    <div className="flex justify-between items-center text-[10px] font-bold">
+                        <span className="text-muted-foreground uppercase">Avanzamento</span>
+                        <span>{completedPhases}/{totalPhases} FASI</span>
+                    </div>
+                    <Progress value={progress} className="h-1.5 bg-slate-100" />
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+

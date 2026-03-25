@@ -2,7 +2,7 @@
 import DataManagementClientPage from './DataManagementClientPage';
 import AdminAuthGuard from '@/components/AdminAuthGuard';
 import AppShell from '@/components/layout/AppShell';
-import { getPlannedJobOrders, getProductionJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
+import { getPlannedJobOrders, getProductionJobOrders, getCompletedJobOrders, getWorkCycles, getRequiredDataForJobs, getDepartments } from './actions';
 import { getManualCommitments } from '../raw-material-management/actions';
 import { getPurchaseOrders } from '../purchase-orders/actions';
 import { Suspense } from 'react';
@@ -13,14 +13,17 @@ export const dynamic = 'force-dynamic';
 export default async function AdminDataManagementCommessePage() {
   const planned = await getPlannedJobOrders();
   const production = await getProductionJobOrders();
+  const completed = await getCompletedJobOrders();
+
   const manualCommitments = await getManualCommitments();
   const purchaseOrders = await getPurchaseOrders();
 
   const [cycles, departments, requiredData] = await Promise.all([
     getWorkCycles(),
     getDepartments(),
-    getRequiredDataForJobs([...planned, ...production], manualCommitments)
+    getRequiredDataForJobs([...planned, ...production, ...completed], manualCommitments)
   ]);
+
   
   const articles = requiredData.articles;
   const rawMaterials = requiredData.materials;
@@ -37,6 +40,7 @@ export default async function AdminDataManagementCommessePage() {
             <DataManagementClientPage 
                 initialPlanned={planned}
                 initialProduction={production}
+                initialCompleted={completed}
                 initialCycles={cycles}
                 initialArticles={articles}
                 initialDepartments={departments}
@@ -44,6 +48,7 @@ export default async function AdminDataManagementCommessePage() {
                 initialPurchaseOrders={purchaseOrders}
                 initialManualCommitments={manualCommitments}
             />
+
         </Suspense>
       </AppShell>
     </AdminAuthGuard>
